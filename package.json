@@ -1,0 +1,27 @@
+{
+  "name": "clawdbot-skill-prm",
+  "version": "1.0.0",
+  "description": "PRM Open API CLI skill for Clawdbot",
+  "author": "Vincent",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "clawdbot",
+    "skill",
+    "prm",
+    "release-management",
+    "ubiquiti"
+  ],
+  "scripts": {
+    "cli": "npx tsx cli.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

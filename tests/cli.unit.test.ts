@@ -1,0 +1,424 @@
+import { beforeEach, afterEach, describe, expect, test } from "bun:test";
+import { runCli } from "../cli";
+
+let originalExit: typeof process.exit;
+let originalFetch: typeof fetch;
+let originalCachePath: string | undefined;
+
+beforeEach(() => {
+  originalExit = process.exit;
+  process.exit = ((code?: number) => {
+    throw new Error(`exit:${code ?? 0}`);
+  }) as typeof process.exit;
+  originalFetch = globalThis.fetch;
+  process.env.PRM_API_KEY = "test-key";
+  delete process.env.PRM_BASE_URL;
+  originalCachePath = process.env.PRM_CACHE_PATH;
+  process.env.PRM_CACHE_PATH = "/tmp/prm-cache-test.json";
+});
+
+afterEach(() => {
+  process.exit = originalExit;
+  globalThis.fetch = originalFetch;
+  if (originalCachePath !== undefined) {
+    process.env.PRM_CACHE_PATH = originalCachePath;
+  } else {
+    delete process.env.PRM_CACHE_PATH;
+  }
+});
+
+describe("cli (unit)", () => {
+  test("cache clear removes cache file", async () => {
+    process.env.PRM_CACHE_PATH = "/tmp/prm-cache-test.json";
+    const fs = await import("fs");
+    fs.writeFileSync(process.env.PRM_CACHE_PATH, JSON.stringify({ version: 1, entries: {} }));
+    await runCli(["cache", "clear"]);
+    expect(fs.existsSync(process.env.PRM_CACHE_PATH)).toBe(false);
+  });
+
+  test("products list maps to list products endpoint", async () => {
+    let capturedUrl: string | undefined;
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      capturedUrl = input.toString();
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli(["products", "list", "--search", "UniFi Access"]);
+    expect(capturedUrl).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/products?search=UniFi+Access"
+    );
+  });
+
+  test("product-lines list maps to list product lines endpoint", async () => {
+    let capturedUrl: string | undefined;
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      capturedUrl = input.toString();
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli(["product-lines", "list", "--page_size", "10", "--page_num", "1"]);
+    expect(capturedUrl).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product_lines?page_size=10&page_num=1"
+    );
+  });
+
+  test("product-lines detail maps to product line detail endpoint", async () => {
+    let capturedUrl: string | undefined;
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      capturedUrl = input.toString();
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli(["product-lines", "detail", "unifi"]);
+    expect(capturedUrl).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product_lines/unifi"
+    );
+  });
+
+  test("users query supports keyword search", async () => {
+    let captured: { url?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "users",
+      "query",
+      "--keyword",
+      "john",
+      "--page_num",
+      "1",
+      "--page_size",
+      "20",
+    ]);
+
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/users/query"
+    );
+    expect(captured.body).toBe(
+      JSON.stringify({ keyword: "john", page_num: "1", page_size: "20" })
+    );
+  });
+
+  test("todos user maps to todos endpoint with filters", async () => {
+    let capturedUrl: string | undefined;
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      capturedUrl = input.toString();
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "todos",
+      "user",
+      "user-123",
+      "--ticket_status",
+      "IN_PROGRESS,NOT_STARTED",
+      "--issue_status",
+      "INVESTIGATING",
+    ]);
+
+    expect(capturedUrl).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/todos/users/user-123?ticket_status=IN_PROGRESS%2CNOT_STARTED&issue_status=INVESTIGATING"
+    );
+  });
+
+  test("tickets list requires --type", async () => {
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+      await expect(
+        runCli(["tickets", "list", "unifi-access", "version-001"])
+      ).rejects.toThrow("exit:1");
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  test("tickets search maps to openapi search endpoint with body", async () => {
+    let captured: { url?: string; method?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "tickets",
+      "search",
+      "--time_range",
+      "3m",
+      "--status",
+      "IN_PROGRESS,NOT_STARTED",
+      "--product_ids",
+      "unifi-access",
+      "--type",
+      "FEATURE",
+      "--search",
+      "dashboard",
+    ]);
+
+    expect(captured.method).toBe("POST");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/core-product/api/v1/public/openapi/tickets/search?time_range=3m"
+    );
+    expect(JSON.parse(captured.body || "{}")).toEqual({
+      status: ["IN_PROGRESS", "NOT_STARTED"],
+      product_ids: ["unifi-access"],
+      type: ["FEATURE"],
+      search: "dashboard",
+    });
+  });
+
+  test("tickets search requires time_range or start/end", async () => {
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+      await expect(runCli(["tickets", "search"])).rejects.toThrow("exit:1");
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  test("tickets search supports start_date and end_date", async () => {
+    let capturedUrl: string | undefined;
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      capturedUrl = input.toString();
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "tickets",
+      "search",
+      "--start_date",
+      "2026-01-01",
+      "--end_date",
+      "2026-01-31",
+    ]);
+
+    expect(capturedUrl).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/core-product/api/v1/public/openapi/tickets/search?start_date=2026-01-01&end_date=2026-01-31"
+    );
+  });
+
+  test("api passthrough uses method and path", async () => {
+    let captured: { url?: string; method?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "api",
+      "POST",
+      "/api/v1/public/openapi/users/query",
+      "--body",
+      "{\"email\":\"john.doe@ui.com\"}",
+    ]);
+
+    expect(captured.method).toBe("POST");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/users/query"
+    );
+  });
+
+  test("activities query maps to activity endpoint with body", async () => {
+    let captured: { url?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "activities",
+      "query",
+      "--time_range",
+      "1m",
+      "--user_id",
+      "user-123",
+      "--activity_types",
+      "VERSION,RELEASE",
+    ]);
+
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/core-product/api/v1/public/openapi/activities/query?time_range=1m"
+    );
+    expect(captured.body).toBe(
+      JSON.stringify({ user_id: "user-123", activity_types: ["VERSION", "RELEASE"] })
+    );
+  });
+
+  test("critical search maps to openapi search endpoint with body", async () => {
+    let captured: { url?: string; method?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "critical",
+      "search",
+      "--time_range",
+      "1m",
+      "--status",
+      "OPEN,IN_PROGRESS",
+      "--product_ids",
+      "unifi-access",
+      "--search",
+      "connection",
+    ]);
+
+    expect(captured.method).toBe("POST");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/core-product/api/v1/public/openapi/critical_issues/search?time_range=1m"
+    );
+    expect(captured.body).toBe(
+      JSON.stringify({
+        status: ["OPEN", "IN_PROGRESS"],
+        product_ids: ["unifi-access"],
+        search: "connection",
+      })
+    );
+  });
+
+  test("critical search avoids double core-product when base url includes it", async () => {
+    process.env.PRM_BASE_URL = "https://core-api-gw.uid.alpha.ui.com/core-product/";
+    let captured: { url?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      captured.url = input.toString();
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "critical",
+      "search",
+      "--time_range",
+      "1m",
+    ]);
+
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/core-product/api/v1/public/openapi/critical_issues/search?time_range=1m"
+    );
+  });
+
+  test("critical search requires time_range, days, or start/end", async () => {
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+      await expect(runCli(["critical", "search"])).rejects.toThrow("exit:1");
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  test("critical search supports days query", async () => {
+    let capturedUrl: string | undefined;
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      capturedUrl = input.toString();
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "critical",
+      "search",
+      "--days",
+      "6m",
+    ]);
+
+    expect(capturedUrl).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/core-product/api/v1/public/openapi/critical_issues/search?days=6m"
+    );
+  });
+
+  test("critical line maps to product line critical issues endpoint", async () => {
+    let capturedUrl: string | undefined;
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      capturedUrl = input.toString();
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "critical",
+      "line",
+      "unifi",
+      "--time_range",
+      "1m",
+      "--status",
+      "OPEN,IN_PROGRESS",
+    ]);
+
+    expect(capturedUrl).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product_line/unifi/critical_issues?time_range=1m&status=OPEN%2CIN_PROGRESS"
+    );
+  });
+
+  test("critical list warns when a UUID is used as product id", async () => {
+    const originalError = console.error;
+    let capturedError = "";
+    console.error = (msg?: unknown) => {
+      capturedError = String(msg ?? "");
+    };
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    try {
+      await runCli([
+        "critical",
+        "list",
+        "0199cd57-98ae-75b2-a512-ff0ce8a42f4d",
+        "--time_range",
+        "1m",
+      ]);
+      expect(capturedError).toContain("expects a product unique_id");
+    } finally {
+      console.error = originalError;
+    }
+  });
+});

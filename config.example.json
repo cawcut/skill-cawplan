@@ -1,0 +1,5 @@
+{
+  "apiKey": "your-prm-api-key",
+  "bearerToken": "your-prm-bearer-token",
+  "baseUrl": "https://core-api-gw.uid.alpha.ui.com"
+}

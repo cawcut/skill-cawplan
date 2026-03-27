@@ -1,0 +1,263 @@
+
+
+--- Page 1 ---
+PRM: Open API
+PRM Open API Guide
+PRM Open API GuideOverviewGetting API KeyBase URLAuthentication1. User APIsQuery User2. Product APIsList Products3. Version APIsList VersionsGet Version DetailGet Release History4. Ticket APIsList Version Tickets5. Critical Issue APIsList Critical IssuesGet Critical Issue DetailCreate Critical IssueUpdate Critical IssueDelete Critical IssueCritical Issue Status ValuesLinked Cases URL Whitelist6. Metrics APIsGet Product MetricsError Responses401 Unauthorized404 Not Found400 Bad Request500 Internal ErrorContact
+Overview
+The PRM (Product Release Management) Open API provides external systems access to PRM data. It uses API Keyauthentication without requiring JWT tokens or RBAC permissions.
+Getting API Key
+Please contact Neil.Wei or Dada.Chan to obtain an API Key.
+Base URL
+Authentication
+All requests require the API Key in the Authorization header:
+1https://core-api-gw.uid.alpha.ui.com
+1Authorization: <your-api-key>
+
+
+--- Page 2 ---
+1. User APIs
+Query User
+Query user information. Currently supports email lookup, more query options will be added in the future.
+Endpoint:POST /api/v1/public/openapi/users/query
+Request Body:
+*Note: Currently only email query is supported. More query options will be added in the future.
+Curl Example:
+Response Example:
+2. Product APIs
+List Products
+Get a list of all products.
+Endpoint:GET /api/v1/public/openapi/products
+Query Parameters:
+email string Yes* User emailaddress 
+Field Type Required Description
+1curl -X POST "https://prm.ui.com/api/v1/public/openapi/users/query"\2 -H "Authorization: your-api-key"\3 -H "Content-Type: application/json"\4 -d '{5 "email": "john.doe@ui.com"6 }'
+1{2 "code":"SUCCESS",3 "msg":"success",4 "data":{5 "unique_id":"user-12345678-abcd-1234-efgh-123456789012",6 "email":"john.doe@ui.com",7 "first_name":"John",8 "last_name":"Doe",9 "avatar":"https://avatar.example.com/john.jpg",10 "status":"active",11 "created_at":1706601600,12 "updated_at":170668800013 }14}
+page_size int No Number of itemsper page (default10) 
+Parameter Type Required Description
+
+
+--- Page 3 ---
+Curl Example:
+Response Example:
+3. Version APIs
+List Versions
+Get all versions for a specific product.
+Endpoint:GET /api/v1/public/openapi/product/{product_id}/versions
+Path Parameters:
+Curl Example:
+Response Example:
+page_num int No Page number(default 1) 
+search string No Search keyword 
+type_id string No Product type ID 
+product_line_id string No Product line ID 
+1curl -X GET "https://prm.ui.com/api/v1/public/openapi/products?page_size=10&page_num=1"\2 -H "Authorization: your-api-key"
+1{2 "code":"SUCCESS",3 "msg":"success",4 "data":[5 {6 "unique_id":"unifi-access",7 "name":"UniFi Access",8 "description":"UniFi Access product line",9 "product_type":{10 "unique_id":"access",11 "name":"Access"12 },13 "product_line":{14 "unique_id":"unifi",15 "name":"UniFi"16 }17 }18 ],19 "page_size":10,20 "page_num":1,21 "total":5022}
+product_id string Yes Productunique_id 
+Parameter Type Required Description
+1curl -X GET "https://prm.ui.com/api/v1/public/openapi/product/unifi-access/versions"\2 -H "Authorization: your-api-key"
+
+
+--- Page 4 ---
+Get Version Detail
+Get detailed information about a specific version.
+Endpoint:GET/api/v1/public/openapi/product/{product_id}/versions/{version_id}
+Path Parameters:
+Curl Example:
+Response Example:
+Get Release History
+Get release history for a specific version.
+Endpoint:GET/api/v1/public/openapi/product/{product_id}/versions/{version_id}/release
+Path Parameters:
+1{2 "code":"SUCCESS",3 "msg":"success",4 "data":[5 {6 "unique_id":"version-001",7 "version":"3.5.1",8 "status":"RELEASED",9 "release_date":"2026-01-15"10 },11 {12 "unique_id":"version-002",13 "version":"3.5.0",14 "status":"RELEASED",15 "release_date":"2026-01-01"16 }17 ]18}
+product_id string Yes Productunique_id 
+version_id string Yes Versionunique_id 
+Parameter Type Required Description
+1curl -X GET "https://prm.ui.com/api/v1/public/openapi/product/unifi-access/versions/version-001"\2 -H "Authorization: your-api-key"
+1{2 "code":"SUCCESS",3 "msg":"success",4 "data":{5 "unique_id":"version-001",6 "version":"3.5.1",7 "status":"RELEASED",8 "release_date":"2026-01-15",9 "release_notes":"Bug fixes and performance improvements",10 "channels":["GA","EA"]11 }12}
+
+
+--- Page 5 ---
+Curl Example:
+4. Ticket APIs
+List Version Tickets
+List tickets (features or bugfixes) for a specific version.
+Endpoint:GET/api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets
+Path Parameters:
+Query Parameters:
+Curl Example:
+Response Example:
+product_id string Yes Productunique_id 
+version_id string Yes Versionunique_id 
+Parameter Type Required Description
+1curl -X GET "https://prm.ui.com/api/v1/public/openapi/product/unifi-access/versions/version-001/release"\2 -H "Authorization: your-api-key"
+product_id string Yes Productunique_id 
+version_id string Yes Versionunique_id 
+Parameter Type Required Description
+type string Yes Type: 
+FEATURE or 
+BUGFIX
+page_size int No Number of itemsper page 
+page_num int No Page number 
+Parameter Type Required Description
+1curl -X GET "https://prm.ui.com/api/v1/public/openapi/product/unifi-access/versions/version-001/tickets?type=FEATURE"\2 -H "Authorization: your-api-key"
+
+
+--- Page 6 ---
+5. Critical Issue APIs
+List Critical Issues
+Get all Critical Issues for a specific product with analytics data.
+Endpoint:GET /api/v1/public/openapi/product/{product_id}/critical_issues
+Path Parameters:
+Query Parameters:
+1{2 "code":"SUCCESS",3 "msg":"success",4 "data":[5 {6 "unique_id":"ticket-001",7 "type":"FEATURE",8 "title":"New dashboard widget",9 "description":"Added new monitoring dashboard widget",10 "jira_key":"AC-12345"11 }12 ],13 "page_size":10,14 "page_num":1,15 "total":516}
+product_id string Yes Productunique_id 
+Parameter Type Required Description
+time_range string No Time range (e.g.,1w, 2w, 1m, 3m,1y) 
+start string No Start date(YYYY-MM-DD),must be usedwith end 
+end string No End date (YYYY-MM-DD), mustbe used withstart 
+status string No Status filter(comma-separated, e.g.,OPEN,IN_PROGRESS) 
+search string No Search keyword 
+Parameter Type Required Description
+
+
+--- Page 7 ---
+Curl Example:
+Response Example:
+Get Critical Issue Detail
+Get the complete details of a specific Critical Issue.
+Endpoint:GET/api/v1/public/openapi/product/{product_id}/critical_issues/{critical_issue_id}
+Path Parameters:
+Curl Example:
+Response Example:
+1curl -X GET "https://prm.ui.com/api/v1/public/openapi/product/unifi-access/critical_issues?time_range=1m&status=OPEN,IN_PROGRESS"\2 -H "Authorization: your-api-key"
+1{2 "code":"SUCCESS",3 "msg":"success",4 "data":{5 "critical_issues":{6 "total":15,7 "tickets":[8 {9 "unique_id":"ci-12345678-abcd-1234-efgh-123456789012",10 "display_id":"AC-21567",11 "product_id":"unifi-access",12 "status":"IN_PROGRESS",13 "issue_type":"SOFTWARE",14 "description":"Device loses connection after firmwareupdate",15 "jira_link":"https://ubiquiti.atlassian.net/browse/AC-21567",16 "event_at":"2026-01-15",17 "created_at":"2026-01-15T08:30:00Z",18 "updated_at":"2026-01-28T14:20:00Z"19 }20 ],21 "counts":{22 "OPEN":5,23 "IN_PROGRESS":8,24 "RESOLVED":225 }26 }27 }28}
+product_id string Yes Productunique_id 
+critical_issue_id string Yes Critical Issueunique_id 
+Parameter Type Required Description
+1curl -X GET "https://prm.ui.com/api/v1/public/openapi/product/unifi-access/critical_issues/ci-12345678"\2 -H "Authorization: your-api-key"
+
+
+--- Page 8 ---
+Create Critical Issue
+Create a new Critical Issue.
+Endpoint:POST /api/v1/public/openapi/product/{product_id}/critical_issues
+Path Parameters:
+Request Body:
+1{2 "code":"SUCCESS",3 "data":{4 "unique_id":"ci-12345678-abcd-1234-efgh-123456789012",5 "display_id":"AC-21567",6 "product_id":"unifi-access",7 "status":"IN_PROGRESS",8 "issue_type":"SOFTWARE",9 "description":"<p>Device loses connection after firmwareupdate</p>",10 "root_cause":{11 "content":"<p>Memory leak in network module</p>",12 "user":{13 "unique_id":"user-456",14 "name":"Jane Smith"15 }16 },17 "solution":{18 "content":"<p>Patch released in v3.5.1</p>",19 "user":{20 "unique_id":"user-456",21 "name":"Jane Smith"22 }23 },24 "jira_link":"https://ubiquiti.atlassian.net/browse/AC-21567",25 "slack_link":"https://ui.slack.com/archives/C123/p456",26 "linked_cases":[27 {28 "unique_id":"link-001",29 "source_type":"feedback",30 "link_url":"https://help.ui.com/hc/requests/5042017"31 }32 ],33 "action_items":[34 {35 "unique_id":"action-001",36 "description":"Code review for memory management",37 "jira_url":"https://ubiquiti.atlassian.net/browse/AC-21568",38 "status":"COMPLETED"39 }40 ]41 }42}
+product_id string Yes Productunique_id 
+Parameter Type Required Description
+description string Yes Issue description(supports HTML)
+status string No Status (defaultOPEN) 
+Field Type Required Description
+
+
+--- Page 9 ---
+Curl Example:
+Response Example:
+scope string No Scope category(e.g., Hardware,Software) 
+issue_type string No Issue type (e.g.,HARDWARE,SOFTWARE,FIRMWARE) 
+root_cause string No Root causeanalysis 
+solution string No Solutiondescription 
+lesson_learned string No Lessons learned 
+fix_teams array No List of team IDs 
+tech_owners array No List of techowner user IDs 
+jira_link string No Jira link (canprovide justissue key, e.g.,"AC-123") 
+slack_link string No Slack link 
+zendesk_link string No Zendesk link 
+event_at string No Event date(YYYY-MM-DD) 
+linked_cases array No List of linkedcase URLs 
+action_items array No List of actionitems 
+1curl -X POST "https://prm.ui.com/api/v1/public/openapi/product/unifi-access/critical_issues"\2 -H "Authorization: your-api-key"\3 -H "Content-Type: application/json"\4 -d '{5 "description": "<p>Device loses WiFi connectionintermittently</p>",6 "status": "INVESTIGATING",7 "issue_type": "FIRMWARE",8 "jira_link": "AC-22000",9 "tech_owners": ["user-id-001"],10 "event_at": "2026-01-30"11 }'
+
+
+--- Page 10 ---
+Update Critical Issue
+Update an existing Critical Issue. Only send fields that need to be updated.
+Endpoint:PUT/api/v1/public/openapi/product/{product_id}/critical_issues/{critical_issue_id}
+Path Parameters:
+Request Body: (All fields are optional)
+Curl Example:
+1{2 "code":"SUCCESS",3 "msg":"Critical issue created successfully",4 "data":{5 "unique_id":"ci-new-12345678",6 "display_id":"AC-22000",7 "status":"INVESTIGATING",8 "created_at":"2026-01-30T10:00:00Z"9 }10}
+product_id string Yes Productunique_id 
+critical_issue_id string Yes Critical Issueunique_id 
+Parameter Type Required Description
+status string Update status 
+description string Update description 
+root_cause string Update root cause 
+solution string Update solution 
+lesson_learned string Update lessons learned
+progress_comment string Update progresscomment 
+tech_owners array Update tech owners 
+linked_cases array Update linked cases(replaces existing) 
+Field Type Description
+1curl -X PUT "https://prm.ui.com/api/v1/public/openapi/product/unifi-access/critical_issues/ci-12345678"\2 -H "Authorization: your-api-key"\3 -H "Content-Type: application/json"\4 -d '{5 "status": "IN_PROGRESS",6 "root_cause": "<p>Race condition in connection handler</p>",
+
+
+--- Page 11 ---
+Response Example:
+Delete Critical Issue
+Soft delete a Critical Issue.
+Endpoint:DELETE/api/v1/public/openapi/product/{product_id}/critical_issues/{critical_issue_id}
+Path Parameters:
+Curl Example:
+Response Example:
+Critical Issue Status Values
+7 "progress_comment": "Fix identified, implementing patch"8 }'
+1{2 "code":"SUCCESS",3 "msg":"Critical issue updated successfully",4 "data":{5 "unique_id":"ci-12345678",6 "status":"IN_PROGRESS",7 "updated_at":"2026-01-30T12:30:00Z"8 }9}
+product_id string Yes Productunique_id 
+critical_issue_id string Yes Critical Issueunique_id 
+Parameter Type Required Description
+1curl -X DELETE "https://prm.ui.com/api/v1/public/openapi/product/unifi-access/critical_issues/ci-12345678"\2 -H "Authorization: your-api-key"
+1{2 "code":"SUCCESS",3 "msg":"Critical issue deleted successfully"4}
+INVESTIGATING Under investigation 
+MONITORING Being monitored 
+IN_PROGRESS Work in progress 
+QA_TESTING In QA testing 
+RESOLVED Resolved 
+Status Description
+
+
+--- Page 12 ---
+Linked Cases URL Whitelist
+The linked_cases field only accepts URLs from these domains:
+<https://ubiquiti.atlassian.net/> (Jira)
+<https://ui.slack.com/> (Slack)
+<https://ubnt.zendesk.com/> (Zendesk)
+<https://community.ui.com/> (Community)
+6. Metrics APIs
+Get Product Metrics
+Get comprehensive product metrics including installations, crash rate, offline rate, etc.
+Endpoint:GET /api/v1/public/openapi/product/{product_id}/metrics
+Path Parameters:
+Query Parameters:
+OPEN Open 
+CLOSED Closed 
+product_id string Yes Productunique_id 
+Parameter Type Required Description
+time_range string No Time range (e.g.,1w, 2w, 1m, 3m,1y). Eithertime_range orstart+end mustbe provided. 
+start string No Start date(YYYY-MM-DD),must be usedwith end 
+end string No End date (YYYY-MM-DD), mustbe used withstart 
+Parameter Type Required Description
+
+
+--- Page 13 ---
+Curl Example:
+Response Example:
+Error Responses
+401 Unauthorized
+404 Not Found
+400 Bad Request
+1curl -X GET "https://prm.ui.com/api/v1/public/openapi/product/unifi-access/metrics?time_range=1m"\2 -H "Authorization: your-api-key"
+1{2 "code":"SUCCESS",3 "msg":"success",4 "data":{5 "summary":{6 "installations":150000,7 "crash_rate":0.02,8 "offline_rate":0.05,9 "update_success_rate":0.9810 },11 "installations":{12 "stats":[13 {14 "date":"2026-01-28",15 "total":150000,16 "new":50017 }18 ],19 "version_list":[20 {21 "version":"3.5.1",22 "count":8000023 }24 ]25 },26 "crash_rate":{27 "stats":[28 {29 "date":"2026-01-28",30 "rate":0.0231 }32 ]33 },34 "offline_rate":{35 "stats":[36 {37 "date":"2026-01-28",38 "rate":0.0539 }40 ]41 }42 }43}
+1{2 "code":"UNAUTHORIZED",3 "msg":"Invalid or missing API key"4}
+1{2 "code":"NOT_FOUND",3 "msg":"Resource not found"4}
+1{2 "code":"INVALID_INPUT",3 "msg":"description is required"4}
+
+
+--- Page 14 ---
+500 Internal Error
+Contact
+For any questions, please contact Neil.Wei.
+oidc-api.md
+1{2 "code":"INTERNAL_ERROR",3 "msg":"Failed to process request"4}
