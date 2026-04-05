@@ -20,6 +20,8 @@ If you need exact language or examples, use:
 - `docs/UUM-PRM_ Open API-010226-061816.pdf`
 - `docs/UUM-PRM_ Open API-010226-061816.txt`
 
+**Extension — knowledge base:** For documentation-style Q&A via `POST ${PRM_BASE_URL}/core-product/api/v1/public/openapi/knowledge/search`, see `SKILL-prm-knowledge.md` (same env vars; use `curl` per that file).
+
 ## Configuration
 - **Auth**: API key in `Authorization` header. Do not log or echo the key.
 - **Env vars** (preferred):
