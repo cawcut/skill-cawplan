@@ -1,11 +1,11 @@
 ---
 name: prm-open-api
-description: Use PRM Open API to answer PRM questions (products, versions, release history, tickets, metrics, critical issues, activities) and summarize for openclaw/clawdbot in chat channels like Discord/Slack.
+description: Use PRM Open API to answer PRM questions (products, versions, release history, tickets, metrics, critical issues, activities, user activity reports) and summarize for openclaw/clawdbot in chat channels like Discord/Slack. Also use when the user asks what someone has been doing recently, asks for a user's activity report, work summary, or says things like "what has X been doing", "give me X's activity", "show X's recent work".
 ---
 
 # PRM Open API Skill
 
-Use this skill when the user wants PRM data (products, versions, releases, tickets, metrics, critical issues) or a person’s activity related to PRM artifacts, and the responses will be delivered via chat channels (Discord/Slack).
+Use this skill when the user wants PRM data (products, versions, releases, tickets, metrics, critical issues) or a person's activity related to PRM artifacts, and the responses will be delivered via chat channels (Discord/Slack). Also use when the user asks for a user's activity report or work summary.
 
 ## Quick Start
 1) Resolve the product (`product_id`) using the Product APIs.
@@ -30,6 +30,7 @@ If you need exact language or examples, use:
   - `PRM_CACHE_TTL_HOURS` (optional; default 12)
   - `PRM_CACHE_TTL_DAYS` (optional; deprecated)
 - **Base URL**: see `references/PRM_OPEN_API.md`.
+- **User Report Base URL**: `${PRM_BASE_URL}/core-product` (the User Report API uses a `/core-product` path prefix).
 
 ## Setup (CLI)
 1) Install dependencies:
@@ -90,9 +91,9 @@ npx tsx cli.ts activities query --time_range 1m --user_id user-123
 ### D) Critical issues (status + detail)
 - Use **List Critical Issues** to get status counts and tickets.
 - Use **Get Critical Issue Detail** for a specific issue.
-- When asked for “critical issues this month/quarter,” use `time_range` or `start/end`.
+- When asked for "critical issues this month/quarter," use `time_range` or `start/end`.
 - For API-key flow (OpenAPI), **product_id must be the product `unique_id`**, not a UUID. Resolve via List Products first.
-- If the user asks “by product line,” use **List Critical Issues by Product Line** with `product_line_id`.
+- If the user asks "by product line," use **List Critical Issues by Product Line** with `product_line_id`.
 - If the user wants cross-product filters, use **Search Critical Issues** with `time_range` (or `days`) and body filters.
 
 ### E) Product metrics (key metrics)
@@ -106,6 +107,49 @@ The PRM system supports activities. Use these steps:
 3) Summarize by time range and artifact type (product/version/critical issue/ticket).
 4) Use `activity_types` to narrow to RELEASE/ISSUE/TICKET/VERSION/PRODUCT/USER if asked.
 
+### F1) User Activity Report (structured work summary)
+
+Use this workflow when the user asks "what has X been doing", "give me X's activity report", "show X's recent work", or any request for a structured summary of a person's PRM activity.
+
+**Step 1: Resolve User Identity**
+
+Query the users API with the name/keyword provided by the user to find their `unique_id`:
+
+```bash
+curl -sS -X POST "${PRM_BASE_URL}/core-product/api/v1/public/openapi/users/query" \
+  -H "Authorization: ${PRM_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"keyword":"neil","page_size":10}'
+```
+
+- Use the `unique_id` from the matched user for Step 3.
+- If multiple results are returned, ask the user to confirm which one.
+
+**Step 2: Calculate Date Range**
+
+- Default: **last 5 days** (today minus 5 days to today).
+- If user specifies "last N days", calculate accordingly.
+- Format: `YYYY-MM-DD` (UTC).
+- Max range: 90 days.
+
+```bash
+START_DATE=$(date -v-5d +%Y-%m-%d)  # macOS
+END_DATE=$(date +%Y-%m-%d)
+```
+
+**Step 3: Call User Report API**
+
+**Important:** This endpoint does NOT use the `/public/openapi` prefix.
+
+```bash
+curl -sS "${PRM_BASE_URL}/core-product/api/v1/user-report?user_id=${USER_ID}&start_date=${START_DATE}&end_date=${END_DATE}" \
+  -H "Authorization: ${PRM_API_KEY}"
+```
+
+**Step 4: Generate Report**
+
+Parse the JSON response and produce a report using the **User Activity Report Template** (see Response Templates section below).
+
 ### G) User lookup (list/query)
 - Use **List Users** for paged search by name/email.
 - Use **Query User** for exact email or keyword search (email takes precedence).
@@ -118,43 +162,114 @@ The PRM system supports activities. Use these steps:
 - Provide a compact bullet list or table-like lines:
   - `Version 3.5.1 — RELEASED — 2026-01-15`
   - `CI AC-21567 — IN_PROGRESS — event 2026-01-15`
-- Keep to 5–8 items; offer “show more” paging when applicable.
+- Keep to 5–8 items; offer "show more" paging when applicable.
 - Tone default: concise, neutral, fact-first. Avoid filler.
 
 ## Response Templates (Natural Language)
 
 ### User
-**Intent examples**: “查一下 user john.doe@ui.com”, “这个人是谁”, “这个用户有什么信息”
+**Intent examples**: "查一下 user john.doe@ui.com", "这个人是谁", "这个用户有什么信息"
 - Summary: `用户 <first_name> <last_name>（<email>）状态 <status>。`
 - Details: `ID <unique_id> · 创建 <created_at> · 更新 <updated_at>`
 
 ### User Todos
-**Intent examples**: “这个用户的待办”, “user 的 tickets/critical issues”
+**Intent examples**: "这个用户的待办", "user 的 tickets/critical issues"
 - Summary: `用户 <name/email> 当前待办：tickets <n> · critical issues <n>。`
 - List line: `<type> <display_id> — <status> — <description>`
 
+### User Activity Report
+**Intent examples**: "neil 最近在忙什么", "what has X been doing", "give me X's activity", "show X's recent work", "X 的工作报告"
+
+Use Traditional Chinese for the report structure, English for ticket content.
+
+```
+## {display_name} Activity Report ({start_date} ~ {end_date})
+
+### Overview
+- Ticket updates: {ticket_updates}
+- Critical Issue updates: {critical_issue_updates}
+- QA Report updates: {qa_report_updates}
+
+### Ticket Updates
+
+For each ticket, show:
+
+#### [{display_id}] {description (this is the ticket title)}
+- **Product**: {product_name} / **Version**: {version_name}
+- **Type**: {type} | **Status**: {status} | **Priority**: {priority}
+- **Latest Comment** ({comment_by}, {comment_at as readable date}):
+  > {comment text, stripped of HTML tags, truncated if too long}
+
+**Activity Log:**
+| Time | Actor | Action | Detail |
+|------|-------|--------|--------|
+| {timestamp} | {actor_name} | {action} | {brief description} |
+
+### Critical Issue Updates
+(or "None" if empty)
+
+#### [{display_id}] {description (issue title)}
+- **Product**: {product_name}
+- **Status**: {status}
+- **Latest Comment**: {comment, stripped of HTML tags}
+
+**Activity Log:**
+| Time | Actor | Action | Detail |
+|------|-------|--------|--------|
+| {timestamp} | {actor_name} | {action} | {brief description} |
+
+### QA Report Updates
+(or "None" if empty)
+
+#### [{display_id}] {topic (report title)}
+- **Product**: {product_name} / **Version**: {version_name}
+- **Type**: {type} | **Result**: {result} | **Status**: {status}
+- **Latest Comment** ({comment_by}, {comment_at as readable date}):
+  > {comment text}
+
+**Activity Log:**
+| Time | Actor | Action | Detail |
+|------|-------|--------|--------|
+| {timestamp} | {actor_name} | {action} | {brief description} |
+
+### Summary
+A 2-3 sentence summary of the user's main focus areas during this period.
+```
+
+**User Activity Report Formatting Rules:**
+- Convert all Unix timestamps to `YYYY-MM-DD HH:mm` (UTC+8 for TW users).
+- Strip HTML tags from comments for readability, but preserve key content.
+- Group tickets by product if more than 5 tickets.
+- For `action` field, use human-readable labels:
+  - `commented` → Commented
+  - `updated_status` → Status Change
+  - `updated` → Updated
+  - `updated_sprint` → Sprint Change
+- If the response has no data (all counts = 0), say "{name} had no activity during this period".
+- Always show the date range and user info at the top.
+
 ### Product
-**Intent examples**: “查产品 UniFi Access”, “产品列表里有没有 access”, “给我产品列表”
-- Summary: `找到 <n> 个产品匹配 “<query>”。`
+**Intent examples**: "查产品 UniFi Access", "产品列表里有没有 access", "给我产品列表"
+- Summary: `找到 <n> 个产品匹配 "<query>"。`
 - List line: `<name> — <unique_id> — <product_type.name>/<product_line.name>`
 
 ### Versions / Releases
-**Intent examples**: “最近版本发布”, “release 历史”, “版本 3.5.1 详情”
+**Intent examples**: "最近版本发布", "release 历史", "版本 3.5.1 详情"
 - Summary: `产品 <product> 最近 <n> 个发布如下：`
 - List line: `Version <version> — <status> — <release_date>`
 
 ### Tickets (FEATURE/BUGFIX)
-**Intent examples**: “这个版本的 bugfix”, “feature 列表”
+**Intent examples**: "这个版本的 bugfix", "feature 列表"
 - Summary: `版本 <version> 的 <type> tickets：`
 - List line: `<jira_key or id> — <title> — <short description>`
 
 ### Ticket Search
-**Intent examples**: “搜索 tickets”, “模糊搜索 feature”
+**Intent examples**: "搜索 tickets", "模糊搜索 feature"
 - Summary: `在 <range> 内匹配到 <n> 个 tickets。`
 - List line: `<display_id> — <status> — <description>`
 
 ### Critical Issues
-**Intent examples**: “关键问题列表”, “这个月的 critical issues”
+**Intent examples**: "关键问题列表", "这个月的 critical issues"
 - Summary: `产品 <product> 在 <range> 有 <total> 个 critical issues。`
 - Status line: `OPEN <n> · IN_PROGRESS <n> · RESOLVED <n> ...`
 - List line: `CI <display_id> — <status> — event <event_at>`
@@ -164,73 +279,82 @@ The PRM system supports activities. Use these steps:
   - `POST /api/v1/public/openapi/critical_issues/search?time_range=1m` with body `{"status":["OPEN","IN_PROGRESS"],"product_ids":["unifi-access"],"search":"connection"}`
 
 ### Product Line
-**Intent examples**: “产品线列表”, “查产品线 unifi”, “product line list”
+**Intent examples**: "产品线列表", "查产品线 unifi", "product line list"
 - Summary: `找到 <n> 个产品线。`
 - List line: `<name> — <unique_id> — <description>`
 
 ### Metrics
-**Intent examples**: “关键指标”, “近 1 个月的 metrics”
+**Intent examples**: "关键指标", "近 1 个月的 metrics"
 - Summary: `产品 <product> 在 <range> 的关键指标：installations <x>, crash_rate <x>, offline_rate <x>, update_success_rate <x>`
 - Trend line: `crash_rate 在 <date> 达到 <x>（或上升/下降趋势）`
 
 ### Activity
-**Intent examples**: “某人的 PRM 活动”, “user 在 PRM 做了什么”
+**Intent examples**: "某人的 PRM 活动", "user 在 PRM 做了什么"
 - Summary: `用户 <name/email> 在 <range> 的 PRM 活动：`
 - List line: `<timestamp> — <activity_type> — <object_type> <object_id>`
 
 ## Time Range & Paging
-- If user says “today/this week/this month,” always echo explicit dates in the response.
+- If user says "today/this week/this month," always echo explicit dates in the response.
 - If user does not specify a time range for critical issues, ask a single clarifying question. If they don't care, default to `time_range=1m` and say so.
-- Default paging: page_size 10, return top 5–8 items; offer “show more”.
-- When user requests “latest” or “recent,” sort by date desc and return the newest items first.
+- For user activity reports, default to **last 5 days** if no time range specified. Max range: 90 days.
+- Default paging: page_size 10, return top 5–8 items; offer "show more".
+- When user requests "latest" or "recent," sort by date desc and return the newest items first.
 
 ## Natural Language → API Plan (Examples)
 
-### “查一下 UniFi Access 过去 1 个月的关键指标”
+### "查一下 UniFi Access 过去 1 个月的关键指标"
 Plan:
 1) List Products with `search=UniFi Access` → pick `product_id`.
 2) Get Product Metrics with `time_range=1m`.
 3) Summarize `summary` + 1–2 trends.
 
-### “给我 UniFi Access 最近 3 个版本的 release 记录”
+### "给我 UniFi Access 最近 3 个版本的 release 记录"
 Plan:
 1) Resolve `product_id` by product search.
 2) List Versions for product.
 3) For each of newest 3 versions, call Release History and show newest items.
 
-### “这个月有哪些 critical issues，按状态汇总”
+### "这个月有哪些 critical issues，按状态汇总"
 Plan:
 1) Resolve `product_id`.
 2) List Critical Issues with `time_range=1m`.
 3) Summarize `counts` and show top issues.
 
-### “版本 3.5.1 的 bugfix tickets”
+### "版本 3.5.1 的 bugfix tickets"
 Plan:
 1) Resolve `product_id`.
 2) List Versions → map version string to `version_id`.
 3) List Version Tickets with `type=BUGFIX`.
 
-### “帮我看 user john.doe@ui.com 过去两周在 PRM 的活动”
+### "帮我看 user john.doe@ui.com 过去两周在 PRM 的活动"
 Plan:
 1) Query User by email → `unique_id`.
 2) Call Activity API for `user_id` and date range (when available).
 3) Summarize by activity type and object.
 
-## “Show more” Pagination Phrases
-- CN: “如需查看更多，请回复：继续 / 下一页”
-- CN: “要看更多结果吗？我可以继续列出下一页。”
-- EN: “Reply with: more / next page to continue.”
-- EN: “Want more results? I can show the next page.”
+### "neil 最近在忙什么" / "what has neil been doing"
+Plan:
+1) Query User API with `keyword=neil` → resolve `unique_id`.
+2) If multiple matches, ask user to confirm.
+3) Calculate date range (default: last 5 days).
+4) Call User Report API: `GET /api/v1/user-report?user_id=${USER_ID}&start_date=${START_DATE}&end_date=${END_DATE}`.
+5) Generate structured report using the User Activity Report Template.
+
+## "Show more" Pagination Phrases
+- CN: "如需查看更多，请回复：继续 / 下一页"
+- CN: "要看更多结果吗？我可以继续列出下一页。"
+- EN: "Reply with: more / next page to continue."
+- EN: "Want more results? I can show the next page."
 
 ## Disambiguation Prompts (Products/Versions)
 
 ### Product disambiguation
-- CN: “我找到了多个产品匹配 ‘<query>’，请指定：<name>（<unique_id>），<name>（<unique_id>）…”
-- EN: “Multiple products match ‘<query>’. Please choose: <name> (<unique_id>), <name> (<unique_id>)…”
+- CN: "我找到了多个产品匹配 '<query>'，请指定：<name>（<unique_id>），<name>（<unique_id>）…"
+- EN: "Multiple products match '<query>'. Please choose: <name> (<unique_id>), <name> (<unique_id>)…"
 
 ### Version disambiguation
-- CN: “我找到多个版本匹配 ‘<version>’，请确认：<version>（<version_id>），<version>（<version_id>）…”
-- EN: “Multiple versions match ‘<version>’. Please choose: <version> (<version_id>), <version> (<version_id>)…”
+- CN: "我找到多个版本匹配 '<version>'，请确认：<version>（<version_id>），<version>（<version_id>）…"
+- EN: "Multiple versions match '<version>'. Please choose: <version> (<version_id>), <version> (<version_id>)…"
 
 ## Product Alias & Normalization
 - Normalize common aliases before search (case-insensitive):
@@ -242,14 +366,18 @@ Plan:
   - `unifi connect`, `connect` → `UniFi Connect`
 - If alias resolves to a product line, still confirm `product_id` from API.
 - Keep alias list short; add only when repeatedly requested by users.
+
 ## Error Handling (Chat)
-- `401 Unauthorized`: “认证失败（API Key 无效或缺失）。请检查 `PRM_API_KEY`。”
-- `404 Not Found`: “未找到资源。请确认产品/版本/ID 是否正确。”
-- `400 Bad Request`: “请求参数有误。请确认必填参数与日期范围格式。”
-- `500 Internal Error`: “服务端错误。请稍后重试。”
+- `401 Unauthorized`: "认证失败（API Key 无效或缺失）。请检查 `PRM_API_KEY`。"
+- `404 Not Found`: "未找到资源。请确认产品/版本/ID 是否正确。"
+- `404 / empty user` (User Report): User not found — list similar users and ask user to confirm.
+- `400 Bad Request`: "请求参数有误。请确认必填参数与日期范围格式。"
+- `400` (User Report): Bad date range — fix and retry.
+- `500 Internal Error`: "服务端错误。请稍后重试。"
 - Always include the explicit date range used when user asked for relative time.
+
 ## Guardrails
 - Never expose API keys.
 - If a request is ambiguous (product, version, date range), ask a single clarifying question.
-- When user says “today/this week/this month,” convert to an explicit date range in the response.
+- When user says "today/this week/this month," convert to an explicit date range in the response.
 - Respect linked-cases whitelist domains when creating/updating critical issues (see reference).
