@@ -30,8 +30,6 @@ If you need exact language or examples, use:
   - `PRM_CACHE_TTL_HOURS` (optional; default 12)
   - `PRM_CACHE_TTL_DAYS` (optional; deprecated)
 - **Base URL**: see `references/PRM_OPEN_API.md`.
-- **User Report Base URL**: `${PRM_BASE_URL}/core-product` (same base as other Open APIs).
-
 ## Setup (CLI)
 1) Install dependencies:
 ```bash
@@ -100,16 +98,11 @@ npx tsx cli.ts activities query --time_range 1m --user_id user-123
 - Use **Get Product Metrics** with `time_range` or `start/end`.
 - Summarize `summary` first (installations, crash_rate, offline_rate, update_success_rate), then 1–2 notable trends from the time series.
 
-### F) Person activity (by email/name)
-The PRM system supports activities. Use these steps:
-1) Query user by email to get `unique_id` (User APIs).
-2) Call the Activity API to fetch PRM activities for that user.
-3) Summarize by time range and artifact type (product/version/critical issue/ticket).
-4) Use `activity_types` to narrow to RELEASE/ISSUE/TICKET/VERSION/PRODUCT/USER if asked.
+### F) Person activity report (by email/name)
 
-### F1) User Activity Report (structured work summary)
+Use this workflow when the user asks "what has X been doing", "tell me X's activity this week", "give me X's work summary", "show X's recent work", or any request about what a person has been doing in PRM.
 
-Use this workflow when the user asks "what has X been doing", "give me X's activity report", "show X's recent work", or any request for a structured summary of a person's PRM activity.
+This uses the **User Report API** which is **actor-centric** — it returns all actions **performed by** the specified user, enriched with full object snapshots (ticket status/priority/comments, CI details, QA report results).
 
 **Step 1: Resolve User Identity**
 
@@ -122,21 +115,19 @@ curl -sS -X POST "${PRM_BASE_URL}/core-product/api/v1/public/openapi/users/query
   -d '{"keyword":"neil","page_size":10}'
 ```
 
-- **Prefer using the first name or a partial keyword** (e.g., `"john"` instead of `"john  doe"`). Full-name queries may return empty results even when the user exists; partial keywords are more reliable.
-- Use the `unique_id` from the matched user for Step 3.
+- **Prefer using the first name or a partial keyword** (e.g., `"john"` instead of `"john doe"`). Full-name queries may return empty results even when the user exists; partial keywords are more reliable.
+- Use the `unique_id` from the matched user for Step 2.
 - If multiple results are returned, ask the user to confirm which one.
 
 **Step 2: Calculate Date Range**
 
-- Default: **last 5 days** (today minus 5 days to today).
-- If user specifies "last N days", calculate accordingly.
-- Format: `YYYY-MM-DD` (UTC).
-- Max range: 90 days.
-
-```bash
-START_DATE=$(date -v-5d +%Y-%m-%d)  # macOS
-END_DATE=$(date +%Y-%m-%d)
-```
+Map the user's intent to explicit dates:
+- "today" → today only
+- "this week" → Monday to today (or last 7 days)
+- "this month" → 1st of month to today
+- "last N days" → calculate accordingly
+- Default if unspecified: **last 7 days**
+- Format: `YYYY-MM-DD` (UTC). Max range: 90 days.
 
 **Step 3: Call User Report API**
 
@@ -145,9 +136,48 @@ curl -sS "${PRM_BASE_URL}/core-product/api/v1/public/openapi/user-report?user_id
   -H "Authorization: ${PRM_API_KEY}"
 ```
 
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_id` | string | One of user_id/email | User unique_id from Step 1 |
+| `email` | string | One of user_id/email | User email (exact match). Can be used instead of user_id. |
+| `start_date` | string | Yes | Start date (YYYY-MM-DD) |
+| `end_date` | string | Yes | End date (YYYY-MM-DD) |
+
+**Response Structure:**
+
+The response groups data by object type, each enriched with full current-state snapshot:
+
+- `summary` — counts: `ticket_updates`, `critical_issue_updates`, `qa_report_updates`
+- `tickets[]` — each ticket the user acted on, with:
+  - `display_id`, `description`, `type`, `status`, `priority`
+  - `product_name`, `version_name`
+  - `comment` / `comment_by` / `comment_at` (latest comment on the ticket)
+  - `progress_comment` / `progress_comment_by` / `progress_comment_at`
+  - `activities[]` — what the user did to this ticket (action, description, detail, timestamp, source)
+- `critical_issues[]` — each CI the user acted on, with:
+  - `display_id`, `description`, `status`, `product_name`
+  - `comment`, `progress_comment`
+  - `activities[]`
+- `qa_reports[]` — each QA report the user acted on, with:
+  - `display_id`, `topic`, `type`, `result`, `status`
+  - `product_name`, `version_name`
+  - `comment` / `comment_by` / `comment_at`
+  - `activities[]`
+
+**Activity Event fields:**
+
+| Field | Description |
+|-------|-------------|
+| `action` | What was done: `created`, `commented`, `updated_status`, `updated`, `updated_sprint`, etc. |
+| `description` | Human-readable summary (e.g., "Added a comment to ticket AC-22200 via Jira.") |
+| `detail` | Comment body (HTML) for `commented`; changelog diff for `updated_status`; may be null |
+| `actor_name` | Who did it (usually the queried user, but could be others for shared items) |
+| `timestamp` | Unix timestamp |
+| `source` | Origin: `API` (PRM Web UI), `JIRA`, `ZENDESK`, `PRM` (system), etc. **Do not display in reports** — internal metadata only. |
+
 **Step 4: Generate Report**
 
-Parse the JSON response and produce a report using the **User Activity Report Template** (see Response Templates section below).
+Parse the response and produce a structured report using the **Person Activity Report Template** (see Response Templates section below).
 
 ### G) User lookup (list/query)
 - Use **List Users** for paged search by name/email.
@@ -181,76 +211,94 @@ Parse the JSON response and produce a report using the **User Activity Report Te
 - Summary: `用户 <name/email> 当前待办：tickets <n> · critical issues <n>。`
 - List line: `<type> <display_id> — <status> — <description>`
 
-### User Activity Report
-**Intent examples**: "neil 最近在忙什么", "what has X been doing", "give me X's activity", "show X's recent work", "X 的工作报告"
+### Person Activity Report
+**Intent examples**: "neil 最近在忙什么", "what has X been doing", "give me X's activity", "show X's recent work", "X 的工作报告", "tell me what X did this week"
 
-Use Traditional Chinese for the report structure, English for ticket content.
+Use Traditional Chinese for the report structure, English for ticket/issue content.
 
 ```
 ## {display_name} Activity Report ({start_date} ~ {end_date})
 
 ### Overview
-- Ticket updates: {ticket_updates}
-- Critical Issue updates: {critical_issue_updates}
-- QA Report updates: {qa_report_updates}
+- Tickets acted on: {ticket_updates}
+- Critical Issues acted on: {critical_issue_updates}
+- QA Reports acted on: {qa_report_updates}
 
-### Ticket Updates
+### Ticket Details
 
 For each ticket, show:
 
-#### [{display_id}] {description (this is the ticket title)}
+#### [{display_id}] {description}
 - **Product**: {product_name} / **Version**: {version_name}
 - **Type**: {type} | **Status**: {status} | **Priority**: {priority}
-- **Latest Comment** ({comment_by}, {comment_at as readable date}):
-  > {comment text, stripped of HTML tags, truncated if too long}
+- **Comment** ({comment_by}, {comment_at}):
+  > {comment text, stripped of HTML}
+- **Progress Comment** ({progress_comment_by}, {progress_comment_at}):
+  > {progress_comment text, stripped of HTML}
 
-**Activity Log:**
-| Time | Actor | Action | Detail |
-|------|-------|--------|--------|
-| {timestamp} | {actor_name} | {action} | {brief description} |
+**Actions performed:**
+| Time | Action | Detail |
+|------|--------|--------|
+| {timestamp} | {action label} | {detail content stripped of HTML; if null, use description} |
 
-### Critical Issue Updates
+(Only show Comment / Progress Comment when non-null. For commented actions, Detail MUST show the actual comment text, not just "Added a comment".)
+
+### Critical Issue Details
 (or "None" if empty)
 
-#### [{display_id}] {description (issue title)}
+#### [{display_id}] {description}
 - **Product**: {product_name}
 - **Status**: {status}
-- **Latest Comment**: {comment, stripped of HTML tags}
+- **Comment**: {comment}
+- **Progress Comment**: {progress_comment}
 
-**Activity Log:**
-| Time | Actor | Action | Detail |
-|------|-------|--------|--------|
-| {timestamp} | {actor_name} | {action} | {brief description} |
+**Actions performed:**
+| Time | Action | Detail |
+|------|--------|--------|
+| {timestamp} | {action label} | {description} |
 
-### QA Report Updates
+### QA Report Details
 (or "None" if empty)
 
-#### [{display_id}] {topic (report title)}
+#### [{display_id}] {topic}
 - **Product**: {product_name} / **Version**: {version_name}
 - **Type**: {type} | **Result**: {result} | **Status**: {status}
-- **Latest Comment** ({comment_by}, {comment_at as readable date}):
+- **Comment** ({comment_by}, {comment_at}):
   > {comment text}
 
-**Activity Log:**
-| Time | Actor | Action | Detail |
-|------|-------|--------|--------|
-| {timestamp} | {actor_name} | {action} | {brief description} |
+**Actions performed:**
+| Time | Action | Detail |
+|------|--------|--------|
+| {timestamp} | {action label} | {description} |
 
 ### Summary
 A 2-3 sentence summary of the user's main focus areas during this period.
 ```
 
-**User Activity Report Formatting Rules:**
+**Person Activity Report Formatting Rules:**
 - Convert all Unix timestamps to `YYYY-MM-DD HH:mm` (UTC+8 for TW users).
 - Strip HTML tags from comments for readability, but preserve key content.
-- Group tickets by product if more than 5 tickets.
 - For `action` field, use human-readable labels:
+  - `created` → Created
   - `commented` → Commented
   - `updated_status` → Status Change
   - `updated` → Updated
   - `updated_sprint` → Sprint Change
-- If the response has no data (all counts = 0), say "{name} had no activity during this period".
+- **CRITICAL**: The `detail` field contains the actual content of the action. For `commented` actions, it is the full comment body (HTML). For `updated_status`, it is the changelog diff. **Always display the `detail` content** (stripped of HTML tags) in the report. Never describe a comment action as just "新增 comment" or "Added a comment" — you MUST show what the comment actually says. If `detail` is null/empty, fall back to the `description` field.
+- Group tickets by product when there are more than 5 tickets.
+- If the response has no data (all summary counts = 0), say "{name} had no activity during this period".
 - Always show the date range and user info at the top.
+- If there are many tickets (>10), show a compact summary first (display_id + description + key action), then offer to expand individual tickets on request.
+
+**Comment Fields Reference:**
+
+| Object | Field | Has by/at? | Description |
+|--------|-------|------------|-------------|
+| Ticket | `comment`, `comment_by`, `comment_at` | Yes | Latest comment with author and timestamp |
+| Ticket | `progress_comment`, `progress_comment_by`, `progress_comment_at` | Yes | Latest progress comment with author and timestamp |
+| Critical Issue | `comment` | No | Latest comment (text only) |
+| Critical Issue | `progress_comment` | No | Latest progress comment (text only) |
+| QA Report | `comment`, `comment_by`, `comment_at` | Yes | Latest comment with author and timestamp |
 
 ### Product
 **Intent examples**: "查产品 UniFi Access", "产品列表里有没有 access", "给我产品列表"
@@ -300,7 +348,7 @@ A 2-3 sentence summary of the user's main focus areas during this period.
 ## Time Range & Paging
 - If user says "today/this week/this month," always echo explicit dates in the response.
 - If user does not specify a time range for critical issues, ask a single clarifying question. If they don't care, default to `time_range=1m` and say so.
-- For user activity reports, default to **last 5 days** if no time range specified. Max range: 90 days.
+- For person activity reports, map user's intent to explicit `start_date`/`end_date`: "today" → today only, "this week" → Monday to today, "this month" → 1st to today. Default to last 7 days if unspecified. Max range: 90 days.
 - Default paging: page_size 10, return top 5–8 items; offer "show more".
 - When user requests "latest" or "recent," sort by date desc and return the newest items first.
 
@@ -332,17 +380,24 @@ Plan:
 
 ### "帮我看 user john.doe@ui.com 过去两周在 PRM 的活动"
 Plan:
-1) Query User by email → `unique_id`.
-2) Call Activity API for `user_id` and date range (when available).
-3) Summarize by activity type and object.
+1) Calculate date range: today minus 14 days.
+2) Call User Report API: `GET /api/v1/public/openapi/user-report?email=john.doe@ui.com&start_date=...&end_date=...`.
+3) Generate report using the Person Activity Report Template.
 
 ### "neil 最近在忙什么" / "what has neil been doing"
 Plan:
 1) Query User API with `keyword=neil` → resolve `unique_id`.
 2) If multiple matches, ask user to confirm.
-3) Calculate date range (default: last 5 days).
-4) Call User Report API: `GET /api/v1/public/openapi/user-report?user_id=${USER_ID}&start_date=${START_DATE}&end_date=${END_DATE}`.
-5) Generate structured report using the User Activity Report Template.
+3) Calculate date range (default: last 7 days).
+4) Call User Report API: `GET /api/v1/public/openapi/user-report?user_id=${USER_ID}&start_date=...&end_date=...`.
+5) Generate structured report using the Person Activity Report Template.
+
+### "告诉我 john 这周做了什么" / "tell me what john did this week"
+Plan:
+1) Query User API with `keyword=john` → resolve `unique_id`.
+2) Calculate this week's date range (Monday to today).
+3) Call User Report API with `user_id` and dates.
+4) Output the Person Activity Report — tickets with status/comments, CIs, QA reports.
 
 ## "Show more" Pagination Phrases
 - CN: "如需查看更多，请回复：继续 / 下一页"
@@ -374,9 +429,8 @@ Plan:
 ## Error Handling (Chat)
 - `401 Unauthorized`: "认证失败（API Key 无效或缺失）。请检查 `PRM_API_KEY`。"
 - `404 Not Found`: "未找到资源。请确认产品/版本/ID 是否正确。"
-- `404 / empty user` (User Report): User not found — list similar users and ask user to confirm.
+- `404 / empty user` (Activity query): User not found — list similar users and ask user to confirm.
 - `400 Bad Request`: "请求参数有误。请确认必填参数与日期范围格式。"
-- `400` (User Report): Bad date range — fix and retry.
 - `500 Internal Error`: "服务端错误。请稍后重试。"
 - Always include the explicit date range used when user asked for relative time.
 
