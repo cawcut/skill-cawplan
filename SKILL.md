@@ -122,6 +122,7 @@ curl -sS -X POST "${PRM_BASE_URL}/core-product/api/v1/public/openapi/users/query
   -d '{"keyword":"neil","page_size":10}'
 ```
 
+- **Prefer using the first name or a partial keyword** (e.g., `"john"` instead of `"john  doe"`). Full-name queries may return empty results even when the user exists; partial keywords are more reliable.
 - Use the `unique_id` from the matched user for Step 3.
 - If multiple results are returned, ask the user to confirm which one.
 
