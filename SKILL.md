@@ -30,7 +30,7 @@ If you need exact language or examples, use:
   - `PRM_CACHE_TTL_HOURS` (optional; default 12)
   - `PRM_CACHE_TTL_DAYS` (optional; deprecated)
 - **Base URL**: see `references/PRM_OPEN_API.md`.
-- **User Report Base URL**: `${PRM_BASE_URL}/core-product` (the User Report API uses a `/core-product` path prefix).
+- **User Report Base URL**: `${PRM_BASE_URL}/core-product` (same base as other Open APIs).
 
 ## Setup (CLI)
 1) Install dependencies:
@@ -139,10 +139,8 @@ END_DATE=$(date +%Y-%m-%d)
 
 **Step 3: Call User Report API**
 
-**Important:** This endpoint does NOT use the `/public/openapi` prefix.
-
 ```bash
-curl -sS "${PRM_BASE_URL}/core-product/api/v1/user-report?user_id=${USER_ID}&start_date=${START_DATE}&end_date=${END_DATE}" \
+curl -sS "${PRM_BASE_URL}/core-product/api/v1/public/openapi/user-report?user_id=${USER_ID}&start_date=${START_DATE}&end_date=${END_DATE}" \
   -H "Authorization: ${PRM_API_KEY}"
 ```
 
@@ -157,11 +155,16 @@ Parse the JSON response and produce a report using the **User Activity Report Te
 ### H) User todos
 - Use **Get User Todos** with `user_id` to list assigned tickets and critical issues.
 
+## Execution Style
+- Execute all API calls silently — do NOT narrate steps, show "Step 1/2/3", or announce what you are about to do.
+- Output only the final result or report. No process commentary.
+
 ## Chat Output Format (Discord/Slack)
 - Lead with a 1–2 sentence summary.
 - Provide a compact bullet list or table-like lines:
   - `Version 3.5.1 — RELEASED — 2026-01-15`
-  - `CI AC-21567 — IN_PROGRESS — event 2026-01-15`
+  - `CI AC-21567 — IN_PROGRESS — <short description or title> — event 2026-01-15`
+- Always include a human-readable title or description alongside IDs. Never output ID-only lines.
 - Keep to 5–8 items; offer "show more" paging when applicable.
 - Tone default: concise, neutral, fact-first. Avoid filler.
 
@@ -272,7 +275,7 @@ A 2-3 sentence summary of the user's main focus areas during this period.
 **Intent examples**: "关键问题列表", "这个月的 critical issues"
 - Summary: `产品 <product> 在 <range> 有 <total> 个 critical issues。`
 - Status line: `OPEN <n> · IN_PROGRESS <n> · RESOLVED <n> ...`
-- List line: `CI <display_id> — <status> — event <event_at>`
+- List line: `CI <display_id> — <description or title> — <status> — event <event_at>`
 - If using product line critical issues, example:
   - `GET /api/v1/public/openapi/product_line/unifi/critical_issues?time_range=1m&status=OPEN,IN_PROGRESS`
 - If using OpenAPI search, example:
@@ -291,7 +294,7 @@ A 2-3 sentence summary of the user's main focus areas during this period.
 ### Activity
 **Intent examples**: "某人的 PRM 活动", "user 在 PRM 做了什么"
 - Summary: `用户 <name/email> 在 <range> 的 PRM 活动：`
-- List line: `<timestamp> — <activity_type> — <object_type> <object_id>`
+- List line: `<timestamp> — <activity_type> — <object_type> <object_id> — <object_title or description>`
 
 ## Time Range & Paging
 - If user says "today/this week/this month," always echo explicit dates in the response.
@@ -337,7 +340,7 @@ Plan:
 1) Query User API with `keyword=neil` → resolve `unique_id`.
 2) If multiple matches, ask user to confirm.
 3) Calculate date range (default: last 5 days).
-4) Call User Report API: `GET /api/v1/user-report?user_id=${USER_ID}&start_date=${START_DATE}&end_date=${END_DATE}`.
+4) Call User Report API: `GET /api/v1/public/openapi/user-report?user_id=${USER_ID}&start_date=${START_DATE}&end_date=${END_DATE}`.
 5) Generate structured report using the User Activity Report Template.
 
 ## "Show more" Pagination Phrases
