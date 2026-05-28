@@ -54,6 +54,15 @@
 ### Get Version Detail
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}`
 
+### Create Version (Version Plan)
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/versions`
+- Body: `name` (required, e.g. `1.3.2`), `major_id` (required, the major version `unique_id`), `description?`, `extra?` (optional `target_release[]`, `monitor_link`, `hotfix`)
+- Notes:
+  - `major_id` is required to anchor the new version under a major release. Use `prm versions list <product_id>` (or `GET /api/v1/public/openapi/product/{product_id}/versions`) to discover existing major version IDs.
+  - Major versions cannot be marked `hotfix`; minor versions may.
+  - Activity is recorded with actor resolved from product owner / PM (or `public-api-user` fallback). RBAC is bypassed; workspace is taken from the API key.
+- Maps to skill-prm CLI: `prm versions create`.
+
 ### Get Release History
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/release`
 - Response items: `unique_id`, `version`, `status`, `release_date`
@@ -68,6 +77,53 @@
 - Query params: `time_range` or (`start_date` + `end_date`), `page_size`, `page_num`
 - Body: `product_ids[]`, `product_line_ids[]`, `version_ids[]`, `type[]`, `status[]`, `priority[]`, `platform[]`, `assignees[]`, `search`
 - Notes: OR within same field; AND across fields
+
+### Get Version Ticket
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}`
+- Returns the same `VersionTicket` shape as the internal API minus per-user `permissions`.
+
+### Create Version Ticket (Issue / Sub-issue)
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets`
+- Body (required): `description` (HTML or plain text), `type` (`FEATURE` or `BUGFIX`)
+- Body (optional): `priority` (`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`), `status` (per-product-line status key), `assignee_ids[]`, `parent_id` (set this to make the ticket a sub-issue), `label_ids[]`, `reporter_id`, `due_date` (`YYYY-MM-DD`), `comment`
+- Notes:
+  - When `parent_id` is set the new ticket becomes a sub-issue. Sub-issues must share the same `product_line` as the parent and the parent chain depth is capped at 5.
+  - Activity is recorded with actor resolved from product owner / PM / first assignee (or `public-api-user` fallback).
+- Maps to skill-prm CLI: `prm tickets create`.
+
+### Update Version Ticket (transition / progress / fields)
+- Endpoint: `PUT /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}`
+- Body (all optional, sparse update): `status`, `priority`, `description`, `comment`, `progress_comment`, `assignee_ids[]`, `parent_id`, `label_ids[]`, `due_date`, `manual_progress`, `links[]`, `fix_versions[]`, `api_status`, `notifiers`
+- Notes:
+  - This is the primary "transition" + "comment" surface for adapters: change `status` to transition, set `progress_comment` (HTML) to record narrative work. `progress_comment` is a single string field — adapters that need multi-message threads should embed marker blocks (e.g. `<!-- clawcode-workpad-{runId} -->...<!-- /clawcode-workpad-{runId} -->`) and find/replace.
+  - `status` must be a valid status key for the ticket's `product_line`. Read the ticket detail or list with `include=available_statuses` to discover the legal values; otherwise the call may fail with `invalid ticket status '...' for this product line`.
+  - Externally synced tickets (Jira) reject status / priority edits.
+  - Response includes `version_promoted: true` when the version status was auto-bumped to INPROGRESS.
+- Maps to skill-prm CLI: `prm tickets update`.
+
+## 4.1) Issue Relation APIs (Blocking / Blocked-by / Related / Duplicate)
+> PRM stores **one row per relation pair** with a perspective-aware `relation_type`; reading from the other ticket inverts the type automatically. Adapters MUST NOT create the inverse row themselves — call once from either side.
+
+### List Issue Relations
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/relations`
+- Returns `{ blocking[], blocked_by[], related[], duplicate[] }` from the perspective of `ticket_id`.
+- Each entry contains `relation_id` and a `ticket` summary (display_id, status, priority, version, product, assignees).
+- Maps to skill-prm CLI: `prm tickets relate list`.
+
+### Create Issue Relation
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/relations`
+- Body: `target_ticket_id` (the *other* ticket's `unique_id`), `relation_type` (`RELATED` | `BLOCKING` | `BLOCKED_BY` | `DUPLICATE`)
+- Notes: only one relation may exist between two tickets (enforced by a `LEAST/GREATEST` unique index regardless of direction). Re-creating returns `relation already exists`; call `list` first if you need to overwrite.
+- Maps to skill-prm CLI: `prm tickets relate create`.
+
+### Update Issue Relation Type
+- Endpoint: `PUT /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/relations/{relation_id}`
+- Body: `relation_type`
+- Maps to skill-prm CLI: `prm tickets relate update`.
+
+### Delete Issue Relation
+- Endpoint: `DELETE /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/relations/{relation_id}`
+- Maps to skill-prm CLI: `prm tickets relate delete`.
 
 ## 5) Critical Issue APIs
 ### List Critical Issues

@@ -188,6 +188,63 @@ Parse the response and produce a structured report using the **Person Activity R
 ### H) User todos
 - Use **Get User Todos** with `user_id` to list assigned tickets and critical issues.
 
+### I) Issue / sub-issue creation
+- Use **Create Version Ticket** (`POST /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets`) to create an issue. Required body fields are `description` and `type` (`FEATURE` | `BUGFIX`); the rest (priority, status, assignee_ids, label_ids, due_date, parent_id, reporter_id, comment) are optional.
+- To create a **sub-issue**, set `parent_id` to the parent ticket's `unique_id`. PRM enforces:
+  - parent and child must share the same `product_line`
+  - parent chain depth is capped at 5
+- The Linear concept "issue" maps to a top-level ticket; "sub-issue" maps to a ticket with `parent_id != null`.
+- Resolve `unique_id` from a known `display_id` (e.g. `PRM-07102`) via `POST /api/v1/public/openapi/tickets/search` — the search response carries both fields.
+- CLI: `prm tickets create <product_id> <version_id> --description "..." --type BUGFIX [--parent_id <uid>] [--assignees u1,u2] [--priority HIGH] [--status KEY] [--label_ids l1,l2] [--due_date YYYY-MM-DD]`.
+
+### J) Relations (Blocking / Blocked-by / Related / Duplicate)
+- PRM stores **one row per relation pair** with a perspective-aware `relation_type`. Reading the relation from the *other* ticket inverts `BLOCKING` ↔ `BLOCKED_BY`; `RELATED` and `DUPLICATE` are symmetric. Adapters MUST NOT create the inverse row themselves — call once from either side.
+- Two tickets may have **at most one** relation row (regardless of direction); this is enforced by a `LEAST/GREATEST` unique index. Re-creating returns "relation already exists" — list first if you need to overwrite, then `update` or `delete` + `create`.
+- CLI:
+  - `prm tickets relate list   <product_id> <version_id> <ticket_id>` — returns `{ blocking, blocked_by, related, duplicate }` from `<ticket_id>`'s perspective.
+  - `prm tickets relate create <product_id> <version_id> <ticket_id> --target <other_ticket_uid> --type BLOCKING|BLOCKED_BY|RELATED|DUPLICATE`
+  - `prm tickets relate update <product_id> <version_id> <ticket_id> <relation_id> --type ...`
+  - `prm tickets relate delete <product_id> <version_id> <ticket_id> <relation_id>`
+- When the user says "issue A is blocked by B", call `relate create` from A with `--target B --type BLOCKED_BY`. The other side will see a `BLOCKING` entry automatically.
+
+### K) Status transition (workflow states)
+- Status values are **per product line**, not global. Discover the legal set by reading the ticket detail / list with `include=available_statuses`, or from the `ticket_status_definition` data on the parent product line.
+- Use **Update Version Ticket** (`PUT /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}`) with body `{ "status": "<KEY>" }` to transition.
+- Hard-coding strings is unsafe: passing an unknown key returns `invalid ticket status '...' for this product line`. Always pre-validate against the available list.
+- Externally synced (Jira) tickets reject `status` and `priority` edits — handle the error and surface it to the caller.
+- The response includes `version_promoted: true` when this transition auto-promoted the parent version status to `INPROGRESS`.
+- CLI: `prm tickets update <product_id> <version_id> <ticket_id> --status <KEY>`.
+
+### L) Progress / comment writing
+- PRM has **no multi-comment thread**: `comment` and `progress_comment` are single string fields. Each PUT overwrites the previous value.
+- Adapters that need an append-only stream of messages should embed marker blocks inside `progress_comment` (HTML), e.g.:
+  ```html
+  <!-- clawcode-workpad-{runId} -->
+  <p>Iteration 1 — investigation summary</p>
+  <!-- /clawcode-workpad-{runId} -->
+  ```
+  …then read back, regex-replace the marker block, and PUT the merged HTML.
+- The PUT is **not atomic** with respect to the read; if multiple writers are possible, accept eventual consistency or coordinate at a higher layer.
+- For "design comment" semantics (Linear `postDesignComment`) reuse the same field with a different marker (e.g. `<!-- clawcode-design -->`); PRM has no separate design entity.
+- CLI: `prm tickets update <product_id> <version_id> <ticket_id> --progress_comment "<html>"`.
+
+### M) Version plan creation
+- Versions in PRM are anchored under a **major version** (`major_id`). The Linear concept "Project Milestone" maps to a PRM version (e.g. `1.3.2` under major `1.3`).
+- Required body: `name` (e.g. `1.3.2`), `major_id` (the major version's `unique_id`). Optional: `description`, `extra` (`target_release[]`, `monitor_link`, `hotfix`).
+- Discover available `major_id`s: `prm versions list <product_id>` or `GET /api/v1/public/openapi/product/{product_id}/versions` and look at the `major_version` / `version_id` fields on the major-level entries.
+- Major versions cannot be marked `hotfix`; only minors can.
+- CLI: `prm versions create <product_id> --name <X.Y.Z> --major_id <major_uid> [--description "..."]`.
+
+### N) Adapter implementation notes (Linear ↔ PRM)
+- `stateMap` (Linear `IssueState` → PRM status key) MUST be built per product line at adapter init time. Read available statuses from the relevant `product_line` (or the ticket-list endpoint with `include=available_statuses`). Different product lines have different status sets.
+- `transition(issue, state)` ≡ `prm tickets update ... --status <KEY>`.
+- `addComment(issue, body)` ≡ read current `progress_comment` → append marker block → `prm tickets update ... --progress_comment "<merged html>"`.
+- `updateComment(issue, commentId, body)` ≡ regex-replace the marker block in `progress_comment` and PUT.
+- `findComment(issue, marker)` ≡ regex against `progress_comment` HTML.
+- `getCommentReactions(commentId)` ≡ stub (always `[]`); PRM has no reactions.
+- `createRelation(source, target, type)` ≡ `prm tickets relate create` from `source`. Do NOT create the inverse row.
+- `getChildIssues(parentId)` ≡ `tickets/search` body with `parent_ids: [parentId]` (Phase 2 backend support — until then, fall back to the ticket detail endpoint which embeds the sub-issue tree).
+
 ## Execution Style
 - Execute all API calls silently — do NOT narrate steps, show "Step 1/2/3", or announce what you are about to do.
 - Output only the final result or report. No process commentary.

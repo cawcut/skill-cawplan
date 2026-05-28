@@ -397,6 +397,293 @@ describe("cli (unit)", () => {
     );
   });
 
+  test("tickets create maps to public ticket POST with body", async () => {
+    let captured: { url?: string; method?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "tickets",
+      "create",
+      "unifi-access",
+      "version-001",
+      "--description",
+      "Fix login crash",
+      "--type",
+      "BUGFIX",
+      "--priority",
+      "HIGH",
+      "--assignees",
+      "user-1,user-2",
+      "--parent_id",
+      "parent-uid",
+      "--label_ids",
+      "lbl-1,lbl-2",
+      "--due_date",
+      "2026-06-30",
+    ]);
+
+    expect(captured.method).toBe("POST");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/versions/version-001/tickets"
+    );
+    expect(JSON.parse(captured.body || "{}")).toEqual({
+      description: "Fix login crash",
+      type: "BUGFIX",
+      priority: "HIGH",
+      parent_id: "parent-uid",
+      due_date: "2026-06-30",
+      assignee_ids: ["user-1", "user-2"],
+      label_ids: ["lbl-1", "lbl-2"],
+    });
+  });
+
+  test("tickets create requires --description and --type", async () => {
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+      await expect(
+        runCli(["tickets", "create", "unifi-access", "version-001"])
+      ).rejects.toThrow("exit:1");
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  test("tickets update maps to public ticket PUT with sparse body", async () => {
+    let captured: { url?: string; method?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "tickets",
+      "update",
+      "unifi-access",
+      "version-001",
+      "ticket-uid",
+      "--status",
+      "IN_PROGRESS",
+      "--progress_comment",
+      "Investigation done",
+      "--assignees",
+      "user-1",
+    ]);
+
+    expect(captured.method).toBe("PUT");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/versions/version-001/tickets/ticket-uid"
+    );
+    expect(JSON.parse(captured.body || "{}")).toEqual({
+      status: "IN_PROGRESS",
+      progress_comment: "Investigation done",
+      assignee_ids: ["user-1"],
+    });
+  });
+
+  test("tickets update requires at least one updatable flag", async () => {
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+      await expect(
+        runCli(["tickets", "update", "unifi-access", "version-001", "ticket-uid"])
+      ).rejects.toThrow("exit:1");
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  test("tickets relate create maps to relations POST", async () => {
+    let captured: { url?: string; method?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "tickets",
+      "relate",
+      "create",
+      "unifi-access",
+      "version-001",
+      "ticket-uid",
+      "--target",
+      "other-ticket-uid",
+      "--type",
+      "BLOCKED_BY",
+    ]);
+
+    expect(captured.method).toBe("POST");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/versions/version-001/tickets/ticket-uid/relations"
+    );
+    expect(JSON.parse(captured.body || "{}")).toEqual({
+      target_ticket_id: "other-ticket-uid",
+      relation_type: "BLOCKED_BY",
+    });
+  });
+
+  test("tickets relate update maps to relation PUT", async () => {
+    let captured: { url?: string; method?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "tickets",
+      "relate",
+      "update",
+      "unifi-access",
+      "version-001",
+      "ticket-uid",
+      "relation-uid",
+      "--type",
+      "RELATED",
+    ]);
+
+    expect(captured.method).toBe("PUT");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/versions/version-001/tickets/ticket-uid/relations/relation-uid"
+    );
+    expect(JSON.parse(captured.body || "{}")).toEqual({ relation_type: "RELATED" });
+  });
+
+  test("tickets relate delete maps to relation DELETE", async () => {
+    let captured: { url?: string; method?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "tickets",
+      "relate",
+      "delete",
+      "unifi-access",
+      "version-001",
+      "ticket-uid",
+      "relation-uid",
+    ]);
+
+    expect(captured.method).toBe("DELETE");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/versions/version-001/tickets/ticket-uid/relations/relation-uid"
+    );
+  });
+
+  test("tickets relate list maps to relations GET", async () => {
+    let captured: { url?: string; method?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "tickets",
+      "relate",
+      "list",
+      "unifi-access",
+      "version-001",
+      "ticket-uid",
+    ]);
+
+    expect(captured.method).toBe("GET");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/versions/version-001/tickets/ticket-uid/relations"
+    );
+  });
+
+  test("tickets relate create requires --target and --type", async () => {
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+      await expect(
+        runCli(["tickets", "relate", "create", "unifi-access", "version-001", "ticket-uid"])
+      ).rejects.toThrow("exit:1");
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  test("versions create maps to public versions POST with body", async () => {
+    let captured: { url?: string; method?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "versions",
+      "create",
+      "unifi-access",
+      "--name",
+      "1.3.2",
+      "--major_id",
+      "major-uid",
+      "--description",
+      "Hotfix",
+    ]);
+
+    expect(captured.method).toBe("POST");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/versions"
+    );
+    expect(JSON.parse(captured.body || "{}")).toEqual({
+      name: "1.3.2",
+      major_id: "major-uid",
+      description: "Hotfix",
+    });
+  });
+
+  test("versions create requires --name and --major_id", async () => {
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+      await expect(
+        runCli(["versions", "create", "unifi-access"])
+      ).rejects.toThrow("exit:1");
+    } finally {
+      console.error = originalError;
+    }
+  });
+
   test("critical list warns when a UUID is used as product id", async () => {
     const originalError = console.error;
     let capturedError = "";
