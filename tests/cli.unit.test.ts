@@ -413,6 +413,7 @@ describe("cli (unit)", () => {
       "tickets",
       "create",
       "unifi-access",
+      "--version_id",
       "version-001",
       "--description",
       "Fix login crash",
@@ -432,11 +433,12 @@ describe("cli (unit)", () => {
 
     expect(captured.method).toBe("POST");
     expect(captured.url).toBe(
-      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/versions/version-001/tickets"
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/tickets"
     );
     expect(JSON.parse(captured.body || "{}")).toEqual({
       description: "Fix login crash",
       type: "BUGFIX",
+      version_id: "version-001",
       priority: "HIGH",
       parent_id: "parent-uid",
       due_date: "2026-06-30",
@@ -445,12 +447,48 @@ describe("cli (unit)", () => {
     });
   });
 
-  test("tickets create requires --description and --type", async () => {
+  test("tickets create backlog omits version_id and hits product-level route", async () => {
+    let captured: { url?: string; method?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "tickets",
+      "create",
+      "unifi-access",
+      "--backlog",
+      "--description",
+      "Investigate flaky test",
+      "--priority",
+      "MEDIUM",
+      "--status",
+      "NOT_STARTED",
+    ]);
+
+    expect(captured.method).toBe("POST");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/tickets"
+    );
+    expect(JSON.parse(captured.body || "{}")).toEqual({
+      description: "Investigate flaky test",
+      priority: "MEDIUM",
+      status: "NOT_STARTED",
+    });
+  });
+
+  test("tickets create requires --description", async () => {
     const originalError = console.error;
     console.error = () => {};
     try {
       await expect(
-        runCli(["tickets", "create", "unifi-access", "version-001"])
+        runCli(["tickets", "create", "unifi-access"])
       ).rejects.toThrow("exit:1");
     } finally {
       console.error = originalError;
@@ -672,13 +710,228 @@ describe("cli (unit)", () => {
     });
   });
 
-  test("versions create requires --name and --major_id", async () => {
+  test("versions create requires --name", async () => {
     const originalError = console.error;
     console.error = () => {};
     try {
       await expect(
         runCli(["versions", "create", "unifi-access"])
       ).rejects.toThrow("exit:1");
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  test("versions create works without --major_id (server auto-resolves)", async () => {
+    let captured: { url?: string; method?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli(["versions", "create", "unifi-access", "--name", "5.0.1"]);
+
+    expect(captured.method).toBe("POST");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/versions"
+    );
+    expect(JSON.parse(captured.body || "{}")).toEqual({ name: "5.0.1" });
+  });
+
+  test("tickets poll maps to poll endpoint without time_range", async () => {
+    let captured: { url?: string; method?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "tickets",
+      "poll",
+      "--status",
+      "NOT_STARTED,IN_PROGRESS",
+      "--product_line_ids",
+      "unifi",
+      "--since_updated_at",
+      "1779960000",
+    ]);
+
+    expect(captured.method).toBe("POST");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/core-product/api/v1/public/openapi/tickets/poll"
+    );
+    expect(JSON.parse(captured.body || "{}")).toEqual({
+      status: ["NOT_STARTED", "IN_PROGRESS"],
+      product_line_ids: ["unifi"],
+      since_updated_at: 1779960000,
+    });
+  });
+
+  test("tickets poll requires --status", async () => {
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+      await expect(runCli(["tickets", "poll"])).rejects.toThrow("exit:1");
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  test("tickets search by unique_ids does not require time_range", async () => {
+    let captured: { url?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli(["tickets", "search", "--unique_ids", "tkt-1,tkt-2"]);
+
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/core-product/api/v1/public/openapi/tickets/search"
+    );
+    expect(JSON.parse(captured.body || "{}")).toEqual({
+      unique_ids: ["tkt-1", "tkt-2"],
+    });
+  });
+
+  test("tickets search supports parent_ids filter", async () => {
+    let captured: { body?: string } = {};
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli([
+      "tickets",
+      "search",
+      "--time_range",
+      "1m",
+      "--parent_ids",
+      "parent-uid",
+    ]);
+
+    expect(JSON.parse(captured.body || "{}")).toEqual({ parent_ids: ["parent-uid"] });
+  });
+
+  test("product-lines statuses maps to ticket_statuses endpoint", async () => {
+    let capturedUrl: string | undefined;
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      capturedUrl = input.toString();
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli(["product-lines", "statuses", "unifi"]);
+    expect(capturedUrl).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product_lines/unifi/ticket_statuses"
+    );
+  });
+
+  test("labels list maps to labels endpoint with filters", async () => {
+    let capturedUrl: string | undefined;
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      capturedUrl = input.toString();
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli(["labels", "list", "--product_id", "unifi-access", "--search", "bug"]);
+    expect(capturedUrl).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/labels?search=bug&product_id=unifi-access"
+    );
+  });
+
+  test("backlog list maps to product-level tickets GET", async () => {
+    let captured: { url?: string; method?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli(["backlog", "list", "unifi-access"]);
+    expect(captured.method).toBe("GET");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/tickets"
+    );
+  });
+
+  test("backlog get maps to product-level ticket detail GET", async () => {
+    let captured: { url?: string; method?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await runCli(["backlog", "get", "unifi-access", "ticket-uid"]);
+    expect(captured.method).toBe("GET");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/tickets/ticket-uid"
+    );
+  });
+
+  test("tickets update passes expected_version and surfaces 409 conflict", async () => {
+    let captured: { body?: string } = {};
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "CONFLICT", msg: "version mismatch" }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const originalError = console.error;
+    let capturedError = "";
+    console.error = (msg?: unknown) => {
+      capturedError = String(msg ?? "");
+    };
+    try {
+      await expect(
+        runCli([
+          "tickets",
+          "update",
+          "unifi-access",
+          "version-001",
+          "ticket-uid",
+          "--status",
+          "IN_PROGRESS",
+          "--expected_version",
+          "3",
+        ])
+      ).rejects.toThrow("exit:1");
+      expect(JSON.parse(captured.body || "{}")).toEqual({
+        status: "IN_PROGRESS",
+        version: 3,
+      });
+      expect(capturedError).toContain("Conflict");
     } finally {
       console.error = originalError;
     }

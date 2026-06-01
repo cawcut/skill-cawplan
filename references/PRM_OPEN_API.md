@@ -46,6 +46,20 @@
 - Endpoint: `GET /api/v1/public/openapi/product_lines/{product_line_id}`
 - Path params: `product_line_id` (product line `unique_id`)
 
+### Get Product Line Ticket Statuses (workflow states)
+- Endpoint: `GET /api/v1/public/openapi/product_lines/{product_line_id}/ticket_statuses`
+- Response items: `key`, `display_name`, `color`, `category` (`UNSTARTED` / `STARTED` / `DONE` / ...), `is_default`, `order`
+- Notes: ticket `status` values are **per product line**. Build the adapter `stateMap` (Linear `IssueState` → PRM `key`) from this at init time. Maps to Linear `getWorkflowStates`.
+- Maps to skill-prm CLI: `prm product-lines statuses <product_line_id>`.
+
+## 2.2) Label APIs
+### List Labels (name → id resolution)
+- Endpoint: `GET /api/v1/public/openapi/labels`
+- Query params: `search` (case-insensitive substring on name), `product_id` (scope to a product's visible labels; omit for workspace-wide), `page_size`, `page_num`
+- Response items: `unique_id`, `name`, `color`, `behavior` (`FEATURE` / `BUGFIX` / `null`), `is_system`, `product_id` (`null` = workspace-wide), `created_at`
+- Notes: read-only. Adapters that receive label **names** (e.g. Linear) build a `name → unique_id` cache from this, then pass `label_ids[]` to create/update. No label write API is exposed.
+- Maps to skill-prm CLI: `prm labels list`.
+
 ## 3) Version APIs
 ### List Versions
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions`
@@ -56,9 +70,9 @@
 
 ### Create Version (Version Plan)
 - Endpoint: `POST /api/v1/public/openapi/product/{product_id}/versions`
-- Body: `name` (required, e.g. `1.3.2`), `major_id` (required, the major version `unique_id`), `description?`, `extra?` (optional `target_release[]`, `monitor_link`, `hotfix`)
+- Body: `name` (required, e.g. `1.3.2`), `major_id` (**optional**, the major version `unique_id`), `description?`, `extra?` (optional `target_release[]`, `monitor_link`, `hotfix`)
 - Notes:
-  - `major_id` is required to anchor the new version under a major release. Use `prm versions list <product_id>` (or `GET /api/v1/public/openapi/product/{product_id}/versions`) to discover existing major version IDs.
+  - `major_id` is **optional** — when omitted the server auto-resolves the major from `name`: a major-format name (e.g. `5.0`) anchors itself; a minor (e.g. `5.0.1`) looks up / creates the `5.0` major under the same product. Pass `major_id` only when you need to force a specific anchor. Discover IDs via `prm versions list <product_id>`.
   - Major versions cannot be marked `hotfix`; minor versions may.
   - Activity is recorded with actor resolved from product owner / PM (or `public-api-user` fallback). RBAC is bypassed; workspace is taken from the API key.
 - Maps to skill-prm CLI: `prm versions create`.
@@ -75,8 +89,20 @@
 ### Search Version Tickets
 - Endpoint: `POST /api/v1/public/openapi/tickets/search`
 - Query params: `time_range` or (`start_date` + `end_date`), `page_size`, `page_num`
-- Body: `product_ids[]`, `product_line_ids[]`, `version_ids[]`, `type[]`, `status[]`, `priority[]`, `platform[]`, `assignees[]`, `search`
-- Notes: OR within same field; AND across fields
+- Body: `product_ids[]`, `product_line_ids[]`, `version_ids[]`, `unique_ids[]`, `display_ids[]`, `parent_ids[]`, `type[]`, `status[]`, `priority[]`, `platform[]`, `assignees[]`, `search`
+- Notes:
+  - OR within same field; AND across fields.
+  - `unique_ids[]` / `display_ids[]` are exact-match lookups (Linear `fetchIssuesByIds` / global `getIssue`). When either is set, **the time window is not required** (no `time_range` / date range needed).
+  - `parent_ids[]` returns sub-issues of the given parents (Linear `getChildIssues`). This is a list query and still honours the time window.
+
+### Poll Tickets (daemon-friendly, no time window)
+- Endpoint: `POST /api/v1/public/openapi/tickets/poll`
+- Body: `status[]` (**required**), `product_ids[]?`, `product_line_ids[]?`, `since_updated_at?` (epoch seconds — only return tickets with `updated_at >` this), `page_num?`, `page_size?` (max 200)
+- Notes:
+  - No `time_range` — this is the difference from `tickets/search`. Use it for daemon reconcile loops that must see all open tickets regardless of age.
+  - Ordered by `updated_at desc`; pass `since_updated_at` for incremental polling.
+  - Response items are lightweight: `unique_id`, `display_id`, `status`, `priority`, `type`, `version_id`, `product_id`, `product_line_id`, `parent_id`, `assignees`, `updated_at`, `is_backlog`. For full detail call Get Version Ticket.
+- Maps to skill-prm CLI: `prm tickets poll`.
 
 ### Get Version Ticket
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}`
@@ -99,7 +125,21 @@
   - `status` must be a valid status key for the ticket's `product_line`. Read the ticket detail or list with `include=available_statuses` to discover the legal values; otherwise the call may fail with `invalid ticket status '...' for this product line`.
   - Externally synced tickets (Jira) reject status / priority edits.
   - Response includes `version_promoted: true` when the version status was auto-bumped to INPROGRESS.
-- Maps to skill-prm CLI: `prm tickets update`.
+  - **Optimistic lock (optional)**: the response carries the current `version` (integer). To guard against lost updates when multiple writers touch `progress_comment`, read the ticket, then PUT with `version` set to the value you read. If it no longer matches, the server returns **409 CONFLICT** with the current version — re-read and retry. Omitting `version` (or `0`) keeps the legacy last-writer-wins behaviour.
+- Maps to skill-prm CLI: `prm tickets update` (`--expected_version N` to opt into the lock).
+
+### Create / Get Product-Level (Backlog) Tickets
+- Endpoints:
+  - `POST /api/v1/public/openapi/product/{product_id}/tickets` (single)
+  - `POST /api/v1/public/openapi/product/{product_id}/tickets/batch`
+  - `GET  /api/v1/public/openapi/product/{product_id}/tickets` (list backlog)
+  - `GET  /api/v1/public/openapi/product/{product_id}/tickets/{ticket_id}`
+- Body (single): same as Create Version Ticket plus an **optional `version_id`**.
+  - `version_id` omitted/null → **product-level (backlog)** ticket. Stored with `version_id = product_id`; response carries `is_backlog: true`.
+  - `version_id` present → behaves like a version-level create under that version (`is_backlog: false`).
+  - `parent_id` is validated for product-line / product / version compatibility.
+- This is the **canonical** create route for adapters (a single endpoint covers both backlog and version-level). The older `.../versions/{version_id}/tickets` route still works.
+- Maps to skill-prm CLI: `prm tickets create <product_id> [--version_id VID | --backlog]`, `prm backlog list/get`.
 
 ## 4.1) Issue Relation APIs (Blocking / Blocked-by / Related / Duplicate)
 > PRM stores **one row per relation pair** with a perspective-aware `relation_type`; reading from the other ticket inverts the type automatically. Adapters MUST NOT create the inverse row themselves — call once from either side.

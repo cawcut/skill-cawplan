@@ -76,14 +76,19 @@ Usage:
   prm products list [--search q] [--page_size N] [--page_num N]
   prm product-lines list [--page_size N] [--page_num N]
   prm product-lines detail <product_line_id>
+  prm product-lines statuses <product_line_id>
+  prm labels list [--search Q] [--product_id PID] [--page_size N] [--page_num N]
   prm versions list <product_id> [--page_size N] [--page_num N]
   prm versions detail <product_id> <version_id>
-  prm versions create <product_id> --name X.Y.Z --major_id <major_uid> [--description ...]
+  prm versions create <product_id> --name X.Y.Z [--major_id <major_uid>] [--description ...]
   prm releases list <product_id> <version_id>
   prm tickets list <product_id> <version_id> --type FEATURE|BUGFIX [--page_size N] [--page_num N]
-  prm tickets search [--time_range 1m|--start_date YYYY-MM-DD --end_date YYYY-MM-DD] [--product_ids CSV] [--product_line_ids CSV] [--version_ids CSV] [--type CSV] [--status CSV] [--priority CSV] [--platform CSV] [--assignees CSV] [--search q] [--page_size N] [--page_num N] [--refresh]
-  prm tickets create <product_id> <version_id> --description ... --type FEATURE|BUGFIX [--priority LOW|MEDIUM|HIGH|CRITICAL] [--status KEY] [--assignees CSV] [--parent_id ID] [--label_ids CSV] [--reporter_id ID] [--due_date YYYY-MM-DD]
-  prm tickets update <product_id> <version_id> <ticket_id> [--status KEY] [--progress_comment ...] [--priority ...] [--description ...] [--assignees CSV] [--parent_id ID] [--label_ids CSV] [--due_date YYYY-MM-DD]
+  prm tickets poll --status CSV [--product_ids CSV] [--product_line_ids CSV] [--since_updated_at TS] [--page_size N] [--page_num N]
+  prm tickets search [--time_range 1m|--start_date YYYY-MM-DD --end_date YYYY-MM-DD] [--product_ids CSV] [--product_line_ids CSV] [--version_ids CSV] [--unique_ids CSV] [--display_ids CSV] [--parent_ids CSV] [--type CSV] [--status CSV] [--priority CSV] [--platform CSV] [--assignees CSV] [--search q] [--page_size N] [--page_num N] [--refresh]
+  prm tickets create <product_id> [--version_id VID | --backlog] --description ... [--type FEATURE|BUGFIX] [--priority LOW|MEDIUM|HIGH|CRITICAL] [--status KEY] [--assignees CSV] [--parent_id ID] [--label_ids CSV] [--reporter_id ID] [--due_date YYYY-MM-DD]
+  prm tickets update <product_id> <version_id> <ticket_id> [--status KEY] [--progress_comment ...] [--priority ...] [--description ...] [--assignees CSV] [--parent_id ID] [--label_ids CSV] [--due_date YYYY-MM-DD] [--expected_version N]
+  prm backlog list <product_id> [--page_size N] [--page_num N]
+  prm backlog get <product_id> <ticket_id>
   prm tickets relate create <product_id> <version_id> <ticket_id> --target <other_ticket_uid> --type RELATED|BLOCKING|BLOCKED_BY|DUPLICATE
   prm tickets relate update <product_id> <version_id> <ticket_id> <relation_id> --type RELATED|BLOCKING|BLOCKED_BY|DUPLICATE
   prm tickets relate delete <product_id> <version_id> <ticket_id> <relation_id>
@@ -111,12 +116,18 @@ Examples:
   prm versions list unifi-access
   prm releases list unifi-access version-001
   prm tickets list unifi-access version-001 --type BUGFIX
+  prm tickets poll --status NOT_STARTED,IN_PROGRESS --product_line_ids unifi --since_updated_at 1779960000
   prm tickets search --time_range 3m --status IN_PROGRESS,NOT_STARTED --product_ids unifi-access --type FEATURE --search "dashboard"
-  prm tickets create unifi-access version-001 --description "Fix login crash" --type BUGFIX --priority HIGH --assignees user-1,user-2
-  prm tickets update unifi-access version-001 ticket-uid --status IN_PROGRESS --progress_comment "Investigation done"
+  prm tickets search --unique_ids tkt-uid-1,tkt-uid-2
+  prm tickets create unifi-access --version_id version-001 --description "Fix login crash" --priority HIGH --status NOT_STARTED --label_ids lbl-bug
+  prm tickets create unifi-access --backlog --description "Investigate flaky test" --priority MEDIUM --status NOT_STARTED
+  prm tickets update unifi-access version-001 ticket-uid --status IN_PROGRESS --progress_comment "Investigation done" --expected_version 3
+  prm backlog list unifi-access
   prm tickets relate create unifi-access version-001 ticket-uid --target other-ticket-uid --type BLOCKED_BY
   prm tickets relate list   unifi-access version-001 ticket-uid
-  prm versions create unifi-access --name 1.3.2 --major_id major-uid --description "Hotfix"
+  prm product-lines statuses unifi
+  prm labels list --product_id unifi-access --search bug
+  prm versions create unifi-access --name 1.3.2 --description "Hotfix"
   prm critical list unifi-access --time_range 1m --status OPEN,IN_PROGRESS
   prm critical line unifi --time_range 1m --status OPEN,IN_PROGRESS
   prm critical search --time_range 1m --status OPEN,IN_PROGRESS --product_ids unifi-access --search "connection"
@@ -496,7 +507,75 @@ export async function runCli(args: string[]) {
         console.log(JSON.stringify(result, null, 2));
         return;
       }
-      console.error("Error: product-lines requires list|detail");
+      if (action === "statuses") {
+        if (!productLineId) {
+          console.error("Error: product-lines statuses requires <product_line_id>");
+          process.exit(1);
+        }
+        const result = await prmRequest({
+          method: "GET",
+          path: `/api/v1/public/openapi/product_lines/${productLineId}/ticket_statuses`,
+        });
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      console.error("Error: product-lines requires list|detail|statuses");
+      process.exit(1);
+    }
+
+    if (subsystem === "labels") {
+      const [action] = positional;
+      if (action !== "list") {
+        console.error("Error: labels requires 'list'");
+        process.exit(1);
+      }
+      const refresh = flags.refresh === "true";
+      const query = buildQueryFromFlags(flags, ["search", "product_id", "page_size", "page_num"]);
+      const key = cacheKey("labels:list", query);
+      const cached = getCache(key, refresh);
+      if (cached) {
+        console.log(JSON.stringify(cached, null, 2));
+        return;
+      }
+      const result = await prmRequest({
+        method: "GET",
+        path: "/api/v1/public/openapi/labels",
+        query,
+      });
+      setCache(key, result);
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    if (subsystem === "backlog") {
+      const [action, productId, ticketId] = positional;
+      if (!productId) {
+        console.error("Error: backlog requires <product_id>");
+        process.exit(1);
+      }
+      if (action === "list") {
+        const query = buildQueryFromFlags(flags, ["page_size", "page_num"]);
+        const result = await prmRequest({
+          method: "GET",
+          path: `/api/v1/public/openapi/product/${productId}/tickets`,
+          query,
+        });
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      if (action === "get") {
+        if (!ticketId) {
+          console.error("Error: backlog get requires <product_id> <ticket_id>");
+          process.exit(1);
+        }
+        const result = await prmRequest({
+          method: "GET",
+          path: `/api/v1/public/openapi/product/${productId}/tickets/${ticketId}`,
+        });
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      console.error("Error: backlog requires list|get");
       process.exit(1);
     }
 
@@ -537,14 +616,10 @@ export async function runCli(args: string[]) {
           console.error("Error: versions create requires --name X.Y.Z");
           process.exit(1);
         }
-        if (!flags.major_id) {
-          console.error("Error: versions create requires --major_id <major_uid> (use 'prm versions list' to find it)");
-          process.exit(1);
-        }
         const body: Record<string, unknown> = {
           name: flags.name,
-          major_id: flags.major_id,
         };
+        if (flags.major_id) body.major_id = flags.major_id;
         if (flags.description !== undefined) body.description = flags.description;
         const result = await prmRequest({
           method: "POST",
@@ -579,22 +654,30 @@ export async function runCli(args: string[]) {
     if (subsystem === "tickets") {
       const [action, productId, versionId, ticketId, relationId] = positional;
       if (action === "create") {
-        if (!productId || !versionId) {
-          console.error("Error: tickets create requires <product_id> <version_id>");
+        if (!productId) {
+          console.error("Error: tickets create requires <product_id>");
           process.exit(1);
         }
         if (!flags.description) {
           console.error("Error: tickets create requires --description");
           process.exit(1);
         }
-        if (!flags.type) {
-          console.error("Error: tickets create requires --type FEATURE|BUGFIX");
-          process.exit(1);
+        // Resolve target version: --backlog omits version_id (product-level ticket);
+        // --version_id flag wins; a legacy 2nd positional is treated as version_id.
+        let resolvedVersionId: string | undefined;
+        if (flags.backlog === "true") {
+          resolvedVersionId = undefined;
+        } else if (flags.version_id) {
+          resolvedVersionId = flags.version_id;
+        } else if (versionId) {
+          resolvedVersionId = versionId;
         }
         const body: Record<string, unknown> = {
           description: flags.description,
-          type: flags.type,
         };
+        // type is legacy/optional — backend derives it from label_ids when omitted.
+        if (flags.type) body.type = flags.type;
+        if (resolvedVersionId) body.version_id = resolvedVersionId;
         if (flags.priority) body.priority = flags.priority;
         if (flags.status) body.status = flags.status;
         if (flags.parent_id) body.parent_id = flags.parent_id;
@@ -607,7 +690,7 @@ export async function runCli(args: string[]) {
         if (flags.comment) body.comment = flags.comment;
         const result = await prmRequest({
           method: "POST",
-          path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets`,
+          path: `/api/v1/public/openapi/product/${productId}/tickets`,
           body,
         });
         console.log(JSON.stringify(result, null, 2));
@@ -630,16 +713,29 @@ export async function runCli(args: string[]) {
         if (assignees) body.assignee_ids = assignees;
         const labelIds = csvToArray(flags.label_ids);
         if (labelIds) body.label_ids = labelIds;
+        // Optimistic lock: pass the version read from the ticket detail. On a
+        // 409 conflict the caller should re-read and retry (no auto-retry here).
+        const hasExpectedVersion = flags.expected_version !== undefined;
+        if (hasExpectedVersion) body.version = Number(flags.expected_version);
         if (Object.keys(body).length === 0) {
           console.error("Error: tickets update requires at least one updatable flag (e.g. --status)");
           process.exit(1);
         }
-        const result = await prmRequest({
-          method: "PUT",
-          path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}`,
-          body,
-        });
-        console.log(JSON.stringify(result, null, 2));
+        try {
+          const result = await prmRequest({
+            method: "PUT",
+            path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}`,
+            body,
+          });
+          console.log(JSON.stringify(result, null, 2));
+        } catch (err: any) {
+          if (hasExpectedVersion && err?.status === 409) {
+            throw new Error(
+              `Conflict: ticket was modified since version ${flags.expected_version}. Re-read the ticket and retry with the latest --expected_version.`
+            );
+          }
+          throw err;
+        }
         return;
       }
       if (action === "relate") {
@@ -731,9 +827,43 @@ export async function runCli(args: string[]) {
         console.log(JSON.stringify(result, null, 2));
         return;
       }
+      if (action === "poll") {
+        const status = csvToArray(flags.status);
+        if (!status) {
+          console.error("Error: tickets poll requires --status CSV (e.g. NOT_STARTED,IN_PROGRESS)");
+          process.exit(1);
+        }
+        const body: Record<string, unknown> = { status };
+        const productIds = csvToArray(flags.product_ids);
+        const productLineIds = csvToArray(flags.product_line_ids);
+        if (productIds) body.product_ids = productIds;
+        if (productLineIds) body.product_line_ids = productLineIds;
+        if (flags.since_updated_at !== undefined) {
+          body.since_updated_at = Number(flags.since_updated_at);
+        }
+        if (flags.page_num !== undefined) body.page_num = Number(flags.page_num);
+        if (flags.page_size !== undefined) body.page_size = Number(flags.page_size);
+        const base = process.env.PRM_BASE_URL || "";
+        const path = base.includes("/core-product")
+          ? "/api/v1/public/openapi/tickets/poll"
+          : "/core-product/api/v1/public/openapi/tickets/poll";
+        const result = await prmRequest({
+          method: "POST",
+          path,
+          body,
+        });
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
       if (action === "search") {
-        if (!flags.time_range && !(flags.start_date && flags.end_date)) {
-          console.error("Error: tickets search requires --time_range or --start_date + --end_date");
+        const uniqueIds = csvToArray(flags.unique_ids);
+        const displayIds = csvToArray(flags.display_ids);
+        const parentIds = csvToArray(flags.parent_ids);
+        // unique_ids / display_ids are exact-match lookups that the backend
+        // serves without a time window, so --time_range becomes optional then.
+        const idLookup = Boolean(uniqueIds || displayIds);
+        if (!idLookup && !flags.time_range && !(flags.start_date && flags.end_date)) {
+          console.error("Error: tickets search requires --time_range or --start_date + --end_date (unless --unique_ids/--display_ids is set)");
           process.exit(1);
         }
         const refresh = flags.refresh === "true";
@@ -750,6 +880,9 @@ export async function runCli(args: string[]) {
         if (productIds) body.product_ids = productIds;
         if (productLineIds) body.product_line_ids = productLineIds;
         if (versionIds) body.version_ids = versionIds;
+        if (uniqueIds) body.unique_ids = uniqueIds;
+        if (displayIds) body.display_ids = displayIds;
+        if (parentIds) body.parent_ids = parentIds;
         if (type) body.type = type;
         if (status) body.status = status;
         if (priority) body.priority = priority;
@@ -776,7 +909,7 @@ export async function runCli(args: string[]) {
         console.log(JSON.stringify(result, null, 2));
         return;
       }
-      console.error("Error: tickets requires list|search|create|update|relate");
+      console.error("Error: tickets requires list|poll|search|create|update|relate");
       process.exit(1);
     }
 

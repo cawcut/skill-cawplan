@@ -189,13 +189,21 @@ Parse the response and produce a structured report using the **Person Activity R
 - Use **Get User Todos** with `user_id` to list assigned tickets and critical issues.
 
 ### I) Issue / sub-issue creation
-- Use **Create Version Ticket** (`POST /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets`) to create an issue. Required body fields are `description` and `type` (`FEATURE` | `BUGFIX`); the rest (priority, status, assignee_ids, label_ids, due_date, parent_id, reporter_id, comment) are optional.
+- **Canonical route**: `POST /api/v1/public/openapi/product/{product_id}/tickets` — a single endpoint that covers both backlog and version-level creation via an optional body `version_id` (omit → backlog / product-level; set → under that version). See §R. The older `.../versions/{version_id}/tickets` route still works but new adapters should use the product-level route.
+- **Required body fields**: `description`, `priority`, `status`. Everything else is optional.
+- **`type` is a legacy field** — kept for backward compat with the old UI. **New clients SHOULD pass `label_ids` instead** and let the backend derive `type`:
+  - if `label_ids` includes any label whose `behavior == BUGFIX` ⇒ `type = BUGFIX`
+  - otherwise ⇒ `type = FEATURE`
+  - if neither `type` nor `label_ids` is sent ⇒ defaults to `FEATURE`
+  - if both are sent, `type` wins and the matching workspace system label is auto-attached so the response stays consistent.
+- For Linear-style adapters: map Linear `labels[]` (names) to PRM `label_ids[]` once (build a name → unique_id cache from `GET /labels`, see §P) and forget about `type`.
 - To create a **sub-issue**, set `parent_id` to the parent ticket's `unique_id`. PRM enforces:
   - parent and child must share the same `product_line`
   - parent chain depth is capped at 5
 - The Linear concept "issue" maps to a top-level ticket; "sub-issue" maps to a ticket with `parent_id != null`.
 - Resolve `unique_id` from a known `display_id` (e.g. `PRM-07102`) via `POST /api/v1/public/openapi/tickets/search` — the search response carries both fields.
-- CLI: `prm tickets create <product_id> <version_id> --description "..." --type BUGFIX [--parent_id <uid>] [--assignees u1,u2] [--priority HIGH] [--status KEY] [--label_ids l1,l2] [--due_date YYYY-MM-DD]`.
+- **Adapter MUST configure** `PRM_DEFAULT_PRODUCT_ID`, `PRM_DEFAULT_VERSION_ID` (or fall back to **backlog** — see §R), and optionally `PRM_DEFAULT_TYPE` — Linear's `createIssue` doesn't carry these and PRM cannot resolve them implicitly.
+- CLI: `prm tickets create <product_id> [--version_id <vid> | --backlog] --description "..." [--label_ids l1,l2] [--type FEATURE|BUGFIX] [--parent_id <uid>] [--assignees u1,u2] [--priority HIGH] [--status KEY] [--due_date YYYY-MM-DD]`. `--type` is optional (backend derives it from `label_ids`).
 
 ### J) Relations (Blocking / Blocked-by / Related / Duplicate)
 - PRM stores **one row per relation pair** with a perspective-aware `relation_type`. Reading the relation from the *other* ticket inverts `BLOCKING` ↔ `BLOCKED_BY`; `RELATED` and `DUPLICATE` are symmetric. Adapters MUST NOT create the inverse row themselves — call once from either side.
@@ -224,26 +232,83 @@ Parse the response and produce a structured report using the **Person Activity R
   <!-- /clawcode-workpad-{runId} -->
   ```
   …then read back, regex-replace the marker block, and PUT the merged HTML.
-- The PUT is **not atomic** with respect to the read; if multiple writers are possible, accept eventual consistency or coordinate at a higher layer.
+- The PUT is **not atomic** with respect to the read; if multiple writers are possible, use the optimistic lock below or coordinate at a higher layer.
+- **Optimistic lock (recommended for daemons)**: the PUT response carries the current `version` (integer). Read the ticket → append/modify the marker block → PUT with `--expected_version <version you read>`. If it changed in between, the server returns **409 CONFLICT**; re-read and retry (cap at ~3 attempts). Omit `--expected_version` to keep last-writer-wins.
+  ```
+  # read -> get version N -> merge marker -> conditional write
+  prm tickets update <pid> <vid> <tid> --progress_comment "<merged html>" --expected_version N
+  # on "Conflict: ..." re-read and retry with the new version
+  ```
 - For "design comment" semantics (Linear `postDesignComment`) reuse the same field with a different marker (e.g. `<!-- clawcode-design -->`); PRM has no separate design entity.
-- CLI: `prm tickets update <product_id> <version_id> <ticket_id> --progress_comment "<html>"`.
+- CLI: `prm tickets update <product_id> <version_id> <ticket_id> --progress_comment "<html>" [--expected_version N]`.
 
 ### M) Version plan creation
 - Versions in PRM are anchored under a **major version** (`major_id`). The Linear concept "Project Milestone" maps to a PRM version (e.g. `1.3.2` under major `1.3`).
-- Required body: `name` (e.g. `1.3.2`), `major_id` (the major version's `unique_id`). Optional: `description`, `extra` (`target_release[]`, `monitor_link`, `hotfix`).
-- Discover available `major_id`s: `prm versions list <product_id>` or `GET /api/v1/public/openapi/product/{product_id}/versions` and look at the `major_version` / `version_id` fields on the major-level entries.
+- Required body: `name` (e.g. `1.3.2`). `major_id` is **optional** — pass `name` only and the server auto-resolves the major: a major-format name (`5.0`) anchors itself; a minor (`5.0.1`) looks up / creates the `5.0` major under the same product. Pass `major_id` only to force a specific anchor. Optional: `description`, `extra` (`target_release[]`, `monitor_link`, `hotfix`).
+- Discover `major_id`s when you need one: `prm versions list <product_id>` and look at the major-level entries.
 - Major versions cannot be marked `hotfix`; only minors can.
-- CLI: `prm versions create <product_id> --name <X.Y.Z> --major_id <major_uid> [--description "..."]`.
+- For Linear adapters: `createProjectMilestone(projectId, name, ...)` maps to `prm versions create <product_id> --name <X.Y.Z>` (no `major_id` needed).
+- CLI: `prm versions create <product_id> --name <X.Y.Z> [--major_id <major_uid>] [--description "..."]`.
 
 ### N) Adapter implementation notes (Linear ↔ PRM)
-- `stateMap` (Linear `IssueState` → PRM status key) MUST be built per product line at adapter init time. Read available statuses from the relevant `product_line` (or the ticket-list endpoint with `include=available_statuses`). Different product lines have different status sets.
+- `stateMap` (Linear `IssueState` → PRM status key) MUST be built per product line at adapter init time. Read available statuses from `GET /api/v1/public/openapi/product_lines/{id}/ticket_statuses` (`prm product-lines statuses`). Different product lines have different status sets. See §Q.
 - `transition(issue, state)` ≡ `prm tickets update ... --status <KEY>`.
 - `addComment(issue, body)` ≡ read current `progress_comment` → append marker block → `prm tickets update ... --progress_comment "<merged html>"`.
 - `updateComment(issue, commentId, body)` ≡ regex-replace the marker block in `progress_comment` and PUT.
 - `findComment(issue, marker)` ≡ regex against `progress_comment` HTML.
 - `getCommentReactions(commentId)` ≡ stub (always `[]`); PRM has no reactions.
 - `createRelation(source, target, type)` ≡ `prm tickets relate create` from `source`. Do NOT create the inverse row.
-- `getChildIssues(parentId)` ≡ `tickets/search` body with `parent_ids: [parentId]` (Phase 2 backend support — until then, fall back to the ticket detail endpoint which embeds the sub-issue tree).
+- `getChildIssues(parentId)` ≡ `tickets/search` body with `parent_ids: [parentId]` (`prm tickets search --parent_ids ...`).
+- `getIssue(id)` / `fetchIssuesByIds(ids)` ≡ `tickets/search` body with `unique_ids: [...]` (or `display_ids: [...]`); no time window needed. See §B6 in the reference.
+- `poll(state)` ≡ `prm tickets poll --status ...` (daemon loop; no time window). See §O.
+- label name → id ≡ `prm labels list` cached at init. See §P.
+- `createIssue(...)` ≡ `prm tickets create <product_id> [--version_id|--backlog] ...` (single canonical route). See §R.
+
+### O) Polling for daemons
+- Daemon reconcile loops MUST use `prm tickets poll` (not `tickets search`): poll has **no time window**, so it sees all open tickets regardless of age. `tickets search` always applies a date window (defaulting to the last month) and will silently miss old-but-open tickets.
+- `status[]` is required. Optionally scope by `product_ids` / `product_line_ids`.
+- Results are ordered by `updated_at desc`; pass `--since_updated_at <epoch>` for incremental polling (only tickets updated after that timestamp).
+- Response is lightweight (ids, status, priority, type, version/product/product_line ids, parent_id, assignees, updated_at, is_backlog). For full detail call Get Version Ticket.
+- Pseudo-code (30s loop):
+  ```
+  let since = 0
+  loop every 30s:
+    page = prm tickets poll --status NOT_STARTED,IN_PROGRESS,REOPEN,BLOCKED --since_updated_at since
+    for t in page: reconcile(t)
+    since = max(since, max(t.updated_at for t in page))
+  ```
+- CLI: `prm tickets poll --status CSV [--product_ids CSV] [--product_line_ids CSV] [--since_updated_at TS] [--page_size N] [--page_num N]`.
+
+### P) Label resolution (name → id)
+- Labels are managed at the workspace / product-line level; PRM create/update accept `label_ids[]`, not names. Linear adapters receive label **names**, so build a `name → unique_id` cache at init:
+  ```ts
+  const labels = await prm.labels.list({ product_id });   // GET /labels?product_id=
+  const labelByName = new Map(labels.map(l => [l.name.toLowerCase(), l.unique_id]));
+  ```
+- Cache with a TTL (~24h). `is_system: true` labels (Feature / Bugfix) do not get renamed.
+- For `createIssue`, resolve `label_names` → `label_ids` before calling create; the backend then derives `type` from the labels' `behavior` (`BUGFIX` label ⇒ `type = BUGFIX`).
+- CLI: `prm labels list [--search Q] [--product_id PID]`.
+
+### Q) Workflow state mapping (per product line)
+- `stateMap` MUST be built **per product line** — different product lines have different status sets.
+  ```ts
+  const states = await prm.productLines.statuses(product_line_id);  // GET /product_lines/{id}/ticket_statuses
+  const stateMap = {
+    backlog:     states.find(s => s.category === "UNSTARTED")?.key,
+    in_progress: states.find(s => s.category === "STARTED")?.key,
+    done:        states.find(s => s.category === "DONE")?.key,
+  };
+  ```
+- Cache ~1h. Passing an unknown `status` key to update returns `invalid ticket status '...' for this product line`, so always map through this table.
+- CLI: `prm product-lines statuses <product_line_id>`.
+
+### R) Backlog tickets (product-level, no version)
+- PRM represents a backlog (no-milestone) ticket with `version_id == product_id`, and the response also carries `is_backlog: true` — adapters should branch on `is_backlog` rather than parsing `version_id`.
+- Create via the canonical route `prm tickets create <product_id> ...`:
+  - no `--version_id` (or `--backlog`) → backlog / product-level ticket.
+  - `--version_id <vid>` → ticket under that version.
+- Adapter mapping: Linear "issue with no project/milestone" → backlog; Linear `projectId` → `--version_id`. Alternatively force a `PRM_DEFAULT_VERSION_ID` and never open backlog.
+- List backlog with `prm backlog list <product_id>`; a single one with `prm backlog get <product_id> <ticket_id>`. To see everything (incl. version-scoped) use `prm tickets search`.
 
 ## Execution Style
 - Execute all API calls silently — do NOT narrate steps, show "Step 1/2/3", or announce what you are about to do.
