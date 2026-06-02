@@ -483,6 +483,38 @@ describe("cli (unit)", () => {
     });
   });
 
+  test("tickets create omits priority/status when unset (backend defaults them)", async () => {
+    let captured: { url?: string; method?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
+      captured.method = init?.method;
+      captured.body = init?.body ? String(init.body) : undefined;
+      return new Response(JSON.stringify({ code: "SUCCESS" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    // An adapter that only carries a "todo" intent can omit priority/status;
+    // the backend defaults them (MEDIUM + product-line default status).
+    await runCli([
+      "tickets",
+      "create",
+      "unifi-access",
+      "--backlog",
+      "--description",
+      "Adapter-created issue",
+    ]);
+
+    expect(captured.method).toBe("POST");
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/api/v1/public/openapi/product/unifi-access/tickets"
+    );
+    expect(JSON.parse(captured.body || "{}")).toEqual({
+      description: "Adapter-created issue",
+    });
+  });
+
   test("tickets create requires --description", async () => {
     const originalError = console.error;
     console.error = () => {};
@@ -808,9 +840,10 @@ describe("cli (unit)", () => {
     });
   });
 
-  test("tickets search supports parent_ids filter", async () => {
-    let captured: { body?: string } = {};
-    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+  test("tickets search by parent_ids does not require time_range", async () => {
+    let captured: { url?: string; body?: string } = {};
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured.url = input.toString();
       captured.body = init?.body ? String(init.body) : undefined;
       return new Response(JSON.stringify({ code: "SUCCESS" }), {
         status: 200,
@@ -818,15 +851,13 @@ describe("cli (unit)", () => {
       });
     };
 
-    await runCli([
-      "tickets",
-      "search",
-      "--time_range",
-      "1m",
-      "--parent_ids",
-      "parent-uid",
-    ]);
+    // parent_ids is a bounded child lookup the backend serves window-free, so
+    // --time_range is no longer required when it is set.
+    await runCli(["tickets", "search", "--parent_ids", "parent-uid"]);
 
+    expect(captured.url).toBe(
+      "https://core-api-gw.uid.alpha.ui.com/core-product/api/v1/public/openapi/tickets/search"
+    );
     expect(JSON.parse(captured.body || "{}")).toEqual({ parent_ids: ["parent-uid"] });
   });
 

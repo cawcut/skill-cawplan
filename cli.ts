@@ -119,8 +119,10 @@ Examples:
   prm tickets poll --status NOT_STARTED,IN_PROGRESS --product_line_ids unifi --since_updated_at 1779960000
   prm tickets search --time_range 3m --status IN_PROGRESS,NOT_STARTED --product_ids unifi-access --type FEATURE --search "dashboard"
   prm tickets search --unique_ids tkt-uid-1,tkt-uid-2
+  prm tickets search --parent_ids tkt-parent-1            # children of a parent, no --time_range needed
   prm tickets create unifi-access --version_id version-001 --description "Fix login crash" --priority HIGH --status NOT_STARTED --label_ids lbl-bug
   prm tickets create unifi-access --backlog --description "Investigate flaky test" --priority MEDIUM --status NOT_STARTED
+  prm tickets create unifi-access --backlog --description "Adapter-created issue"   # priority/status omitted -> backend defaults (MEDIUM + product-line default status)
   prm tickets update unifi-access version-001 ticket-uid --status IN_PROGRESS --progress_comment "Investigation done" --expected_version 3
   prm backlog list unifi-access
   prm tickets relate create unifi-access version-001 ticket-uid --target other-ticket-uid --type BLOCKED_BY
@@ -678,6 +680,9 @@ export async function runCli(args: string[]) {
         // type is legacy/optional — backend derives it from label_ids when omitted.
         if (flags.type) body.type = flags.type;
         if (resolvedVersionId) body.version_id = resolvedVersionId;
+        // priority/status are optional: when omitted the backend defaults them
+        // (priority -> MEDIUM, status -> the product line's default status), so
+        // an adapter that only carries a "todo" intent can leave them unset.
         if (flags.priority) body.priority = flags.priority;
         if (flags.status) body.status = flags.status;
         if (flags.parent_id) body.parent_id = flags.parent_id;
@@ -859,11 +864,12 @@ export async function runCli(args: string[]) {
         const uniqueIds = csvToArray(flags.unique_ids);
         const displayIds = csvToArray(flags.display_ids);
         const parentIds = csvToArray(flags.parent_ids);
-        // unique_ids / display_ids are exact-match lookups that the backend
-        // serves without a time window, so --time_range becomes optional then.
-        const idLookup = Boolean(uniqueIds || displayIds);
+        // unique_ids / display_ids are exact-match lookups and parent_ids is a
+        // bounded child lookup; the backend serves all three without a time
+        // window, so --time_range becomes optional when any of them is set.
+        const idLookup = Boolean(uniqueIds || displayIds || parentIds);
         if (!idLookup && !flags.time_range && !(flags.start_date && flags.end_date)) {
-          console.error("Error: tickets search requires --time_range or --start_date + --end_date (unless --unique_ids/--display_ids is set)");
+          console.error("Error: tickets search requires --time_range or --start_date + --end_date (unless --unique_ids/--display_ids/--parent_ids is set)");
           process.exit(1);
         }
         const refresh = flags.refresh === "true";

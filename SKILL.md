@@ -190,7 +190,7 @@ Parse the response and produce a structured report using the **Person Activity R
 
 ### I) Issue / sub-issue creation
 - **Canonical route**: `POST /api/v1/public/openapi/product/{product_id}/tickets` — a single endpoint that covers both backlog and version-level creation via an optional body `version_id` (omit → backlog / product-level; set → under that version). See §R. The older `.../versions/{version_id}/tickets` route still works but new adapters should use the product-level route.
-- **Required body fields**: `description`, `priority`, `status`. Everything else is optional.
+- **Only `description` is required.** `priority` and `status` are optional and **defaulted server-side** when omitted: `priority → MEDIUM`, `status →` the product line's configured default status (or its first active status). Everything else is optional too. This lets a Linear-style `createIssue` (which only carries a "todo" intent) omit both and still produce a well-formed ticket — the backend never persists empty `priority`/`status`. A provided `status` is still validated against the product line.
 - **`type` is a legacy field** — kept for backward compat with the old UI. **New clients SHOULD pass `label_ids` instead** and let the backend derive `type`:
   - if `label_ids` includes any label whose `behavior == BUGFIX` ⇒ `type = BUGFIX`
   - otherwise ⇒ `type = FEATURE`
@@ -258,7 +258,7 @@ Parse the response and produce a structured report using the **Person Activity R
 - `findComment(issue, marker)` ≡ regex against `progress_comment` HTML.
 - `getCommentReactions(commentId)` ≡ stub (always `[]`); PRM has no reactions.
 - `createRelation(source, target, type)` ≡ `prm tickets relate create` from `source`. Do NOT create the inverse row.
-- `getChildIssues(parentId)` ≡ `tickets/search` body with `parent_ids: [parentId]` (`prm tickets search --parent_ids ...`).
+- `getChildIssues(parentId)` ≡ `tickets/search` body with `parent_ids: [parentId]` (`prm tickets search --parent_ids ...`); returns **all** children regardless of age — `parent_ids` exempts the time window, so no `time_range` is needed. See §B6 in the reference.
 - `getIssue(id)` / `fetchIssuesByIds(ids)` ≡ `tickets/search` body with `unique_ids: [...]` (or `display_ids: [...]`); no time window needed. See §B6 in the reference.
 - `poll(state)` ≡ `prm tickets poll --status ...` (daemon loop; no time window). See §O.
 - label name → id ≡ `prm labels list` cached at init. See §P.

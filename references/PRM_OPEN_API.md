@@ -93,7 +93,7 @@
 - Notes:
   - OR within same field; AND across fields.
   - `unique_ids[]` / `display_ids[]` are exact-match lookups (Linear `fetchIssuesByIds` / global `getIssue`). When either is set, **the time window is not required** (no `time_range` / date range needed).
-  - `parent_ids[]` returns sub-issues of the given parents (Linear `getChildIssues`). This is a list query and still honours the time window.
+  - `parent_ids[]` returns **all** sub-issues of the given parents (Linear `getChildIssues`). It is a bounded relationship lookup, so it also **exempts the time window** — the full child set is returned regardless of age (a dependency-aware scheduler must not lose old children). `time_range` is therefore not required when `parent_ids[]` is set.
 
 ### Poll Tickets (daemon-friendly, no time window)
 - Endpoint: `POST /api/v1/public/openapi/tickets/poll`
@@ -110,9 +110,10 @@
 
 ### Create Version Ticket (Issue / Sub-issue)
 - Endpoint: `POST /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets`
-- Body (required): `description` (HTML or plain text), `type` (`FEATURE` or `BUGFIX`)
-- Body (optional): `priority` (`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`), `status` (per-product-line status key), `assignee_ids[]`, `parent_id` (set this to make the ticket a sub-issue), `label_ids[]`, `reporter_id`, `due_date` (`YYYY-MM-DD`), `comment`
+- Body (required): `description` (HTML or plain text)
+- Body (optional): `type` (`FEATURE`/`BUGFIX` — legacy; when omitted it is derived from `label_ids`), `priority` (`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`), `status` (per-product-line status key), `assignee_ids[]`, `parent_id` (set this to make the ticket a sub-issue), `label_ids[]`, `reporter_id`, `due_date` (`YYYY-MM-DD`), `comment`
 - Notes:
+  - **`priority` and `status` are optional and defaulted server-side**: when omitted (or empty) the backend stores `priority = MEDIUM` and `status =` the product line's configured default status (or its first active status). An adapter that only carries a "todo" intent (Clawcode/Linear `createIssue`) can leave both unset and still get a well-formed ticket — no empty-string fields are persisted. A provided `status` is still validated against the product line.
   - When `parent_id` is set the new ticket becomes a sub-issue. Sub-issues must share the same `product_line` as the parent and the parent chain depth is capped at 5.
   - Activity is recorded with actor resolved from product owner / PM / first assignee (or `public-api-user` fallback).
 - Maps to skill-prm CLI: `prm tickets create`.
@@ -138,6 +139,7 @@
   - `version_id` omitted/null → **product-level (backlog)** ticket. Stored with `version_id = product_id`; response carries `is_backlog: true`.
   - `version_id` present → behaves like a version-level create under that version (`is_backlog: false`).
   - `parent_id` is validated for product-line / product / version compatibility.
+  - `priority`/`status` defaulting (MEDIUM + product-line default status) applies here too — for both the single and the `/batch` endpoint — so omitting them never persists empty fields.
 - This is the **canonical** create route for adapters (a single endpoint covers both backlog and version-level). The older `.../versions/{version_id}/tickets` route still works.
 - Maps to skill-prm CLI: `prm tickets create <product_id> [--version_id VID | --backlog]`, `prm backlog list/get`.
 
