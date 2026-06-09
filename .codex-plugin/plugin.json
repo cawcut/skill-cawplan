@@ -1,0 +1,51 @@
+{
+  "name": "cawplan",
+  "displayName": "CawPlan Agent Skills",
+  "version": "0.1.0",
+  "description": "CawPlan CLI-backed skills for products, tickets, todos, reports, critical issues, and metrics.",
+  "author": {
+    "name": "Ubiquiti",
+    "email": "support@cawplan.com"
+  },
+  "publisher": "UbiquitiUID",
+  "homepage": "https://www.cawplan.com/",
+  "repository": "https://github.com/Ubiquiti-UID/flow.cawplan-skill",
+  "license": "MIT",
+  "category": "productivity",
+  "keywords": [
+    "cawplan",
+    "release-management",
+    "developer-cli",
+    "agent-skill"
+  ],
+  "skills": [
+    {
+      "name": "cawplan-query",
+      "path": "skills/cawplan-query"
+    },
+    {
+      "name": "cawplan-ticket",
+      "path": "skills/cawplan-ticket"
+    },
+    {
+      "name": "cawplan-my-todos",
+      "path": "skills/cawplan-my-todos"
+    },
+    {
+      "name": "cawplan-user-activity",
+      "path": "skills/cawplan-user-activity"
+    },
+    {
+      "name": "cawplan-product-activity",
+      "path": "skills/cawplan-product-activity"
+    },
+    {
+      "name": "cawplan-critical",
+      "path": "skills/cawplan-critical"
+    },
+    {
+      "name": "cawplan-metrics",
+      "path": "skills/cawplan-metrics"
+    }
+  ]
+}

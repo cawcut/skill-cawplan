@@ -1,3 +1,10 @@
-node_modules
+node_modules/
+dist/
+cli/dist/
+*.tsbuildinfo
 .DS_Store
+coverage/
+cli/coverage/
 .env
+.env.*
+.idea/

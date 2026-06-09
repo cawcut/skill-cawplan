@@ -1,27 +1,23 @@
 {
-  "name": "clawdbot-skill-prm",
-  "version": "1.0.0",
-  "description": "PRM Open API CLI skill for Clawdbot",
-  "author": "Vincent",
-  "license": "MIT",
-  "type": "module",
-  "keywords": [
-    "clawdbot",
-    "skill",
-    "prm",
-    "release-management",
-    "ubiquiti"
+  "name": "flow-cawplan-skill",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CawPlan CLI and Agent Skill definitions",
+  "workspaces": [
+    "cli"
   ],
   "scripts": {
-    "cli": "npx tsx cli.ts",
-    "test": "bun test"
+    "build": "npm run build --workspace=cli",
+    "test": "npm test --workspace=cli",
+    "cli": "npm run cli --workspace=cli --",
+    "validate:skills": "bash scripts/validate-skills.sh"
   },
-  "dependencies": {
-    "zod": "^3.24.1"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ubiquiti-UID/flow.cawplan-skill.git"
   },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "tsx": "^4.0.0",
-    "typescript": "^5.0.0"
+  "engines": {
+    "node": ">=20"
   }
 }

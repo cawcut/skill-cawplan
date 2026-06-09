@@ -1,0 +1,21 @@
+{
+  "products": {
+    "cawplan": {
+      "displayName": "CawPlan",
+      "cliName": "cawplan",
+      "oauthEndpoint": "cawplan-skill",
+      "credentialsDir": ".cawplan",
+      "defaultEnv": "prd",
+      "env": {
+        "prd": {
+          "portalBase": "https://www.cawplan.com",
+          "apiBase": "https://api.cawplan.com/core-product"
+        },
+        "proto": {
+          "portalBase": "https://core-web-product.uid.dev.ui.com",
+          "apiBase": "https://core-api-gw.uid.dev.ui.com/core-product"
+        }
+      }
+    }
+  }
+}
