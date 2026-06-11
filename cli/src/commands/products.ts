@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
-import { getCache, setCache, buildCacheKey, buildQueryFromFlags } from "../lib/cache.js";
+import { getCache, setCache, buildScopedCacheKey, buildQueryFromFlags } from "../lib/cache.js";
 
 export function registerProductsCommand(program: Command): void {
   const products = program.command("products").description("Manage products");
@@ -24,7 +24,7 @@ export function registerProductsCommand(program: Command): void {
 
       const refresh = Boolean(opts.refresh);
       const query = buildQueryFromFlags(flags, ["search", "page_size", "page_num", "type_id", "product_line_id"]);
-      const key = buildCacheKey("products:list", query);
+      const key = await buildScopedCacheKey("products:list", query);
       const cached = getCache(key, refresh);
       if (cached) {
         console.log(JSON.stringify(cached, null, 2));
@@ -54,7 +54,7 @@ export function registerProductsCommand(program: Command): void {
 
       const refresh = Boolean(opts.refresh);
       const query = buildQueryFromFlags(flags, ["page_size", "page_num"]);
-      const key = buildCacheKey("product-lines:list", query);
+      const key = await buildScopedCacheKey("product-lines:list", query);
       const cached = getCache(key, refresh);
       if (cached) {
         console.log(JSON.stringify(cached, null, 2));
@@ -75,7 +75,7 @@ export function registerProductsCommand(program: Command): void {
     .option("--refresh", "Bypass cache")
     .action(async (productLineId: string, opts) => {
       const refresh = Boolean(opts.refresh);
-      const key = `product-lines:detail:${productLineId}`;
+      const key = await buildScopedCacheKey(`product-lines:detail:${productLineId}`, undefined);
       const cached = getCache(key, refresh);
       if (cached) {
         console.log(JSON.stringify(cached, null, 2));

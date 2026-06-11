@@ -14,6 +14,10 @@
         "proto": {
           "portalBase": "https://core-web-product.uid.dev.ui.com",
           "apiBase": "https://core-api-gw.uid.dev.ui.com/core-product"
+        },
+        "local": {
+          "portalBase": "http://localhost:5173",
+          "apiBase": "http://localhost"
         }
       }
     }

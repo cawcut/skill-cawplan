@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
 import { buildQueryFromFlags } from "../lib/cache.js";
+import { resolveApiPath } from "../lib/products.js";
 
 export function registerActivitiesCommand(program: Command): void {
   const activities = program.command("activities").description("Query activity logs");
@@ -33,9 +34,9 @@ export function registerActivitiesCommand(program: Command): void {
 
       const result = await cawplanRequest({
         method: "POST",
-        path: "/api/v1/public/openapi/activities/query",
+        path: resolveApiPath("/api/v1/public/openapi/activities/query"),
         query,
-        body: Object.keys(body).length ? body : undefined,
+        body,
       });
       console.log(JSON.stringify(result, null, 2));
     });

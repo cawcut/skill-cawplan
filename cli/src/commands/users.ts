@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
-import { getCache, setCache, buildCacheKey, buildQueryFromFlags } from "../lib/cache.js";
+import { getCache, setCache, buildScopedCacheKey, buildQueryFromFlags } from "../lib/cache.js";
 
 export function registerUsersCommand(program: Command): void {
   const users = program.command("users").description("Manage users");
@@ -20,7 +20,7 @@ export function registerUsersCommand(program: Command): void {
 
       const refresh = Boolean(opts.refresh);
       const query = buildQueryFromFlags(flags, ["search", "page_size", "page_num"]);
-      const key = buildCacheKey("users:list", query);
+      const key = await buildScopedCacheKey("users:list", query);
       const cached = getCache(key, refresh);
       if (cached) {
         console.log(JSON.stringify(cached, null, 2));
@@ -50,7 +50,7 @@ export function registerUsersCommand(program: Command): void {
       }
 
       const refresh = Boolean(opts.refresh);
-      const key = buildCacheKey("users:query", {
+      const key = await buildScopedCacheKey("users:query", {
         email: opts.email || "",
         keyword: opts.keyword || "",
         page_num: opts.page_num || "",

@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import { getCachePath, getCacheTtlMs } from "./config.js";
+import { getBaseUrl, getCachePath, getCacheTtlMs } from "./config.js";
+import { readCredentials } from "./credentials.js";
 
 type CacheEntry = { fetched_at: number; data: unknown };
 type CacheStore = { version: 1; entries: Record<string, CacheEntry> };
@@ -64,6 +66,56 @@ export function buildCacheKey(prefix: string, query: Record<string, string> | un
     .map((k) => `${k}=${query[k]}`)
     .join("&");
   return `${prefix}?${normalized}`;
+}
+
+function shortHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const payload = token.split(".")[1];
+  if (!payload) return null;
+
+  try {
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    return null;
+  }
+}
+
+export async function getCacheScope(): Promise<string> {
+  const base = `base:${shortHash(getBaseUrl())}`;
+  const credentials = await readCredentials();
+
+  if (credentials?.accessToken) {
+    const payload = decodeJwtPayload(credentials.accessToken);
+    const workspaceId = payload?.workspace_id;
+    if (typeof workspaceId === "string" && workspaceId.trim()) {
+      return `${base}:workspace:${workspaceId}`;
+    }
+
+    const userId = payload?.uid_id ?? payload?.user_id ?? payload?.sub ?? credentials.email;
+    if (typeof userId === "string" && userId.trim()) {
+      return `${base}:oauth:${shortHash(userId)}`;
+    }
+  }
+
+  if (credentials?.apiKey) {
+    return `${base}:api-key:${shortHash(credentials.apiKey)}`;
+  }
+
+  return `${base}:anonymous`;
+}
+
+export async function buildScopedCacheKey(
+  prefix: string,
+  query: Record<string, string> | undefined,
+): Promise<string> {
+  const scope = await getCacheScope();
+  return `${scope}:${buildCacheKey(prefix, query)}`;
 }
 
 export function stableStringify(value: unknown): string {

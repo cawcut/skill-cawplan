@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
-import { getCache, setCache, buildCacheKey, buildQueryFromFlags, csvToArray, stableStringify } from "../lib/cache.js";
+import { getCache, setCache, buildCacheKey, buildScopedCacheKey, buildQueryFromFlags, csvToArray, stableStringify } from "../lib/cache.js";
+import { resolveApiPath } from "../lib/products.js";
 
 function parseJsonBody(value: string | undefined): unknown {
   if (!value) return undefined;
@@ -122,7 +123,10 @@ export function registerCriticalCommand(program: Command): void {
       if (techOwners) body.tech_owners = techOwners;
       if (opts.search) body.search = opts.search;
 
-      const key = `critical:search:${buildCacheKey("query", query)}|body=${stableStringify(body)}`;
+      const key = await buildScopedCacheKey(
+        `critical:search:${buildCacheKey("query", query)}|body=${stableStringify(body)}`,
+        undefined,
+      );
       const cached = getCache(key, refresh);
       if (cached) {
         console.log(JSON.stringify(cached, null, 2));
@@ -131,7 +135,7 @@ export function registerCriticalCommand(program: Command): void {
 
       const result = await cawplanRequest({
         method: "POST",
-        path: "/api/v1/public/openapi/critical_issues/search",
+        path: resolveApiPath("/api/v1/public/openapi/critical_issues/search"),
         query,
         body,
       });

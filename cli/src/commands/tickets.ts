@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
-import { getCache, setCache, buildCacheKey, buildQueryFromFlags, csvToArray, stableStringify } from "../lib/cache.js";
+import { getCache, setCache, buildCacheKey, buildScopedCacheKey, buildQueryFromFlags, csvToArray, stableStringify } from "../lib/cache.js";
+import { resolveApiPath } from "../lib/products.js";
 
 
 export function registerTicketsCommand(program: Command): void {
@@ -52,7 +53,7 @@ export function registerTicketsCommand(program: Command): void {
 
       const result = await cawplanRequest({
         method: "POST",
-        path: "/api/v1/public/openapi/tickets/poll",
+        path: resolveApiPath("/api/v1/public/openapi/tickets/poll"),
         body,
       });
       console.log(JSON.stringify(result, null, 2));
@@ -121,7 +122,10 @@ export function registerTicketsCommand(program: Command): void {
       if (assignees) body.assignees = assignees;
       if (opts.search) body.search = opts.search;
 
-      const key = `tickets:search:${buildCacheKey("query", query)}|body=${stableStringify(body)}`;
+      const key = await buildScopedCacheKey(
+        `tickets:search:${buildCacheKey("query", query)}|body=${stableStringify(body)}`,
+        undefined,
+      );
       const cached = getCache(key, refresh);
       if (cached) {
         console.log(JSON.stringify(cached, null, 2));
@@ -130,7 +134,7 @@ export function registerTicketsCommand(program: Command): void {
 
       const result = await cawplanRequest({
         method: "POST",
-        path: "/api/v1/public/openapi/tickets/search",
+        path: resolveApiPath("/api/v1/public/openapi/tickets/search"),
         query,
         body,
       });
@@ -338,7 +342,7 @@ export function registerTicketsCommand(program: Command): void {
 
       const refresh = Boolean(opts.refresh);
       const query = buildQueryFromFlags(flags, ["search", "product_id", "page_size", "page_num"]);
-      const key = buildCacheKey("labels:list", query);
+      const key = await buildScopedCacheKey("labels:list", query);
       const cached = getCache(key, refresh);
       if (cached) {
         console.log(JSON.stringify(cached, null, 2));
