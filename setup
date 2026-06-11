@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# flow.cawplan-skill setup — install skills for Claude Code, Cursor, Codex, etc.
+# flow-cawplan-skill setup — install skills for Claude Code, Cursor, Codex, etc.
 # Idempotent: safe to run multiple times.
 set -euo pipefail
 
@@ -16,7 +16,7 @@ info() { echo "${BOLD}→${RESET} $1"; }
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ ! -f "${ROOT}/VERSION" ] || [ ! -d "${ROOT}/skills/cawplan-query" ]; then
-  err "Cannot find VERSION or skills/cawplan-query/ — run this script from the flow.cawplan-skill repo root."
+  err "Cannot find VERSION or skills/cawplan-query/ — run this script from the flow-cawplan-skill repo root."
   exit 1
 fi
 
@@ -236,7 +236,7 @@ else
   AGENT="$(detect_agent)"
   if [ "${AGENT}" = "unknown" ]; then
     warn "Could not auto-detect agent."
-    info "Re-run with --agent claude|cursor|codex, --all, or use: gh skill install Ubiquiti-UID/flow.cawplan-skill"
+    info "Re-run with --agent claude|cursor|codex, --all, or use: gh skill install Ubiquiti-UID/flow-cawplan-skill"
     exit 1
   fi
   AGENTS=("${AGENT}")
@@ -256,7 +256,7 @@ Next: cawplan auth login  (if not done)
       cawplan products list --search "UniFi Access"
 
 Alternative install (skills only, no CLI):
-  gh skill install Ubiquiti-UID/flow.cawplan-skill --agent <agent> --scope user
+  gh skill install Ubiquiti-UID/flow-cawplan-skill --agent <agent> --scope user
 EOF
 else
   exit 1

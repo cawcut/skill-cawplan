@@ -9,7 +9,7 @@
   },
   "publisher": "UbiquitiUID",
   "homepage": "https://www.cawplan.com/",
-  "repository": "https://github.com/Ubiquiti-UID/flow.cawplan-skill",
+  "repository": "https://github.com/Ubiquiti-UID/flow-cawplan-skill",
   "license": "MIT",
   "category": "productivity",
   "keywords": [

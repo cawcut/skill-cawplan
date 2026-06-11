@@ -22,8 +22,8 @@ npm install -g cawplan
 Clones the repo and symlinks skills into your agent config directory. It can also check whether `cawplan` is installed and whether auth is ready.
 
 ```bash
-git clone git@github.com:Ubiquiti-UID/flow.cawplan-skill.git
-cd flow.cawplan-skill
+git clone git@github.com:Ubiquiti-UID/flow-cawplan-skill.git
+cd flow-cawplan-skill
 ./setup
 ```
 
@@ -53,7 +53,7 @@ Install into every existing agent directory:
 Cross-agent skill install is planned but not ready yet.
 
 ```bash
-npx skills add Ubiquiti-UID/flow.cawplan-skill
+npx skills add Ubiquiti-UID/flow-cawplan-skill
 ```
 
 When this is enabled, it will still require CLI install and auth:
@@ -68,8 +68,8 @@ cawplan auth login
 GitHub skill install support is planned but not verified yet. This path would install skills only; it would not install the CLI or run auth.
 
 ```bash
-gh skill install Ubiquiti-UID/flow.cawplan-skill
-gh skill install Ubiquiti-UID/flow.cawplan-skill --agent cursor --scope user
+gh skill install Ubiquiti-UID/flow-cawplan-skill
+gh skill install Ubiquiti-UID/flow-cawplan-skill --agent cursor --scope user
 gh skill install ./path/to/skill --from-local --agent cursor --scope user --force
 ```
 
@@ -79,7 +79,7 @@ gh skill install ./path/to/skill --from-local --agent cursor --scope user --forc
 | Skill install | installer-managed | symlink to repo | copy into agent dir |
 | CLI | not installed | optional `npm install -g cawplan` | not installed |
 | Auth check | none | optional | none |
-| Update | rerun `npx skills add Ubiquiti-UID/flow.cawplan-skill` | `git pull && ./setup` | `gh skill update Ubiquiti-UID/flow.cawplan-skill` |
+| Update | rerun `npx skills add Ubiquiti-UID/flow-cawplan-skill` | `git pull && ./setup` | `gh skill update Ubiquiti-UID/flow-cawplan-skill` |
 
 ## After Install
 

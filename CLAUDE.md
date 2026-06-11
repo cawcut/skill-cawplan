@@ -14,7 +14,7 @@ Skills are not an MCP server. Agents execute local `cawplan` processes; skill fi
 ## Repository Structure
 
 ```text
-flow.cawplan-skill/
+flow-cawplan-skill/
 ├── README.md
 ├── INSTALL.md
 ├── CONTRIBUTING.md
