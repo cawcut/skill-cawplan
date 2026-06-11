@@ -1,0 +1,52 @@
+{
+  "name": "cawplan",
+  "owner": {
+    "name": "Ubiquiti",
+    "url": "https://www.cawplan.com/"
+  },
+  "plugins": [
+    {
+      "name": "cawplan",
+      "source": "./",
+      "description": "CawPlan CLI-backed skills for product release management workflows.",
+      "version": "0.1.0",
+      "skills": [
+        {
+          "name": "query",
+          "path": "skills/cawplan-query",
+          "invoke": "/cawplan-query"
+        },
+        {
+          "name": "ticket",
+          "path": "skills/cawplan-ticket",
+          "invoke": "/cawplan-ticket"
+        },
+        {
+          "name": "my-todos",
+          "path": "skills/cawplan-my-todos",
+          "invoke": "/cawplan-todos"
+        },
+        {
+          "name": "user-activity",
+          "path": "skills/cawplan-user-activity",
+          "invoke": "/cawplan-user-activity"
+        },
+        {
+          "name": "product-activity",
+          "path": "skills/cawplan-product-activity",
+          "invoke": "/cawplan-product-activity"
+        },
+        {
+          "name": "critical",
+          "path": "skills/cawplan-critical",
+          "invoke": "/cawplan-critical"
+        },
+        {
+          "name": "metrics",
+          "path": "skills/cawplan-metrics",
+          "invoke": "/cawplan-metrics"
+        }
+      ]
+    }
+  ]
+}

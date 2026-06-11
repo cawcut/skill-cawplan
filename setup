@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+# flow.cawplan-skill setup — install skills for Claude Code, Cursor, Codex, etc.
+# Idempotent: safe to run multiple times.
+set -euo pipefail
+
+if [ -t 1 ] && command -v tput &>/dev/null && [ "$(tput colors 2>/dev/null || echo 0)" -ge 8 ]; then
+  GREEN=$(tput setaf 2) YELLOW=$(tput setaf 3) RED=$(tput setaf 1) BOLD=$(tput bold) RESET=$(tput sgr0)
+else
+  GREEN="" YELLOW="" RED="" BOLD="" RESET=""
+fi
+
+ok() { echo "${GREEN}✓${RESET} $1"; }
+warn() { echo "${YELLOW}!${RESET} $1"; }
+err() { echo "${RED}✗${RESET} $1"; }
+info() { echo "${BOLD}→${RESET} $1"; }
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "${ROOT}/VERSION" ] || [ ! -d "${ROOT}/skills/cawplan-query" ]; then
+  err "Cannot find VERSION or skills/cawplan-query/ — run this script from the flow.cawplan-skill repo root."
+  exit 1
+fi
+
+VERSION="$(tr -d '[:space:]' < "${ROOT}/VERSION")"
+echo
+echo "${BOLD}CawPlan Skills setup — v${VERSION}${RESET}"
+echo
+
+AGENT_OVERRIDE=""
+SKIP_CLI=0
+SKIP_AUTH=0
+INSTALL_ALL=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --agent)
+      shift
+      [ $# -eq 0 ] && { err "--agent requires a value: claude | cursor | codex"; exit 1; }
+      AGENT_OVERRIDE="$1"
+      shift
+      ;;
+    --agent=*)
+      AGENT_OVERRIDE="${1#--agent=}"
+      shift
+      ;;
+    --skip-cli) SKIP_CLI=1; shift ;;
+    --skip-auth) SKIP_AUTH=1; shift ;;
+    --all) INSTALL_ALL=1; shift ;;
+    --help|-h)
+      cat <<'EOF'
+Usage: ./setup [options]
+
+  --agent <name>  Force install path for: claude, cursor, codex
+                  (auto-detected if omitted)
+  --all           Install into all existing agent skill directories
+  --skip-cli      Skip 'npm install -g cawplan' (assumes CLI on PATH)
+  --skip-auth     Skip 'cawplan auth status' check
+  --help          Show this message
+
+Idempotent: safe to run multiple times.
+
+Unlike `gh skill install`, this script symlinks skills and can install/check the CLI.
+EOF
+      exit 0
+      ;;
+    cursor|claude|codex)
+      AGENT_OVERRIDE="$1"
+      shift
+      ;;
+    all)
+      INSTALL_ALL=1
+      shift
+      ;;
+    *)
+      warn "Unknown flag: $1"
+      shift
+      ;;
+  esac
+done
+
+detect_agent() {
+  if [ -n "${AGENT_OVERRIDE}" ]; then
+    echo "${AGENT_OVERRIDE}"
+    return
+  fi
+  if [ -d "${HOME}/.claude" ]; then echo "claude"; return; fi
+  if [ -d "${HOME}/.cursor" ]; then echo "cursor"; return; fi
+  if [ -d "${HOME}/.codex" ]; then echo "codex"; return; fi
+  echo "unknown"
+}
+
+target_for_agent() {
+  case "$1" in
+    claude) echo "${HOME}/.claude/skills" ;;
+    cursor) echo "${HOME}/.cursor/skills" ;;
+    codex) echo "${HOME}/.codex/skills" ;;
+    *) return 1 ;;
+  esac
+}
+
+detect_all_agents() {
+  local agents=()
+  [ -d "${HOME}/.claude" ] && agents+=("claude")
+  [ -d "${HOME}/.cursor" ] && agents+=("cursor")
+  [ -d "${HOME}/.codex" ] && agents+=("codex")
+  printf '%s\n' "${agents[@]}"
+}
+
+SKILLS=(
+  cawplan-query
+  cawplan-ticket
+  cawplan-my-todos
+  cawplan-user-activity
+  cawplan-product-activity
+  cawplan-critical
+  cawplan-metrics
+)
+
+LEGACY_SKILLS=(
+  cawplan-user-report
+  cawplan-product-report
+)
+
+if [ "${SKIP_CLI}" -eq 0 ]; then
+  if command -v cawplan &>/dev/null; then
+    ok "cawplan CLI already on PATH"
+  else
+    info "Installing cawplan CLI globally via npm..."
+    if npm install -g cawplan; then
+      ok "cawplan CLI installed"
+    else
+      err "cawplan CLI install failed. Try: npm install -g cawplan"
+      exit 1
+    fi
+  fi
+else
+  warn "Skipping cawplan CLI install (--skip-cli)"
+fi
+echo
+
+if [ "${SKIP_AUTH}" -eq 0 ]; then
+  if command -v cawplan &>/dev/null && cawplan auth status &>/dev/null; then
+    ok "Authenticated (cawplan auth status)"
+  else
+    warn "Not authenticated or cawplan not available."
+    info "Run: cawplan auth login"
+    info "For CI/headless use: cawplan auth configure"
+    info "Then re-run this script (or pass --skip-auth)."
+    exit 1
+  fi
+else
+  warn "Skipping auth check (--skip-auth)"
+fi
+echo
+
+install_for_agent() {
+  local agent="$1"
+  local target_dir legacy_dst legacy_target src dst
+  target_dir="$(target_for_agent "${agent}")" || {
+    err "Unknown agent: ${agent}"
+    return 1
+  }
+
+  ok "Target agent: ${agent}"
+  ok "Target install path: ${target_dir}/"
+  mkdir -p "${target_dir}"
+
+  for legacy_skill in "${LEGACY_SKILLS[@]}"; do
+    legacy_dst="${target_dir}/${legacy_skill}"
+    if [ -L "${legacy_dst}" ]; then
+      legacy_target="$(readlink "${legacy_dst}")"
+      if [ "${legacy_target}" = "${ROOT}/skills/${legacy_skill}" ]; then
+        rm "${legacy_dst}"
+        ok "${legacy_skill} legacy symlink removed"
+      fi
+    elif [ -e "${legacy_dst}" ]; then
+      warn "${legacy_dst} exists but is not a managed symlink — leaving alone."
+    fi
+  done
+
+  for skill in "${SKILLS[@]}"; do
+    src="${ROOT}/skills/${skill}"
+    dst="${target_dir}/${skill}"
+    if [ ! -d "${src}" ]; then
+      err "Source missing: ${src}"
+      continue
+    fi
+    if [ -L "${dst}" ]; then
+      if [ "$(readlink "${dst}")" = "${src}" ]; then
+        ok "${skill} already symlinked"
+      else
+        info "${skill}: replacing stale symlink"
+        rm "${dst}"
+      if ln -s "${src}" "${dst}"; then
+        ok "${skill} symlinked"
+      else
+        err "${skill}: failed to create symlink at ${dst}"
+      fi
+      fi
+    elif [ -e "${dst}" ]; then
+      warn "${dst} exists but is not a symlink to ${src} — leaving alone."
+    else
+      if ln -s "${src}" "${dst}"; then
+        ok "${skill} symlinked"
+      else
+        err "${skill}: failed to create symlink at ${dst}"
+      fi
+    fi
+  done
+  echo
+
+  info "Verifying ${agent} install..."
+  local verify_fail=0
+  for skill in "${SKILLS[@]}"; do
+    if [ -f "${target_dir}/${skill}/SKILL.md" ]; then
+      ok "${skill} present"
+    else
+      err "${skill} missing at ${target_dir}/${skill}/SKILL.md"
+      verify_fail=1
+    fi
+  done
+  echo
+  return "${verify_fail}"
+}
+
+if [ "${INSTALL_ALL}" -eq 1 ]; then
+  AGENTS=()
+  while IFS= read -r detected_agent; do
+    [ -n "${detected_agent}" ] && AGENTS+=("${detected_agent}")
+  done < <(detect_all_agents)
+  if [ "${#AGENTS[@]}" -eq 0 ]; then
+    warn "Could not find any agent directories under ~/.claude, ~/.cursor, or ~/.codex."
+    info "Re-run with --agent claude|cursor|codex to create a target explicitly."
+    exit 1
+  fi
+else
+  AGENT="$(detect_agent)"
+  if [ "${AGENT}" = "unknown" ]; then
+    warn "Could not auto-detect agent."
+    info "Re-run with --agent claude|cursor|codex, --all, or use: gh skill install Ubiquiti-UID/flow.cawplan-skill"
+    exit 1
+  fi
+  AGENTS=("${AGENT}")
+fi
+
+overall_fail=0
+for agent in "${AGENTS[@]}"; do
+  install_for_agent "${agent}" || overall_fail=1
+done
+
+if [ "${overall_fail}" -eq 0 ]; then
+  cat <<EOF
+${GREEN}Setup complete.${RESET}
+
+Skills installed for: ${AGENTS[*]}
+Next: cawplan auth login  (if not done)
+      cawplan products list --search "UniFi Access"
+
+Alternative install (skills only, no CLI):
+  gh skill install Ubiquiti-UID/flow.cawplan-skill --agent <agent> --scope user
+EOF
+else
+  exit 1
+fi

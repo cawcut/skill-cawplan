@@ -1,15 +1,15 @@
-# PRM Activity API
+# CawPlan Activity API
 
 ## Query Activities
-- Endpoint: `POST /core-product/api/v1/public/openapi/activities/query`
+- Endpoint: `POST /api/v1/public/openapi/activities/query`
 - Query params:
-  - `page_num` (int, default 1)
-  - `page_size` (int, default 20, max 100)
-  - `time_range` (string, e.g. `1d`, `1w`, `1m`, `3m`, `6m`, `1y`; default 7 days)
+    - `page_num` (int, default 1)
+    - `page_size` (int, default 20, max 100)
+    - `time_range` (string, e.g. `1d`, `1w`, `1m`, `3m`, `6m`, `1y`; default 7 days)
 - Body:
-  - `user_id` (string, optional) actor `unique_id`
-  - `product_id` (string, optional)
-  - `activity_types` (array, optional): `RELEASE`, `ISSUE`, `TICKET`, `VERSION`, `PRODUCT`, `USER`
+    - `user_id` (string, optional) actor `unique_id`
+    - `product_id` (string, optional)
+    - `activity_types` (array, optional): `RELEASE`, `ISSUE`, `TICKET`, `VERSION`, `PRODUCT`, `USER`
 
 ## Response Fields (selected)
 - `unique_id`
