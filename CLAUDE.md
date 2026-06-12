@@ -4,7 +4,7 @@ Guidance for Claude Code and compatible agents when working in this repository.
 
 ## What This Is
 
-This repo ships two deliverables:
+Two deliverables:
 
 1. `cawplan` CLI: TypeScript/npm binary for OAuth, API-key auth, and CawPlan Open API commands.
 2. Agent skills: Markdown instruction packs under `skills/` that tell agents how to invoke the CLI.
@@ -15,21 +15,9 @@ Skills are not an MCP server. Agents execute local `cawplan` processes; skill fi
 
 ```text
 flow-cawplan-skill/
-├── README.md
-├── INSTALL.md
-├── CONTRIBUTING.md
-├── VERSION
-├── setup
-├── scripts/validate-skills.sh
-├── cli/
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── config/products.json
-│   ├── src/
-│   │   ├── index.ts
-│   │   ├── commands/
-│   │   └── lib/
-│   └── tests/
+├── cli/                      # npm package — the cawplan binary
+│   ├── src/commands/
+│   └── src/lib/
 ├── skills/
 │   ├── cawplan-query/
 │   ├── cawplan-ticket/
@@ -37,7 +25,9 @@ flow-cawplan-skill/
 │   ├── cawplan-user-activity/
 │   ├── cawplan-product-activity/
 │   ├── cawplan-critical/
-│   └── cawplan-metrics/
+│   ├── cawplan-metrics/
+│   ├── cawplan-analytics/
+│   └── cawplan-qa-report/
 ├── .claude-plugin/
 ├── .cursor-plugin/
 └── .codex-plugin/
@@ -45,28 +35,22 @@ flow-cawplan-skill/
 
 ## API Conventions
 
-All skills route through `cawplan`. Do not call CawPlan HTTP APIs directly with `curl` from skills unless debugging; the CLI handles OAuth, refresh, API-key fallback, and readable errors.
+All skills route through `cawplan`. Do not call CawPlan HTTP APIs directly from skills; the CLI handles OAuth, refresh, API-key fallback, and errors.
 
 | Concern | Convention |
 |---------|------------|
-| Auth | `cawplan auth login` or `cawplan auth configure` |
+| Auth | `cawplan auth login` (OAuth) or `cawplan auth configure` (API key) |
 | Credentials | `~/.cawplan/credentials.json`, mode `0600` |
-| Environment | `CAWPLAN_ENV=prd|proto`; overrides via `CAWPLAN_BASE_URL` and `CAWPLAN_PORTAL_URL` |
+| Environment | `CAWPLAN_ENV=prd|proto`; overrides via `CAWPLAN_BASE_URL` / `CAWPLAN_PORTAL_URL` |
 | Raw escape hatch | `cawplan api <method> <path>` |
 
-## Development Commands
+## Development
 
 ```bash
 npm install
 npm run build
 npm test
 npm run validate:skills
-```
-
-Use a test credentials path when running CLI tests that write credentials:
-
-```bash
-export CAWPLAN_CREDENTIALS_PATH=/tmp/cawplan-test-credentials.json
 ```
 
 ## Skill Authoring Rules

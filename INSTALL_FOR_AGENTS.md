@@ -1,59 +1,20 @@
-# Install CawPlan Skills For Agents
+# Install CawPlan Skills (Agent Guide)
 
-Use this guide when a user asks an AI agent to install CawPlan skills.
+When a user asks an AI agent to install CawPlan skills, follow `INSTALL.md`.
 
-## Goal
-
-Install the Markdown skills, ensure the `cawplan` CLI is available, authenticate, and run a smoke test.
-
-## Install CLI For Local Development
-
-When working from this repository, install the local CLI workspace before testing skills:
+Quick path:
 
 ```bash
-npm install
-npm run build
-npm link --workspace=cli
-cawplan --help
-```
-
-## Preferred Path
-
-Use the repository setup script. Do not use `npx skills add` or `gh skill install` yet; both are TODO.
-
-```bash
-./setup --all
+npm install -g cawplan
+npx skills add Ubiquiti-UID/flow-cawplan-skill --all -y
+cawplan auth login
 cawplan auth status
-cawplan products list --search "UniFi Access"
 ```
 
-If the CLI and auth are already ready:
-
-```bash
-./setup --all --skip-cli --skip-auth
-```
-
-Install for one agent only:
-
-```bash
-./setup --agent cursor --skip-cli --skip-auth
-./setup --agent claude --skip-cli --skip-auth
-./setup --agent codex --skip-cli --skip-auth
-```
-
-## Verify Skills
-
-After installation, ask the target agent to run one of these prompts:
+Smoke test after install:
 
 ```text
-/cawplan-query products list --search "UniFi Access"
-/cawplan-product-activity show UniFi Access activity for last week
-/cawplan-user-activity --email user@ui.com --start 2026-06-01 --end 2026-06-10
+/cawplan-query find product information for "UniFi Access"
 ```
 
-## Troubleshooting
-
-- If `cawplan` is missing in local development, run `npm run build && npm link --workspace=cli`.
-- After the npm package is published, users can install it with `npm install -g cawplan`.
-- If auth is missing, run `cawplan auth login` or `cawplan auth configure`.
-- If product/activity calls hit the wrong environment, set `CAWPLAN_ENV=proto` or override `CAWPLAN_BASE_URL`.
+If auth is not needed (CI/headless): `cawplan auth configure` instead of `cawplan auth login`.
