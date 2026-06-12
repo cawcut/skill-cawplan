@@ -143,6 +143,27 @@ export function registerTicketsCommand(program: Command): void {
     });
 
   tickets
+    .command("batch-create <product_id>")
+    .description("Batch-create tickets under a product")
+    .requiredOption("--tickets <json>", "JSON array of ticket objects")
+    .action(async (productId: string, opts) => {
+      let tickets: unknown[];
+      try {
+        tickets = JSON.parse(opts.tickets);
+        if (!Array.isArray(tickets)) throw new Error("must be an array");
+      } catch (e) {
+        console.error(`Error: --tickets must be a valid JSON array: ${(e as Error).message}`);
+        process.exit(1);
+      }
+      const result = await cawplanRequest({
+        method: "POST",
+        path: `/api/v1/public/openapi/product/${productId}/tickets/batch`,
+        body: { tickets },
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  tickets
     .command("create <product_id>")
     .description("Create a ticket")
     .requiredOption("--description <text>", "Ticket description")

@@ -45,6 +45,16 @@
           "name": "metrics",
           "path": "skills/cawplan-metrics",
           "invoke": "/cawplan-metrics"
+        },
+        {
+          "name": "analytics",
+          "path": "skills/cawplan-analytics",
+          "invoke": "/cawplan-analytics"
+        },
+        {
+          "name": "qa-report",
+          "path": "skills/cawplan-qa-report",
+          "invoke": "/cawplan-qa-report"
         }
       ]
     }

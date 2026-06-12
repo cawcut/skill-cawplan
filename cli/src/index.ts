@@ -14,6 +14,9 @@ import {registerActivitiesCommand} from "./commands/activities.js";
 import {registerUserActivityCommand} from "./commands/user-activity.js";
 import {registerProductActivityCommand} from "./commands/product-activity.js";
 import {registerKnowledgeCommand} from "./commands/knowledge.js";
+import {registerAnalyticsCommand} from "./commands/analytics.js";
+import {registerQAReportsCommand} from "./commands/qa-reports.js";
+import {registerCommunityCommand} from "./commands/community.js";
 
 const require = createRequire(import.meta.url);
 const {version} = require("../package.json") as { version: string };
@@ -38,6 +41,9 @@ registerActivitiesCommand(program);
 registerUserActivityCommand(program);
 registerProductActivityCommand(program);
 registerKnowledgeCommand(program);
+registerAnalyticsCommand(program);
+registerQAReportsCommand(program);
+registerCommunityCommand(program);
 
 // Raw API passthrough
 program

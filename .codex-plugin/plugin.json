@@ -46,6 +46,14 @@
     {
       "name": "cawplan-metrics",
       "path": "skills/cawplan-metrics"
+    },
+    {
+      "name": "cawplan-analytics",
+      "path": "skills/cawplan-analytics"
+    },
+    {
+      "name": "cawplan-qa-report",
+      "path": "skills/cawplan-qa-report"
     }
   ]
 }
