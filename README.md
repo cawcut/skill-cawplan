@@ -123,9 +123,9 @@ Versioning note:
 
 | What you want | Skill | Example |
 |---------------|-------|---------|
-| Find product information | `cawplan-query` | `/cawplan-query 查询名称为 "UniFi Access" 的 product 信息` |
-| See product activity last week | `cawplan-product-activity` | `/cawplan-product-activity 查询 UniFi Access 上个星期的 activity` |
-| Summarize a user's work | `cawplan-user-activity` | `/cawplan-user-activity 查询 user@ui.com 过去两周做了什么` |
+| Find product information | `cawplan-query` | `/cawplan-query find product information for "UniFi Access"` |
+| See product activity last week | `cawplan-product-activity` | `/cawplan-product-activity show UniFi Access activity for last week` |
+| Summarize a user's work | `cawplan-user-activity` | `/cawplan-user-activity summarize what user@ui.com did in the past two weeks` |
 | Create or update tickets | `cawplan-ticket` | `/cawplan-ticket create a backlog ticket for UniFi Access: investigate door schedule issue` |
 | Find critical issues | `cawplan-critical` | `/cawplan-critical search critical issues for UniFi Access in the last month` |
 | Check metrics | `cawplan-metrics` | `/cawplan-metrics show UniFi Access metrics for the last month` |
@@ -144,7 +144,7 @@ After installing the skills, use slash-style prompts in Claude/Cursor/Codex. The
 
 ```text
 /cawplan-query products list --search "UniFi Access"
-/cawplan-query 查询名称为“UniFi Access”的 product 信息
+/cawplan-query find product information for “UniFi Access”
 /cawplan-ticket create a backlog ticket for UniFi Access: investigate door schedule issue
 ```
 

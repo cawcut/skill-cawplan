@@ -7,7 +7,7 @@ Task-oriented examples for CawPlan agent skills.
 Use when the user asks for product details, IDs, product line, owners, current versions, or links.
 
 ```text
-/cawplan-query 查询名称为 "UniFi Access" 的 product 信息
+/cawplan-query find product information for "UniFi Access"
 ```
 
 Equivalent CLI shape:
@@ -21,13 +21,13 @@ cawplan products list --search "UniFi Access"
 Use when the user asks what changed for a product during a date range.
 
 ```text
-/cawplan-product-activity 查询 UniFi Access 上个星期的 activity
+/cawplan-product-activity show UniFi Access activity for last week
 ```
 
 Agent behavior:
 
 - Resolve product name to `product_id`.
-- Convert "上个星期" / "last week" to the previous complete calendar week.
+- Convert "last week" to the previous complete calendar week.
 - Call `cawplan product-activity get` with explicit `--start` and `--end`.
 
 Equivalent CLI shape:
@@ -41,7 +41,7 @@ cawplan product-activity get --product_id <product_id> --start YYYY-MM-DD --end 
 Use when the user scopes the activity to a version or release train.
 
 ```text
-/cawplan-product-activity 查询 UniFi Access 4.1.10 从 2026-06-01 到 2026-06-10 的 activity
+/cawplan-product-activity show UniFi Access 4.1.10 activity from 2026-06-01 to 2026-06-10
 ```
 
 Equivalent CLI shape:
@@ -56,7 +56,7 @@ cawplan product-activity get --product_id <product_id> --version_id <version_id>
 Use when the user asks what a person has been doing.
 
 ```text
-/cawplan-user-activity 查询 user@ui.com 过去两周做了什么
+/cawplan-user-activity summarize what user@ui.com did in the past two weeks
 ```
 
 Equivalent CLI shape:

@@ -47,7 +47,7 @@ After installation, ask the target agent to run one of these prompts:
 
 ```text
 /cawplan-query products list --search "UniFi Access"
-/cawplan-product-activity 查询 UniFi Access 上个星期的 activity
+/cawplan-product-activity show UniFi Access activity for last week
 /cawplan-user-activity --email user@ui.com --start 2026-06-01 --end 2026-06-10
 ```
 
