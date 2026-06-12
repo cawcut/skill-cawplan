@@ -24,11 +24,16 @@ For CI or headless use, suggest `cawplan auth configure` instead of browser logi
 
 ## Common Commands
 
-Create a version or backlog ticket:
+Create a version ticket (scoped to a specific version):
 
 ```bash
-cawplan tickets create <product_id> --version_id <version_id> --description "<html or text>" --type FEATURE --priority MEDIUM
-cawplan tickets create <product_id> --backlog --description "<html or text>" --type FEATURE --priority MEDIUM
+cawplan tickets create-version <product_id> <version_id> --description "<html or text>" --type FEATURE --priority MEDIUM
+```
+
+Create a backlog ticket (not assigned to any version):
+
+```bash
+cawplan tickets create-backlog <product_id> --description "<html or text>" --type FEATURE --priority MEDIUM
 ```
 
 Search or poll tickets:
@@ -64,6 +69,17 @@ cawplan tickets relate delete <product_id> <version_id> <ticket_id> <relation_id
 
 - Resolve product/version IDs before creating version-scoped tickets.
 - Require an exact version match before creating a version ticket. Do not auto-expand major versions or choose a minor version for the user.
+- Use `create-version` for tickets scoped to a version; use `create-backlog` for tickets not yet assigned to any version.
+- If the user did not specify a version, use `create-backlog` and explicitly tell the user: "This ticket was created as a backlog item and is not assigned to any version."
+- When the user does not specify a reporter:
+  - **OAuth**: resolve the current user's ID and pass it automatically:
+    ```bash
+    cawplan auth status                        # get your email
+    cawplan users query --email <your-email>   # get your unique_id
+    # pass --reporter_id <unique_id>
+    ```
+  - **API Key**: omit `--reporter_id`; the backend fills it from the API key owner.
+- Only override `reporter_id` when the user explicitly asks to create on behalf of someone else.
 - Parse assignees from email, username, or name when provided; resolve them with `cawplan users query` before sending `assignee_ids`.
 - Status keys are product-line specific. Use `cawplan product-lines statuses <product_line_id>` when unsure.
 - For append-like comments, read current detail first and merge into `progress_comment`; the field is overwritten by update.

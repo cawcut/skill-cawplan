@@ -164,11 +164,44 @@ export function registerTicketsCommand(program: Command): void {
     });
 
   tickets
-    .command("create <product_id>")
-    .description("Create a ticket")
+    .command("create-version <product_id> <version_id>")
+    .description("Create a version ticket")
     .requiredOption("--description <text>", "Ticket description")
-    .option("--version_id <id>", "Version ID")
-    .option("--backlog", "Create as backlog ticket")
+    .option("--type <type>", "Ticket type: FEATURE|BUGFIX")
+    .option("--priority <p>", "Priority: LOW|MEDIUM|HIGH|CRITICAL")
+    .option("--status <key>", "Status key")
+    .option("--assignees <csv>", "Assignee IDs (CSV)")
+    .option("--parent_id <id>", "Parent ticket ID")
+    .option("--label_ids <csv>", "Label IDs (CSV)")
+    .option("--reporter_id <id>", "Reporter user ID")
+    .option("--due_date <date>", "Due date YYYY-MM-DD")
+    .option("--comment <text>", "Comment")
+    .action(async (productId: string, versionId: string, opts) => {
+      const body: Record<string, unknown> = { description: opts.description };
+      if (opts.type) body.type = opts.type;
+      if (opts.priority) body.priority = opts.priority;
+      if (opts.status) body.status = opts.status;
+      if (opts.parent_id) body.parent_id = opts.parent_id;
+      if (opts.reporter_id) body.reporter_id = opts.reporter_id;
+      if (opts.due_date) body.due_date = opts.due_date;
+      if (opts.comment) body.comment = opts.comment;
+      const assignees = csvToArray(opts.assignees);
+      if (assignees) body.assignee_ids = assignees;
+      const labelIds = csvToArray(opts.label_ids);
+      if (labelIds) body.label_ids = labelIds;
+
+      const result = await cawplanRequest({
+        method: "POST",
+        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets`,
+        body,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  tickets
+    .command("create-backlog <product_id>")
+    .description("Create a backlog ticket (not assigned to any version)")
+    .requiredOption("--description <text>", "Ticket description")
     .option("--type <type>", "Ticket type: FEATURE|BUGFIX")
     .option("--priority <p>", "Priority: LOW|MEDIUM|HIGH|CRITICAL")
     .option("--status <key>", "Status key")
@@ -179,16 +212,8 @@ export function registerTicketsCommand(program: Command): void {
     .option("--due_date <date>", "Due date YYYY-MM-DD")
     .option("--comment <text>", "Comment")
     .action(async (productId: string, opts) => {
-      let resolvedVersionId: string | undefined;
-      if (opts.backlog) {
-        resolvedVersionId = undefined;
-      } else if (opts.version_id) {
-        resolvedVersionId = opts.version_id;
-      }
-
       const body: Record<string, unknown> = { description: opts.description };
       if (opts.type) body.type = opts.type;
-      if (resolvedVersionId) body.version_id = resolvedVersionId;
       if (opts.priority) body.priority = opts.priority;
       if (opts.status) body.status = opts.status;
       if (opts.parent_id) body.parent_id = opts.parent_id;
