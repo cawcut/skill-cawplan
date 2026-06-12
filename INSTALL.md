@@ -48,19 +48,50 @@ Install into every existing agent directory:
 ./setup --all --skip-cli --skip-auth
 ```
 
-## TODO: `npx skills`
+## Install Agent Skills With `npx skills add` (Supported)
 
-Cross-agent skill install is planned but not ready yet.
+No git clone required. Uses the [open agent skills ecosystem](https://github.com/vercel-labs/skills).
 
 ```bash
 npx skills add Ubiquiti-UID/flow-cawplan-skill
 ```
 
-When this is enabled, it will still require CLI install and auth:
+**How it works:**
+`npx` downloads the `skills` CLI package from npm on first run (cached by npx for subsequent calls). `skills add` then `git clone`s this repo into a temporary directory, reads the `skills/` subdirectory, and symlinks (or copies with `--copy`) each skill into the target agent directory — for example `~/.claude/skills/cawplan-query/SKILL.md`. The temp clone is discarded after install. Running `npx skills update` repeats the same clone-and-install to pick up the latest commits.
+
+
+Common options:
+
+| Option | Effect |
+|--------|--------|
+| `-a, --agent <name>` | Target agent: `claude-code`, `cursor`, `codex` (auto-detected if omitted) |
+| `-g, --global` | Install to `~/<agent>/skills/` instead of `./<agent>/skills/` |
+| `-s, --skill <name>` | Install only the named skill (repeatable) |
+| `--all` | Install all skills to all detected agents, no prompts |
+| `-y, --yes` | Skip confirmation prompts |
+
+Install globally to Claude Code:
 
 ```bash
-npm install -g cawplan
-cawplan auth login
+npx skills add Ubiquiti-UID/flow-cawplan-skill -g -a claude-code -y
+```
+
+Install only selected skills:
+
+```bash
+npx skills add Ubiquiti-UID/flow-cawplan-skill --skill cawplan-query --skill cawplan-ticket -g
+```
+
+List available skills without installing:
+
+```bash
+npx skills add Ubiquiti-UID/flow-cawplan-skill --list
+```
+
+Update to the latest version:
+
+```bash
+npx skills update
 ```
 
 ## TODO: `gh skill install` (Skills Only)
@@ -75,11 +106,12 @@ gh skill install ./path/to/skill --from-local --agent cursor --scope user --forc
 
 | | `npx skills add` | `./setup` | `gh skill install` |
 |--|------------------|-----------|-------------------|
-| Status | TODO | supported | TODO |
-| Skill install | installer-managed | symlink to repo | copy into agent dir |
-| CLI | not installed | optional `npm install -g cawplan` | not installed |
-| Auth check | none | optional | none |
-| Update | rerun `npx skills add Ubiquiti-UID/flow-cawplan-skill` | `git pull && ./setup` | `gh skill update Ubiquiti-UID/flow-cawplan-skill` |
+| Status | **supported** | supported | TODO |
+| Requires git clone | no | yes | no |
+| Skill install | symlink or copy | symlink to repo | copy into agent dir |
+| CLI install | not installed | optional `npm install -g cawplan` | not installed |
+| Auth check | none | blocks unless `--skip-auth` | none |
+| Update | `npx skills update` | `git pull && ./setup` | `gh skill update Ubiquiti-UID/flow-cawplan-skill` |
 
 ## After Install
 
@@ -97,6 +129,7 @@ npm test
 npm run validate:skills
 npm run cli -- --help
 ./setup --all --skip-cli --skip-auth
+npx skills add . --list
 ```
 
 Use proto/dev:
