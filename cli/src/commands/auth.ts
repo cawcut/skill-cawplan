@@ -60,26 +60,38 @@ export function registerAuthCommand(program: Command): void {
       const defaultEnv = existingConfig?.env ?? getDefaultEnvName();
 
       console.log("Open https://www.cawplan.com/account/api to generate an API Key");
-      const env = await promptWithDefault(
-        `Environment (${envNames.join(" / ")})`,
-        defaultEnv,
-      );
-      if (!envNames.includes(env)) {
-        error(`Unknown environment '${env}'. Expected one of: ${envNames.join(", ")}`);
-        process.exit(1);
+      let env: string;
+      let baseUrl: string;
+      let portalUrl: string;
+
+      if (envNames.length === 1) {
+        env = envNames[0] ?? getDefaultEnvName();
+        const envConfig = getProductEnvConfig(env);
+        baseUrl = envConfig.apiBase;
+        portalUrl = envConfig.portalBase;
+      } else {
+        env = await promptWithDefault(
+          `Environment (${envNames.join(" / ")})`,
+          defaultEnv,
+        );
+        if (!envNames.includes(env)) {
+          error(`Unknown environment '${env}'. Expected one of: ${envNames.join(", ")}`);
+          process.exit(1);
+        }
+
+        const envConfig = getProductEnvConfig(env);
+        const useExistingUrls = existingConfig?.env === env;
+        const baseUrlDefault =
+          useExistingUrls && existingConfig?.baseUrl ? existingConfig.baseUrl : envConfig.apiBase;
+        const portalUrlDefault =
+          useExistingUrls && existingConfig?.portalUrl
+            ? existingConfig.portalUrl
+            : envConfig.portalBase;
+
+        baseUrl = await promptWithDefault("API base URL", baseUrlDefault);
+        portalUrl = await promptWithDefault("Portal URL", portalUrlDefault);
       }
 
-      const envConfig = getProductEnvConfig(env);
-      const useExistingUrls = existingConfig?.env === env;
-      const baseUrlDefault =
-        useExistingUrls && existingConfig?.baseUrl ? existingConfig.baseUrl : envConfig.apiBase;
-      const portalUrlDefault =
-        useExistingUrls && existingConfig?.portalUrl
-          ? existingConfig.portalUrl
-          : envConfig.portalBase;
-
-      const baseUrl = await promptWithDefault("API base URL", baseUrlDefault);
-      const portalUrl = await promptWithDefault("Portal URL", portalUrlDefault);
       const apiKey = await prompt("Paste your API Key: ");
       if (!apiKey) {
         error("API Key cannot be empty");
