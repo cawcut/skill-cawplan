@@ -54,7 +54,7 @@
 - Endpoint: `GET /api/v1/public/openapi/product_lines/{product_line_id}/ticket_statuses`
 - Response items: `key`, `display_name`, `color`, `category` (`UNSTARTED` / `STARTED` / `DONE` / ...), `is_default`, `order`
 - Notes: ticket `status` values are **per product line**. Build the adapter `stateMap` (Linear `IssueState` → PRM `key`) from this at init time. Maps to Linear `getWorkflowStates`.
-- Maps to skill-prm CLI: `cawplan product-lines statuses <product_line_id>`.
+- Maps to cawplan CLI: `cawplan product-lines statuses <product_line_id>`.
 
 ## 2.2) Label APIs
 ### List Labels (name → id resolution)
@@ -62,7 +62,7 @@
 - Query params: `search` (case-insensitive substring on name), `product_id` (scope to a product's visible labels; omit for workspace-wide), `page_size`, `page_num`
 - Response items: `unique_id`, `name`, `color`, `behavior` (`FEATURE` / `BUGFIX` / `null`), `is_system`, `product_id` (`null` = workspace-wide), `created_at`
 - Notes: read-only. Adapters that receive label **names** (e.g. Linear) build a `name → unique_id` cache from this, then pass `label_ids[]` to create/update. No label write API is exposed.
-- Maps to skill-prm CLI: `cawplan labels list`.
+- Maps to cawplan CLI: `cawplan labels list`.
 
 ## 3) Version APIs
 ### List Versions
@@ -79,7 +79,7 @@
     - `major_id` is **optional** — when omitted the server auto-resolves the major from `name`: a major-format name (e.g. `5.0`) anchors itself; a minor (e.g. `5.0.1`) looks up / creates the `5.0` major under the same product. Pass `major_id` only when you need to force a specific anchor. Discover IDs via `cawplan versions list <product_id>`.
     - Major versions cannot be marked `hotfix`; minor versions may.
     - API-key requests use the integration actor fallback. CLI Bearer requests use the authenticated user and RBAC scope.
-- Maps to skill-prm CLI: `cawplan versions create`.
+- Maps to cawplan CLI: `cawplan versions create`.
 
 ### Get Release History
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/release`
@@ -106,7 +106,7 @@
     - No `time_range` — this is the difference from `tickets/search`. Use it for daemon reconcile loops that must see all open tickets regardless of age.
     - Ordered by `updated_at desc`; pass `since_updated_at` for incremental polling.
     - Response items are lightweight: `unique_id`, `display_id`, `status`, `priority`, `type`, `version_id`, `product_id`, `product_line_id`, `parent_id`, `assignees`, `updated_at`, `is_backlog`. For full detail call Get Version Ticket.
-- Maps to skill-prm CLI: `cawplan tickets poll`.
+- Maps to cawplan CLI: `cawplan tickets poll`.
 
 ### Get Version Ticket
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}`
@@ -120,7 +120,7 @@
     - **`priority` and `status` are optional and defaulted server-side**: when omitted (or empty) the backend stores `priority = MEDIUM` and `status =` the product line's configured default status (or its first active status). An adapter that only carries a "todo" intent (Clawcode/Linear `createIssue`) can leave both unset and still get a well-formed ticket — no empty-string fields are persisted. A provided `status` is still validated against the product line.
     - When `parent_id` is set the new ticket becomes a sub-issue. Sub-issues must share the same `product_line` as the parent and the parent chain depth is capped at 5.
     - Activity is recorded with actor resolved from product owner / PM / first assignee (or `public-api-user` fallback).
-- Maps to skill-prm CLI: `cawplan tickets create`.
+- Maps to cawplan CLI: `cawplan tickets create`.
 
 ### Update Version Ticket (transition / progress / fields)
 - Endpoint: `PUT /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}`
@@ -131,7 +131,7 @@
     - Externally synced tickets (Jira) reject status / priority edits.
     - Response includes `version_promoted: true` when the version status was auto-bumped to INPROGRESS.
     - **Optimistic lock (optional)**: the response carries the current `version` (integer). To guard against lost updates when multiple writers touch `progress_comment`, read the ticket, then PUT with `version` set to the value you read. If it no longer matches, the server returns **409 CONFLICT** with the current version — re-read and retry. Omitting `version` (or `0`) keeps the legacy last-writer-wins behaviour.
-- Maps to skill-prm CLI: `cawplan tickets update` (`--expected_version N` to opt into the lock).
+- Maps to cawplan CLI: `cawplan tickets update` (`--expected_version N` to opt into the lock).
 
 ### Create / Get Product-Level (Backlog) Tickets
 - Endpoints:
@@ -145,7 +145,7 @@
     - `parent_id` is validated for product-line / product / version compatibility.
     - `priority`/`status` defaulting (MEDIUM + product-line default status) applies here too — for both the single and the `/batch` endpoint — so omitting them never persists empty fields.
 - This is the **canonical** create route for adapters (a single endpoint covers both backlog and version-level). The older `.../versions/{version_id}/tickets` route still works.
-- Maps to skill-prm CLI: `cawplan tickets create <product_id> [--version_id VID | --backlog]`, `cawplan backlog list/get`.
+- Maps to cawplan CLI: `cawplan tickets create <product_id> [--version_id VID | --backlog]`, `cawplan backlog list/get`.
 
 ## 4.1) Issue Relation APIs (Blocking / Blocked-by / Related / Duplicate)
 > PRM stores **one row per relation pair** with a perspective-aware `relation_type`; reading from the other ticket inverts the type automatically. Adapters MUST NOT create the inverse row themselves — call once from either side.
@@ -154,22 +154,22 @@
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/relations`
 - Returns `{ blocking[], blocked_by[], related[], duplicate[] }` from the perspective of `ticket_id`.
 - Each entry contains `relation_id` and a `ticket` summary (display_id, status, priority, version, product, assignees).
-- Maps to skill-prm CLI: `cawplan tickets relate list`.
+- Maps to cawplan CLI: `cawplan tickets relate list`.
 
 ### Create Issue Relation
 - Endpoint: `POST /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/relations`
 - Body: `target_ticket_id` (the *other* ticket's `unique_id`), `relation_type` (`RELATED` | `BLOCKING` | `BLOCKED_BY` | `DUPLICATE`)
 - Notes: only one relation may exist between two tickets (enforced by a `LEAST/GREATEST` unique index regardless of direction). Re-creating returns `relation already exists`; call `list` first if you need to overwrite.
-- Maps to skill-prm CLI: `cawplan tickets relate create`.
+- Maps to cawplan CLI: `cawplan tickets relate create`.
 
 ### Update Issue Relation Type
 - Endpoint: `PUT /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/relations/{relation_id}`
 - Body: `relation_type`
-- Maps to skill-prm CLI: `cawplan tickets relate update`.
+- Maps to cawplan CLI: `cawplan tickets relate update`.
 
 ### Delete Issue Relation
 - Endpoint: `DELETE /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/relations/{relation_id}`
-- Maps to skill-prm CLI: `cawplan tickets relate delete`.
+- Maps to cawplan CLI: `cawplan tickets relate delete`.
 
 ## 5) Critical Issue APIs
 ### List Critical Issues
