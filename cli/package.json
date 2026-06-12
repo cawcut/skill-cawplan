@@ -1,6 +1,6 @@
 {
-  "name": "@ubnt/cawplan",
-  "version": "1.0.0",
+  "name": "cawplan",
+  "version": "0.0.0",
   "description": "CawPlan CLI",
   "author": "Ubiquiti UID",
   "license": "MIT",
@@ -31,6 +31,8 @@
     "build": "tsc",
     "postbuild": "chmod +x dist/index.js",
     "prepublishOnly": "npm run build",
+    "prepack": "node scripts/pack-public-config.mjs prepack",
+    "postpack": "node scripts/pack-public-config.mjs postpack",
     "cli": "tsx src/index.ts",
     "test": "vitest run"
   },
