@@ -3,7 +3,7 @@
     "cawplan": {
       "displayName": "CawPlan",
       "cliName": "cawplan",
-      "oauthEndpoint": "cawplan-skill",
+      "oauthEndpoint": "cawplan-cli",
       "credentialsDir": ".cawplan",
       "defaultEnv": "prd",
       "env": {

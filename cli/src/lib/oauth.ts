@@ -74,6 +74,7 @@ export function waitForOAuthCallback(
                     : "Authentication successful.";
             res.statusCode = 200;
             res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.setHeader("Connection", "close");
             res.end(`${message} You can close this tab and return to the terminal.`);
             cleanup(server);
 
@@ -117,7 +118,7 @@ export function waitForOAuthCallback(
 export function buildConsentUrl(redirectUri: string, state: string): string {
     const portalBase = getPortalBase().replace(/\/$/, "");
     const params = new URLSearchParams({
-        client: "cawplan-skill",
+        client: "cawplan-cli",
         redirect_uri: redirectUri,
         state,
     });
