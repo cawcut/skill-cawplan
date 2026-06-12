@@ -24,7 +24,7 @@ export function isAccessTokenExpired(
   credentials: Credentials,
   nowSeconds = Math.floor(Date.now() / 1000),
 ): boolean {
-  if (!credentials.expire) return true;
+  if (credentials.expire == null) return true;
   return credentials.expire <= nowSeconds;
 }
 

@@ -102,7 +102,6 @@ export function waitForOAuthCallback(
                 resolveCallback({error: OAUTH_TIMEOUT_ERROR});
             }, timeoutMs);
 
-            result.finally(() => cleanup(server));
             resolve({port: address.port, result});
         });
     });

@@ -4,7 +4,7 @@ name: cawplan-metrics
 description: |
   Query CawPlan product metrics such as installations, crash rate, offline rate, and update success rate through the cawplan CLI.
   Use when: the user asks for product metrics, install base, adoption, reliability trends, crash/offline rates, or update success over time.
-  NOT for: tickets, critical issue workflows, user activity reports, todos, or release notes.
+  NOT for: tickets, critical issue workflows, user activity reports, todos, release notes, or AI-categorized feedback analytics (use cawplan-analytics for feedback breakdowns).
 argument-hint: "[product id or name] [time range]"
 allowed-tools: Bash
 ---
@@ -36,6 +36,12 @@ For CI or headless use, suggest `cawplan auth configure` instead of browser logi
    ```bash
    cawplan metrics get <product_id> --start YYYY-MM-DD --end YYYY-MM-DD
    ```
+
+## Decision Guide
+
+- Crash rate, install base, offline rate, update success: use `cawplan metrics get` (this skill).
+- AI-categorized user feedback, feedback themes, community feedback breakdown: use `/cawplan-analytics` instead.
+- QA test results (SQA/AQA/stress/performance/smoke): use `/cawplan-qa-report` instead.
 
 ## Output
 

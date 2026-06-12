@@ -67,9 +67,9 @@ export function registerUsersCommand(program: Command): void {
         body.email = opts.email;
       } else if (opts.keyword) {
         body.keyword = opts.keyword;
-        if (opts.page_num) body.page_num = opts.page_num;
-        if (opts.page_size) body.page_size = opts.page_size;
       }
+      if (opts.page_num) body.page_num = opts.page_num;
+      if (opts.page_size) body.page_size = opts.page_size;
 
       const result = await cawplanRequest({
         method: "POST",

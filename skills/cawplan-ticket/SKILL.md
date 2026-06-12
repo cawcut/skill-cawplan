@@ -54,6 +54,12 @@ cawplan tickets relate update <product_id> <version_id> <ticket_id> <relation_id
 cawplan tickets relate delete <product_id> <version_id> <ticket_id> <relation_id>
 ```
 
+## Decision Guide
+
+- Creating, updating, searching, polling tickets: use this skill.
+- Critical issues (blockers, incidents): use `/cawplan-critical` instead.
+- AI feedback analytics or QA test reports: use `/cawplan-analytics` or `/cawplan-qa-report` instead.
+
 ## Rules
 
 - Resolve product/version IDs before creating version-scoped tickets.

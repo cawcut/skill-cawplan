@@ -52,10 +52,12 @@ For CI or headless use, suggest `cawplan auth configure` instead of browser logi
 
 - Products/product lines: use `cawplan products list`, `cawplan product-lines list`, or `cawplan product-lines get`.
 - Versions/release history: resolve `product_id`, then use `cawplan versions list` and `cawplan releases list`.
-- Version tickets: resolve `product_id` and exact `version_id`, then use `cawplan tickets list --type FEATURE` and `--type BUGFIX`; fetch extra pages when totals exceed the page size.
+- Version tickets: resolve `product_id` and exact `version_id`, then run two separate calls — `cawplan tickets list --type FEATURE` and `cawplan tickets list --type BUGFIX` — and merge the results. Do not combine `--type` in a single invocation; only the last value is used.
 - Ticket search: use `cawplan tickets search --search "<keyword>"`.
 - Critical issues: use `/cawplan-critical` when the user intent is centered on critical issue workflows.
-- Product metrics: use `/cawplan-metrics` for install/crash/offline metrics.
+- Product metrics (crash/install/offline/update rates): use `/cawplan-metrics`.
+- AI-categorized feedback analytics: use `/cawplan-analytics` when the user asks what users are saying, feedback categories, or AI feedback breakdown.
+- QA reports (SQA/AQA/stress/smoke results): use `/cawplan-qa-report`.
 - User activity report: use `/cawplan-user-activity`.
 - Product activity report: use `/cawplan-product-activity`.
 - Knowledge search: use `cawplan knowledge search` when the user asks product or release-management documentation questions. Resolve `product_id` first when the question names a specific product.

@@ -30,16 +30,17 @@ List by product:
 cawplan critical list <product_id> --time_range 1m
 ```
 
-Search across products:
+Search across products (note: search uses `--start_date`/`--end_date`, not `--start`/`--end`):
 
 ```bash
 cawplan critical search --time_range 1m --product_ids <product_id> --status INVESTIGATING,IN_PROGRESS
+cawplan critical search --start_date 2025-01-01 --end_date 2025-03-01 --product_ids <product_id>
 ```
 
-List by product line:
+List by product line (primary command is `line`; `product-line` is an alias):
 
 ```bash
-cawplan critical product-line <product_line_id> --time_range 1m
+cawplan critical line <product_line_id> --time_range 1m
 ```
 
 Get detail:
@@ -53,6 +54,15 @@ cawplan critical get <product_id> <critical_issue_id>
 - Ask for or infer a time range; default to `1m` only when the user does not care.
 - Resolve product names to `product_id` before product-scoped calls.
 - For cross-product questions, prefer `critical search`.
+- `critical list` and `critical line` use `--start`/`--end`. `critical search` uses `--start_date`/`--end_date`. Do not mix them.
+
+## Decision Guide
+
+- Critical issues, blockers, incidents: use this skill.
+- BUGFIX or FEATURE version tickets: use `/cawplan-ticket` instead.
+- Crash/install/offline metrics: use `/cawplan-metrics` instead.
+- AI feedback analytics: use `/cawplan-analytics` instead.
+- User or product activity reports: use `/cawplan-user-activity` or `/cawplan-product-activity` instead.
 
 ## References
 

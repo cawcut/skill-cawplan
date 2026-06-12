@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
-import { buildQueryFromFlags, csvToArray } from "../lib/cache.js";
+import { buildQueryFromFlags } from "../lib/cache.js";
 
 export function registerCommunityCommand(program: Command): void {
   const community = program.command("community").description("Community data");
@@ -18,8 +18,7 @@ export function registerCommunityCommand(program: Command): void {
       if (opts.start) flags.start = opts.start;
       if (opts.end) flags.end = opts.end;
 
-      const channels = csvToArray(opts.channels);
-      if (channels) flags.channels = channels.join(",");
+      if (opts.channels) flags.channels = opts.channels;
 
       const query = buildQueryFromFlags(flags, ["time_range", "start", "end", "channels"]);
       const result = await cawplanRequest({
