@@ -15,8 +15,8 @@ err() { echo "${RED}✗${RESET} $1"; }
 info() { echo "${BOLD}→${RESET} $1"; }
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ ! -f "${ROOT}/VERSION" ] || [ ! -d "${ROOT}/skills/cawplan-query" ]; then
-  err "Cannot find VERSION or skills/cawplan-query/ — run this script from the flow-cawplan-skill repo root."
+if [ ! -f "${ROOT}/VERSION" ] || [ ! -d "${ROOT}/skills/cawplan-ticket-create" ]; then
+  err "Cannot find VERSION or skills/cawplan-ticket-create/ — run this script from the flow-cawplan-skill repo root."
   exit 1
 fi
 
@@ -106,6 +106,14 @@ detect_all_agents() {
 }
 
 SKILLS=(
+  cawplan-ticket-create
+  cawplan-product-report
+  cawplan-product-insights
+  cawplan-plan-create
+  cawplan-plan-track
+)
+
+LEGACY_SKILLS=(
   cawplan-query
   cawplan-ticket
   cawplan-my-todos
@@ -113,11 +121,9 @@ SKILLS=(
   cawplan-product-activity
   cawplan-critical
   cawplan-metrics
-)
-
-LEGACY_SKILLS=(
+  cawplan-analytics
+  cawplan-qa-report
   cawplan-user-report
-  cawplan-product-report
 )
 
 if [ "${SKIP_CLI}" -eq 0 ]; then
@@ -252,8 +258,9 @@ if [ "${overall_fail}" -eq 0 ]; then
 ${GREEN}Setup complete.${RESET}
 
 Skills installed for: ${AGENTS[*]}
-Next: cawplan auth login  (if not done)
+Next: cawplan auth login    (if not done)
       cawplan products list --search "UniFi Access"
+      /cawplan-product-report show UniFi Access status report for last week
 
 Alternative install (skills only, no CLI):
   gh skill install Ubiquiti-UID/flow-cawplan-skill --agent <agent> --scope user

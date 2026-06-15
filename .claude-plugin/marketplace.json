@@ -12,49 +12,29 @@
       "version": "0.1.0",
       "skills": [
         {
-          "name": "query",
-          "path": "skills/cawplan-query",
-          "invoke": "/cawplan-query"
+          "name": "ticket-create",
+          "path": "skills/cawplan-ticket-create",
+          "invoke": "/cawplan-ticket-create"
         },
         {
-          "name": "ticket",
-          "path": "skills/cawplan-ticket",
-          "invoke": "/cawplan-ticket"
+          "name": "product-report",
+          "path": "skills/cawplan-product-report",
+          "invoke": "/cawplan-product-report"
         },
         {
-          "name": "my-todos",
-          "path": "skills/cawplan-my-todos",
-          "invoke": "/cawplan-my-todos"
+          "name": "product-insights",
+          "path": "skills/cawplan-product-insights",
+          "invoke": "/cawplan-product-insights"
         },
         {
-          "name": "user-activity",
-          "path": "skills/cawplan-user-activity",
-          "invoke": "/cawplan-user-activity"
+          "name": "plan-create",
+          "path": "skills/cawplan-plan-create",
+          "invoke": "/cawplan-plan-create"
         },
         {
-          "name": "product-activity",
-          "path": "skills/cawplan-product-activity",
-          "invoke": "/cawplan-product-activity"
-        },
-        {
-          "name": "critical",
-          "path": "skills/cawplan-critical",
-          "invoke": "/cawplan-critical"
-        },
-        {
-          "name": "metrics",
-          "path": "skills/cawplan-metrics",
-          "invoke": "/cawplan-metrics"
-        },
-        {
-          "name": "analytics",
-          "path": "skills/cawplan-analytics",
-          "invoke": "/cawplan-analytics"
-        },
-        {
-          "name": "qa-report",
-          "path": "skills/cawplan-qa-report",
-          "invoke": "/cawplan-qa-report"
+          "name": "plan-track",
+          "path": "skills/cawplan-plan-track",
+          "invoke": "/cawplan-plan-track"
         }
       ]
     }

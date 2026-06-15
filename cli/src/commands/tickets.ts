@@ -28,6 +28,17 @@ export function registerTicketsCommand(program: Command): void {
     });
 
   tickets
+    .command("get <product_id> <version_id> <ticket_id>")
+    .description("Get a single version ticket")
+    .action(async (productId: string, versionId: string, ticketId: string) => {
+      const result = await cawplanRequest({
+        method: "GET",
+        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}`,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  tickets
     .command("poll")
     .description("Poll tickets by status across products")
     .requiredOption("--status <csv>", "Ticket statuses (CSV)")

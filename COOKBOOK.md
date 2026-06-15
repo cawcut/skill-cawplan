@@ -2,77 +2,47 @@
 
 Task-oriented examples for CawPlan agent skills.
 
-## 1. cawplan-query
+## 1. cawplan-ticket-create
 
-Products, versions, releases, general read queries
+Create a new ticket with details, assignee, and priority
 
 ```text
-/cawplan-query find product information for "UniFi Access"
-/cawplan-query search knowledge for UniFi Access: door schedule setup
+/cawplan-ticket-create create a HIGH bug for UniFi Access 4.1.10: door stuck after firmware update, assign to yida.chen@ui.com
+/cawplan-ticket-create create a backlog ticket for UniFi Access: investigate door schedule issue
 ```
 
-## 2. cawplan-ticket
+## 2. cawplan-product-report
 
-Ticket create, update, search, poll, relations
+Generate progress reports, risk analysis, priority recommendations, and summaries
 
 ```text
-/cawplan-ticket create a backlog ticket for UniFi Access: investigate door schedule issue
-/cawplan-ticket file a HIGH bug on UniFi Access 4.1.10: door stuck after firmware update, assign to yida.chen@ui.com
+/cawplan-product-report show UniFi Access status report for last week
+/cawplan-product-report show UniFi Access 4.1.10 progress report from 2026-06-01 to 2026-06-15
 ```
 
-## 3. cawplan-my-todos
+## 3. cawplan-product-insights
 
-Assigned tickets and critical issues
+Track product adoption, installations, user feedback, key metrics, and critical issues
 
 ```text
-/cawplan-my-todos show my open tickets and critical issues
+/cawplan-product-insights show UniFi Access product insights for last month
+/cawplan-product-insights what is the health of UniFi Access right now
 ```
 
-## 4. cawplan-user-activity
+## 4. cawplan-plan-create
 
-User activity report over a date range
+Create a version plan with goals and optional tickets
 
 ```text
-/cawplan-user-activity summarize what user@ui.com did in the past two weeks
+/cawplan-plan-create create version plan for UniFi Access 4.2.0
+/cawplan-plan-create create version plan for UniFi Access 4.2.0 with tickets: add NFC card import, fix door schedule bug
 ```
 
-## 5. cawplan-product-activity
+## 5. cawplan-plan-track
 
-Product activity report over a date range
-
-```text
-/cawplan-product-activity show UniFi Access activity for last week
-/cawplan-product-activity show UniFi Access 4.1.10 activity from 2026-06-01 to 2026-06-10
-```
-
-## 6. cawplan-critical
-
-Critical issue search and detail
+Track release progress, dependencies, pending tasks, and target delivery dates
 
 ```text
-/cawplan-critical search critical issues for UniFi Access in the last month
-```
-
-## 7. cawplan-metrics
-
-Product metrics over a time range
-
-```text
-/cawplan-metrics show UniFi Access metrics for the last month
-```
-
-## 8. cawplan-analytics
-
-AI feedback analytics
-
-```text
-/cawplan-analytics show AI feedback analytics for UniFi Access
-```
-
-## 9. cawplan-qa-report
-
-QA test reports
-
-```text
-/cawplan-qa-report show QA report for UniFi Access 4.1.10
+/cawplan-plan-track track release progress for UniFi Access 4.1.10
+/cawplan-plan-track what's blocking UniFi Access 4.1.10 release
 ```

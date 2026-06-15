@@ -20,40 +20,24 @@
   ],
   "skills": [
     {
-      "name": "cawplan-query",
-      "path": "skills/cawplan-query"
+      "name": "cawplan-ticket-create",
+      "path": "skills/cawplan-ticket-create"
     },
     {
-      "name": "cawplan-ticket",
-      "path": "skills/cawplan-ticket"
+      "name": "cawplan-product-report",
+      "path": "skills/cawplan-product-report"
     },
     {
-      "name": "cawplan-my-todos",
-      "path": "skills/cawplan-my-todos"
+      "name": "cawplan-product-insights",
+      "path": "skills/cawplan-product-insights"
     },
     {
-      "name": "cawplan-user-activity",
-      "path": "skills/cawplan-user-activity"
+      "name": "cawplan-plan-create",
+      "path": "skills/cawplan-plan-create"
     },
     {
-      "name": "cawplan-product-activity",
-      "path": "skills/cawplan-product-activity"
-    },
-    {
-      "name": "cawplan-critical",
-      "path": "skills/cawplan-critical"
-    },
-    {
-      "name": "cawplan-metrics",
-      "path": "skills/cawplan-metrics"
-    },
-    {
-      "name": "cawplan-analytics",
-      "path": "skills/cawplan-analytics"
-    },
-    {
-      "name": "cawplan-qa-report",
-      "path": "skills/cawplan-qa-report"
+      "name": "cawplan-plan-track",
+      "path": "skills/cawplan-plan-track"
     }
   ]
 }

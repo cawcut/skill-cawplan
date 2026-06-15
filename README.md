@@ -25,29 +25,21 @@ For CI or headless use: `cawplan auth configure` (API key).
 
 | # | Skill | Invoke | Description |
 |---|-------|--------|-------------|
-| 1 | `cawplan-query` | `/cawplan-query` | Products, versions, releases, general read queries |
-| 2 | `cawplan-ticket` | `/cawplan-ticket` | Ticket create, update, search, poll, relations |
-| 3 | `cawplan-my-todos` | `/cawplan-my-todos` | Assigned tickets and critical issues |
-| 4 | `cawplan-user-activity` | `/cawplan-user-activity` | User activity report over a date range |
-| 5 | `cawplan-product-activity` | `/cawplan-product-activity` | Product activity report over a date range |
-| 6 | `cawplan-critical` | `/cawplan-critical` | Critical issue search and detail |
-| 7 | `cawplan-metrics` | `/cawplan-metrics` | Product metrics over a time range |
-| 8 | `cawplan-analytics` | `/cawplan-analytics` | AI feedback analytics |
-| 9 | `cawplan-qa-report` | `/cawplan-qa-report` | QA test reports |
+| 1 | `cawplan-ticket-create` | `/cawplan-ticket-create` | Create a ticket with details, assignee, and priority |
+| 2 | `cawplan-product-report` | `/cawplan-product-report` | Product status report with progress, risk, and recommendations |
+| 3 | `cawplan-product-insights` | `/cawplan-product-insights` | Product adoption, installations, user feedback, and critical issues |
+| 4 | `cawplan-plan-create` | `/cawplan-plan-create` | Create a version plan with optional tickets |
+| 5 | `cawplan-plan-track` | `/cawplan-plan-track` | Track release progress, risk, and open items |
 
 ## Quick Reference
 
 | # | What you want | Example |
 |---|---------------|---------|
-| 1 | Find product info | `/cawplan-query find product information for "UniFi Access"` |
-| 2 | Create a ticket | `/cawplan-ticket create a backlog ticket for UniFi Access: investigate door schedule issue` |
-| 3 | Show my todos | `/cawplan-my-todos show my open tickets and critical issues` |
-| 4 | Summarize a user's work | `/cawplan-user-activity summarize what user@ui.com did in the past two weeks` |
-| 5 | Product activity last week | `/cawplan-product-activity show UniFi Access activity for last week` |
-| 6 | Find critical issues | `/cawplan-critical search critical issues for UniFi Access in the last month` |
-| 7 | Check metrics | `/cawplan-metrics show UniFi Access metrics for the last month` |
-| 8 | AI feedback analytics | `/cawplan-analytics show AI feedback analytics for UniFi Access` |
-| 9 | QA report | `/cawplan-qa-report show QA report for UniFi Access 4.1.10` |
+| 1 | Create a ticket | `/cawplan-ticket-create create a HIGH bug for UniFi Access 4.1.10: door stuck after firmware update` |
+| 2 | Product status report | `/cawplan-product-report show UniFi Access status report for last week` |
+| 3 | Product health overview | `/cawplan-product-insights show UniFi Access product insights for last month` |
+| 4 | Create a version plan | `/cawplan-plan-create create version plan for UniFi Access 4.2.0` |
+| 5 | Track release progress | `/cawplan-plan-track track release progress for UniFi Access 4.1.10` |
 
 More examples: `COOKBOOK.md`.
 

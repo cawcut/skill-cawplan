@@ -54,6 +54,23 @@ export function registerVersionsCommand(program: Command): void {
       console.log(JSON.stringify(result, null, 2));
     });
 
+  versions
+    .command("track <product_id> <version_id>")
+    .description("Show release progress: ticket completion, risk, target release dates")
+    .action(async (productId: string, versionId: string) => {
+      const [detail, release] = await Promise.all([
+        cawplanRequest({
+          method: "GET",
+          path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}`,
+        }),
+        cawplanRequest({
+          method: "GET",
+          path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/release`,
+        }),
+      ]);
+      console.log(JSON.stringify({ detail, release }, null, 2));
+    });
+
   // Releases subcommand lives naturally alongside versions
   const releases = program.command("releases").description("Manage releases");
 

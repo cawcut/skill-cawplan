@@ -50,5 +50,5 @@ cawplan products list --search "UniFi Access"
 Then try a skill:
 
 ```text
-/cawplan-query find product information for "UniFi Access"
+/cawplan-product-report show UniFi Access status report for last week
 ```

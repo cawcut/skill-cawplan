@@ -19,15 +19,11 @@ flow-cawplan-skill/
 │   ├── src/commands/
 │   └── src/lib/
 ├── skills/
-│   ├── cawplan-query/
-│   ├── cawplan-ticket/
-│   ├── cawplan-my-todos/
-│   ├── cawplan-user-activity/
-│   ├── cawplan-product-activity/
-│   ├── cawplan-critical/
-│   ├── cawplan-metrics/
-│   ├── cawplan-analytics/
-│   └── cawplan-qa-report/
+│   ├── cawplan-ticket-create/
+│   ├── cawplan-product-report/
+│   ├── cawplan-product-insights/
+│   ├── cawplan-plan-create/
+│   └── cawplan-plan-track/
 ├── .claude-plugin/
 ├── .cursor-plugin/
 └── .codex-plugin/
