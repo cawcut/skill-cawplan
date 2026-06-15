@@ -24,7 +24,7 @@
         {
           "name": "my-todos",
           "path": "skills/cawplan-my-todos",
-          "invoke": "/cawplan-todos"
+          "invoke": "/cawplan-my-todos"
         },
         {
           "name": "user-activity",

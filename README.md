@@ -27,7 +27,7 @@ For CI or headless use: `cawplan auth configure` (API key).
 |-------|--------|-------------|
 | `cawplan-query` | `/cawplan-query` | Products, versions, releases, general read queries |
 | `cawplan-ticket` | `/cawplan-ticket` | Ticket create, update, search, poll, relations |
-| `cawplan-my-todos` | `/cawplan-todos` | Assigned tickets and critical issues |
+| `cawplan-my-todos` | `/cawplan-my-todos` | Assigned tickets and critical issues |
 | `cawplan-user-activity` | `/cawplan-user-activity` | User activity report over a date range |
 | `cawplan-product-activity` | `/cawplan-product-activity` | Product activity report over a date range |
 | `cawplan-critical` | `/cawplan-critical` | Critical issue search and detail |
