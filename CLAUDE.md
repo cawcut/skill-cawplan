@@ -23,7 +23,9 @@ flow-cawplan-skill/
 │   ├── cawplan-product-report/
 │   ├── cawplan-product-insights/
 │   ├── cawplan-plan-create/
-│   └── cawplan-plan-track/
+│   ├── cawplan-plan-track/
+│   ├── cawplan-coding-commit/
+│   └── cawplan-coding-insights/
 ├── .claude-plugin/
 ├── .cursor-plugin/
 └── .codex-plugin/
