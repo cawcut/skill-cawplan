@@ -222,6 +222,56 @@
 - Response: `summary` (installations, crash_rate, offline_rate, update_success_rate),
   plus time series in `installations`, `crash_rate`, `offline_rate`
 
+## 7) Analytics APIs
+### Get Product AI Feedback Analytics
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/analytics`
+- Query params: `time_range` OR (`start` + `end`) required; `version` (major.minor filter, e.g. `3.4`)
+- Response: AI-categorized feedback buckets: `software_issues`, `hardware_issues`, `suggestions` — each with `counts`, `sorted_counts`, `stats` (time series), `tickets`, `versions`
+- Maps to cawplan CLI: `cawplan analytics get <product_id>`.
+
+## 8) Activity Report APIs
+### Get Product Activity Report
+- Endpoint: `GET /api/v1/public/openapi/product-report`
+- Query params: `product_id` (required), `start` (YYYY-MM-DD, required), `end` (YYYY-MM-DD, required), `version_id` (optional)
+- Response: `summary` (ticket_updates, critical_issue_updates, qa_report_updates, versions_affected), `versions[]` (each with tickets and their activity log), `critical_issues[]`
+- Maps to cawplan CLI: `cawplan product-activity get`.
+
+### Get User Activity Report
+- Endpoint: `GET /api/v1/public/openapi/user-report`
+- Query params: `user_id` OR `email` (one required), `start` (YYYY-MM-DD, required), `end` (YYYY-MM-DD, required)
+- Response: activity summary scoped to a single user across all products they contribute to
+- Maps to cawplan CLI: `cawplan user-activity get`.
+
+## 9) QA Report APIs
+### List QA Reports for a Product
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa_report`
+- Query params: `type` (`sqa`|`aqa`|`stress`|`performance`|`smoke`), `result` (`pass`|`pass_with_issues`|`failed`), `status`, `page_size` (max 100), `page_num`
+- Response: QA reports grouped by version
+- Maps to cawplan CLI: `cawplan qa-reports list <product_id>`.
+
+### List QA Reports for a Version
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/qa_report`
+- Query params: same as product-level (`type`, `result`, `status`, `page_size`, `page_num`)
+- Maps to cawplan CLI: `cawplan qa-reports list-version <product_id> <version_id>`.
+
+### Get QA Report Detail
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/qa_report/{qa_report_id}`
+- Maps to cawplan CLI: `cawplan qa-reports get <product_id> <version_id> <qa_report_id>`.
+
+## 10) Community APIs
+### Get Community Release Timeline
+- Endpoint: `GET /api/v1/public/openapi/community/timeline`
+- Query params: `time_range` OR (`start` + `end`); `channels` (CSV: `GA,EA,Alpha`)
+- Response: release timeline events across all products for the given window and channels
+- Maps to cawplan CLI: `cawplan community timeline`.
+
+## 11) Knowledge APIs
+### Search Knowledge Base
+- Endpoint: `POST /api/v1/public/openapi/knowledge/search`
+- Body: `query` (required), `product_id` (optional, scopes search to a product's knowledge datasets), `limit` (default 10)
+- Response: ranked knowledge fragments with source metadata
+- Maps to cawplan CLI: `cawplan knowledge search`.
+
 ## Error Responses
 - `401` Unauthorized
 - `404` Not Found
