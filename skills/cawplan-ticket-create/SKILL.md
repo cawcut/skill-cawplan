@@ -20,48 +20,35 @@ cawplan auth status >/dev/null || { echo "Not authenticated. Run: cawplan auth l
 
 ## Workflow
 
-1. Resolve product name to `product_id`:
-   ```bash
-   cawplan products list --search "<product name>"
-   ```
+Use `--product` and `--version` by name — the CLI resolves IDs internally. No prior lookup needed.
 
-2. If a version is specified, resolve it to `version_id`:
-   ```bash
-   cawplan versions list <product_id>
-   ```
+**Version ticket** (scoped to a specific version):
+```bash
+cawplan tickets create-version \
+  --product "<product name>" \
+  --ver "<version name>" \
+  --description "<text>" \
+  --type FEATURE \
+  --priority MEDIUM \
+  --reporter <your-email> \
+  --assignee <email>
+```
 
-3. Resolve assignee email to `user_id` when provided:
-   ```bash
-   cawplan users query --email <email>
-   ```
+**Backlog ticket** (no version specified):
+```bash
+cawplan tickets create-backlog \
+  --product "<product name>" \
+  --description "<text>" \
+  --type FEATURE \
+  --priority MEDIUM \
+  --reporter <your-email>
+```
 
-4. Create the ticket:
-
-   **Version ticket** (scoped to a specific version):
-   ```bash
-   cawplan tickets create-version <product_id> <version_id> \
-     --description "<html or text>" \
-     --type FEATURE \
-     --priority MEDIUM \
-     --reporter_id <your_user_id> \
-     --assignees <user_id>
-   ```
-
-   **Backlog ticket** (not assigned to any version):
-   ```bash
-   cawplan tickets create-backlog <product_id> \
-     --description "<html or text>" \
-     --type FEATURE \
-     --priority MEDIUM \
-     --reporter_id <your_user_id>
-   ```
-
-   For OAuth auth, resolve your own `reporter_id` first:
-   ```bash
-   cawplan auth status          # get your email
-   cawplan users query --email <your-email>
-   ```
-   For API Key auth, omit `--reporter_id`.
+Get your own email for `--reporter`:
+```bash
+cawplan auth status   # shows authenticated email
+```
+For API Key auth, omit `--reporter`.
 
 ## Rules
 
@@ -69,7 +56,7 @@ cawplan auth status >/dev/null || { echo "Not authenticated. Run: cawplan auth l
 - Default priority to `MEDIUM` when not specified.
 - If the user did not specify a version, use `create-backlog` and tell the user: "This ticket was created as a backlog item and is not assigned to any version."
 - Do not guess the description. Ask one clarifying question if the content is missing.
-- If multiple products or versions match, ask the user to disambiguate.
+- If the CLI reports multiple matches for a product or version, ask the user to disambiguate.
 
 ## Confirmation
 

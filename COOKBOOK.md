@@ -7,7 +7,7 @@ Task-oriented examples for CawPlan agent skills.
 Create a new ticket with details, assignee, and priority
 
 ```text
-/cawplan-ticket-create create a HIGH bug for UniFi Access 4.1.10: door stuck after firmware update, assign to yida.chen@ui.com
+/cawplan-ticket-create create a HIGH bug for UniFi Access 4.1.10: door stuck after firmware update, assign to user@ui.com
 /cawplan-ticket-create create a backlog ticket for UniFi Access: investigate door schedule issue
 ```
 

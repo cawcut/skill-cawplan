@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
 import { getCache, setCache, buildCacheKey, buildScopedCacheKey, buildQueryFromFlags, csvToArray, stableStringify } from "../lib/cache.js";
 import { resolveApiPath } from "../lib/products.js";
+import { resolveProductId, resolveVersionId, resolveUserIds } from "../lib/resolve.js";
 
 
 export function registerTicketsCommand(program: Command): void {
@@ -175,29 +176,60 @@ export function registerTicketsCommand(program: Command): void {
     });
 
   tickets
-    .command("create-version <product_id> <version_id>")
-    .description("Create a version ticket")
+    .command("create-version [product_id] [version_id]")
+    .description("Create a version ticket. Use --product/--version for name-based resolution (no prior lookup needed).")
+    .option("--product <name>", "Product name (resolves to product_id automatically)")
+    .option("--ver <name>", "Version name e.g. 4.3.1 (resolves to version_id automatically)")
     .requiredOption("--description <text>", "Ticket description")
     .option("--type <type>", "Ticket type: FEATURE|BUGFIX")
     .option("--priority <p>", "Priority: LOW|MEDIUM|HIGH|CRITICAL")
     .option("--status <key>", "Status key")
     .option("--assignees <csv>", "Assignee IDs (CSV)")
+    .option("--assignee <csv>", "Assignee emails (CSV) — resolved to IDs automatically")
     .option("--parent_id <id>", "Parent ticket ID")
     .option("--label_ids <csv>", "Label IDs (CSV)")
     .option("--reporter_id <id>", "Reporter user ID")
+    .option("--reporter <email>", "Reporter email — resolved to user ID automatically")
     .option("--due_date <date>", "Due date YYYY-MM-DD")
     .option("--comment <text>", "Comment")
-    .action(async (productId: string, versionId: string, opts) => {
+    .action(async (productIdArg: string | undefined, versionIdArg: string | undefined, opts) => {
+      // Resolve product: --product name takes precedence over positional arg
+      const rawProduct = opts.product ?? productIdArg;
+      if (!rawProduct) {
+        console.error("Error: product required — use --product <name> or pass <product_id> as positional arg");
+        process.exit(1);
+      }
+      const rawVersion = opts.ver ?? versionIdArg;
+      if (!rawVersion) {
+        console.error("Error: version required — use --version <name> or pass <version_id> as positional arg");
+        process.exit(1);
+      }
+
+      // Resolve names → IDs in parallel where possible
+      const [productId, reporterId] = await Promise.all([
+        resolveProductId(rawProduct),
+        opts.reporter ? resolveUserIds([opts.reporter]).then((ids) => ids[0]) : Promise.resolve(opts.reporter_id as string | undefined),
+      ]);
+      const versionId = await resolveVersionId(productId, rawVersion);
+
       const body: Record<string, unknown> = { description: opts.description };
       if (opts.type) body.type = opts.type;
       if (opts.priority) body.priority = opts.priority;
       if (opts.status) body.status = opts.status;
       if (opts.parent_id) body.parent_id = opts.parent_id;
-      if (opts.reporter_id) body.reporter_id = opts.reporter_id;
+      if (reporterId) body.reporter_id = reporterId;
       if (opts.due_date) body.due_date = opts.due_date;
       if (opts.comment) body.comment = opts.comment;
-      const assignees = csvToArray(opts.assignees);
-      if (assignees) body.assignee_ids = assignees;
+
+      // Assignees: email list or ID list
+      const assigneeEmails = csvToArray(opts.assignee);
+      const assigneeIds = csvToArray(opts.assignees);
+      if (assigneeEmails) {
+        body.assignee_ids = await resolveUserIds(assigneeEmails);
+      } else if (assigneeIds) {
+        body.assignee_ids = assigneeIds;
+      }
+
       const labelIds = csvToArray(opts.label_ids);
       if (labelIds) body.label_ids = labelIds;
 
@@ -210,29 +242,50 @@ export function registerTicketsCommand(program: Command): void {
     });
 
   tickets
-    .command("create-backlog <product_id>")
-    .description("Create a backlog ticket (not assigned to any version)")
+    .command("create-backlog [product_id]")
+    .description("Create a backlog ticket (not assigned to any version). Use --product for name-based resolution.")
+    .option("--product <name>", "Product name (resolves to product_id automatically)")
     .requiredOption("--description <text>", "Ticket description")
     .option("--type <type>", "Ticket type: FEATURE|BUGFIX")
     .option("--priority <p>", "Priority: LOW|MEDIUM|HIGH|CRITICAL")
     .option("--status <key>", "Status key")
     .option("--assignees <csv>", "Assignee IDs (CSV)")
+    .option("--assignee <csv>", "Assignee emails (CSV) — resolved to IDs automatically")
     .option("--parent_id <id>", "Parent ticket ID")
     .option("--label_ids <csv>", "Label IDs (CSV)")
     .option("--reporter_id <id>", "Reporter user ID")
+    .option("--reporter <email>", "Reporter email — resolved to user ID automatically")
     .option("--due_date <date>", "Due date YYYY-MM-DD")
     .option("--comment <text>", "Comment")
-    .action(async (productId: string, opts) => {
+    .action(async (productIdArg: string | undefined, opts) => {
+      const rawProduct = opts.product ?? productIdArg;
+      if (!rawProduct) {
+        console.error("Error: product required — use --product <name> or pass <product_id> as positional arg");
+        process.exit(1);
+      }
+
+      const [productId, reporterId] = await Promise.all([
+        resolveProductId(rawProduct),
+        opts.reporter ? resolveUserIds([opts.reporter]).then((ids) => ids[0]) : Promise.resolve(opts.reporter_id as string | undefined),
+      ]);
+
       const body: Record<string, unknown> = { description: opts.description };
       if (opts.type) body.type = opts.type;
       if (opts.priority) body.priority = opts.priority;
       if (opts.status) body.status = opts.status;
       if (opts.parent_id) body.parent_id = opts.parent_id;
-      if (opts.reporter_id) body.reporter_id = opts.reporter_id;
+      if (reporterId) body.reporter_id = reporterId;
       if (opts.due_date) body.due_date = opts.due_date;
       if (opts.comment) body.comment = opts.comment;
-      const assignees = csvToArray(opts.assignees);
-      if (assignees) body.assignee_ids = assignees;
+
+      const assigneeEmails = csvToArray(opts.assignee);
+      const assigneeIds = csvToArray(opts.assignees);
+      if (assigneeEmails) {
+        body.assignee_ids = await resolveUserIds(assigneeEmails);
+      } else if (assigneeIds) {
+        body.assignee_ids = assigneeIds;
+      }
+
       const labelIds = csvToArray(opts.label_ids);
       if (labelIds) body.label_ids = labelIds;
 
