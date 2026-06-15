@@ -2,51 +2,59 @@
 
 Task-oriented examples for CawPlan agent skills.
 
-## Query Product Information
+## 1. cawplan-query
 
 ```text
 /cawplan-query find product information for "UniFi Access"
+/cawplan-query search knowledge for UniFi Access: door schedule setup
 ```
 
-## Product Activity
+## 2. cawplan-ticket
+
+```text
+/cawplan-ticket create a backlog ticket for UniFi Access: investigate door schedule issue
+/cawplan-ticket file a HIGH bug on UniFi Access 4.1.10: door stuck after firmware update, assign to yida.chen@ui.com
+```
+
+## 3. cawplan-my-todos
+
+```text
+/cawplan-my-todos show my open tickets and critical issues
+```
+
+## 4. cawplan-user-activity
+
+```text
+/cawplan-user-activity summarize what user@ui.com did in the past two weeks
+```
+
+## 5. cawplan-product-activity
 
 ```text
 /cawplan-product-activity show UniFi Access activity for last week
 /cawplan-product-activity show UniFi Access 4.1.10 activity from 2026-06-01 to 2026-06-10
 ```
 
-## User Activity
-
-```text
-/cawplan-user-activity summarize what user@ui.com did in the past two weeks
-```
-
-## Create a Backlog Ticket
-
-```text
-/cawplan-ticket create a backlog ticket for UniFi Access: investigate door schedule issue
-```
-
-## Create a Version Ticket
-
-```text
-/cawplan-ticket file a HIGH bug on UniFi Access 4.1.10: door stuck after firmware update, assign to yida.chen@ui.com
-```
-
-## Critical Issues
+## 6. cawplan-critical
 
 ```text
 /cawplan-critical search critical issues for UniFi Access in the last month
 ```
 
-## Product Metrics
+## 7. cawplan-metrics
 
 ```text
 /cawplan-metrics show UniFi Access metrics for the last month
 ```
 
-## Knowledge Search
+## 8. cawplan-analytics
 
 ```text
-/cawplan-query search knowledge for UniFi Access: door schedule setup
+/cawplan-analytics show AI feedback analytics for UniFi Access
+```
+
+## 9. cawplan-qa-report
+
+```text
+/cawplan-qa-report show QA report for UniFi Access 4.1.10
 ```
