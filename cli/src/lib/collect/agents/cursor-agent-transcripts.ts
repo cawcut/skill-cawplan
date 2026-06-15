@@ -1,0 +1,330 @@
+/**
+ * Cursor IDE Agent session reader.
+ *
+ * Data source: ~/.cursor/projects/<encoded-path>/agent-transcripts/<session-id>/<session-id>.jsonl
+ *   Each line is a JSON event. User turns may embed activity time in:
+ *     <timestamp>Thursday, Jun 11, 2026, 7:14 PM (UTC+8)</timestamp>
+ *   Assistant turns inherit the most recent user timestamp until the next tagged user turn.
+ *
+ * Subagent transcripts under .../subagents/*.jsonl are skipped (parent session covers the work).
+ */
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
+import { homedir } from "node:os";
+import { cursorProjectsDir } from "../paths.js";
+import { HumanInput, SessionData } from "../types.js";
+import {
+  formatLocalTime,
+  getLocalTimezone,
+  isTimestampOnLocalDate,
+  localDateString,
+  parseTimestampTag,
+} from "../date-utils.js";
+
+interface TranscriptEvent {
+  role?: string;
+  type?: string;
+  message?: {
+    content?: Array<{
+      type?: string;
+      text?: string;
+      name?: string;
+      input?: Record<string, unknown>;
+    }>;
+  };
+}
+
+interface ParsedTurn {
+  role: "user" | "assistant";
+  text: string;
+  timestamp: Date | null;
+  toolCallCount: number;
+  cwd: string;
+}
+
+function decodeCursorProjectPath(encoded: string): string {
+  const homePrefix = homedir().replace(/\//g, "-").replace(/^-/, "");
+  if (encoded.startsWith(homePrefix)) {
+    const rest = encoded.slice(homePrefix.length).replace(/^-/, "");
+    if (rest) return join(homedir(), rest.replace(/-/g, "/"));
+  }
+  return encoded;
+}
+
+function extractText(content: TranscriptEvent["message"]): string {
+  if (!content?.content) return "";
+  return content.content
+    .filter((block) => block.type === "text" && block.text)
+    .map((block) => block.text ?? "")
+    .join("\n")
+    .trim();
+}
+
+function countToolCalls(content: TranscriptEvent["message"]): number {
+  if (!content?.content) return 0;
+  return content.content.filter((block) => block.type === "tool_use").length;
+}
+
+function extractCwd(content: TranscriptEvent["message"]): string {
+  if (!content?.content) return "";
+  for (const block of content.content) {
+    if (block.type !== "tool_use" || !block.input) continue;
+    const cwd = block.input["working_directory"];
+    if (typeof cwd === "string" && cwd) return cwd;
+  }
+  return "";
+}
+
+function deriveSessionTitle(projectPath: string, sessionId: string): string {
+  const projectName = basename(projectPath) || "cursor";
+  return `${projectName}/${sessionId.slice(0, 8)}`;
+}
+
+function normalizeUserText(text: string): string {
+  return text
+    .replace(/<timestamp>[\s\S]*?<\/timestamp>/gi, "")
+    .replace(/<user_query>\s*/gi, "")
+    .replace(/<\/user_query>/gi, "")
+    .trim();
+}
+
+function extractHumanInputs(turns: ParsedTurn[], sessionTitle: string): HumanInput[] {
+  const humanInputs: HumanInput[] = [];
+  const seen = new Set<string>();
+
+  for (const turn of turns) {
+    if (turn.role !== "user") continue;
+    const text = normalizeUserText(turn.text);
+    if (!text || text.length < 10) continue;
+
+    const key = text.slice(0, 120);
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const lower = text.toLowerCase();
+    const contains = (words: string[]) => words.some((w) => lower.includes(w));
+    let category: HumanInput["category"] = "direction";
+    if (contains(["决定","決定","采用","採用","最终","最終","agreed","decide","decision"])) {
+      category = "decision";
+    } else if (contains(["计划","計劃","方案","步骤","步驟","roadmap","plan","planning"])) {
+      category = "planning";
+    } else if (contains(["修复","修復","修正","不对","不對","有问题","有問題","报错","報錯","bug","fix","broken","failed"])) {
+      category = "correction";
+    }
+
+    humanInputs.push({
+      category,
+      content: text,
+      session_title: sessionTitle,
+      session_agent: "cursor",
+    });
+  }
+
+  return humanInputs;
+}
+
+function parseTranscriptFile(jsonlPath: string): ParsedTurn[] {
+  const turns: ParsedTurn[] = [];
+  let currentTimestamp: Date | null = null;
+
+  let content: string;
+  try {
+    content = readFileSync(jsonlPath, "utf-8");
+  } catch {
+    return turns;
+  }
+
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let event: TranscriptEvent;
+    try {
+      event = JSON.parse(trimmed) as TranscriptEvent;
+    } catch {
+      continue;
+    }
+
+    if (event.type === "turn_ended") continue;
+
+    const role = event.role;
+    if (role !== "user" && role !== "assistant") continue;
+
+    const text = extractText(event.message);
+    if (role === "user") {
+      const tagged = parseTimestampTag(text);
+      if (tagged) currentTimestamp = tagged;
+    }
+
+    turns.push({
+      role,
+      text,
+      timestamp: currentTimestamp,
+      toolCallCount: countToolCalls(event.message),
+      cwd: extractCwd(event.message),
+    });
+  }
+
+  return turns;
+}
+
+function turnsOnDate(turns: ParsedTurn[], filterDate: string): ParsedTurn[] {
+  return turns.filter((turn) => {
+    if (turn.timestamp) return isTimestampOnLocalDate(turn.timestamp, filterDate);
+    return false;
+  });
+}
+
+function findTranscriptFiles(): Array<{
+  jsonlPath: string;
+  sessionId: string;
+  projectEncoded: string;
+}> {
+  const projectsDir = cursorProjectsDir();
+  if (!existsSync(projectsDir)) return [];
+
+  const results: Array<{
+    jsonlPath: string;
+    sessionId: string;
+    projectEncoded: string;
+  }> = [];
+
+  let projectDirs: string[] = [];
+  try {
+    projectDirs = readdirSync(projectsDir);
+  } catch {
+    return results;
+  }
+
+  for (const projectEncoded of projectDirs) {
+    const transcriptsDir = join(projectsDir, projectEncoded, "agent-transcripts");
+    if (!existsSync(transcriptsDir)) continue;
+
+    let sessionDirs: string[] = [];
+    try {
+      sessionDirs = readdirSync(transcriptsDir);
+    } catch {
+      continue;
+    }
+
+    for (const sessionId of sessionDirs) {
+      const sessionDir = join(transcriptsDir, sessionId);
+      try {
+        if (!statSync(sessionDir).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+
+      const jsonlPath = join(sessionDir, `${sessionId}.jsonl`);
+      if (!existsSync(jsonlPath)) continue;
+
+      results.push({ jsonlPath, sessionId, projectEncoded });
+    }
+  }
+
+  return results;
+}
+
+/** Collect Cursor IDE Agent sessions from project agent-transcripts directories. */
+export function collectCursorAgentTranscripts(filterDate: string): SessionData[] {
+  const sessions: SessionData[] = [];
+
+  for (const { jsonlPath, sessionId, projectEncoded } of findTranscriptFiles()) {
+    const allTurns = parseTranscriptFile(jsonlPath);
+    if (!allTurns.length) continue;
+
+    let dayTurns = turnsOnDate(allTurns, filterDate);
+
+    // Fallback: if no tagged timestamps, use file mtime when it falls on the target date.
+    if (!dayTurns.length) {
+      try {
+        const mtime = statSync(jsonlPath).mtime;
+        if (localDateString(mtime) !== filterDate) continue;
+        dayTurns = allTurns;
+      } catch {
+        continue;
+      }
+    }
+
+    let userCount = 0;
+    let assistantCount = 0;
+    let toolCallCount = 0;
+    let cwd = "";
+
+    for (const turn of dayTurns) {
+      if (turn.role === "user") userCount++;
+      else assistantCount++;
+      toolCallCount += turn.toolCallCount;
+      if (!cwd && turn.cwd) cwd = turn.cwd;
+    }
+
+    if (userCount === 0 && assistantCount === 0) continue;
+
+    const projectPath = decodeCursorProjectPath(projectEncoded);
+    if (!cwd) cwd = projectPath;
+
+    const timestamps = dayTurns
+      .map((t) => t.timestamp)
+      .filter((t): t is Date => t !== null);
+    const firstTs = timestamps.length
+      ? new Date(Math.min(...timestamps.map((t) => t.getTime())))
+      : null;
+    const lastTs = timestamps.length
+      ? new Date(Math.max(...timestamps.map((t) => t.getTime())))
+      : null;
+
+    let timeDisplay = "unknown";
+    let startLocal: string | undefined;
+    if (firstTs) {
+      timeDisplay = lastTs && lastTs.getTime() !== firstTs.getTime()
+        ? `${formatLocalTime(firstTs)} - ${formatLocalTime(lastTs)}`
+        : formatLocalTime(firstTs);
+      startLocal = firstTs.toISOString();
+    }
+
+    const sessionTitle = deriveSessionTitle(projectPath, sessionId);
+    const humanInputs = extractHumanInputs(dayTurns, sessionTitle);
+
+    sessions.push({
+      schema: "2.0",
+      date: filterDate,
+      agent: "cursor",
+      session_id: sessionId,
+      session_name: sessionTitle,
+      project: basename(projectPath) || projectEncoded.slice(0, 24),
+      cwd,
+      time_range: {
+        display: timeDisplay,
+        timezone: getLocalTimezone(),
+        start_local: startLocal,
+      },
+      model_usage: {},
+      usage_breakdown: [],
+      files_changed: 0,
+      repos_touched: cwd ? [{ repo: cwd, files: 0, added: 0, deleted: 0 }] : [],
+      message_stats: {
+        user: userCount,
+        assistant: assistantCount,
+        tool_calls: toolCallCount,
+      },
+      human_inputs: humanInputs.length > 0 ? humanInputs : undefined,
+    });
+  }
+
+  return sessions;
+}
+
+/**
+ * Fast check: any agent-transcript file modified on or after the target local day.
+ */
+export function cursorAgentTranscriptsActiveOnDate(filterDate: string): boolean {
+  const dayStart = new Date(`${filterDate}T00:00:00`).getTime();
+  for (const { jsonlPath } of findTranscriptFiles()) {
+    try {
+      if (statSync(jsonlPath).mtime.getTime() >= dayStart) return true;
+    } catch {
+      // ignore
+    }
+  }
+  return false;
+}

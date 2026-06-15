@@ -30,6 +30,8 @@ For CI or headless use: `cawplan auth configure` (API key).
 | 3 | `cawplan-product-insights` | `/cawplan-product-insights` | Product adoption, installations, user feedback, and critical issues |
 | 4 | `cawplan-plan-create` | `/cawplan-plan-create` | Create a version plan with optional tickets |
 | 5 | `cawplan-plan-track` | `/cawplan-plan-track` | Track release progress, risk, and open items |
+| 6 | `cawplan-coding-commit` | `/cawplan-coding-commit` | Collect local agent data (Claude Code, Cursor, Codex) and upload a daily AI coding session report |
+| 7 | `cawplan-coding-insights` | `/cawplan-coding-insights` | AI coding cost, token, and prompt quality insights across all dimensions |
 
 ## Quick Reference
 
@@ -40,6 +42,8 @@ For CI or headless use: `cawplan auth configure` (API key).
 | 3 | Product health overview | `/cawplan-product-insights show UniFi Access product insights for last month` |
 | 4 | Create a version plan | `/cawplan-plan-create create version plan for UniFi Access 4.2.0` |
 | 5 | Track release progress | `/cawplan-plan-track track release progress for UniFi Access 4.1.10` |
+| 6 | Collect & submit AI coding report | `/cawplan-coding-commit collect and submit today's coding sessions` |
+| 7 | My session activity | `/cawplan-coding-insights show my own session activity for 2026-06-15` |
 
 More examples: `COOKBOOK.md`.
 
