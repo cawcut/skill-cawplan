@@ -28,6 +28,28 @@ const USER_QUERY_RE = /<user_query>\s*([\s\S]*?)\s*<\/user_query>/i;
 const TS_TAG_RE = /<timestamp>([^<]+)<\/timestamp>/i;
 const PATCH_FILE_RE = /^\*\*\* (?:Update|Add) File: (.+)$/;
 
+function decodeCursorProjectDirToCwd(projectDir: string): string {
+  const trimmed = (projectDir ?? "").trim();
+  if (!trimmed || trimmed === "agent-transcripts") return "";
+  try {
+    // Cursor project dir is commonly an encoded workspace path.
+    // Example: media-spx-work-github-flow-cawplan-skill -> /media/spx/work/github/flow-cawplan-skill
+    const decoded = decodeURIComponent(trimmed.replace(/-/g, "%2F").replace(/%252F/g, "-"));
+    const normalized = decoded.startsWith("/") ? decoded : `/${decoded}`;
+    return existsSync(normalized) ? normalized : "";
+  } catch {
+    return "";
+  }
+}
+
+function inferCwdFromTranscriptPath(transcriptPath: string, projectsRoot: string): string {
+  const prefix = `${projectsRoot}/`;
+  if (!transcriptPath.startsWith(prefix)) return "";
+  const rest = transcriptPath.slice(prefix.length);
+  const first = rest.split("/")[0] ?? "";
+  return decodeCursorProjectDirToCwd(first);
+}
+
 function classifyHumanInput(text: string): HumanInput["category"] {
   const lower = text.toLowerCase();
   const has = (arr: string[]) => arr.some((w) => lower.includes(w));
@@ -178,7 +200,7 @@ function parseTranscript(sessionId: string): {
   }
 
   const lines = readFileSync(transcriptPath, "utf-8").split("\n");
-  let cwd = "";
+  let cwd = inferCwdFromTranscriptPath(transcriptPath, projectsRoot);
   let userCount = 0;
   let assistantCount = 0;
   let toolCallCount = 0;
@@ -374,7 +396,7 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
       let firstTs: Date | null = null;
       let lastTs: Date | null = null;
       let name = sid.slice(0, 8);
-      let cwd = "";
+      let cwd = decodeCursorProjectDirToCwd(project);
       const files: FileChange[] = [];
       const fileIndex = new Map<string, number>();
       const humanInputs: HumanInput[] = [];

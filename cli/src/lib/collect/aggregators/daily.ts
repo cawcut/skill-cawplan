@@ -42,6 +42,23 @@ function sumMessageStats(a: MessageStats, b: MessageStats): MessageStats {
   };
 }
 
+function buildTopLevelSummary(
+  date: string,
+  sessions: SessionData[],
+  costByCurrency: Record<string, number>
+): string {
+  const byAgent: Record<string, number> = {};
+  for (const s of sessions) byAgent[s.agent] = (byAgent[s.agent] ?? 0) + 1;
+  const agentText = Object.entries(byAgent)
+    .sort((a, b) => b[1] - a[1])
+    .map(([agent, count]) => `${agent} ${count}个`)
+    .join("，");
+  const costText = Object.entries(costByCurrency)
+    .map(([currency, cost]) => `${currency}${Math.round(cost * 100) / 100}`)
+    .join("，");
+  return `${date} 共采集 ${sessions.length} 个会话（${agentText || "无"}），总成本 ${costText || "未知"}。`;
+}
+
 /**
  * Convert an array of UsageBuckets to a bucket map (keyed by bucketKey format).
  */
@@ -196,6 +213,7 @@ export function buildDailyApiJson(
     author,
     generated_at: new Date().toISOString(),
     include_conversation: false,
+    summary: buildTopLevelSummary(date, sessions, costByCurrency),
     totals: {
       sessions: sessions.length,
       agents: Array.from(agents).sort(),

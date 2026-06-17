@@ -71,6 +71,7 @@ export interface DailyApiJson {
   author: string;
   generated_at: string;
   include_conversation: boolean;
+  summary?: string;
   totals: {
     sessions: number;
     agents: string[];

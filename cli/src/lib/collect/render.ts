@@ -16,6 +16,13 @@ interface SessionSummary {
 
 type SummaryMap = Record<string, SessionSummary>;
 
+function toRepoName(repo?: string): string {
+  const trimmed = String(repo ?? "").trim();
+  if (!trimmed) return "";
+  const parts = trimmed.split("/").filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : trimmed;
+}
+
 function readJsonFile<T>(path: string): T | null {
   try {
     return JSON.parse(readFileSync(path, "utf-8")) as T;
@@ -79,7 +86,35 @@ function pickProject(session: SessionData): string {
     if (aLines !== bLines) return bLines - aLines;
     return a.repo.localeCompare(b.repo);
   })[0];
-  return top.repo || session.project || "";
+  return toRepoName(top.repo) || session.project || "";
+}
+
+function enrichRenderedSessionContext(sessions: SessionData[]): SessionData[] {
+  const knownCwds = Array.from(new Set(sessions.map((s) => String(s.cwd ?? "").trim()).filter(Boolean)));
+  const knownRepos = Array.from(
+    new Set(
+      sessions.flatMap((s) => s.repos_touched ?? []).map((r) => String(r.repo ?? "").trim()).filter(Boolean)
+    )
+  );
+
+  const fallbackCwd = knownCwds.length === 1 ? knownCwds[0] : "";
+  const fallbackRepo = knownRepos.length === 1 ? knownRepos[0] : "";
+  const fallbackProject = toRepoName(fallbackRepo);
+
+  return sessions.map((s) => {
+    const next: SessionData = { ...s };
+    if (!next.cwd && fallbackCwd) next.cwd = fallbackCwd;
+    if ((!next.project || next.project.length <= 8) && fallbackProject) next.project = fallbackProject;
+    if ((next.repos_touched?.length ?? 0) === 0 && fallbackRepo) {
+      next.repos_touched = [{
+        repo: fallbackRepo,
+        files: next.files_changed,
+        added: next.files_added ?? 0,
+        deleted: next.files_deleted ?? 0,
+      }];
+    }
+    return next;
+  });
 }
 
 function flattenSummaryHumanInputs(
@@ -145,7 +180,8 @@ export function renderDailyApiJson(
   summariesDir: string
 ): Record<string, unknown> {
   const { byKey, overallSummary } = loadSummaries(summariesDir);
-  const mergedSessions = daily.sessions.map((session) => {
+  const normalizedSessions = enrichRenderedSessionContext(daily.sessions);
+  const mergedSessions = normalizedSessions.map((session) => {
     const summary = pickSessionSummary(session, byKey);
     const models = Object.keys(session.model_usage ?? {});
     const modelEntries = Object.values(session.model_usage ?? {});
@@ -196,12 +232,17 @@ export function renderDailyApiJson(
   );
   const combinedHumanInputs = summaryHumanInputs.length > 0
     ? summaryHumanInputs
-    : daily.human_inputs.map((h) => ({
-      ...h,
-      session_time: "",
-      session_model: "",
-      project: "",
-    }));
+    : daily.human_inputs.map((h) => {
+      const matched = normalizedSessions.find((s) =>
+        s.session_name === h.session_title || s.agent === h.session_agent
+      );
+      return {
+        ...h,
+        session_time: matched?.time_range?.display ?? "",
+        session_model: Object.keys(matched?.model_usage ?? {})[0] ?? "",
+        project: matched ? pickProject(matched) : "",
+      };
+    });
 
   const nextSteps = Object.values(byKey).flatMap((s) =>
     Array.isArray(s.next_steps) ? s.next_steps.filter((x) => String(x || "").trim().length > 0) : []

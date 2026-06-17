@@ -26,6 +26,71 @@ function dayBoundsMs(date: string): { startMs: number; endMs: number } {
   return { startMs, endMs };
 }
 
+function toRepoName(repo?: string): string | undefined {
+  if (!repo) return undefined;
+  const trimmed = repo.trim();
+  if (!trimmed) return undefined;
+  const parts = trimmed.split("/");
+  return parts[parts.length - 1] || trimmed;
+}
+
+function inferCursorProject(gs: {
+  id: string;
+  cwd?: string;
+  repos_touched?: { repo: string; files: number }[];
+}): string {
+  if (gs.repos_touched && gs.repos_touched.length > 0) {
+    const topRepo = [...gs.repos_touched]
+      .sort((a, b) => (b.files ?? 0) - (a.files ?? 0))
+      .find((r) => !!r.repo);
+    const repoName = toRepoName(topRepo?.repo);
+    if (repoName) return repoName;
+  }
+
+  const cwd = (gs.cwd ?? "").trim();
+  if (cwd) {
+    const segs = cwd.split("/").filter(Boolean);
+    const last = segs[segs.length - 1];
+    if (last) return last;
+  }
+
+  return gs.id.slice(0, 8);
+}
+
+function enrichCursorGuiFallbackContext(sessions: SessionData[]): void {
+  const gui = sessions.filter((s) => s.agent === "cursor-gui");
+  if (gui.length === 0) return;
+
+  const knownCwds = Array.from(new Set(gui.map((s) => (s.cwd ?? "").trim()).filter(Boolean)));
+  const knownRepos = Array.from(
+    new Set(
+      gui
+        .flatMap((s) => s.repos_touched ?? [])
+        .map((r) => (r.repo ?? "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  const fallbackCwd = knownCwds.length === 1 ? knownCwds[0] : "";
+  const fallbackRepo = knownRepos.length === 1 ? knownRepos[0] : "";
+  const fallbackProject = toRepoName(fallbackRepo) ?? "";
+
+  if (!fallbackCwd && !fallbackRepo) return;
+
+  for (const s of gui) {
+    if (!s.cwd && fallbackCwd) s.cwd = fallbackCwd;
+    if ((!s.project || s.project.length <= 8) && fallbackProject) s.project = fallbackProject;
+    if ((s.repos_touched?.length ?? 0) === 0 && fallbackRepo) {
+      s.repos_touched = [{
+        repo: fallbackRepo,
+        files: s.files_changed,
+        added: s.files_added ?? 0,
+        deleted: s.files_deleted ?? 0,
+      }];
+    }
+  }
+}
+
 /**
  * Collect all AI coding session data for a given date and return a DailyApiJson.
  */
@@ -94,7 +159,7 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
           agent: "cursor-gui",
           session_id: gs.id,
           session_name: gs.name || gs.id.slice(0, 8),
-          project: gs.id.slice(0, 8),
+          project: inferCursorProject(gs),
           cwd: gs.cwd ?? "",
           time_range: {
             display: timeDisplay,
@@ -119,6 +184,8 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
       console.warn(`Warning: cursor-gui: ${(e as Error).message}`);
     }
   }
+
+  enrichCursorGuiFallbackContext(sessions);
 
   // Collect Cursor CLI sessions
   if (targetAgents.includes("cursor") || targetAgents.includes("cursor-gui")) {
