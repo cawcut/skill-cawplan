@@ -109,8 +109,8 @@ function lineCount(text: string): number {
   return text.split("\n").length;
 }
 
-function formatIsoTime(ts: Date | null): string {
-  if (!ts || Number.isNaN(ts.getTime())) return "";
+function formatIsoTime(ts: Date | null): string | undefined {
+  if (!ts || Number.isNaN(ts.getTime())) return undefined;
   return ts.toISOString();
 }
 

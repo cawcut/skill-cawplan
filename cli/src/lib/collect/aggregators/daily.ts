@@ -282,19 +282,24 @@ function pickSessionModel(session: SessionData): string {
   return models.length > 0 ? models[0] ?? "" : "";
 }
 
+function nonEmpty(value?: string): string | undefined {
+  const t = (value ?? "").trim();
+  return t.length > 0 ? t : undefined;
+}
+
 function enrichSessionHumanInputs(session: SessionData) {
   return (session.human_inputs ?? []).map((h) => ({
     ...h,
     session_title: h.session_title ?? session.session_name,
     session_agent: h.session_agent ?? agentDisplay(session),
-    session_time: h.session_time ?? h.start_time ?? "",
+    session_time: nonEmpty(h.session_time ?? h.start_time),
     session_model: h.session_model ?? pickSessionModel(session),
     project: h.project ?? normalizeProjectName(session.project),
     files_changed: h.files_changed ?? 0,
     lines_added: h.lines_added ?? 0,
     lines_deleted: h.lines_deleted ?? 0,
-    start_time: h.start_time ?? h.session_time ?? "",
-    end_time: h.end_time ?? h.start_time ?? h.session_time ?? "",
+    start_time: nonEmpty(h.start_time ?? h.session_time),
+    end_time: nonEmpty(h.end_time ?? h.start_time ?? h.session_time),
   }));
 }
 

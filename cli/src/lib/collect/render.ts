@@ -175,6 +175,11 @@ function buildTokenUsage(daily: DailyApiJson): Array<Record<string, unknown>> {
   }));
 }
 
+function nonEmpty(v?: string): string | undefined {
+  const t = (v ?? "").trim();
+  return t.length > 0 ? t : undefined;
+}
+
 export function renderDailyApiJson(
   daily: DailyApiJson,
   summariesDir: string
@@ -208,14 +213,14 @@ export function renderDailyApiJson(
       );
       return {
         ...h,
-        session_time: h.session_time ?? h.start_time ?? "",
+        session_time: nonEmpty(h.session_time ?? h.start_time),
         session_model: h.session_model ?? (matched?.models[0] ?? ""),
         project: h.project ?? (matched ? pickProject(matched) : ""),
         files_changed: h.files_changed ?? 0,
         lines_added: h.lines_added ?? 0,
         lines_deleted: h.lines_deleted ?? 0,
-        start_time: h.start_time ?? h.session_time ?? "",
-        end_time: h.end_time ?? h.start_time ?? h.session_time ?? "",
+        start_time: nonEmpty(h.start_time ?? h.session_time),
+        end_time: nonEmpty(h.end_time ?? h.start_time ?? h.session_time),
       };
     });
 
