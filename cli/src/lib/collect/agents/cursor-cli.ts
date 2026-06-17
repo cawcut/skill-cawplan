@@ -12,6 +12,8 @@ const require = createRequire(import.meta.url);
 import { SessionData, FileChange, RepoTouched, UsageBucket, ModelUsageEntry } from "../types.js";
 import { calculateCost, getCurrency } from "../pricing.js";
 
+const CHARS_PER_TOKEN = 4;
+
 /**
  * Extract JSON from a protobuf blob by scanning for {"role" bytes.
  * Returns parsed message objects found in the blob.
@@ -58,7 +60,7 @@ function extractJsonFromBlob(blob: Buffer): Record<string, unknown>[] {
 
 interface CursorMessage {
   role: "user" | "assistant";
-  content: string;
+  content: unknown;
   timestamp?: number;
   model?: string;
   toolCalls?: unknown[];
@@ -80,6 +82,28 @@ function readStoreMeta(dbPath: string): StoreMetadata {
     const db = new Database(dbPath, { readonly: true });
 
     try {
+      let metaRow: { value: string } | undefined;
+      try {
+        metaRow = db
+          .prepare("SELECT value FROM meta WHERE key = '0'")
+          .get() as { value: string } | undefined;
+      } catch {
+        metaRow = undefined;
+      }
+
+      if (metaRow?.value) {
+        try {
+          const parsed = JSON.parse(Buffer.from(metaRow.value, "hex").toString("utf-8")) as Record<string, unknown>;
+          return {
+            sessionName: (parsed["name"] ?? parsed["title"] ?? "") as string,
+            model: (parsed["lastUsedModel"] ?? parsed["model"] ?? "") as string,
+            createdAt: parsed["createdAt"] as number | undefined,
+          };
+        } catch {
+          // fall through to legacy blob schema
+        }
+      }
+
       const row = db
         .prepare("SELECT value FROM blobs WHERE key = '0'")
         .get() as { value: Buffer } | undefined;
@@ -128,6 +152,35 @@ function readStoreMessages(dbPath: string): CursorMessage[] {
     const db = new Database(dbPath, { readonly: true });
 
     try {
+      const seenContent = new Set<string>();
+      try {
+        const dataRows = db
+          .prepare("SELECT id, data FROM blobs WHERE length(data) > 100 ORDER BY rowid")
+          .all() as Array<{ id: string; data: Buffer }>;
+
+        for (const row of dataRows) {
+          if (!row.data?.includes(Buffer.from('"role"'))) continue;
+          const extracted = extractJsonFromBlob(row.data);
+          for (const msg of extracted) {
+            if (msg["role"] !== "user" && msg["role"] !== "assistant") continue;
+            const dedupKey = JSON.stringify(msg["content"] ?? "");
+            if (seenContent.has(dedupKey)) continue;
+            seenContent.add(dedupKey);
+            messages.push({
+              role: msg["role"] as "user" | "assistant",
+              content: msg["content"] ?? "",
+              timestamp: msg["timestamp"] as number | undefined,
+              model: msg["model"] as string | undefined,
+              toolCalls: msg["toolCalls"] as unknown[] | undefined,
+            });
+          }
+        }
+      } catch {
+        // fall through to legacy key/value blob schema
+      }
+
+      if (messages.length > 0) return messages;
+
       const rows = db
         .prepare("SELECT key, value FROM blobs WHERE key != '0' ORDER BY key ASC")
         .all() as Array<{ key: string; value: Buffer }>;
@@ -139,7 +192,7 @@ function readStoreMessages(dbPath: string): CursorMessage[] {
           if (msg["role"] === "user" || msg["role"] === "assistant") {
             messages.push({
               role: msg["role"] as "user" | "assistant",
-              content: (msg["content"] as string) ?? "",
+              content: msg["content"] ?? "",
               timestamp: msg["timestamp"] as number | undefined,
               model: msg["model"] as string | undefined,
               toolCalls: msg["toolCalls"] as unknown[] | undefined,
@@ -155,6 +208,60 @@ function readStoreMessages(dbPath: string): CursorMessage[] {
   }
 
   return messages;
+}
+
+function textLength(value: unknown): number {
+  if (!value) return 0;
+  if (typeof value === "string") return value.length;
+  return JSON.stringify(value).length;
+}
+
+function messageCharLength(msg: CursorMessage): { inputChars: number; outputChars: number } {
+  const content = msg.content;
+
+  if (msg.role === "user") {
+    if (typeof content === "string") return { inputChars: textLength(content), outputChars: 0 };
+    if (Array.isArray(content)) {
+      const inputChars = content.reduce((sum, item) => {
+        if (typeof item === "object" && item !== null && (item as Record<string, unknown>)["type"] === "text") {
+          return sum + textLength((item as Record<string, unknown>)["text"]);
+        }
+        return sum;
+      }, 0);
+      return { inputChars, outputChars: 0 };
+    }
+    return { inputChars: 0, outputChars: 0 };
+  }
+
+  if (msg.role === "assistant") {
+    if (typeof content === "string") return { inputChars: 0, outputChars: textLength(content) };
+    if (Array.isArray(content)) {
+      const outputChars = content.reduce((sum, item) => {
+        if (typeof item !== "object" || item === null) return sum;
+        const block = item as Record<string, unknown>;
+        if (block["type"] === "text") return sum + textLength(block["text"]);
+        if (block["type"] === "tool_use") return sum + textLength(block["input"] ?? block["arguments"] ?? {});
+        return sum;
+      }, 0);
+      return { inputChars: 0, outputChars };
+    }
+  }
+
+  return { inputChars: 0, outputChars: 0 };
+}
+
+function estimateTokensFromMessages(messages: CursorMessage[]): { inputTokens: number; outputTokens: number } {
+  let inputChars = 0;
+  let outputChars = 0;
+  for (const msg of messages) {
+    const counts = messageCharLength(msg);
+    inputChars += counts.inputChars;
+    outputChars += counts.outputChars;
+  }
+  return {
+    inputTokens: Math.floor(inputChars / CHARS_PER_TOKEN),
+    outputTokens: Math.floor(outputChars / CHARS_PER_TOKEN),
+  };
 }
 
 /**
@@ -307,20 +414,26 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
       // Use model from metadata
       const model = meta.model || "unknown";
       const currency = getCurrency(model);
+      const estimate = estimateTokensFromMessages(messages);
 
       const modelEntry: ModelUsageEntry = {
-        api_calls: messages.filter((m) => m.role === "assistant").length,
-        input_tokens: 0,
-        output_tokens: 0,
+        api_calls: 0,
+        input_tokens: estimate.inputTokens,
+        output_tokens: estimate.outputTokens,
         cache_read_input_tokens: 0,
         cache_creation_input_tokens: 0,
-        cost: "unknown",
+        cost: calculateCost(model, {
+          input_tokens: estimate.inputTokens,
+          output_tokens: estimate.outputTokens,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        }) ?? 0,
         currency,
-        token_source: "not_available",
-        note: "Cursor CLI does not expose per-session token counts",
+        token_source: "char-based estimate (API unavailable)",
+        note: `chars/${CHARS_PER_TOKEN} estimate (user->input, assistant->output)`,
       };
 
-      const modelUsage: Record<string, ModelUsageEntry> = model !== "unknown" ? { [model]: modelEntry } : {};
+      const modelUsage: Record<string, ModelUsageEntry> = { [model]: modelEntry };
 
       const usageBucket: UsageBucket = {
         ...modelEntry,
@@ -331,7 +444,7 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
         agents: ["cursor"],
       };
 
-      const usageBreakdown: UsageBucket[] = model !== "unknown" ? [usageBucket] : [];
+      const usageBreakdown: UsageBucket[] = [usageBucket];
 
       const reposTouched: RepoTouched[] = cwd
         ? [{ repo: cwd, files: filesChanged.length, added: 0, deleted: 0 }]
@@ -352,13 +465,13 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
         startLocal = created.toISOString();
       }
 
-      const sessionName = meta.sessionName || `${sessionId.slice(0, 8)}/${convId.slice(0, 8)}`;
+      const sessionName = meta.sessionName || convId.slice(0, 8);
 
       sessions.push({
         schema: "2.0",
         date: filterDate,
         agent: "cursor-cli",
-        session_id: `${sessionId}/${convId}`,
+        session_id: convId,
         session_name: sessionName,
         project: sessionId,
         cwd,

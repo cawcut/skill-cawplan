@@ -61,9 +61,6 @@ Collect local agent session data (Claude Code, Cursor, Codex) and upload to CawP
 # Collect only (write to file, do not upload)
 /cawplan-coding-commit collect sessions for 2026-06-14
 
-# Collect, prepare chunks, and render a local report
-/cawplan-coding-commit generate and render coding report for 2026-06-14
-
 # Collect only Claude Code sessions for today
 /cawplan-coding-commit collect today's Claude Code sessions
 

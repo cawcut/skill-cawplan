@@ -1,6 +1,5 @@
 /**
  * Chunk builder — splits session messages into AI-friendly text chunks.
- * Port of uid-team-skills/.agents/skills/ai-coding-reports/scripts/src/ai_coding_reports/aggregators/chunks.py
  */
 
 export const MSG_TRUNCATE = 100;  // max chars per message in a chunk

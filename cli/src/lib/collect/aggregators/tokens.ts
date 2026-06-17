@@ -1,6 +1,13 @@
 import { ModelUsageEntry, UsageBucket } from "../types.js";
 import { calculateCost, getCurrency } from "../pricing.js";
 
+const TOKEN_FIELDS = [
+  "input_tokens",
+  "output_tokens",
+  "cache_read_input_tokens",
+  "cache_creation_input_tokens",
+] as const;
+
 export function bucketKey(dims: {
   model: string;
   speed: string;
@@ -32,6 +39,18 @@ function emptyBucket(
   };
 }
 
+function hasBillableTokens(usage: Record<string, unknown>): boolean {
+  return TOKEN_FIELDS.some((field) => Number(usage[field] ?? 0) > 0);
+}
+
+function stableUsageJson(usage: Record<string, unknown>): string {
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(usage).sort()) {
+    sorted[key] = usage[key];
+  }
+  return JSON.stringify(sorted);
+}
+
 function unionAgents(a?: string[], b?: string[]): string[] | undefined {
   const all = [...(a ?? []), ...(b ?? [])];
   if (!all.length) return undefined;
@@ -58,6 +77,7 @@ export function aggregateUsageBuckets(
 
     const usage = message["usage"] as Record<string, unknown> | undefined;
     if (!usage) continue;
+    if (!hasBillableTokens(usage)) continue;
 
     const model = (message["model"] as string | undefined) ?? "";
     if (!model || model === "<synthetic>") continue;
@@ -69,16 +89,16 @@ export function aggregateUsageBuckets(
       dedupKey = msgId;
     } else {
       const ts = (event["timestamp"] as string | undefined) ?? "";
-      dedupKey = `${ts}::${JSON.stringify(usage)}`;
+      dedupKey = `${ts}::${stableUsageJson(usage)}`;
     }
 
     if (seen.has(dedupKey)) continue;
     seen.add(dedupKey);
 
     // Extract dimension attributes
-    const speed = (message["speed"] as string | undefined) ?? "standard";
-    const service_tier = (message["service_tier"] as string | undefined) ?? "standard";
-    const effort = (message["effort"] as string | undefined) ?? "default";
+    const speed = (usage["speed"] as string | undefined) || "standard";
+    const service_tier = (usage["service_tier"] as string | undefined) || "standard";
+    const effort = (usage["effort"] as string | undefined) || (message["effort"] as string | undefined) || "default";
 
     const key = bucketKey({ model, speed, service_tier, effort });
     const currency = getCurrency(model, { speed });

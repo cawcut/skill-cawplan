@@ -431,7 +431,7 @@ export function collectClaudeCodeSession(
     const content = message?.["content"];
     let text: string | null = null;
     if (typeof content === "string") {
-      text = content.trim();
+      text = extractUserMessage(content)?.trim() ?? null;
     } else if (Array.isArray(content)) {
       const textBlock = (content as Record<string, unknown>[]).find((b) => b["type"] === "text");
       if (textBlock) text = String(textBlock["text"] ?? "").trim();
@@ -439,6 +439,7 @@ export function collectClaudeCodeSession(
     if (!text || text.length < 10) continue;
     // Skip system-injected content
     if (/\[Request interrupted/.test(text)) continue;
+    if (/^Continue from where you left off\.?$/i.test(text)) continue;
     if (/^Base directory for this skill:/.test(text)) continue;
     if (/^This session is being continued/.test(text)) continue;
     if (/<command-message>/.test(text)) continue;

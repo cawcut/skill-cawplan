@@ -1,4 +1,5 @@
 import {
+  ApiSessionData,
   DailyApiJson,
   ModelUsageEntry,
   RepoTouched,
@@ -171,6 +172,84 @@ function mergeModelUsage(
   return result;
 }
 
+function agentDisplay(session: SessionData): string {
+  if (session.agent === "cursor-cli" || session.agent === "cursor-gui") return session.agent;
+  if (session.agent === "cursor") {
+    return session.message_stats.tool_calls > 0 ? "cursor-gui" : "cursor-cli";
+  }
+  return session.agent;
+}
+
+function apiAgent(session: SessionData): string {
+  if (session.agent === "cursor-cli" || session.agent === "cursor-gui") return "cursor";
+  return session.agent;
+}
+
+function sessionSource(session: SessionData): string {
+  if (session.agent === "cursor-cli") return "cli";
+  if (session.agent === "cursor-gui") return "gui";
+  if (session.agent === "cursor") return session.message_stats.tool_calls > 0 ? "gui" : "cli";
+  return "";
+}
+
+function totalTokens(buckets: UsageBucket[]): number {
+  return buckets.reduce(
+    (sum, bucket) =>
+      sum +
+      bucket.input_tokens +
+      bucket.output_tokens +
+      bucket.cache_read_input_tokens +
+      bucket.cache_creation_input_tokens,
+    0
+  );
+}
+
+function sessionCost(buckets: UsageBucket[], round2: (value: number) => number): number {
+  const total = buckets.reduce((sum, bucket) => {
+    if (typeof bucket.cost !== "number") return sum;
+    return sum + bucket.cost;
+  }, 0);
+  return round2(total);
+}
+
+function tokenSource(session: SessionData): string {
+  for (const bucket of session.usage_breakdown) {
+    if (bucket.token_source) return bucket.token_source;
+  }
+  for (const entry of Object.values(session.model_usage)) {
+    if (entry.token_source) return entry.token_source;
+  }
+  if (apiAgent(session) === "cursor") return "char-based estimate (API unavailable)";
+  return "";
+}
+
+function costBasis(session: SessionData): string {
+  return tokenSource(session).includes("estimate") ? "estimate" : "unknown";
+}
+
+function toApiSession(session: SessionData, round2: (value: number) => number): ApiSessionData {
+  return {
+    agent: apiAgent(session),
+    source: sessionSource(session),
+    agent_display: agentDisplay(session),
+    session_id: session.session_id,
+    session_name: session.session_name,
+    time_range: session.time_range.display,
+    project: session.project || session.cwd,
+    message_stats: session.message_stats,
+    files_changed: session.files_changed,
+    files_added: session.files_added ?? 0,
+    files_deleted: session.files_deleted ?? 0,
+    models: Object.keys(session.model_usage),
+    total_tokens: totalTokens(session.usage_breakdown),
+    session_cost: sessionCost(session.usage_breakdown, round2),
+    cost_basis: costBasis(session),
+    token_source: tokenSource(session),
+    repos_touched: session.repos_touched.map((repo) => repo.repo),
+    repos_touched_detail: session.repos_touched,
+  };
+}
+
 /**
  * Build the daily.api.json from collected sessions and optional Cursor API usage.
  *
@@ -204,7 +283,7 @@ export function buildDailyApiJson(
     const sessionBuckets = bucketsToMap(session.usage_breakdown);
     allBuckets = mergeUsageBuckets(allBuckets, sessionBuckets);
     allRepos = mergeRepos(allRepos, session.repos_touched);
-    agents.add(session.agent);
+    agents.add(agentDisplay(session));
     totalMessages = sumMessageStats(totalMessages, session.message_stats);
     totalFilesChanged += session.files_changed;
   }
@@ -291,7 +370,7 @@ export function buildDailyApiJson(
         { ...v, cost: typeof v.cost === "number" ? r2(v.cost) : v.cost },
       ])
     ),
-    sessions: conversationSessions.map(({ human_inputs: _, ...rest }) => rest),
+    sessions: conversationSessions.map((session) => toApiSession(session, r2)),
     repos: allRepos,
     human_inputs: conversationSessions.flatMap((s) => s.human_inputs ?? []),
   };

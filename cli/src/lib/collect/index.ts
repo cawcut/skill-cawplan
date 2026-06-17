@@ -142,7 +142,15 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
   // Collect legacy Cursor CLI sessions from ~/.cursor/chats/
   if (targetAgents.includes("cursor") || targetAgents.includes("cursor-gui")) {
     try {
-      sessions.push(...collectCursorCliSessions(date));
+      const cursorCliSessions = collectCursorCliSessions(date);
+      const fullCursorCliIds = new Set(cursorCliSessions.map((s) => s.session_id));
+      for (let i = sessions.length - 1; i >= 0; i--) {
+        const s = sessions[i];
+        if (s.agent === "cursor-cli" && fullCursorCliIds.has(s.session_id)) {
+          sessions.splice(i, 1);
+        }
+      }
+      sessions.push(...cursorCliSessions);
     } catch (e) {
       console.warn(`Warning: cursor-cli: ${(e as Error).message}`);
     }

@@ -21,6 +21,8 @@ import {
   parseTimestampTag,
 } from "../date-utils.js";
 
+const CHARS_PER_TOKEN = 4;
+
 interface TranscriptEvent {
   role?: string;
   type?: string;
@@ -40,6 +42,19 @@ interface ParsedTurn {
   timestamp: Date | null;
   toolCallCount: number;
   cwd: string;
+}
+
+function estimateTokensFromTurns(turns: ParsedTurn[]): { inputTokens: number; outputTokens: number } {
+  let inputChars = 0;
+  let outputChars = 0;
+  for (const turn of turns) {
+    if (turn.role === "user") inputChars += turn.text.length;
+    else outputChars += turn.text.length;
+  }
+  return {
+    inputTokens: Math.floor(inputChars / CHARS_PER_TOKEN),
+    outputTokens: Math.floor(outputChars / CHARS_PER_TOKEN),
+  };
 }
 
 function decodeCursorProjectPath(encoded: string): string {
@@ -246,15 +261,16 @@ export function collectCursorAgentTranscripts(filterDate: string): SessionData[]
       }
     }
 
+    const statsTurns = dayTurns.length ? allTurns : dayTurns;
     let userCount = 0;
     let assistantCount = 0;
-    let toolCallCount = 0;
+    let rawToolCallCount = 0;
     let cwd = "";
 
-    for (const turn of dayTurns) {
+    for (const turn of statsTurns) {
       if (turn.role === "user") userCount++;
       else assistantCount++;
-      toolCallCount += turn.toolCallCount;
+      rawToolCallCount += turn.toolCallCount;
       if (!cwd && turn.cwd) cwd = turn.cwd;
     }
 
@@ -284,11 +300,15 @@ export function collectCursorAgentTranscripts(filterDate: string): SessionData[]
 
     const sessionTitle = deriveSessionTitle(projectPath, sessionId);
     const humanInputs = extractHumanInputs(dayTurns, sessionTitle);
+    const agent = rawToolCallCount > 0 ? "cursor-gui" : "cursor-cli";
+    const estimate = agent === "cursor-cli"
+      ? estimateTokensFromTurns(statsTurns)
+      : { inputTokens: 0, outputTokens: 0 };
 
     sessions.push({
       schema: "2.0",
       date: filterDate,
-      agent: "cursor",
+      agent,
       session_id: sessionId,
       session_name: sessionTitle,
       project: basename(projectPath) || projectEncoded.slice(0, 24),
@@ -299,13 +319,27 @@ export function collectCursorAgentTranscripts(filterDate: string): SessionData[]
         start_local: startLocal,
       },
       model_usage: {},
-      usage_breakdown: [],
+      usage_breakdown: agent === "cursor-cli" ? [{
+        model: "unknown",
+        speed: "standard",
+        service_tier: "standard",
+        effort: "default",
+        api_calls: 0,
+        input_tokens: estimate.inputTokens,
+        output_tokens: estimate.outputTokens,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cost: 0,
+        currency: "$",
+        token_source: "char-based estimate (API unavailable)",
+        note: `chars/${CHARS_PER_TOKEN} estimate (user->input, assistant->output)`,
+      }] : [],
       files_changed: 0,
       repos_touched: cwd ? [{ repo: cwd, files: 0, added: 0, deleted: 0 }] : [],
       message_stats: {
         user: userCount,
         assistant: assistantCount,
-        tool_calls: toolCallCount,
+        tool_calls: agent === "cursor-gui" ? 0 : rawToolCallCount,
       },
       human_inputs: humanInputs.length > 0 ? humanInputs : undefined,
     });

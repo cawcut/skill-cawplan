@@ -65,6 +65,27 @@ export interface SessionData {
   human_inputs?: HumanInput[];
 }
 
+export interface ApiSessionData {
+  agent: string;
+  source: string;
+  agent_display: string;
+  session_id: string;
+  session_name: string;
+  time_range: string;
+  project: string;
+  message_stats: MessageStats;
+  files_changed: number;
+  files_added: number;
+  files_deleted: number;
+  models: string[];
+  total_tokens: number;
+  session_cost: number;
+  cost_basis: string;
+  token_source: string;
+  repos_touched: string[];
+  repos_touched_detail: RepoTouched[];
+}
+
 export interface DailyApiJson {
   schema: "2.0";
   date: string;
@@ -80,7 +101,7 @@ export interface DailyApiJson {
   };
   usage_breakdown: UsageBucket[];
   model_usage: Record<string, ModelUsageEntry>;
-  sessions: SessionData[];
+  sessions: ApiSessionData[];
   repos: RepoTouched[];
   human_inputs: HumanInput[];
 }

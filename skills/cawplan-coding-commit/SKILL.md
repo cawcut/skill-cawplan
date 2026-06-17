@@ -36,20 +36,15 @@ Use **only** when the user explicitly asks to upload or submit the report.
 
 **Step 1 — Collect API JSON:**
 ```bash
-cawplan ai-session collect --date <YYYY-MM-DD> --keep-intermediates
+cawplan ai-session collect --date <YYYY-MM-DD>
 # output defaults to ./ai-daily-<date>.json
 ```
 
-The command runs the bundled Python `ai_coding_reports` pipeline. By default, `collect` only keeps `./ai-daily-<date>.json`; use `--keep-intermediates` in this workflow because the next steps need files under `Outputs/reports/<date>/`.
+The command runs the TypeScript collector and writes the API JSON to `./ai-daily-<date>.json` by default.
 
-**Step 2 — Prepare AI summary chunks:**
-```bash
-cawplan ai-session chunk --date <YYYY-MM-DD>
-```
+**Step 2 — Review and summarize:**
 
-Read the generated chunk files under `Outputs/reports/<date>/chunks/`. The daily JSON `human_inputs` array contains user prompts from each session — use them to understand what decisions were made, what was built, and what was fixed.
-
-For each session, condense chunk content into a summary JSON under `Outputs/reports/<date>/summaries/`. Do not overwrite the daily API JSON.
+Read the generated daily JSON. The `human_inputs` array contains user prompts from each session — use them to understand what decisions were made, what was built, and what was fixed.
 
 Summarization rules:
 - Group items into four categories: `decision` / `direction` / `correction` / `planning`
@@ -60,20 +55,8 @@ Summarization rules:
 - `direction`: significant tasks, features, or operations requested
 - `correction`: bugs, errors, or inconsistencies that were found or fixed
 - `planning`: planning discussions, roadmap items, next steps
-- Write each per-session summary as `Outputs/reports/<date>/summaries/<agent>-<session-id-prefix>.json`
-- Include `session_title`, `summary`, and `human_input` fields in each summary JSON
 
-**Step 3 — Render local report (optional):**
-```bash
-cawplan ai-session render --date <YYYY-MM-DD>
-```
-
-Shortcut for collect + chunk + render:
-```bash
-cawplan ai-session generate --date <YYYY-MM-DD>
-```
-
-**Step 4 — Show summary to the user:**
+**Step 3 — Show summary to the user:**
 
 Present a concise summary of the collected data:
 - Date and author
@@ -82,13 +65,13 @@ Present a concise summary of the collected data:
 - Top sessions (name, time range, cost)
 - Files changed across repos
 
-**Step 5 — Ask for confirmation:**
+**Step 4 — Ask for confirmation:**
 
 > "以上是 <date> 的 AI 日报，是否确认上传？"
 
 Wait for explicit confirmation before proceeding. If the user declines, stop.
 
-**Step 6 — Upload:**
+**Step 5 — Upload:**
 ```bash
 cawplan ai-session report --file ./ai-daily-<date>.json
 ```
@@ -108,17 +91,11 @@ cawplan ai-session collect --date <YYYY-MM-DD> --agent claude-code
 # Write to a custom path
 cawplan ai-session collect --date <YYYY-MM-DD> --output ~/reports/ai-daily-2026-06-14.json
 
-# Keep Python intermediate files when you need chunks/summaries/render
-cawplan ai-session collect --date <YYYY-MM-DD> --keep-intermediates
 ```
 
-**Step 2 — Prepare chunks and optionally render:**
-```bash
-cawplan ai-session chunk --date <YYYY-MM-DD>
-cawplan ai-session render --date <YYYY-MM-DD>
-```
+**Step 2 — Review and summarize:**
 
-Same as Mode 1 Step 2: read chunks and `human_inputs`, then write summary JSON files under `Outputs/reports/<date>/summaries/`.
+Same as Mode 1 Step 2: read `human_inputs` from the daily JSON and summarize the important decisions, directions, corrections, and planning items.
 
 After review, upload with:
 ```bash
@@ -147,7 +124,7 @@ The CLI validates the file contains `author` and `date` fields before uploading.
 | `codex` | `~/.codex/sessions/` SQLite | Reads Codex CLI sessions |
 
 If `CURSOR_ACCESS_TOKEN` is not set, Cursor cost/token fields will be empty (non-fatal warning).
-Local collection, chunking, and rendering are provided by the bundled Python `ai_coding_reports` package. The machine must have `python3`, `click`, and `jinja2` available.
+Local collection is provided by the TypeScript `cawplan` CLI collector. No Python runtime is required.
 
 ---
 
