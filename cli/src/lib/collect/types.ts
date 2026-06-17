@@ -94,6 +94,11 @@ export interface HumanInput {
   session_time?: string;
   session_model?: string;
   project?: string;
+  files_changed?: number;
+  lines_added?: number;
+  lines_deleted?: number;
+  start_time?: string;
+  end_time?: string;
 }
 
 export interface CollectOptions {

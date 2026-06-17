@@ -238,9 +238,14 @@ export function renderDailyApiJson(
       );
       return {
         ...h,
-        session_time: matched?.time_range?.display ?? "",
-        session_model: Object.keys(matched?.model_usage ?? {})[0] ?? "",
-        project: matched ? pickProject(matched) : "",
+        session_time: h.session_time ?? h.start_time ?? "",
+        session_model: h.session_model ?? (Object.keys(matched?.model_usage ?? {})[0] ?? ""),
+        project: h.project ?? (matched ? pickProject(matched) : ""),
+        files_changed: h.files_changed ?? 0,
+        lines_added: h.lines_added ?? 0,
+        lines_deleted: h.lines_deleted ?? 0,
+        start_time: h.start_time ?? h.session_time ?? "",
+        end_time: h.end_time ?? h.start_time ?? h.session_time ?? "",
       };
     });
 

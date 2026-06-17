@@ -152,9 +152,14 @@ export function buildDailyApiJson(
       ...h,
       session_title: h.session_title ?? session.session_name,
       session_agent: h.session_agent ?? session.agent,
-      session_time: h.session_time ?? session.time_range.display,
+      session_time: h.session_time ?? h.start_time ?? "",
       session_model: h.session_model ?? pickSessionModel(session),
       project: h.project ?? normalizeProjectName(session.project),
+      files_changed: h.files_changed ?? 0,
+      lines_added: h.lines_added ?? 0,
+      lines_deleted: h.lines_deleted ?? 0,
+      start_time: h.start_time ?? h.session_time ?? "",
+      end_time: h.end_time ?? h.start_time ?? h.session_time ?? "",
     }));
 
   // 1. Merge all session usage_breakdown buckets

@@ -108,6 +108,48 @@ function lineCount(text: string): number {
   return text.split("\n").length;
 }
 
+function formatIsoTime(ts: Date | null): string {
+  if (!ts || Number.isNaN(ts.getTime())) return "";
+  return ts.toISOString();
+}
+
+function parseTsValue(raw: unknown): Date | null {
+  if (raw == null) return null;
+  if (typeof raw === "number") {
+    const ms = raw > 1_000_000_000_000 ? raw : raw * 1000;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    if (!text) return null;
+    if (/^\d+(\.\d+)?$/.test(text)) {
+      const n = Number(text);
+      return parseTsValue(n);
+    }
+    const d = new Date(text);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+function parseEventTimestamp(
+  obj: Record<string, unknown>,
+  message: Record<string, unknown>,
+  fallbackText?: string
+): Date | null {
+  const candidates = [
+    obj["timestamp"], obj["ts"], obj["time"], obj["createdAt"], obj["created_at"], obj["updatedAt"], obj["updated_at"],
+    message["timestamp"], message["ts"], message["time"], message["createdAt"], message["created_at"], message["updatedAt"], message["updated_at"],
+  ];
+  for (const c of candidates) {
+    const parsed = parseTsValue(c);
+    if (parsed) return parsed;
+  }
+  if (fallbackText) return parseTimestampFromText(fallbackText);
+  return null;
+}
+
 function estimateDeltaFromToolInput(
   toolName: string,
   rawInput: unknown
@@ -208,6 +250,17 @@ function parseTranscript(sessionId: string): {
   const fileIndex = new Map<string, number>();
   const humanInputs: HumanInput[] = [];
   const seenInput = new Set<string>();
+  type PromptContext = {
+    idx: number;
+    start: Date | null;
+    firstTool: Date | null;
+    lastTool: Date | null;
+    files: Set<string>;
+    linesAdded: number;
+    linesDeleted: number;
+  };
+  const contexts: PromptContext[] = [];
+  let currentContext: PromptContext | null = null;
 
   const pickPathFromInput = (input: Record<string, unknown>): string | null => {
     const keys = ["path", "file_path", "target_file", "target_notebook"] as const;
@@ -269,17 +322,38 @@ function parseTranscript(sessionId: string): {
         userCount++;
         const norm = textAcc.slice(0, 200);
         const extracted = extractHumanInputText(textAcc);
+        const promptTs = parseEventTimestamp(obj, message, textAcc);
         if (!seenInput.has(norm) && extracted.length > 0 && extracted.length <= 1500) {
           seenInput.add(norm);
+          const inputIdx = humanInputs.length;
           humanInputs.push({
             category: classifyHumanInput(extracted),
             content: extracted,
             session_agent: "cursor-gui",
+            session_time: formatIsoTime(promptTs),
+            start_time: formatIsoTime(promptTs),
+            end_time: formatIsoTime(promptTs),
+            files_changed: 0,
+            lines_added: 0,
+            lines_deleted: 0,
           });
+          currentContext = {
+            idx: inputIdx,
+            start: promptTs,
+            firstTool: null,
+            lastTool: null,
+            files: new Set<string>(),
+            linesAdded: 0,
+            linesDeleted: 0,
+          };
+          contexts.push(currentContext);
+        } else {
+          currentContext = null;
         }
       }
     } else if (role === "assistant" && Array.isArray(content)) {
       assistantCount++;
+      const eventTs = parseEventTimestamp(obj, message);
       for (const block of content) {
         const b = block as Record<string, unknown>;
         if (b["type"] !== "tool_use") continue;
@@ -289,6 +363,15 @@ function parseTranscript(sessionId: string): {
           const patchFiles = parseApplyPatchStats(rawInput);
           for (const pf of patchFiles) {
             upsertFile(pf.path, pf.added, pf.deleted, "ApplyPatch");
+            if (currentContext) {
+              currentContext.files.add(pf.path);
+              currentContext.linesAdded += Math.max(0, pf.added);
+              currentContext.linesDeleted += Math.max(0, pf.deleted);
+              if (eventTs) {
+                currentContext.firstTool = currentContext.firstTool ?? eventTs;
+                currentContext.lastTool = eventTs;
+              }
+            }
           }
           continue;
         }
@@ -302,8 +385,30 @@ function parseTranscript(sessionId: string): {
         const p = delta.path ?? pickPathFromInput(input);
         if (!p) continue;
         upsertFile(p, delta.added, delta.deleted, toolName || undefined);
+        if (currentContext) {
+          currentContext.files.add(p);
+          currentContext.linesAdded += Math.max(0, delta.added);
+          currentContext.linesDeleted += Math.max(0, delta.deleted);
+          if (eventTs) {
+            currentContext.firstTool = currentContext.firstTool ?? eventTs;
+            currentContext.lastTool = eventTs;
+          }
+        }
       }
     }
+  }
+
+  for (const ctx of contexts) {
+    const h = humanInputs[ctx.idx];
+    if (!h) continue;
+    const start = ctx.start ?? ctx.firstTool;
+    const end = ctx.lastTool ?? start;
+    h.files_changed = ctx.files.size;
+    h.lines_added = ctx.linesAdded;
+    h.lines_deleted = ctx.linesDeleted;
+    h.start_time = formatIsoTime(start);
+    h.end_time = formatIsoTime(end);
+    h.session_time = h.start_time;
   }
 
   const repo = gitRemoteRepo(cwd);
@@ -400,6 +505,17 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
       const files: FileChange[] = [];
       const fileIndex = new Map<string, number>();
       const humanInputs: HumanInput[] = [];
+      type PromptContext = {
+        idx: number;
+        start: Date | null;
+        firstTool: Date | null;
+        lastTool: Date | null;
+        files: Set<string>;
+        linesAdded: number;
+        linesDeleted: number;
+      };
+      const contexts: PromptContext[] = [];
+      let currentContext: PromptContext | null = null;
       const upsertFile = (path: string, added: number, deleted: number, changeType?: string): void => {
         const key = path.trim();
         if (!key) return;
@@ -446,7 +562,7 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
           if (textCombined) {
             userCount++;
             if (name === sid.slice(0, 8)) name = extractSessionNameFromText(textCombined, name);
-            const ts = parseTimestampFromText(textCombined);
+            const ts = parseEventTimestamp(obj, message, textCombined);
             if (ts) {
               if (!firstTs || ts < firstTs) firstTs = ts;
               if (!lastTs || ts > lastTs) lastTs = ts;
@@ -454,16 +570,34 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
             if (textCombined.length <= 1500) {
               const extracted = extractHumanInputText(textCombined);
               if (!extracted) continue;
+              const inputIdx = humanInputs.length;
               humanInputs.push({
                 category: classifyHumanInput(extracted),
                 content: extracted,
                 session_title: name,
                 session_agent: "cursor-gui",
+                session_time: formatIsoTime(ts),
+                start_time: formatIsoTime(ts),
+                end_time: formatIsoTime(ts),
+                files_changed: 0,
+                lines_added: 0,
+                lines_deleted: 0,
               });
+              currentContext = {
+                idx: inputIdx,
+                start: ts,
+                firstTool: null,
+                lastTool: null,
+                files: new Set<string>(),
+                linesAdded: 0,
+                linesDeleted: 0,
+              };
+              contexts.push(currentContext);
             }
           }
         } else if (role === "assistant" && Array.isArray(content)) {
           assistantCount++;
+          const eventTs = parseEventTimestamp(obj, message);
           for (const c of content) {
             const b = c as Record<string, unknown>;
             if (b["type"] !== "tool_use") continue;
@@ -473,6 +607,15 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
               const patchFiles = parseApplyPatchStats(rawInput);
               for (const pf of patchFiles) {
                 upsertFile(pf.path, pf.added, pf.deleted, "ApplyPatch");
+                if (currentContext) {
+                  currentContext.files.add(pf.path);
+                  currentContext.linesAdded += Math.max(0, pf.added);
+                  currentContext.linesDeleted += Math.max(0, pf.deleted);
+                  if (eventTs) {
+                    currentContext.firstTool = currentContext.firstTool ?? eventTs;
+                    currentContext.lastTool = eventTs;
+                  }
+                }
               }
               continue;
             }
@@ -485,8 +628,30 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
               (input["path"] ?? input["file_path"] ?? input["target_file"] ?? input["target_notebook"]) as string | undefined;
             if (!p) continue;
             upsertFile(p, delta.added, delta.deleted, toolName || undefined);
+            if (currentContext) {
+              currentContext.files.add(p);
+              currentContext.linesAdded += Math.max(0, delta.added);
+              currentContext.linesDeleted += Math.max(0, delta.deleted);
+              if (eventTs) {
+                currentContext.firstTool = currentContext.firstTool ?? eventTs;
+                currentContext.lastTool = eventTs;
+              }
+            }
           }
         }
+      }
+
+      for (const ctx of contexts) {
+        const h = humanInputs[ctx.idx];
+        if (!h) continue;
+        const start = ctx.start ?? ctx.firstTool;
+        const end = ctx.lastTool ?? start;
+        h.files_changed = ctx.files.size;
+        h.lines_added = ctx.linesAdded;
+        h.lines_deleted = ctx.linesDeleted;
+        h.start_time = formatIsoTime(start);
+        h.end_time = formatIsoTime(end);
+        h.session_time = h.start_time;
       }
 
       // Filter by target day using parsed timestamps, fallback to mtime
