@@ -282,7 +282,7 @@ function pickSessionModel(session: SessionData): string {
   return models.length > 0 ? models[0] ?? "" : "";
 }
 
-function nonEmpty(value?: string): string | undefined {
+function nonEmpty(value?: string | null): string | undefined {
   const t = (value ?? "").trim();
   return t.length > 0 ? t : undefined;
 }

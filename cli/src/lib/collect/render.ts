@@ -175,7 +175,7 @@ function buildTokenUsage(daily: DailyApiJson): Array<Record<string, unknown>> {
   }));
 }
 
-function nonEmpty(v?: string): string | undefined {
+function nonEmpty(v?: string | null): string | undefined {
   const t = (v ?? "").trim();
   return t.length > 0 ? t : undefined;
 }
