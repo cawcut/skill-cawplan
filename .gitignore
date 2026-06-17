@@ -2,9 +2,13 @@ node_modules/
 dist/
 cli/dist/
 *.tsbuildinfo
+__pycache__/
+*.pyc
 .DS_Store
 coverage/
 cli/coverage/
 .env
 .env.*
 .idea/
+Outputs/
+Reports/

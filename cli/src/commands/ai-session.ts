@@ -1,11 +1,14 @@
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
 import { buildQueryFromFlags } from "../lib/cache.js";
-import { collect } from "../lib/collect/index.js";
-import { findSessionsByDate, parseEvents, buildMessagesClaudeCode } from "../lib/collect/agents/claude-code.js";
-import { buildChunks, takeLastChunks, MAX_CHUNKS_PER_SESSION } from "../lib/collect/aggregators/chunks.js";
+import {
+  collectAiSessionsWithPython,
+  prepareAiSessionChunksWithPython,
+  renderAiSessionReportWithPython,
+} from "../lib/python-runner.js";
 
 function dateParams(opts: { date?: string; from?: string; to?: string }): Record<string, string> {
   const q: Record<string, string> = {};
@@ -56,6 +59,7 @@ export function registerAiSessionCommand(program: Command): void {
       [] as string[]
     )
     .option("--output <path>", "Output file path (default: ./ai-daily-<date>.json)")
+    .option("--keep-intermediates", "Keep Outputs/reports/<date> intermediate files")
     .action(async (opts) => {
       const date = opts.date ?? new Date().toISOString().slice(0, 10);
       const outputPath: string = opts.output ?? `ai-daily-${date}.json`;
@@ -66,9 +70,18 @@ export function registerAiSessionCommand(program: Command): void {
 
       console.error(`Collecting AI session data for ${date}...`);
       try {
-        const daily = await collect({ date, agents, outputPath });
+        const daily = await collectAiSessionsWithPython({
+          date,
+          agents,
+          outputPath,
+          keepIntermediates: Boolean(opts.keepIntermediates),
+        });
         console.error(
-          `Collected ${daily.totals.sessions} sessions from agents: ${daily.totals.agents.join(", ") || "none"}`
+          `Collected ${
+            (daily.totals as { sessions?: number })?.sessions ?? 0
+          } sessions from agents: ${
+            ((daily.totals as { agents?: string[] })?.agents ?? []).join(", ") || "none"
+          }`
         );
         console.error(`Output written to ${outputPath}`);
         console.log(JSON.stringify(daily, null, 2));
@@ -86,6 +99,7 @@ export function registerAiSessionCommand(program: Command): void {
     )
     .option("--file <path>", "Path to daily.json; must contain 'author' and 'date' fields")
     .option("--date <YYYY-MM-DD>", "Date to auto-collect and upload (default: today if no --file)")
+    .option("--keep-intermediates", "Keep Outputs/reports/<date> intermediate files when auto-collecting")
     .action(async (opts) => {
       let payload: Record<string, unknown> = {};
 
@@ -102,7 +116,11 @@ export function registerAiSessionCommand(program: Command): void {
         const date = opts.date ?? new Date().toISOString().slice(0, 10);
         console.error(`Auto-collecting AI session data for ${date}...`);
         try {
-          payload = await collect({ date }) as unknown as Record<string, unknown>;
+          payload = await collectAiSessionsWithPython({
+            date,
+            outputPath: `ai-daily-${date}.json`,
+            keepIntermediates: Boolean(opts.keepIntermediates),
+          });
         } catch (e) {
           console.error(`Error during collection: ${(e as Error).message}`);
           process.exit(1);
@@ -122,60 +140,115 @@ export function registerAiSessionCommand(program: Command): void {
       console.log(JSON.stringify(result, null, 2));
     });
 
-  // ── Chunk ────────────────────────────────────────────────────────────────────
+  // ── Local report pipeline ───────────────────────────────────────────────────
 
   ai.command("chunk")
     .description(
-      `Split session messages into AI-friendly text chunks (max ${MAX_CHUNKS_PER_SESSION} per session, last segments). ` +
-      "Writes <session-id>-chunk-N.txt files to the output directory."
+      "Generate AI-friendly chunk files from collected session JSON (Python ai-coding-reports pipeline)."
     )
     .option("--date <YYYY-MM-DD>", "Date to chunk (default: today)")
     .option(
       "--agent <name>",
-      "Agent(s) to chunk: claude-code (repeatable)",
+      "Agent(s) to chunk: claude-code, cursor, codex (repeatable)",
       (val: string, prev: string[]) => [...prev, val],
       [] as string[]
     )
-    .option("--output <dir>", "Output directory for chunk files (default: ./chunks)")
-    .option("--max-chunks <n>", `Max chunks per session (default: ${MAX_CHUNKS_PER_SESSION})`, parseInt)
-    .action((opts) => {
+    .option("--output <dir>", "Optional directory to copy generated chunk files into")
+    .action(async (opts) => {
       const date = opts.date ?? new Date().toISOString().slice(0, 10);
-      const outputDir: string = opts.output ?? "chunks";
-      const maxChunks: number = opts.maxChunks ?? MAX_CHUNKS_PER_SESSION;
-      const agents: string[] = opts.agent && opts.agent.length > 0 ? opts.agent : ["claude-code"];
+      const agents =
+        opts.agent && opts.agent.length > 0
+          ? (opts.agent as Array<"claude-code" | "cursor" | "cursor-gui" | "codex">)
+          : undefined;
 
-      mkdirSync(outputDir, { recursive: true });
-
-      let totalChunks = 0;
-      const sessions = findSessionsByDate(date);
-
-      for (const { jsonlPath, sessionId } of sessions) {
-        // Remove stale chunks for this session
-        const prefix = `${sessionId.slice(0, 8)}-chunk-`;
-        try {
-          readdirSync(outputDir)
-            .filter((f) => f.startsWith(prefix) && f.endsWith(".txt"))
-            .forEach((f) => unlinkSync(join(outputDir, f)));
-        } catch {
-          // dir may be empty — ignore
-        }
-
-        const events = parseEvents(jsonlPath, date);
-        const messages = buildMessagesClaudeCode(events);
-        const chunks = takeLastChunks(buildChunks(messages), maxChunks);
-
-        if (!chunks.length) continue;
-
-        for (let i = 0; i < chunks.length; i++) {
-          const outPath = join(outputDir, `${sessionId.slice(0, 8)}-chunk-${i + 1}.txt`);
-          writeFileSync(outPath, chunks[i], "utf-8");
-        }
-
-        console.error(`  ${sessionId.slice(0, 8)}: ${chunks.length} chunk(s)`);
-        totalChunks += chunks.length;
+      try {
+        const chunksDir = await prepareAiSessionChunksWithPython({
+          date,
+          agents,
+          outputDir: opts.output,
+        });
+        console.error(`Chunks written to ${chunksDir}`);
+      } catch (e) {
+        console.error(`Error: ${(e as Error).message}`);
+        process.exit(1);
       }
+    });
 
-      console.error(`\nTotal: ${totalChunks} chunk file(s) → ${outputDir}/`);
+  ai.command("render")
+    .description("Render a daily report from Outputs/reports/<date>/daily.json and summaries.")
+    .option("--date <YYYY-MM-DD>", "Date to render (default: today)")
+    .option("--output <path>", "Output path (default: Reports/<date>/<user>.md)")
+    .option("--format <md|json>", "Output format (default: md)", "md")
+    .action(async (opts) => {
+      const date = opts.date ?? new Date().toISOString().slice(0, 10);
+      const format = opts.format === "json" ? "json" : "md";
+      try {
+        const output = await renderAiSessionReportWithPython({
+          date,
+          outputPath: opts.output,
+          format,
+        });
+        if (output) console.error(`Report written to ${output}`);
+      } catch (e) {
+        console.error(`Error: ${(e as Error).message}`);
+        process.exit(1);
+      }
+    });
+
+  ai.command("generate")
+    .description("Run the full local report pipeline: collect API JSON, prepare chunks, and render report.")
+    .option("--date <YYYY-MM-DD>", "Date to generate (default: today)")
+    .option(
+      "--agent <name>",
+      "Agent(s) to include: claude-code, cursor, cursor-gui, codex (repeatable)",
+      (val: string, prev: string[]) => [...prev, val],
+      [] as string[]
+    )
+    .option("--output <path>", "API JSON output path (default: ./ai-daily-<date>.json)")
+    .option("--report-output <path>", "Rendered report output path")
+    .option("--format <md|json>", "Rendered report format (default: md)", "md")
+    .option("--keep-intermediates", "Keep Outputs/reports/<date> intermediate files")
+    .action(async (opts) => {
+      const date = opts.date ?? new Date().toISOString().slice(0, 10);
+      const outputPath: string = opts.output ?? `ai-daily-${date}.json`;
+      const agents =
+        opts.agent && opts.agent.length > 0
+          ? (opts.agent as Array<"claude-code" | "cursor" | "cursor-gui" | "codex">)
+          : undefined;
+      const format = opts.format === "json" ? "json" : "md";
+
+      try {
+        const daily = await collectAiSessionsWithPython({
+          date,
+          agents,
+          outputPath,
+          keepIntermediates: true,
+        });
+        const chunksDir = await prepareAiSessionChunksWithPython({ date, agents });
+        const reportPath = await renderAiSessionReportWithPython({
+          date,
+          outputPath: opts.reportOutput,
+          format,
+        });
+        if (!opts.keepIntermediates) {
+          // Best-effort cleanup after all consumers have read the Python outputs.
+          await rm(join(process.cwd(), "Outputs", "reports", date), { recursive: true, force: true });
+        }
+        console.error(
+          `Generated ${
+            (daily.totals as { sessions?: number })?.sessions ?? 0
+          } sessions from agents: ${
+            ((daily.totals as { agents?: string[] })?.agents ?? []).join(", ") || "none"
+          }`
+        );
+        console.error(`API JSON written to ${outputPath}`);
+        console.error(`Chunks written to ${chunksDir}`);
+        if (reportPath) console.error(`Report written to ${reportPath}`);
+        console.log(JSON.stringify(daily, null, 2));
+      } catch (e) {
+        console.error(`Error: ${(e as Error).message}`);
+        process.exit(1);
+      }
     });
 
   // ── Insights ─────────────────────────────────────────────────────────────────
