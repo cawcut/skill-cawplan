@@ -36,12 +36,24 @@ interface TranscriptEvent {
   };
 }
 
+interface ToolCall {
+  name: string;
+  input: Record<string, unknown> | string | undefined;
+}
+
+interface FileDelta {
+  path: string;
+  added: number;
+  deleted: number;
+}
+
 interface ParsedTurn {
   role: "user" | "assistant";
   text: string;
   timestamp: Date | null;
   toolCallCount: number;
   cwd: string;
+  fileDeltas: FileDelta[];
 }
 
 function estimateTokensFromTurns(turns: ParsedTurn[]): { inputTokens: number; outputTokens: number } {
@@ -80,14 +92,111 @@ function countToolCalls(content: TranscriptEvent["message"]): number {
   return content.content.filter((block) => block.type === "tool_use").length;
 }
 
+function extractToolCalls(content: TranscriptEvent["message"]): ToolCall[] {
+  if (!content?.content) return [];
+  return content.content
+    .filter((block) => block.type === "tool_use")
+    .map((block) => ({ name: block.name ?? "", input: block.input }));
+}
+
 function extractCwd(content: TranscriptEvent["message"]): string {
-  if (!content?.content) return "";
-  for (const block of content.content) {
-    if (block.type !== "tool_use" || !block.input) continue;
-    const cwd = block.input["working_directory"];
+  for (const call of extractToolCalls(content)) {
+    if (!call.input || typeof call.input === "string") continue;
+    const cwd = call.input["working_directory"];
     if (typeof cwd === "string" && cwd) return cwd;
   }
   return "";
+}
+
+function lineCount(value: unknown): number {
+  if (typeof value !== "string" || value.length === 0) return 0;
+  return value.split("\n").length;
+}
+
+function parsePatchFileDeltas(patch: string): FileDelta[] {
+  const byPath = new Map<string, FileDelta>();
+  let currentPath = "";
+
+  for (const line of patch.split("\n")) {
+    const fileMatch = line.match(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/);
+    if (fileMatch) {
+      currentPath = fileMatch[1]?.trim() ?? "";
+      if (currentPath && !byPath.has(currentPath)) {
+        byPath.set(currentPath, { path: currentPath, added: 0, deleted: 0 });
+      }
+      continue;
+    }
+
+    if (!currentPath) continue;
+    const delta = byPath.get(currentPath);
+    if (!delta) continue;
+    if (line.startsWith("+") && !line.startsWith("+++")) delta.added += 1;
+    if (line.startsWith("-") && !line.startsWith("---")) delta.deleted += 1;
+  }
+
+  return [...byPath.values()].filter((d) => d.added > 0 || d.deleted > 0);
+}
+
+function extractFileDeltasFromToolCall(call: ToolCall): FileDelta[] {
+  const name = call.name.toLowerCase();
+  const input = call.input;
+  if (!input) return [];
+
+  if (name === "applypatch" && typeof input === "string") {
+    return parsePatchFileDeltas(input);
+  }
+
+  if (typeof input === "string") return [];
+
+  if (name === "applypatch") {
+    const patch = input["patch"] ?? input["input"];
+    return typeof patch === "string" ? parsePatchFileDeltas(patch) : [];
+  }
+
+  const path =
+    (input["path"] as string | undefined) ??
+    (input["file_path"] as string | undefined) ??
+    (input["target_file"] as string | undefined) ??
+    (input["target_notebook"] as string | undefined);
+  if (!path) return [];
+
+  if (name === "write") {
+    return [{ path, added: lineCount(input["contents"] ?? input["content"]), deleted: 0 }];
+  }
+
+  if (name === "edit" || name === "strreplace" || name === "multiedit" || name === "editnotebook") {
+    return [{
+      path,
+      added: lineCount(input["new_string"]),
+      deleted: lineCount(input["old_string"]),
+    }];
+  }
+
+  return [];
+}
+
+function mergeFileDeltas(deltas: FileDelta[]): FileDelta[] {
+  const byPath = new Map<string, FileDelta>();
+  for (const delta of deltas) {
+    if (!delta.path) continue;
+    const existing = byPath.get(delta.path);
+    if (!existing) {
+      byPath.set(delta.path, { ...delta });
+      continue;
+    }
+    existing.added += delta.added;
+    existing.deleted += delta.deleted;
+  }
+  return [...byPath.values()];
+}
+
+function summarizeFileDeltas(deltas: FileDelta[]): { files: number; added: number; deleted: number } {
+  const merged = mergeFileDeltas(deltas);
+  return {
+    files: merged.length,
+    added: merged.reduce((sum, delta) => sum + delta.added, 0),
+    deleted: merged.reduce((sum, delta) => sum + delta.deleted, 0),
+  };
 }
 
 function deriveSessionTitle(projectPath: string, sessionId: string): string {
@@ -107,7 +216,9 @@ function extractHumanInputs(turns: ParsedTurn[], sessionTitle: string): HumanInp
   const humanInputs: HumanInput[] = [];
   const seen = new Set<string>();
 
-  for (const turn of turns) {
+  for (let i = 0; i < turns.length; i++) {
+    const turn = turns[i];
+    if (!turn) continue;
     if (turn.role !== "user") continue;
     const text = normalizeUserText(turn.text);
     if (!text || text.length < 10) continue;
@@ -127,11 +238,22 @@ function extractHumanInputs(turns: ParsedTurn[], sessionTitle: string): HumanInp
       category = "correction";
     }
 
+    const deltas: FileDelta[] = [];
+    for (let j = i + 1; j < turns.length; j++) {
+      const next = turns[j];
+      if (!next || next.role === "user") break;
+      deltas.push(...next.fileDeltas);
+    }
+    const deltaSummary = summarizeFileDeltas(deltas);
+
     humanInputs.push({
       category,
       content: text,
       session_title: sessionTitle,
       session_agent: "cursor",
+      files_changed: deltaSummary.files,
+      lines_added: deltaSummary.added,
+      lines_deleted: deltaSummary.deleted,
     });
   }
 
@@ -171,12 +293,14 @@ function parseTranscriptFile(jsonlPath: string): ParsedTurn[] {
       if (tagged) currentTimestamp = tagged;
     }
 
+    const toolCalls = extractToolCalls(event.message);
     turns.push({
       role,
       text,
       timestamp: currentTimestamp,
-      toolCallCount: countToolCalls(event.message),
+      toolCallCount: toolCalls.length,
       cwd: extractCwd(event.message),
+      fileDeltas: toolCalls.flatMap(extractFileDeltasFromToolCall),
     });
   }
 
@@ -300,6 +424,7 @@ export function collectCursorAgentTranscripts(filterDate: string): SessionData[]
 
     const sessionTitle = deriveSessionTitle(projectPath, sessionId);
     const humanInputs = extractHumanInputs(dayTurns, sessionTitle);
+    const sessionDeltaSummary = summarizeFileDeltas(dayTurns.flatMap((turn) => turn.fileDeltas));
     const agent = rawToolCallCount > 0 ? "cursor-gui" : "cursor-cli";
     const estimate = agent === "cursor-cli"
       ? estimateTokensFromTurns(statsTurns)
@@ -334,8 +459,15 @@ export function collectCursorAgentTranscripts(filterDate: string): SessionData[]
         token_source: "char-based estimate (API unavailable)",
         note: `chars/${CHARS_PER_TOKEN} estimate (user->input, assistant->output)`,
       }] : [],
-      files_changed: 0,
-      repos_touched: cwd ? [{ repo: cwd, files: 0, added: 0, deleted: 0 }] : [],
+      files_changed: sessionDeltaSummary.files,
+      files_added: sessionDeltaSummary.added,
+      files_deleted: sessionDeltaSummary.deleted,
+      repos_touched: cwd ? [{
+        repo: cwd,
+        files: sessionDeltaSummary.files,
+        added: sessionDeltaSummary.added,
+        deleted: sessionDeltaSummary.deleted,
+      }] : [],
       message_stats: {
         user: userCount,
         assistant: assistantCount,

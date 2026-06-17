@@ -139,7 +139,36 @@ function tokenSource(session: SessionData): string {
 }
 
 function costBasis(session: SessionData): string {
-  return tokenSource(session).includes("estimate") ? "estimate" : "unknown";
+  const source = tokenSource(session);
+  if (source === "dashboard_api" || source.includes("dashboard API")) return "actual";
+  if (source.includes("estimate") && !source.includes("model unavailable")) return "estimate";
+  return "unknown";
+}
+
+function projectBasename(value?: string | null): string {
+  const raw = (value ?? "").trim();
+  if (!raw) return "";
+  const parts = raw.split(/[\\/]/).filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] ?? raw : raw;
+}
+
+function isEncodedCursorProject(value: string): boolean {
+  return value.startsWith("Users-") || value.includes("-code-");
+}
+
+function readableEncodedCursorProject(value: string): string {
+  const marker = "-code-";
+  const idx = value.lastIndexOf(marker);
+  return idx >= 0 ? value.slice(idx + marker.length) : value;
+}
+
+function sessionProjectName(session: SessionData): string {
+  const repoName = projectBasename(session.repos_touched[0]?.repo);
+  if (repoName) return repoName;
+  const cwdName = projectBasename(session.cwd);
+  if (cwdName) return cwdName;
+  const project = normalizeProjectName(session.project);
+  return isEncodedCursorProject(project) ? readableEncodedCursorProject(project) : project;
 }
 
 function toApiSession(session: SessionData, round2: (value: number) => number): ApiSessionData {
@@ -150,7 +179,7 @@ function toApiSession(session: SessionData, round2: (value: number) => number): 
     session_id: session.session_id,
     session_name: session.session_name,
     time_range: session.time_range.display,
-    project: session.project || session.cwd,
+    project: sessionProjectName(session),
     message_stats: session.message_stats,
     files_changed: session.files_changed,
     files_added: session.files_added ?? 0,
@@ -186,13 +215,14 @@ function nonEmpty(value?: string | null): string | undefined {
 }
 
 function enrichSessionHumanInputs(session: SessionData) {
+  const project = sessionProjectName(session);
   return (session.human_inputs ?? []).map((h) => ({
     ...h,
     session_title: h.session_title ?? session.session_name,
     session_agent: h.session_agent ?? agentDisplay(session),
     session_time: nonEmpty(h.session_time ?? h.start_time),
     session_model: h.session_model ?? pickSessionModel(session),
-    project: h.project ?? normalizeProjectName(session.project),
+    project,
     files_changed: h.files_changed ?? 0,
     lines_added: h.lines_added ?? 0,
     lines_deleted: h.lines_deleted ?? 0,

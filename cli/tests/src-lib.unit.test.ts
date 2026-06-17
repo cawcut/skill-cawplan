@@ -21,6 +21,7 @@ import {
 import { getConfigPath, readUserConfig, writeUserConfig } from "../src/lib/user-config";
 import { buildDailyApiJson } from "../src/lib/collect/aggregators/daily";
 import { aggregateUsageBuckets } from "../src/lib/collect/aggregators/tokens";
+import { aggregateCursorUsageBySession, buildCursorSessionWindows } from "../src/lib/collect/agents/cursor-api";
 import type { SessionData } from "../src/lib/collect/types";
 
 let originalFetch: typeof fetch;
@@ -317,6 +318,51 @@ describe("src lib http", () => {
 });
 
 describe("src lib collect daily aggregator", () => {
+  test("attributes Cursor API usage to matching session windows", () => {
+    const windows = buildCursorSessionWindows([
+      {
+        session_id: "cursor-session-1",
+        agent: "cursor-gui",
+        time_range: {
+          start_local: "2026-06-17T02:00:00.000Z",
+          display: "10:00 - 10:30",
+        },
+      },
+    ]);
+
+    const bySession = aggregateCursorUsageBySession(
+      [
+        {
+          timestamp: "2026-06-17T02:10:00.000Z",
+          model: "gpt-5.5-medium",
+          tokenUsage: {
+            inputTokens: 100,
+            outputTokens: 20,
+            cacheReadTokens: 300,
+            cacheWriteTokens: 0,
+          },
+          chargedCents: 12,
+        },
+      ],
+      "2026-06-17",
+      windows
+    );
+
+    expect(bySession["cursor-session-1"]?.modelUsage["gpt-5.5-medium"]).toMatchObject({
+      api_calls: 1,
+      input_tokens: 100,
+      output_tokens: 20,
+      cache_read_input_tokens: 300,
+      cost: 0.12,
+      token_source: "dashboard_api",
+    });
+    expect(bySession["cursor-session-1"]?.usageBreakdown[0]).toMatchObject({
+      model: "gpt-5.5-medium",
+      service_tier: "api",
+      agents: ["cursor", "cursor-gui"],
+    });
+  });
+
   test("aggregates only billable Claude usage with usage dimensions", () => {
     const buckets = aggregateUsageBuckets([
       {

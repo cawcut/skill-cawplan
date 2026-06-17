@@ -14,6 +14,8 @@ import {
   buildSessionCookie,
   fetchUsageEvents,
   aggregateCursorUsage,
+  aggregateCursorUsageBySession,
+  buildCursorSessionWindows,
   readCursorAccessToken,
 } from "./agents/cursor-api.js";
 import { cursorChatsDir, cursorStateDbCandidates } from "./paths.js";
@@ -178,7 +180,22 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
       const { cookie } = buildSessionCookie();
       const { startMs, endMs } = dayBoundsMs(date);
       const events = await fetchUsageEvents(startMs, endMs, cookie);
-      cursorApiUsage = aggregateCursorUsage(events, date);
+
+      const cursorSessions = sessions.filter((s) => s.agent === "cursor-gui" || s.agent === "cursor-cli");
+      const windows = buildCursorSessionWindows(cursorSessions);
+      const bySession = aggregateCursorUsageBySession(events, date, windows);
+      let attributedSessions = 0;
+      for (const session of sessions) {
+        const assigned = bySession[session.session_id];
+        if (!assigned) continue;
+        session.model_usage = assigned.modelUsage;
+        session.usage_breakdown = assigned.usageBreakdown;
+        attributedSessions++;
+      }
+
+      if (attributedSessions === 0) {
+        cursorApiUsage = aggregateCursorUsage(events, date);
+      }
     } catch (e) {
       console.warn(`Warning: cursor API: ${(e as Error).message}`);
     }
