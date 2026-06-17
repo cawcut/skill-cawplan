@@ -399,33 +399,52 @@ export function collectClaudeCodeSession(
         if (!input) continue;
 
         const filePath = (input["file_path"] ?? input["path"]) as string | undefined;
-        if (filePath && !filesSet.has(filePath)) {
+        if (!filePath) continue;
+        const countLines = (s: unknown): number =>
+          typeof s === "string" ? s.split("\n").length : 0;
+        let added = 0;
+        let deleted = 0;
+        if (toolName === "Edit") {
+          added = countLines(input["new_string"]);
+          deleted = countLines(input["old_string"]);
+        } else if (toolName === "Write") {
+          added = countLines(input["content"]);
+        }
+        if (!filesSet.has(filePath)) {
           filesSet.add(filePath);
-          filesChanged.push({
-            path: filePath,
-            added: 0,
-            deleted: 0,
-            repo: repoRemote,
-            change_type: toolName,
-          });
+          filesChanged.push({ path: filePath, added, deleted, repo: repoRemote, change_type: toolName });
+        } else {
+          const existing = filesChanged.find((f) => f.path === filePath);
+          if (existing) { existing.added += added; existing.deleted += deleted; }
         }
       }
     }
   }
 
-  // Repos touched — group by git remote
+  // Repos touched — group by git remote, summing line counts
   const reposTouched: RepoTouched[] = repoRemote
-    ? [{ repo: repoRemote, files: filesChanged.length, added: 0, deleted: 0 }]
+    ? [{
+        repo: repoRemote,
+        files: filesChanged.length,
+        added: filesChanged.reduce((s, f) => s + (f.added ?? 0), 0),
+        deleted: filesChanged.reduce((s, f) => s + (f.deleted ?? 0), 0),
+      }]
     : [];
 
   const linesAdded = filesChanged.reduce((s, f) => s + (f.added ?? 0), 0);
   const linesDeleted = filesChanged.reduce((s, f) => s + (f.deleted ?? 0), 0);
 
   // Extract human inputs: real user text messages, categorized by keyword heuristics.
-  // Skip noise: interruptions, very short messages, slash commands, git/npm one-liners, duplicates.
-  const humanInputs: HumanInput[] = [];
+  interface QualifiedTurn {
+    index: number;
+    text: string;
+    startTs: string | null;
+    category: HumanInput["category"];
+  }
+  const qualifiedTurns: QualifiedTurn[] = [];
   const seen = new Set<string>();
-  for (const event of events) {
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i];
     if (event["type"] !== "user") continue;
     const message = event["message"] as Record<string, unknown> | undefined;
     const content = message?.["content"];
@@ -437,21 +456,15 @@ export function collectClaudeCodeSession(
       if (textBlock) text = String(textBlock["text"] ?? "").trim();
     }
     if (!text || text.length < 10) continue;
-    // Skip system-injected content
     if (/\[Request interrupted/.test(text)) continue;
     if (/^Continue from where you left off\.?$/i.test(text)) continue;
     if (/^Base directory for this skill:/.test(text)) continue;
     if (/^This session is being continued/.test(text)) continue;
     if (/<command-message>/.test(text)) continue;
-    // Skip shell/CLI one-liners
     if (/^(git |npm |npx |cawplan |cd |ls |cat |echo )/.test(text)) continue;
-    // Skip messages that are mainly @file references
     if (/^@"/.test(text) || /^file:\//.test(text)) continue;
-    // Skip very long messages (>1500 chars) — likely injected skill or context content
     if (text.length > 1500) continue;
-    // Skip messages that contain shell prompts (terminal output pasted into chat)
     if (/[@%$]\s*(npm|npx|node|tsc|cawplan|git)\b/.test(text)) continue;
-    // Deduplicate
     const key = text.slice(0, 120);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -466,17 +479,62 @@ export function collectClaudeCodeSession(
     else if (contains(["修复","修復","修正","改一下","不对","不對","有问题","有問題","报错","報錯","错误","錯誤","bug","fix","broken","failed"]))
       category = "correction";
     else if (contains(["需要","必须","必須","要求","请确保","請確保","should","must","requirement","需求"]))
-      category = "direction"; // requirement maps to direction (type has no "requirement")
+      category = "direction";
     else if (contains(["帮我","幫我","请","請","分析","看看","解释","解釋","实现","實現","优化","優化","梳理","how","why","what","please"]))
       category = "direction";
 
-    const ts = event["timestamp"] as string | undefined;
-    humanInputs.push({
+    qualifiedTurns.push({
+      index: i,
+      text,
+      startTs: (event["timestamp"] as string | undefined) ?? null,
       category,
-      content: text,
+    });
+  }
+
+  // end_time = last assistant event's timestamp before the next qualifying human turn.
+  // files_changed = unique file paths touched by tool_use in the same range.
+  const humanInputs: HumanInput[] = [];
+  for (let qi = 0; qi < qualifiedTurns.length; qi++) {
+    const turn = qualifiedTurns[qi];
+    const nextIdx = qi + 1 < qualifiedTurns.length ? qualifiedTurns[qi + 1].index : events.length;
+    let endTs: string | null = null;
+    const turnFiles = new Set<string>();
+    let turnLinesAdded = 0;
+    let turnLinesDeleted = 0;
+    for (let j = turn.index + 1; j < nextIdx; j++) {
+      const ev = events[j];
+      if (ev["type"] !== "assistant") continue;
+      const ts = ev["timestamp"] as string | undefined;
+      if (ts) endTs = ts;
+      const content = (ev["message"] as Record<string, unknown> | undefined)?.["content"];
+      if (!Array.isArray(content)) continue;
+      for (const block of content as Record<string, unknown>[]) {
+        if (block["type"] !== "tool_use") continue;
+        const toolName = block["name"] as string | undefined;
+        const input = block["input"] as Record<string, unknown> | undefined;
+        const fp = (input?.["file_path"] ?? input?.["path"]) as string | undefined;
+        if (!fp) continue;
+        turnFiles.add(fp);
+        const countLines = (s: unknown): number =>
+          typeof s === "string" ? s.split("\n").length : 0;
+        if (toolName === "Edit") {
+          turnLinesAdded += countLines(input?.["new_string"]);
+          turnLinesDeleted += countLines(input?.["old_string"]);
+        } else if (toolName === "Write") {
+          turnLinesAdded += countLines(input?.["content"]);
+        }
+      }
+    }
+    humanInputs.push({
+      category: turn.category,
+      content: turn.text,
       session_title: sessionName,
       session_agent: "claude-code",
-      start_time: ts ?? null,
+      start_time: turn.startTs,
+      end_time: endTs,
+      files_changed: turnFiles.size > 0 ? turnFiles.size : undefined,
+      lines_added: turnLinesAdded > 0 ? turnLinesAdded : undefined,
+      lines_deleted: turnLinesDeleted > 0 ? turnLinesDeleted : undefined,
     });
   }
 
