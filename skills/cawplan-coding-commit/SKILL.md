@@ -57,6 +57,8 @@ Rewriting rules:
 - Merge near-duplicate prompts into one item
 - Drop noise: very short inputs, slash-command invocations, pure file references
 
+**After rewriting, overwrite `human_inputs` in the JSON file with the rewritten items.** The file must contain the rewritten content before upload — do not leave raw prompts in it.
+
 **Step 3 — Show summary to the user:**
 
 Present a concise summary of the collected data:
@@ -68,7 +70,7 @@ Present a concise summary of the collected data:
 
 **Step 4 — Ask for confirmation:**
 
-> "以上是 <date> 的 AI 日报，是否确认上传？"
+> "Ready to upload the AI report for <date>. Confirm?"
 
 Wait for explicit confirmation before proceeding. If the user declines, stop.
 
@@ -96,7 +98,7 @@ cawplan ai-session collect --date <YYYY-MM-DD> --output ~/reports/ai-daily-2026-
 
 **Step 2 — Rewrite `human_inputs` into summary items:**
 
-Same as Mode 1 Step 2. The `human_inputs` array contains **raw user prompts** — you must rewrite each one into a concise third-person declarative statement in Chinese before presenting. Never pass through the original question or command text as `content`.
+Same as Mode 1 Step 2. The `human_inputs` array contains **raw user prompts** — you must rewrite each one into a concise third-person declarative statement in Chinese, overwrite `human_inputs` in the JSON file with the rewritten items, then present the summary. Never pass through the original question or command text as `content`.
 
 ---
 

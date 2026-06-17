@@ -470,8 +470,17 @@ export function collectClaudeCodeSession(
     else if (contains(["帮我","幫我","请","請","分析","看看","解释","解釋","实现","實現","优化","優化","梳理","how","why","what","please"]))
       category = "direction";
 
-    humanInputs.push({ category, content: text, session_title: sessionName, session_agent: "claude-code" });
+    const ts = event["timestamp"] as string | undefined;
+    humanInputs.push({
+      category,
+      content: text,
+      session_title: sessionName,
+      session_agent: "claude-code",
+      start_time: ts ?? null,
+    });
   }
+
+  const project = cwd ? basename(cwd) : projectName;
 
   return {
     schema: "2.0",
@@ -479,7 +488,7 @@ export function collectClaudeCodeSession(
     agent: "claude-code",
     session_id: sessionId,
     session_name: sessionName,
-    project: projectName,
+    project,
     cwd,
     time_range: {
       display: timeDisplay,

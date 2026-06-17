@@ -43,78 +43,6 @@ function sumMessageStats(a: MessageStats, b: MessageStats): MessageStats {
   };
 }
 
-function parseTimeRangeStart(session: SessionData): number | null {
-  const raw = session.time_range.start_local;
-  if (!raw) return null;
-  const t = new Date(raw).getTime();
-  return Number.isNaN(t) ? null : t;
-}
-
-function parseDisplayBounds(display: string): { start: string | null; end: string | null } {
-  const times = display.match(/\d{2}:\d{2}/g) ?? [];
-  if (!times.length) return { start: null, end: null };
-  return { start: times[0] ?? null, end: times[times.length - 1] ?? null };
-}
-
-function timeToMinutes(time: string): number {
-  const [h, m] = time.split(":").map(Number);
-  return h * 60 + m;
-}
-
-function mergeTimeDisplay(a: string, b: string): string {
-  const aBounds = parseDisplayBounds(a);
-  const bBounds = parseDisplayBounds(b);
-  const starts = [aBounds.start, bBounds.start].filter((v): v is string => !!v);
-  const ends = [aBounds.end, bBounds.end].filter((v): v is string => !!v);
-  if (!starts.length || !ends.length) return a !== "unknown" ? a : b;
-
-  const start = starts.sort((x, y) => timeToMinutes(x) - timeToMinutes(y))[0];
-  const end = ends.sort((x, y) => timeToMinutes(y) - timeToMinutes(x))[0];
-  return start === end ? start : `${start} - ${end}`;
-}
-
-function mergeSessionRecords(sessions: SessionData[]): SessionData[] {
-  const map = new Map<string, SessionData>();
-
-  for (const session of sessions) {
-    const key = `${session.date}|${session.agent}|${session.cwd || session.project}`;
-    const existing = map.get(key);
-
-    if (!existing) {
-      map.set(key, {
-        ...session,
-        model_usage: { ...session.model_usage },
-        usage_breakdown: session.usage_breakdown.map((b) => ({ ...b })),
-        repos_touched: session.repos_touched.map((r) => ({ ...r })),
-        human_inputs: session.human_inputs ? [...session.human_inputs] : undefined,
-      });
-      continue;
-    }
-
-    existing.session_id = existing.session_id || session.session_id;
-    existing.session_name = existing.session_name || session.session_name;
-    existing.model_usage = mergeModelUsage(existing.model_usage, session.model_usage);
-    existing.usage_breakdown = Object.values(
-      mergeUsageBuckets(bucketsToMap(existing.usage_breakdown), bucketsToMap(session.usage_breakdown))
-    );
-    existing.repos_touched = mergeRepos(existing.repos_touched, session.repos_touched);
-    existing.message_stats = sumMessageStats(existing.message_stats, session.message_stats);
-    existing.files_changed += session.files_changed;
-    existing.files_added = (existing.files_added ?? 0) + (session.files_added ?? 0) || undefined;
-    existing.files_deleted = (existing.files_deleted ?? 0) + (session.files_deleted ?? 0) || undefined;
-    existing.human_inputs = [...(existing.human_inputs ?? []), ...(session.human_inputs ?? [])];
-    existing.time_range.display = mergeTimeDisplay(existing.time_range.display, session.time_range.display);
-
-    const existingStart = parseTimeRangeStart(existing);
-    const sessionStart = parseTimeRangeStart(session);
-    if (existingStart == null || (sessionStart != null && sessionStart < existingStart)) {
-      existing.time_range.start_local = session.time_range.start_local;
-    }
-  }
-
-  return Array.from(map.values());
-}
-
 function buildTopLevelSummary(
   date: string,
   sessions: SessionData[],
@@ -157,36 +85,6 @@ function bucketsToMap(buckets: UsageBucket[]): Record<string, UsageBucket> {
     }
   }
   return map;
-}
-
-/**
- * Merge two model_usage maps, summing all counters.
- */
-function mergeModelUsage(
-  a: Record<string, ModelUsageEntry>,
-  b: Record<string, ModelUsageEntry>
-): Record<string, ModelUsageEntry> {
-  const result: Record<string, ModelUsageEntry> = { ...a };
-
-  for (const [model, entry] of Object.entries(b)) {
-    if (!result[model]) {
-      result[model] = { ...entry };
-    } else {
-      const existing = result[model];
-      existing.api_calls += entry.api_calls;
-      existing.input_tokens += entry.input_tokens;
-      existing.output_tokens += entry.output_tokens;
-      existing.cache_read_input_tokens += entry.cache_read_input_tokens;
-      existing.cache_creation_input_tokens += entry.cache_creation_input_tokens;
-      if (entry.cost === "unknown") {
-        existing.cost = "unknown";
-      } else if (existing.cost !== "unknown") {
-        (existing as { cost: number }).cost += entry.cost as number;
-      }
-    }
-  }
-
-  return result;
 }
 
 function agentDisplay(session: SessionData): string {
@@ -321,9 +219,9 @@ export function buildDailyApiJson(
 ): DailyApiJson {
   // Keep only real conversation sessions. Metadata-only records (0 user + 0 assistant)
   // should not count as "talked to an agent today".
-  const conversationSessions = mergeSessionRecords(sessions.filter(
+  const conversationSessions = sessions.filter(
     (s) => (s.message_stats.user + s.message_stats.assistant) > 0
-  ));
+  );
 
   // 1. Merge all session usage_breakdown buckets
   let allBuckets: Record<string, UsageBucket> = {};
