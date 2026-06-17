@@ -2,7 +2,7 @@
   "$schema": "https://cursor.com/schemas/cursor-plugin/plugin.json",
   "name": "cawplan",
   "displayName": "CawPlan Agent Skills",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CawPlan CLI-backed skills for products, tickets, todos, reports, critical issues, and metrics.",
   "author": {
     "name": "Ubiquiti",
@@ -39,6 +39,14 @@
     {
       "name": "cawplan-plan-track",
       "path": "skills/cawplan-plan-track"
+    },
+    {
+      "name": "cawplan-coding-commit",
+      "path": "skills/cawplan-coding-commit"
+    },
+    {
+      "name": "cawplan-coding-insights",
+      "path": "skills/cawplan-coding-insights"
     }
   ]
 }

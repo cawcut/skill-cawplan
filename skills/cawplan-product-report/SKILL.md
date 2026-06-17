@@ -1,5 +1,5 @@
 ---
-version: 0.1.0
+version: 0.2.0
 name: cawplan-product-report
 description: |
   Generate a CawPlan product status report with progress, risk analysis, priority recommendations, and summaries.
