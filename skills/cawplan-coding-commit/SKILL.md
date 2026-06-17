@@ -42,24 +42,7 @@ cawplan ai-session collect --date <YYYY-MM-DD>
 
 The command runs the TypeScript collector and writes the API JSON to `./ai-daily-<date>.json` by default.
 
-**Step 2 — Rewrite `human_inputs` into summary items:**
-
-Read the generated daily JSON. The `human_inputs` array contains **raw user prompts** — questions and commands, not conclusions.
-
-Rewriting rules:
-- Output format per item: `{ "category": "...", "content": "...", "session_title": "...", "session_agent": "..." }`
-- `content` must be a self-contained declarative statement (subject + action + result), **never a question or command**
-- Group into four categories; skip empty ones; 3–8 items each:
-  - `decision`: architectural, scope, or implementation choices that were made
-  - `direction`: significant tasks, features, or operations that were worked on
-  - `correction`: bugs, errors, or inconsistencies that were found or fixed
-  - `planning`: planning discussions, roadmap items, next steps
-- Merge near-duplicate prompts into one item
-- Drop noise: very short inputs, slash-command invocations, pure file references
-
-**After rewriting, overwrite `human_inputs` in the JSON file with the rewritten items.** The file must contain the rewritten content before upload — do not leave raw prompts in it.
-
-**Step 3 — Show summary to the user:**
+**Step 2 — Show summary to the user:**
 
 Present a concise summary of the collected data:
 - Date and author
@@ -68,13 +51,13 @@ Present a concise summary of the collected data:
 - Top sessions (name, time range, cost)
 - Files changed across repos
 
-**Step 4 — Ask for confirmation:**
+**Step 3 — Ask for confirmation:**
 
 > "Ready to upload the AI report for <date>. Confirm?"
 
 Wait for explicit confirmation before proceeding. If the user declines, stop.
 
-**Step 5 — Upload:**
+**Step 4 — Upload:**
 ```bash
 cawplan ai-session report --file ./ai-daily-<date>.json
 ```
@@ -96,10 +79,14 @@ cawplan ai-session collect --date <YYYY-MM-DD> --output ~/reports/ai-daily-2026-
 
 ```
 
-**Step 2 — Rewrite `human_inputs` into summary items:**
+**Step 2 — Show summary to the user:**
 
-Same as Mode 1 Step 2. The `human_inputs` array contains **raw user prompts** — you must rewrite each one into a concise third-person declarative statement in Chinese, overwrite `human_inputs` in the JSON file with the rewritten items, then present the summary. Never pass through the original question or command text as `content`.
-
+Present a concise summary of the collected data:
+- Date and author
+- Total sessions (broken down by agent)
+- Total cost
+- Top sessions (name, time range, cost)
+- Files changed across repos
 ---
 
 ### Mode 3: Upload a pre-existing file
