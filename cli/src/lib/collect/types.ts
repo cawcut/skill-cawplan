@@ -92,6 +92,7 @@ export interface DailyApiJson {
   author: string;
   generated_at: string;
   include_conversation: boolean;
+  summary?: string;
   totals: {
     sessions: number;
     agents: string[];
@@ -111,6 +112,14 @@ export interface HumanInput {
   content: string;
   session_title?: string;
   session_agent?: string;
+  session_time?: string;
+  session_model?: string;
+  project?: string;
+  files_changed?: number;
+  lines_added?: number;
+  lines_deleted?: number;
+  start_time?: string;
+  end_time?: string;
 }
 
 export interface CollectOptions {

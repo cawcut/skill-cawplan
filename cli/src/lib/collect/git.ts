@@ -1,4 +1,5 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
+import { relative } from "node:path";
 
 export function gitAuthor(): string {
   try {
@@ -38,4 +39,63 @@ export function gitRemoteRepo(cwd: string): string {
   } catch {
     return cwd;
   }
+}
+
+function parseNumstatLine(line: string): { added: number; deleted: number } {
+  const parts = line.trim().split("\t");
+  if (parts.length < 2) return { added: 0, deleted: 0 };
+  const added = Number.parseInt(parts[0], 10);
+  const deleted = Number.parseInt(parts[1], 10);
+  return {
+    added: Number.isFinite(added) ? added : 0,
+    deleted: Number.isFinite(deleted) ? deleted : 0,
+  };
+}
+
+function toRepoRelativePath(cwd: string, filePath: string): { repoRoot: string; relPath: string } | null {
+  try {
+    const repoRoot = execSync("git rev-parse --show-toplevel", {
+      encoding: "utf-8",
+      cwd,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (!repoRoot) return null;
+    const relPath = filePath.startsWith("/")
+      ? relative(repoRoot, filePath)
+      : filePath;
+    return { repoRoot, relPath };
+  } catch {
+    return null;
+  }
+}
+
+export function gitFileNumstat(cwd: string, filePath: string): { added: number; deleted: number } {
+  if (!cwd || !filePath) return { added: 0, deleted: 0 };
+  const resolved = toRepoRelativePath(cwd, filePath);
+  if (!resolved) return { added: 0, deleted: 0 };
+  const { repoRoot, relPath } = resolved;
+  if (!relPath || relPath.startsWith("..")) return { added: 0, deleted: 0 };
+
+  let added = 0;
+  let deleted = 0;
+  for (const args of [
+    ["diff", "--numstat", "HEAD", "--", relPath],
+    ["diff", "--cached", "--numstat", "--", relPath],
+  ]) {
+    try {
+      const out = execFileSync("git", args, {
+        encoding: "utf-8",
+        cwd: repoRoot,
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      if (!out) continue;
+      const stat = parseNumstatLine(out.split("\n")[0]);
+      added += stat.added;
+      deleted += stat.deleted;
+    } catch {
+      // ignore
+    }
+  }
+
+  return { added, deleted };
 }

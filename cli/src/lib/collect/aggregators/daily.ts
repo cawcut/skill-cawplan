@@ -115,6 +115,23 @@ function mergeSessionRecords(sessions: SessionData[]): SessionData[] {
   return Array.from(map.values());
 }
 
+function buildTopLevelSummary(
+  date: string,
+  sessions: SessionData[],
+  costByCurrency: Record<string, number>
+): string {
+  const byAgent: Record<string, number> = {};
+  for (const s of sessions) byAgent[s.agent] = (byAgent[s.agent] ?? 0) + 1;
+  const agentText = Object.entries(byAgent)
+    .sort((a, b) => b[1] - a[1])
+    .map(([agent, count]) => `${agent} ${count}个`)
+    .join("，");
+  const costText = Object.entries(costByCurrency)
+    .map(([currency, cost]) => `${currency}${Math.round(cost * 100) / 100}`)
+    .join("，");
+  return `${date} 共采集 ${sessions.length} 个会话（${agentText || "无"}），总成本 ${costText || "未知"}。`;
+}
+
 /**
  * Convert an array of UsageBuckets to a bucket map (keyed by bucketKey format).
  */
@@ -250,6 +267,37 @@ function toApiSession(session: SessionData, round2: (value: number) => number): 
   };
 }
 
+function normalizeProjectName(project: string): string {
+  const p = (project ?? "").trim();
+  if (!p) return "";
+  const parts = p.split("/").filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] ?? p : p;
+}
+
+function pickSessionModel(session: SessionData): string {
+  if (session.usage_breakdown.length > 0 && session.usage_breakdown[0]?.model) {
+    return session.usage_breakdown[0].model;
+  }
+  const models = Object.keys(session.model_usage ?? {});
+  return models.length > 0 ? models[0] ?? "" : "";
+}
+
+function enrichSessionHumanInputs(session: SessionData) {
+  return (session.human_inputs ?? []).map((h) => ({
+    ...h,
+    session_title: h.session_title ?? session.session_name,
+    session_agent: h.session_agent ?? agentDisplay(session),
+    session_time: h.session_time ?? h.start_time ?? "",
+    session_model: h.session_model ?? pickSessionModel(session),
+    project: h.project ?? normalizeProjectName(session.project),
+    files_changed: h.files_changed ?? 0,
+    lines_added: h.lines_added ?? 0,
+    lines_deleted: h.lines_deleted ?? 0,
+    start_time: h.start_time ?? h.session_time ?? "",
+    end_time: h.end_time ?? h.start_time ?? h.session_time ?? "",
+  }));
+}
+
 /**
  * Build the daily.api.json from collected sessions and optional Cursor API usage.
  *
@@ -353,6 +401,7 @@ export function buildDailyApiJson(
     author,
     generated_at: new Date().toISOString(),
     include_conversation: false,
+    summary: buildTopLevelSummary(date, conversationSessions, costByCurrency),
     totals: {
       sessions: conversationSessions.length,
       agents: Array.from(agents).sort(),
@@ -372,6 +421,6 @@ export function buildDailyApiJson(
     ),
     sessions: conversationSessions.map((session) => toApiSession(session, r2)),
     repos: allRepos,
-    human_inputs: conversationSessions.flatMap((s) => s.human_inputs ?? []),
+    human_inputs: conversationSessions.flatMap((s) => enrichSessionHumanInputs(s)),
   };
 }
