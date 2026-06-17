@@ -91,7 +91,7 @@ function mergeSessionRecords(sessions: SessionData[]): SessionData[] {
       continue;
     }
 
-    existing.session_id = `${existing.session_id},${session.session_id}`;
+    existing.session_id = existing.session_id || session.session_id;
     existing.session_name = existing.session_name || session.session_name;
     existing.model_usage = mergeModelUsage(existing.model_usage, session.model_usage);
     existing.usage_breakdown = Object.values(

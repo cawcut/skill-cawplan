@@ -42,19 +42,20 @@ cawplan ai-session collect --date <YYYY-MM-DD>
 
 The command runs the TypeScript collector and writes the API JSON to `./ai-daily-<date>.json` by default.
 
-**Step 2 — Review and summarize:**
+**Step 2 — Rewrite `human_inputs` into summary items:**
 
-Read the generated daily JSON. The `human_inputs` array contains user prompts from each session — use them to understand what decisions were made, what was built, and what was fixed.
+Read the generated daily JSON. The `human_inputs` array contains **raw user prompts** — questions and commands, not conclusions.
 
-Summarization rules:
-- Group items into four categories: `decision` / `direction` / `correction` / `planning`
-- Each item: `{ "category": "...", "content": "...", "session_title": "...", "session_agent": "..." }`
-- 3–8 items per category; skip empty categories
-- Each `content` is a concise self-contained statement in Chinese
-- `decision`: architectural, scope, or implementation choices that were made
-- `direction`: significant tasks, features, or operations requested
-- `correction`: bugs, errors, or inconsistencies that were found or fixed
-- `planning`: planning discussions, roadmap items, next steps
+Rewriting rules:
+- Output format per item: `{ "category": "...", "content": "...", "session_title": "...", "session_agent": "..." }`
+- `content` must be a self-contained declarative statement (subject + action + result), **never a question or command**
+- Group into four categories; skip empty ones; 3–8 items each:
+  - `decision`: architectural, scope, or implementation choices that were made
+  - `direction`: significant tasks, features, or operations that were worked on
+  - `correction`: bugs, errors, or inconsistencies that were found or fixed
+  - `planning`: planning discussions, roadmap items, next steps
+- Merge near-duplicate prompts into one item
+- Drop noise: very short inputs, slash-command invocations, pure file references
 
 **Step 3 — Show summary to the user:**
 
@@ -93,14 +94,9 @@ cawplan ai-session collect --date <YYYY-MM-DD> --output ~/reports/ai-daily-2026-
 
 ```
 
-**Step 2 — Review and summarize:**
+**Step 2 — Rewrite `human_inputs` into summary items:**
 
-Same as Mode 1 Step 2: read `human_inputs` from the daily JSON and summarize the important decisions, directions, corrections, and planning items.
-
-After review, upload with:
-```bash
-cawplan ai-session report --file <path>
-```
+Same as Mode 1 Step 2. The `human_inputs` array contains **raw user prompts** — you must rewrite each one into a concise third-person declarative statement in Chinese before presenting. Never pass through the original question or command text as `content`.
 
 ---
 

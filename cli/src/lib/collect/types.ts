@@ -112,14 +112,14 @@ export interface HumanInput {
   content: string;
   session_title?: string;
   session_agent?: string;
-  session_time?: string;
+  session_time?: string | null;
   session_model?: string;
   project?: string;
   files_changed?: number;
   lines_added?: number;
   lines_deleted?: number;
-  start_time?: string;
-  end_time?: string;
+  start_time?: string | null;
+  end_time?: string | null;
 }
 
 export interface CollectOptions {
