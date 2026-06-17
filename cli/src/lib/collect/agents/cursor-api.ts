@@ -21,6 +21,7 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { ModelUsageEntry } from "../types.js";
 import { cursorStateDbCandidates } from "../paths.js";
+import { isTimestampOnLocalDate } from "../date-utils.js";
 import { calculateCost } from "../pricing.js";
 
 const require = createRequire(import.meta.url);
@@ -200,8 +201,7 @@ export async function fetchUsageEvents(
 }
 
 /**
- * Aggregate Cursor usage events by model for a given date.
- * Uses UTC+8 timezone for date filtering (for China-based users).
+ * Aggregate Cursor usage events by model for a given date (local timezone).
  */
 export function aggregateCursorUsage(
   events: Record<string, unknown>[],
@@ -219,11 +219,7 @@ export function aggregateCursorUsage(
     const ts = (event["timestamp"] ?? event["createdAt"] ?? event["time"]) as string | number | undefined;
     if (ts) {
       const eventDate = new Date(typeof ts === "number" ? ts : ts);
-      // Check date in UTC+8
-      const utc8Offset = 8 * 60 * 60 * 1000;
-      const localDate = new Date(eventDate.getTime() + utc8Offset);
-      const eventDateStr = localDate.toISOString().slice(0, 10);
-      if (eventDateStr !== date) continue;
+      if (!isTimestampOnLocalDate(eventDate, date)) continue;
     }
 
     const model = (event["model"] as string | undefined) ?? "unknown";

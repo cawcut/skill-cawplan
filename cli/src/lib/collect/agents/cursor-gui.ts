@@ -18,6 +18,7 @@
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import type { Database as DatabaseType } from "better-sqlite3";
+import { activityOverlapsLocalDate, dayBoundsMs } from "../date-utils.js";
 import { cursorStateDbCandidates } from "../paths.js";
 
 const require = createRequire(import.meta.url);
@@ -72,18 +73,8 @@ export function getGuiSessionBubbleTimestamps(
 }
 
 /**
- * Parse a date string to midnight local time ms.
- */
-function dateToStartMs(date: string): number {
-  return new Date(date + "T00:00:00").getTime();
-}
-
-function dateToEndMs(date: string): number {
-  return new Date(date + "T23:59:59.999").getTime();
-}
-
-/**
  * Collect Cursor GUI (Composer) sessions from the state.vscdb for a given date.
+ * A session is included when its [createdAt, lastUpdatedAt] range overlaps the target local day.
  */
 export function collectGuiSessions(filterDate: string): GuiSession[] {
   const candidates = cursorStateDbCandidates();
@@ -105,8 +96,7 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
   const db = new Database(dbPath, { readonly: true });
 
   try {
-    const startMs = dateToStartMs(filterDate);
-    const endMs = dateToEndMs(filterDate);
+    const { startMs, endMs } = dayBoundsMs(filterDate);
 
     let rows: Array<{ key: string; value: string }> = [];
     try {
@@ -130,14 +120,17 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
         const model = (data["selectedModelId"] ?? data["model"] ?? "") as string;
         const headerCount = (data["headerCount"] ?? 0) as number;
 
-        // A session belongs to the day it was created — filter strictly by createdAt.
-        // Using lastUpdatedAt would pull in sessions from other days that merely had
-        // a state update (e.g. Cursor re-reading the DB) on the target date.
-        if (!createdAtMs || createdAtMs < startMs || createdAtMs > endMs) continue;
+        if (!createdAtMs) continue;
+        if (!activityOverlapsLocalDate(createdAtMs, lastUpdatedAtMs || createdAtMs, filterDate)) {
+          continue;
+        }
 
         // Use created_at/last_updated_at as activity bounds (skipping per-bubble queries on large DBs).
         // Clamp activity_end to end-of-day so multi-day sessions don't show a future timestamp.
-        const clampedEndMs = lastUpdatedAtMs ? Math.min(lastUpdatedAtMs, endMs) : null;
+        const activityStartMs = Math.max(createdAtMs, startMs);
+        const clampedEndMs = lastUpdatedAtMs
+          ? Math.min(Math.max(lastUpdatedAtMs, activityStartMs), endMs)
+          : Math.min(createdAtMs, endMs);
         sessions.push({
           id: composerId,
           name,
@@ -145,8 +138,8 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
           last_updated_at_ms: lastUpdatedAtMs,
           model,
           header_count: headerCount,
-          activity_start: createdAtMs ? new Date(createdAtMs) : null,
-          activity_end: clampedEndMs ? new Date(clampedEndMs) : null,
+          activity_start: new Date(activityStartMs),
+          activity_end: new Date(clampedEndMs),
         });
       } catch {
         // skip malformed entries

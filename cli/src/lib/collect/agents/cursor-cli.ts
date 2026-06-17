@@ -2,6 +2,11 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { cursorChatsDir } from "../paths.js";
+import {
+  formatLocalTime,
+  getLocalTimezone,
+  localDateString,
+} from "../date-utils.js";
 
 const require = createRequire(import.meta.url);
 import { SessionData, FileChange, RepoTouched, UsageBucket, ModelUsageEntry } from "../types.js";
@@ -174,16 +179,6 @@ function readTranscriptJsonl(transcriptPath: string): Record<string, unknown>[] 
   return events;
 }
 
-function formatLocalTime(date: Date): string {
-  const h = date.getHours().toString().padStart(2, "0");
-  const m = date.getMinutes().toString().padStart(2, "0");
-  return `${h}:${m}`;
-}
-
-function getLocalTimezone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
-}
-
 /**
  * Collect Cursor CLI sessions from ~/.cursor/chats/ for a given date.
  */
@@ -243,7 +238,7 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
         const d = new Date(typeof ts === "number" ? ts : ts);
         if (isNaN(d.getTime())) continue;
 
-        const eventDate = d.toISOString().slice(0, 10);
+        const eventDate = localDateString(d);
         if (eventDate === filterDate) {
           hasActivityOnDate = true;
           if (!firstTs || d < firstTs) firstTs = d;
@@ -255,7 +250,7 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
       if (!hasActivityOnDate && transcriptEvents.length === 0) {
         try {
           const stat = statSync(storeDbPath);
-          const mtime = stat.mtime.toISOString().slice(0, 10);
+          const mtime = localDateString(stat.mtime);
           if (mtime === filterDate) {
             hasActivityOnDate = true;
           }

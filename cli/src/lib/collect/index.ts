@@ -1,23 +1,85 @@
-import { writeFileSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { CollectOptions, DailyApiJson } from "./types.js";
 import { gitAuthor } from "./git.js";
 import { collectClaudeCodeSession, findSessionsByDate } from "./agents/claude-code.js";
 import { collectGuiSessions } from "./agents/cursor-gui.js";
 import { collectCursorCliSessions } from "./agents/cursor-cli.js";
+import {
+  collectCursorAgentTranscripts,
+  cursorAgentTranscriptsActiveOnDate,
+} from "./agents/cursor-agent-transcripts.js";
 import { collectCodexSessions } from "./agents/codex.js";
-import { buildSessionCookie, fetchUsageEvents, aggregateCursorUsage, readCursorAccessToken } from "./agents/cursor-api.js";
-import { cursorStateDbCandidates } from "./paths.js";
+import {
+  buildSessionCookie,
+  fetchUsageEvents,
+  aggregateCursorUsage,
+  readCursorAccessToken,
+} from "./agents/cursor-api.js";
+import { cursorChatsDir, cursorStateDbCandidates } from "./paths.js";
+import { dayBoundsMs, formatLocalTime, getLocalTimezone } from "./date-utils.js";
 import { buildDailyApiJson } from "./aggregators/daily.js";
 import { SessionData } from "./types.js";
 
-/**
- * Get the start and end of a date in local time as Unix milliseconds.
- */
-function dayBoundsMs(date: string): { startMs: number; endMs: number } {
-  const startMs = new Date(date + "T00:00:00").getTime();
-  const endMs = new Date(date + "T23:59:59.999").getTime();
-  return { startMs, endMs };
+function cursorStateDbActiveOnDate(date: string): boolean {
+  const dayStart = new Date(`${date}T00:00:00`).getTime();
+  return cursorStateDbCandidates().some((p) => {
+    try {
+      return statSync(p).mtime.getTime() >= dayStart;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function cursorLocalDataAvailable(date: string): boolean {
+  return (
+    cursorStateDbActiveOnDate(date) ||
+    cursorAgentTranscriptsActiveOnDate(date) ||
+    existsSync(cursorChatsDir())
+  );
+}
+
+function hasCursorAccessToken(): boolean {
+  return !!(
+    process.env.CURSOR_ACCESS_TOKEN ||
+    process.env.CURSOR_SESSION_TOKEN ||
+    readCursorAccessToken()
+  );
+}
+
+function guiSessionToSessionData(gs: import("./agents/cursor-gui.js").GuiSession, date: string): SessionData {
+  const actStart = gs.activity_start;
+  const actEnd = gs.activity_end ?? gs.activity_start;
+
+  let timeDisplay = "unknown";
+  let startLocal: string | undefined;
+  if (actStart) {
+    timeDisplay = actEnd
+      ? `${formatLocalTime(actStart)} - ${formatLocalTime(actEnd)}`
+      : formatLocalTime(actStart);
+    startLocal = actStart.toISOString();
+  }
+
+  return {
+    schema: "2.0",
+    date,
+    agent: "cursor-gui",
+    session_id: gs.id,
+    session_name: gs.name || gs.id.slice(0, 8),
+    project: gs.id.slice(0, 8),
+    cwd: "",
+    time_range: {
+      display: timeDisplay,
+      timezone: getLocalTimezone(),
+      start_local: startLocal,
+    },
+    model_usage: {},
+    usage_breakdown: [],
+    files_changed: 0,
+    repos_touched: [],
+    message_stats: { user: 0, assistant: 0, tool_calls: 0 },
+  };
 }
 
 /**
@@ -28,20 +90,8 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
   const author = gitAuthor();
   const sessions: SessionData[] = [];
 
-  // Decide whether to include cursor agents in the default set.
-  // Two-step check to avoid the ~10s cursorDiskKV scan on days when Cursor wasn't active:
-  //   1. Token: check env vars first (free), then auto-read from state.vscdb ItemTable (~25ms).
-  //   2. DB mtime: if state.vscdb wasn't modified on targetDate, Cursor had no activity → skip.
-  // Only when both conditions are met do we pay the full cursorDiskKV IO cost.
-  const hasCursorToken = !!(
-    process.env.CURSOR_ACCESS_TOKEN || process.env.CURSOR_SESSION_TOKEN || readCursorAccessToken()
-  );
-  const cursorDbActiveOnDate = hasCursorToken && cursorStateDbCandidates().some((p) => {
-    try {
-      return statSync(p).mtime.getTime() >= new Date(date + "T00:00:00").getTime();
-    } catch { return false; }
-  });
-  const defaultAgents: CollectOptions["agents"] = cursorDbActiveOnDate
+  const includeCursorAgents = cursorLocalDataAvailable(date);
+  const defaultAgents: CollectOptions["agents"] = includeCursorAgents
     ? ["claude-code", "cursor", "cursor-gui", "codex"]
     : ["claude-code", "codex"];
   const targetAgents = opts.agents ?? defaultAgents;
@@ -52,8 +102,6 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     for (const { jsonlPath, projectName, sessionId } of claudeSessions) {
       try {
         const s = collectClaudeCodeSession(jsonlPath, projectName, sessionId, date);
-        // Skip sessions with no activity on this date (multi-day sessions overlap detected
-        // by file date range, but the session may have zero events on the target date)
         if (s.message_stats.user === 0 && s.message_stats.assistant === 0) continue;
         sessions.push(s);
       } catch (e) {
@@ -62,53 +110,36 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     }
   }
 
-  // Collect Cursor GUI sessions
-  if (targetAgents.includes("cursor-gui") || targetAgents.includes("cursor")) {
+  // Collect Cursor IDE Agent sessions from ~/.cursor/projects/*/agent-transcripts/
+  if (targetAgents.includes("cursor") || targetAgents.includes("cursor-gui")) {
+    try {
+      sessions.push(...collectCursorAgentTranscripts(date));
+    } catch (e) {
+      console.warn(`Warning: cursor agent-transcripts: ${(e as Error).message}`);
+    }
+  }
+
+  // Collect Cursor GUI (Composer) sessions — expensive DB scan, only when state.vscdb was active
+  if (
+    cursorStateDbActiveOnDate(date) &&
+    (targetAgents.includes("cursor-gui") || targetAgents.includes("cursor"))
+  ) {
     try {
       const guiSessions = collectGuiSessions(date);
-      // Convert GuiSession to SessionData — skip sessions with no messages (header_count === 0)
+      const agentSessionIds = new Set(
+        sessions.filter((s) => s.agent === "cursor").map((s) => s.session_id)
+      );
       for (const gs of guiSessions) {
-        if (gs.header_count === 0) continue;
-        const actStart = gs.activity_start;
-        const actEnd = gs.activity_end ?? gs.activity_start;
-
-        let timeDisplay = "unknown";
-        let startLocal: string | undefined;
-        if (actStart) {
-          const formatT = (d: Date) =>
-            `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
-          timeDisplay = actEnd
-            ? `${formatT(actStart)} - ${formatT(actEnd)}`
-            : formatT(actStart);
-          startLocal = actStart.toISOString();
-        }
-
-        sessions.push({
-          schema: "2.0",
-          date,
-          agent: "cursor-gui",
-          session_id: gs.id,
-          session_name: gs.name || gs.id.slice(0, 8),
-          project: gs.id.slice(0, 8),
-          cwd: "",
-          time_range: {
-            display: timeDisplay,
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            start_local: startLocal,
-          },
-          model_usage: {},
-          usage_breakdown: [],
-          files_changed: 0,
-          repos_touched: [],
-          message_stats: { user: 0, assistant: 0, tool_calls: 0 },
-        });
+        // Prefer richer agent-transcript sessions when IDs happen to match.
+        if (agentSessionIds.has(gs.id)) continue;
+        sessions.push(guiSessionToSessionData(gs, date));
       }
     } catch (e) {
       console.warn(`Warning: cursor-gui: ${(e as Error).message}`);
     }
   }
 
-  // Collect Cursor CLI sessions
+  // Collect legacy Cursor CLI sessions from ~/.cursor/chats/
   if (targetAgents.includes("cursor") || targetAgents.includes("cursor-gui")) {
     try {
       sessions.push(...collectCursorCliSessions(date));
@@ -126,12 +157,15 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     }
   }
 
-  // Fetch Cursor API exact usage data
+  // Fetch Cursor API exact usage data — token required; non-fatal when missing
   let cursorApiUsage:
     | { byModel: Record<string, import("./types.js").ModelUsageEntry>; totalCost: number; currency: string }
     | undefined;
 
-  if (targetAgents.includes("cursor") || targetAgents.includes("cursor-gui")) {
+  if (
+    hasCursorAccessToken() &&
+    (targetAgents.includes("cursor") || targetAgents.includes("cursor-gui"))
+  ) {
     try {
       const { cookie } = buildSessionCookie();
       const { startMs, endMs } = dayBoundsMs(date);

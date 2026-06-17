@@ -1,0 +1,102 @@
+# {{ display_name }}'s AI Daily Report — {{ date }}
+
+**Author**: {{ display_name }} ({{ email or 'unknown' }})
+
+{{ overall_summary }}
+
+{% if repos -%}
+## Repositories
+
+| Repository | Agents | Files | +Added | -Deleted |
+|------------|--------|-------|--------|----------|
+{%- for r in repos %}
+| {{ r.repo }} | {{ r.agents | join(', ') }} | {{ r.files }} | +{{ r.added }} | -{{ r.deleted }} |
+{%- endfor %}
+
+{% endif -%}
+{% if usage_items -%}
+## Token Usage
+
+| Model | Speed | Tier | Effort | Agents | Input | Output | Cache Read | Calls | Cost |
+|-------|-------|------|--------|--------|-------|--------|------------|-------|------|
+{%- for m in usage_items %}
+| {{ m.model }} | {{ m.speed }} | {{ m.service_tier }} | {{ m.effort }} | {{ m.agents | join(', ') }} | {{ m.input_tokens | fmttok }} | {{ m.output_tokens | fmttok }} | {{ m.cache_read_tokens | fmttok }} | {{ m.api_calls }} | {{ m.cost_str }} |
+{%- endfor %}
+
+Total tokens: {{ total_tokens | fmttok }} | Total cost: ${{ "%.2f" | format(total_cost_usd) }}
+{%- if legacy_usage %}
+> Legacy aggregate: daily.json has no `usage_breakdown`; re-run `collect` for dimension-accurate costs.
+{% endif %}
+--
+{%- if has_claude %}
+>Claude Code 费用说明: 
+> **计算方式**: 解析 assistant 事件的 message.usage，按 message.id 去重，
+> model × speed × tier × effort 分桶，套定价表计算。
+> **定价基准**: platform.claude.com/docs/en/about-claude/pricing (list price)
+> **注意**: Claude Code 部分后台调用 (title 生成等) 不写入 session jsonl，实际费用约为估算的 1.15-1.25 倍。
+{% endif -%}
+{% if has_claude and has_cursor %}
+> Cursor 费用 = 精确 (dashboard API chargedCents)。Claude Code 费用 = 估算 (jsonl usage + list price, 约 80% 覆盖率，部分后台调用不写 jsonl)
+{%- elif has_claude -%}
+> Claude Code 费用 = 估算 (jsonl usage + list price, 约 80% 覆盖率，实际费用通常比估算高 15-25%，部分后台调用不写 jsonl)
+{%- elif has_cursor -%}
+> Cursor 费用 = 精确 (dashboard API chargedCents)。
+{%- endif %}
+
+{% endif -%}
+{% if sessions -%}
+## Human Input
+
+{%- for s in sessions %}
+### Session: {{ s.title }} ({{ s.agent }}, {{ s.time_range }})
+{%- if s.human_input.decisions %}
+#### Decisions
+
+{% for d in s.human_input.decisions -%}
+- {{ d }}
+{% endfor %}
+
+{% endif -%}
+{%- if s.human_input.direction %}
+#### Direction
+
+{% for d in s.human_input.direction -%}
+- {{ d }}
+{% endfor %}
+
+{% endif -%}
+{%- if s.human_input.bugs %}
+#### Bug fixes
+
+{% for d in s.human_input.bugs -%}
+- {{ d }}
+{% endfor %}
+
+{% endif -%}
+{%- if s.human_input.planning %}
+#### Planning
+
+{% for d in s.human_input.planning -%}
+- {{ d }}
+{% endfor %}
+
+{% endif -%}
+{% endfor %}
+{% endif -%}
+{% if next_steps -%}
+## Next Steps
+
+{%- for item in next_steps %}
+- {{ item }}
+{%- endfor %}
+
+{% endif -%}
+{% if sessions -%}
+## Sessions
+
+| # | Time | Agent | Session | Work | Repos | Model | Tokens | Cost | Files |
+|---|------|-------|---------|------|-------|-------|--------|------|-------|
+{%- for s in sessions %}
+| {{ loop.index }} | {{ s.time_range }} | {{ s.agent }} | {{ s.title }} | {{ s.summary[:60] }} | {{ s.repos_fmt }} | {{ s.models }} | {{ s.tokens_fmt }} | {{ s.cost_fmt }} | {{ s.files_fmt }} |
+{%- endfor %}
+{% endif -%}
