@@ -1,0 +1,484 @@
+{
+  "schema": "2.0",
+  "date": "2026-06-16",
+  "author": "yupeng.qiu",
+  "generated_at": "2026-06-17T05:49:18.373Z",
+  "include_conversation": false,
+  "totals": {
+    "sessions": 5,
+    "agents": [
+      "cursor-gui"
+    ],
+    "messages": {
+      "user": 17,
+      "assistant": 103,
+      "tool_calls": 126
+    },
+    "files_changed": 55,
+    "cost": {
+      "$": 5.69
+    }
+  },
+  "usage_breakdown": [
+    {
+      "api_calls": 48,
+      "input_tokens": 1060587,
+      "output_tokens": 62705,
+      "cache_read_input_tokens": 15947008,
+      "cache_creation_input_tokens": 0,
+      "cost": 5.69,
+      "currency": "$",
+      "note": "dashboard API nearest-message attribution",
+      "token_source": "dashboard_api",
+      "model": "default",
+      "speed": "standard",
+      "service_tier": "api",
+      "effort": "default",
+      "agents": [
+        "cursor",
+        "cursor-gui"
+      ]
+    }
+  ],
+  "model_usage": {
+    "default": {
+      "api_calls": 48,
+      "input_tokens": 1060587,
+      "output_tokens": 62705,
+      "cache_read_input_tokens": 15947008,
+      "cache_creation_input_tokens": 0,
+      "cost": 5.69,
+      "currency": "$",
+      "agents": [
+        "cursor",
+        "cursor-gui"
+      ]
+    }
+  },
+  "sessions": [
+    {
+      "schema": "2.0",
+      "date": "2026-06-16",
+      "agent": "cursor-gui",
+      "session_id": "47c6092c-d449-4ba3-a814-21b214bb785f",
+      "session_name": "AI 日报生成",
+      "project": "47c6092c",
+      "cwd": "/media/spx/work/github/uid-team-skills",
+      "time_range": {
+        "display": "13:37 - 14:57",
+        "timezone": "Asia/Shanghai",
+        "start_local": "2026-06-16T05:37:57.681Z"
+      },
+      "model_usage": {
+        "default": {
+          "api_calls": 32,
+          "input_tokens": 532177,
+          "output_tokens": 41702,
+          "cache_read_input_tokens": 11628032,
+          "cache_creation_input_tokens": 0,
+          "cost": 3.8224412882328043,
+          "currency": "$",
+          "note": "dashboard API nearest-message attribution",
+          "token_source": "dashboard_api"
+        }
+      },
+      "usage_breakdown": [
+        {
+          "api_calls": 32,
+          "input_tokens": 532177,
+          "output_tokens": 41702,
+          "cache_read_input_tokens": 11628032,
+          "cache_creation_input_tokens": 0,
+          "cost": 3.8224412882328043,
+          "currency": "$",
+          "note": "dashboard API nearest-message attribution",
+          "token_source": "dashboard_api",
+          "model": "default",
+          "speed": "standard",
+          "service_tier": "api",
+          "effort": "default",
+          "agents": [
+            "cursor",
+            "cursor-gui"
+          ]
+        }
+      ],
+      "files_changed": 15,
+      "files_added": 67,
+      "files_deleted": 7,
+      "repos_touched": [
+        {
+          "repo": "Ubiquiti-UID/uid-team-skills",
+          "files": 15,
+          "added": 67,
+          "deleted": 7
+        }
+      ],
+      "message_stats": {
+        "user": 8,
+        "assistant": 49,
+        "tool_calls": 54
+      }
+    },
+    {
+      "schema": "2.0",
+      "date": "2026-06-16",
+      "agent": "cursor-gui",
+      "session_id": "d5bdd929-5fd9-4fba-ac21-44cfd44d67a7",
+      "session_name": "ULPComposeImpl wrapAccessResource analysis",
+      "project": "d5bdd929",
+      "cwd": "",
+      "time_range": {
+        "display": "17:17 - 17:19",
+        "timezone": "Asia/Shanghai",
+        "start_local": "2026-06-16T09:17:05.095Z"
+      },
+      "model_usage": {
+        "default": {
+          "api_calls": 8,
+          "input_tokens": 361185,
+          "output_tokens": 9014,
+          "cache_read_input_tokens": 2464512,
+          "cache_creation_input_tokens": 0,
+          "cost": 1.1216932535171509,
+          "currency": "$",
+          "note": "dashboard API nearest-message attribution",
+          "token_source": "dashboard_api"
+        }
+      },
+      "usage_breakdown": [
+        {
+          "api_calls": 8,
+          "input_tokens": 361185,
+          "output_tokens": 9014,
+          "cache_read_input_tokens": 2464512,
+          "cache_creation_input_tokens": 0,
+          "cost": 1.1216932535171509,
+          "currency": "$",
+          "note": "dashboard API nearest-message attribution",
+          "token_source": "dashboard_api",
+          "model": "default",
+          "speed": "standard",
+          "service_tier": "api",
+          "effort": "default",
+          "agents": [
+            "cursor",
+            "cursor-gui"
+          ]
+        }
+      ],
+      "files_changed": 4,
+      "files_added": 0,
+      "files_deleted": 0,
+      "repos_touched": [],
+      "message_stats": {
+        "user": 2,
+        "assistant": 8,
+        "tool_calls": 11
+      }
+    },
+    {
+      "schema": "2.0",
+      "date": "2026-06-16",
+      "agent": "cursor-gui",
+      "session_id": "e45feef3-bae4-4550-9f30-cc60c3aabafd",
+      "session_name": "File path reference",
+      "project": "e45feef3",
+      "cwd": "",
+      "time_range": {
+        "display": "17:32 - 17:38",
+        "timezone": "Asia/Shanghai",
+        "start_local": "2026-06-16T09:32:22.994Z"
+      },
+      "model_usage": {
+        "default": {
+          "api_calls": 1,
+          "input_tokens": 9121,
+          "output_tokens": 634,
+          "cache_read_input_tokens": 22912,
+          "cache_creation_input_tokens": 0,
+          "cost": 0.02093324899673462,
+          "currency": "$",
+          "note": "dashboard API nearest-message attribution",
+          "token_source": "dashboard_api"
+        }
+      },
+      "usage_breakdown": [
+        {
+          "api_calls": 1,
+          "input_tokens": 9121,
+          "output_tokens": 634,
+          "cache_read_input_tokens": 22912,
+          "cache_creation_input_tokens": 0,
+          "cost": 0.02093324899673462,
+          "currency": "$",
+          "note": "dashboard API nearest-message attribution",
+          "token_source": "dashboard_api",
+          "model": "default",
+          "speed": "standard",
+          "service_tier": "api",
+          "effort": "default",
+          "agents": [
+            "cursor",
+            "cursor-gui"
+          ]
+        }
+      ],
+      "files_changed": 3,
+      "files_added": 0,
+      "files_deleted": 0,
+      "repos_touched": [],
+      "message_stats": {
+        "user": 1,
+        "assistant": 2,
+        "tool_calls": 3
+      }
+    },
+    {
+      "schema": "2.0",
+      "date": "2026-06-16",
+      "agent": "cursor-gui",
+      "session_id": "3697f1d5-2f84-4274-b470-fcd916ab7d41",
+      "session_name": "AI daily report generation",
+      "project": "3697f1d5",
+      "cwd": "/media/spx/work/github/flow-cawplan-skill",
+      "time_range": {
+        "display": "17:41 - 17:43",
+        "timezone": "Asia/Shanghai",
+        "start_local": "2026-06-16T09:41:46.764Z"
+      },
+      "model_usage": {
+        "default": {
+          "api_calls": 2,
+          "input_tokens": 83506,
+          "output_tokens": 1430,
+          "cache_read_input_tokens": 218880,
+          "cache_creation_input_tokens": 0,
+          "cost": 0.1676824951171875,
+          "currency": "$",
+          "note": "dashboard API nearest-message attribution",
+          "token_source": "dashboard_api"
+        }
+      },
+      "usage_breakdown": [
+        {
+          "api_calls": 2,
+          "input_tokens": 83506,
+          "output_tokens": 1430,
+          "cache_read_input_tokens": 218880,
+          "cache_creation_input_tokens": 0,
+          "cost": 0.1676824951171875,
+          "currency": "$",
+          "note": "dashboard API nearest-message attribution",
+          "token_source": "dashboard_api",
+          "model": "default",
+          "speed": "standard",
+          "service_tier": "api",
+          "effort": "default",
+          "agents": [
+            "cursor",
+            "cursor-gui"
+          ]
+        }
+      ],
+      "files_changed": 1,
+      "files_added": 0,
+      "files_deleted": 0,
+      "repos_touched": [
+        {
+          "repo": "Ubiquiti-UID/flow-cawplan-skill",
+          "files": 1,
+          "added": 0,
+          "deleted": 0
+        }
+      ],
+      "message_stats": {
+        "user": 1,
+        "assistant": 4,
+        "tool_calls": 5
+      }
+    },
+    {
+      "schema": "2.0",
+      "date": "2026-06-16",
+      "agent": "cursor-gui",
+      "session_id": "5e4076ca-da2f-4133-957f-4c2bf542f735",
+      "session_name": "AI日报生成",
+      "project": "5e4076ca",
+      "cwd": "/media/spx/work/github/uid-team-skills",
+      "time_range": {
+        "display": "19:30 - 19:36",
+        "timezone": "Asia/Shanghai",
+        "start_local": "2026-06-16T11:30:47.930Z"
+      },
+      "model_usage": {
+        "default": {
+          "api_calls": 5,
+          "input_tokens": 74598,
+          "output_tokens": 9925,
+          "cache_read_input_tokens": 1612672,
+          "cache_creation_input_tokens": 0,
+          "cost": 0.5559654974937439,
+          "currency": "$",
+          "note": "dashboard API nearest-message attribution",
+          "token_source": "dashboard_api"
+        }
+      },
+      "usage_breakdown": [
+        {
+          "api_calls": 5,
+          "input_tokens": 74598,
+          "output_tokens": 9925,
+          "cache_read_input_tokens": 1612672,
+          "cache_creation_input_tokens": 0,
+          "cost": 0.5559654974937439,
+          "currency": "$",
+          "note": "dashboard API nearest-message attribution",
+          "token_source": "dashboard_api",
+          "model": "default",
+          "speed": "standard",
+          "service_tier": "api",
+          "effort": "default",
+          "agents": [
+            "cursor",
+            "cursor-gui"
+          ]
+        }
+      ],
+      "files_changed": 32,
+      "files_added": 268,
+      "files_deleted": 0,
+      "repos_touched": [
+        {
+          "repo": "Ubiquiti-UID/uid-team-skills",
+          "files": 32,
+          "added": 268,
+          "deleted": 0
+        }
+      ],
+      "message_stats": {
+        "user": 5,
+        "assistant": 40,
+        "tool_calls": 53
+      }
+    }
+  ],
+  "repos": [
+    {
+      "repo": "Ubiquiti-UID/uid-team-skills",
+      "files": 47,
+      "added": 335,
+      "deleted": 7
+    },
+    {
+      "repo": "Ubiquiti-UID/flow-cawplan-skill",
+      "files": 1,
+      "added": 0,
+      "deleted": 0
+    }
+  ],
+  "human_inputs": [
+    {
+      "category": "direction",
+      "content": "根据SKILL， 生成6月12的 AI 日报",
+      "session_agent": "cursor-gui",
+      "session_title": "AI 日报生成"
+    },
+    {
+      "category": "direction",
+      "content": "/media/spx/work/github/uid-team-skills/Outputs/reports/2026-06-12/daily.api.json 中sessions item的project很多都是Cursor是什么原因，其实这里期望的值是git repo",
+      "session_agent": "cursor-gui",
+      "session_title": "AI 日报生成"
+    },
+    {
+      "category": "direction",
+      "content": "优先取 repos_touched[0].repo， 多repo时可以考虑填该session导致文件变动最多的那个repo",
+      "session_agent": "cursor-gui",
+      "session_title": "AI 日报生成"
+    },
+    {
+      "category": "direction",
+      "content": "如果是采集claude code的数据，project的fallback是什么",
+      "session_agent": "cursor-gui",
+      "session_title": "AI 日报生成"
+    },
+    {
+      "category": "direction",
+      "content": "session的文件变动数量是怎么计算的",
+      "session_agent": "cursor-gui",
+      "session_title": "AI 日报生成"
+    },
+    {
+      "category": "direction",
+      "content": "/media/spx/work/github/uid-team-skills/Outputs/reports/2026-06-12/daily.api.json中为什么没有统计到files_added， /media/spx/work/github/uid-team-skills/Outputs/reports/2026-06-15/daily.api.json中有统计到",
+      "session_agent": "cursor-gui",
+      "session_title": "AI 日报生成"
+    },
+    {
+      "category": "direction",
+      "content": "render_json() 也补上 files_added/files_deleted，并帮你重生 2026-06-12",
+      "session_agent": "cursor-gui",
+      "session_title": "AI 日报生成"
+    },
+    {
+      "category": "correction",
+      "content": "files_changed都是0是不对的",
+      "session_agent": "cursor-gui",
+      "session_title": "AI 日报生成"
+    },
+    {
+      "category": "direction",
+      "content": "帮分析func (s *ULPComposeImpl) wrapAccessResource(users []*legacy.ToImportUosUser)的流程",
+      "session_agent": "cursor-gui",
+      "session_title": "ULPComposeImpl wrapAccessResource analysis"
+    },
+    {
+      "category": "direction",
+      "content": "帮输出DynamicResources相关的",
+      "session_agent": "cursor-gui",
+      "session_title": "ULPComposeImpl wrapAccessResource analysis"
+    },
+    {
+      "category": "planning",
+      "content": "@/home/spx/.cursor/projects/media-spx-work-github-flow-cawplan-skill/terminals/1.txt:154-174",
+      "session_agent": "cursor-gui",
+      "session_title": "File path reference"
+    },
+    {
+      "category": "planning",
+      "content": "/cawplan-coding-commit 生成今天的 AI 日报",
+      "session_agent": "cursor-gui",
+      "session_title": "AI daily report generation"
+    },
+    {
+      "category": "direction",
+      "content": "根据SKILL的规则 生成今天的 AI 日报",
+      "session_agent": "cursor-gui",
+      "session_title": "AI日报生成"
+    },
+    {
+      "category": "correction",
+      "content": "不对，按SKILL生成是会自动提交的，重新帮执行",
+      "session_agent": "cursor-gui",
+      "session_title": "AI日报生成"
+    },
+    {
+      "category": "direction",
+      "content": "日报的内容怎么和昨天的不太一样了",
+      "session_agent": "cursor-gui",
+      "session_title": "AI日报生成"
+    },
+    {
+      "category": "direction",
+      "content": "为什么每天执行的step都不一样",
+      "session_agent": "cursor-gui",
+      "session_title": "AI日报生成"
+    },
+    {
+      "category": "direction",
+      "content": "同意",
+      "session_agent": "cursor-gui",
+      "session_title": "AI日报生成"
+    }
+  ]
+}

@@ -19,13 +19,40 @@
 import { request } from "node:https";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { ModelUsageEntry } from "../types.js";
+import { ModelUsageEntry, UsageBucket } from "../types.js";
 import { cursorStateDbCandidates } from "../paths.js";
 import { calculateCost } from "../pricing.js";
 
 const require = createRequire(import.meta.url);
 
 const PAGE_SIZE = 500;
+const MAX_ASSIGN_DISTANCE_MS = 2 * 60 * 60 * 1000; // 2h
+
+function parseEventTimestampMs(event: Record<string, unknown>): number | null {
+  const raw = event["timestamp"] ?? event["createdAt"] ?? event["time"];
+  if (raw == null) return null;
+
+  if (typeof raw === "number") {
+    if (!Number.isFinite(raw)) return null;
+    // Heuristic: seconds vs milliseconds
+    return raw < 1e12 ? Math.trunc(raw * 1000) : Math.trunc(raw);
+  }
+
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return null;
+    if (/^\d+(\.\d+)?$/.test(s)) {
+      const n = Number(s);
+      if (!Number.isFinite(n)) return null;
+      return n < 1e12 ? Math.trunc(n * 1000) : Math.trunc(n);
+    }
+    const d = new Date(s);
+    const ms = d.getTime();
+    return Number.isNaN(ms) ? null : ms;
+  }
+
+  return null;
+}
 
 /**
  * Read the Cursor access token from env or the state.vscdb SQLite database.
@@ -168,12 +195,13 @@ export async function fetchUsageEvents(
   cookie: string
 ): Promise<Record<string, unknown>[]> {
   const allEvents: Record<string, unknown>[] = [];
-  let page = 0;
+  let page = 1;
 
   while (true) {
+    // uid-team-skills compatible payload shape
     const body = {
-      startTime: startMs,
-      endTime: endMs,
+      startDate: String(startMs),
+      endDate: String(endMs),
       pageSize: PAGE_SIZE,
       page,
     };
@@ -182,17 +210,24 @@ export async function fetchUsageEvents(
       "https://cursor.com/api/dashboard/get-filtered-usage-events",
       body,
       {
-        Cookie: cookie,
+        // Keep both cookie forms for compatibility across API versions.
+        Cookie: `WorkosCursorSessionToken=${cookie}; WorkosCursorSessionTokenSecure=${cookie}`,
         "User-Agent": "cawplan-cli/1.0",
+        Origin: "https://cursor.com",
       }
     ) as Record<string, unknown>;
 
-    const events = data["events"] as Record<string, unknown>[] | undefined;
+    // Cursor API has changed field names across versions.
+    const events =
+      (data["events"] as Record<string, unknown>[] | undefined) ??
+      (data["usageEventsDisplay"] as Record<string, unknown>[] | undefined) ??
+      [];
     if (!events || events.length === 0) break;
 
     allEvents.push(...events);
 
-    if (events.length < PAGE_SIZE) break;
+    const total = Number(data["totalUsageEventsCount"] ?? data["total"] ?? 0);
+    if ((total > 0 && allEvents.length >= total) || events.length < PAGE_SIZE) break;
     page++;
   }
 
@@ -215,16 +250,13 @@ export function aggregateCursorUsage(
   let totalCost = 0;
 
   for (const event of events) {
-    // Filter by date — try event timestamp first
-    const ts = (event["timestamp"] ?? event["createdAt"] ?? event["time"]) as string | number | undefined;
-    if (ts) {
-      const eventDate = new Date(typeof ts === "number" ? ts : ts);
-      // Check date in UTC+8
-      const utc8Offset = 8 * 60 * 60 * 1000;
-      const localDate = new Date(eventDate.getTime() + utc8Offset);
-      const eventDateStr = localDate.toISOString().slice(0, 10);
-      if (eventDateStr !== date) continue;
-    }
+    const tsMs = parseEventTimestampMs(event);
+    if (tsMs == null) continue;
+    // Check date in UTC+8
+    const utc8Offset = 8 * 60 * 60 * 1000;
+    const localDateMs = tsMs + utc8Offset;
+    const eventDateStr = new Date(localDateMs).toISOString().slice(0, 10);
+    if (eventDateStr !== date) continue;
 
     const model = (event["model"] as string | undefined) ?? "unknown";
     const tokenUsage = event["tokenUsage"] as Record<string, unknown> | undefined;
@@ -280,4 +312,136 @@ export function aggregateCursorUsage(
   }
 
   return { totalCost, currency: "$", byModel };
+}
+
+interface SessionWindow {
+  sessionId: string;
+  agent: string;
+  startMs: number;
+  endMs: number;
+}
+
+function parseDisplayEndFromStart(start: Date, display: string | undefined): Date {
+  if (!display || !display.includes("-")) return new Date(start.getTime() + 2 * 60 * 60 * 1000);
+  const m = display.match(/(\d{2}):(\d{2})\s*-\s*(\d{2}):(\d{2})/);
+  if (!m) return new Date(start.getTime() + 2 * 60 * 60 * 1000);
+  const end = new Date(start);
+  end.setHours(Number(m[3]), Number(m[4]), 0, 0);
+  if (end.getTime() < start.getTime()) {
+    end.setTime(end.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return end;
+}
+
+export function buildCursorSessionWindows(
+  sessions: Array<{
+    session_id: string;
+    agent: string;
+    time_range: { start_local?: string; display: string };
+  }>
+): SessionWindow[] {
+  const windows: SessionWindow[] = [];
+  for (const s of sessions) {
+    const startLocal = s.time_range?.start_local;
+    if (!startLocal) continue;
+    const start = new Date(startLocal);
+    if (Number.isNaN(start.getTime())) continue;
+    const end = parseDisplayEndFromStart(start, s.time_range?.display);
+    windows.push({
+      sessionId: s.session_id,
+      agent: s.agent,
+      startMs: start.getTime(),
+      endMs: end.getTime(),
+    });
+  }
+  return windows;
+}
+
+function assignEventToSession(tsMs: number, windows: SessionWindow[]): string | null {
+  // 1) inside any window -> nearest window midpoint
+  const inside = windows.filter((w) => tsMs >= w.startMs && tsMs <= w.endMs);
+  if (inside.length > 0) {
+    inside.sort((a, b) => {
+      const amid = (a.startMs + a.endMs) / 2;
+      const bmid = (b.startMs + b.endMs) / 2;
+      return Math.abs(tsMs - amid) - Math.abs(tsMs - bmid);
+    });
+    return inside[0].sessionId;
+  }
+
+  // 2) fallback nearest end/start point within threshold
+  let best: { sid: string; dist: number } | null = null;
+  for (const w of windows) {
+    const dist = Math.min(Math.abs(tsMs - w.startMs), Math.abs(tsMs - w.endMs));
+    if (dist > MAX_ASSIGN_DISTANCE_MS) continue;
+    if (!best || dist < best.dist) best = { sid: w.sessionId, dist };
+  }
+  return best?.sid ?? null;
+}
+
+export function aggregateCursorUsageBySession(
+  events: Record<string, unknown>[],
+  date: string,
+  windows: SessionWindow[]
+): Record<string, { modelUsage: Record<string, ModelUsageEntry>; usageBreakdown: UsageBucket[] }> {
+  const perSession = new Map<string, Map<string, ModelUsageEntry>>();
+
+  for (const event of events) {
+    const tsMs = parseEventTimestampMs(event);
+    if (tsMs == null) continue;
+    const utc8Offset = 8 * 60 * 60 * 1000;
+    const eventDateStr = new Date(tsMs + utc8Offset).toISOString().slice(0, 10);
+    if (eventDateStr !== date) continue;
+
+    const sid = assignEventToSession(tsMs, windows);
+    if (!sid) continue;
+
+    const model = String(event["model"] ?? "unknown");
+    const tokenUsage = (event["tokenUsage"] as Record<string, unknown> | undefined) ?? {};
+    const chargedCents = Number(event["chargedCents"] ?? 0);
+    const costUsd = chargedCents / 100;
+
+    if (!perSession.has(sid)) perSession.set(sid, new Map());
+    const byModel = perSession.get(sid)!;
+    if (!byModel.has(model)) {
+      byModel.set(model, {
+        api_calls: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cost: 0,
+        currency: "$",
+        note: "dashboard API nearest-message attribution",
+        token_source: "dashboard_api",
+      });
+    }
+
+    const entry = byModel.get(model)!;
+    entry.api_calls += 1;
+    entry.input_tokens += Number(tokenUsage["inputTokens"] ?? 0);
+    entry.output_tokens += Number(tokenUsage["outputTokens"] ?? 0);
+    entry.cache_read_input_tokens += Number(tokenUsage["cacheReadTokens"] ?? 0);
+    entry.cache_creation_input_tokens += Number(tokenUsage["cacheWriteTokens"] ?? 0);
+    if (typeof entry.cost === "number") entry.cost += costUsd;
+  }
+
+  const out: Record<string, { modelUsage: Record<string, ModelUsageEntry>; usageBreakdown: UsageBucket[] }> = {};
+  for (const [sid, byModel] of perSession.entries()) {
+    const modelUsage: Record<string, ModelUsageEntry> = {};
+    const usageBreakdown: UsageBucket[] = [];
+    for (const [model, entry] of byModel.entries()) {
+      modelUsage[model] = entry;
+      usageBreakdown.push({
+        ...entry,
+        model,
+        speed: "standard",
+        service_tier: "api",
+        effort: "default",
+        agents: ["cursor", "cursor-gui"],
+      });
+    }
+    out[sid] = { modelUsage, usageBreakdown };
+  }
+  return out;
 }

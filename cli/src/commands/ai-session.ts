@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
 import { buildQueryFromFlags } from "../lib/cache.js";
 import { collect } from "../lib/collect/index.js";
+import { renderDailyApiJson } from "../lib/collect/render.js";
 import { findSessionsByDate, parseEvents, buildMessagesClaudeCode } from "../lib/collect/agents/claude-code.js";
 import { buildChunks, takeLastChunks, MAX_CHUNKS_PER_SESSION } from "../lib/collect/aggregators/chunks.js";
 
@@ -176,6 +177,30 @@ export function registerAiSessionCommand(program: Command): void {
       }
 
       console.error(`\nTotal: ${totalChunks} chunk file(s) → ${outputDir}/`);
+    });
+
+  // ── Render ───────────────────────────────────────────────────────────────────
+
+  ai.command("render")
+    .description("Render ai-daily JSON with summaries into enriched daily.api.json")
+    .option("--input <path>", "Input ai-daily file path", "ai-daily.json")
+    .option("--summaries <dir>", "Directory for per-session summaries", "summaries")
+    .option("--output <path>", "Output file path", "daily.api.json")
+    .action((opts) => {
+      const inputPath = String(opts.input ?? "ai-daily.json");
+      const summariesDir = String(opts.summaries ?? "summaries");
+      const outputPath = String(opts.output ?? "daily.api.json");
+
+      try {
+        const daily = JSON.parse(readFileSync(inputPath, "utf-8")) as import("../lib/collect/types.js").DailyApiJson;
+        const rendered = renderDailyApiJson(daily, summariesDir);
+        writeFileSync(outputPath, JSON.stringify(rendered, null, 2), "utf-8");
+        console.error(`Rendered report written to ${outputPath}`);
+        console.log(JSON.stringify(rendered, null, 2));
+      } catch (e) {
+        console.error(`Error: ${(e as Error).message}`);
+        process.exit(1);
+      }
     });
 
   // ── Insights ─────────────────────────────────────────────────────────────────

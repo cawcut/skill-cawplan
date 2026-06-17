@@ -6,7 +6,13 @@ import { collectClaudeCodeSession, findSessionsByDate } from "./agents/claude-co
 import { collectGuiSessions } from "./agents/cursor-gui.js";
 import { collectCursorCliSessions } from "./agents/cursor-cli.js";
 import { collectCodexSessions } from "./agents/codex.js";
-import { buildSessionCookie, fetchUsageEvents, aggregateCursorUsage, readCursorAccessToken } from "./agents/cursor-api.js";
+import {
+  buildSessionCookie,
+  fetchUsageEvents,
+  aggregateCursorUsage,
+  aggregateCursorUsageBySession,
+  buildCursorSessionWindows,
+} from "./agents/cursor-api.js";
 import { cursorStateDbCandidates } from "./paths.js";
 import { buildDailyApiJson } from "./aggregators/daily.js";
 import { SessionData } from "./types.js";
@@ -29,14 +35,8 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
   const sessions: SessionData[] = [];
 
   // Decide whether to include cursor agents in the default set.
-  // Two-step check to avoid the ~10s cursorDiskKV scan on days when Cursor wasn't active:
-  //   1. Token: check env vars first (free), then auto-read from state.vscdb ItemTable (~25ms).
-  //   2. DB mtime: if state.vscdb wasn't modified on targetDate, Cursor had no activity → skip.
-  // Only when both conditions are met do we pay the full cursorDiskKV IO cost.
-  const hasCursorToken = !!(
-    process.env.CURSOR_ACCESS_TOKEN || process.env.CURSOR_SESSION_TOKEN || readCursorAccessToken()
-  );
-  const cursorDbActiveOnDate = hasCursorToken && cursorStateDbCandidates().some((p) => {
+  // Use state.vscdb mtime as a lightweight activity hint; do not require API token.
+  const cursorDbActiveOnDate = cursorStateDbCandidates().some((p) => {
     try {
       return statSync(p).mtime.getTime() >= new Date(date + "T00:00:00").getTime();
     } catch { return false; }
@@ -66,9 +66,14 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
   if (targetAgents.includes("cursor-gui") || targetAgents.includes("cursor")) {
     try {
       const guiSessions = collectGuiSessions(date);
-      // Convert GuiSession to SessionData — skip sessions with no messages (header_count === 0)
+      // Convert GuiSession to SessionData — skip sessions with no activity.
       for (const gs of guiSessions) {
-        if (gs.header_count === 0) continue;
+        if (
+          gs.header_count === 0 &&
+          gs.message_stats.user === 0 &&
+          gs.message_stats.assistant === 0 &&
+          gs.files_changed.length === 0
+        ) continue;
         const actStart = gs.activity_start;
         const actEnd = gs.activity_end ?? gs.activity_start;
 
@@ -90,7 +95,7 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
           session_id: gs.id,
           session_name: gs.name || gs.id.slice(0, 8),
           project: gs.id.slice(0, 8),
-          cwd: "",
+          cwd: gs.cwd ?? "",
           time_range: {
             display: timeDisplay,
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -98,9 +103,16 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
           },
           model_usage: {},
           usage_breakdown: [],
-          files_changed: 0,
-          repos_touched: [],
-          message_stats: { user: 0, assistant: 0, tool_calls: 0 },
+          files_changed: gs.files_changed.length,
+          files_added: gs.files_changed.reduce((sum, f) => sum + (f.added ?? 0), 0),
+          files_deleted: gs.files_changed.reduce((sum, f) => sum + (f.deleted ?? 0), 0),
+          repos_touched: gs.repos_touched,
+          message_stats: gs.message_stats,
+          human_inputs: gs.human_inputs?.map((h) => ({
+            ...h,
+            session_title: h.session_title ?? (gs.name || gs.id.slice(0, 8)),
+            session_agent: h.session_agent ?? "cursor-gui",
+          })),
         });
       }
     } catch (e) {
@@ -136,7 +148,24 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
       const { cookie } = buildSessionCookie();
       const { startMs, endMs } = dayBoundsMs(date);
       const events = await fetchUsageEvents(startMs, endMs, cookie);
-      cursorApiUsage = aggregateCursorUsage(events, date);
+
+      // First try session-level attribution (uid-team style)
+      const cursorSessions = sessions.filter((s) => s.agent === "cursor-gui" || s.agent === "cursor-cli");
+      const windows = buildCursorSessionWindows(cursorSessions);
+      const bySession = aggregateCursorUsageBySession(events, date, windows);
+      let attributedSessions = 0;
+      for (const s of sessions) {
+        const assigned = bySession[s.session_id];
+        if (!assigned) continue;
+        s.model_usage = assigned.modelUsage;
+        s.usage_breakdown = assigned.usageBreakdown;
+        attributedSessions++;
+      }
+
+      // Fallback: if no session got attribution, keep global model rollup behavior.
+      if (attributedSessions === 0) {
+        cursorApiUsage = aggregateCursorUsage(events, date);
+      }
     } catch (e) {
       console.warn(`Warning: cursor API: ${(e as Error).message}`);
     }
