@@ -91,6 +91,9 @@ export interface HumanInput {
   content: string;
   session_title?: string;
   session_agent?: string;
+  session_time?: string;
+  session_model?: string;
+  project?: string;
 }
 
 export interface CollectOptions {

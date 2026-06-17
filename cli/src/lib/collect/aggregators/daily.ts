@@ -132,6 +132,31 @@ export function buildDailyApiJson(
     currency: string;
   }
 ): DailyApiJson {
+  const normalizeProjectName = (project: string): string => {
+    const p = (project ?? "").trim();
+    if (!p) return "";
+    const parts = p.split("/").filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : p;
+  };
+
+  const pickSessionModel = (session: SessionData): string => {
+    if (session.usage_breakdown.length > 0 && session.usage_breakdown[0].model) {
+      return session.usage_breakdown[0].model;
+    }
+    const models = Object.keys(session.model_usage ?? {});
+    return models.length > 0 ? models[0] : "";
+  };
+
+  const enrichSessionHumanInputs = (session: SessionData) =>
+    (session.human_inputs ?? []).map((h) => ({
+      ...h,
+      session_title: h.session_title ?? session.session_name,
+      session_agent: h.session_agent ?? session.agent,
+      session_time: h.session_time ?? session.time_range.display,
+      session_model: h.session_model ?? pickSessionModel(session),
+      project: h.project ?? normalizeProjectName(session.project),
+    }));
+
   // 1. Merge all session usage_breakdown buckets
   let allBuckets: Record<string, UsageBucket> = {};
   let allRepos: RepoTouched[] = [];
@@ -233,6 +258,6 @@ export function buildDailyApiJson(
     ),
     sessions: sessions.map(({ human_inputs: _, ...rest }) => rest),
     repos: allRepos,
-    human_inputs: sessions.flatMap((s) => s.human_inputs ?? []),
+    human_inputs: sessions.flatMap((s) => enrichSessionHumanInputs(s)),
   };
 }
