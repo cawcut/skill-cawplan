@@ -203,28 +203,52 @@ function nonEmpty(value?: string | null): string | undefined {
     return t.length > 0 ? t : undefined;
 }
 
-function enrichSessionHumanInputs(session: SessionData) {
+function toLocalDateString(isoLike?: string | null): string | undefined {
+    const t = (isoLike ?? "").trim();
+    if (!t) return undefined;
+    const d = new Date(t);
+    if (Number.isNaN(d.getTime())) return undefined;
+    const yyyy = d.getFullYear().toString().padStart(4, "0");
+    const mm = (d.getMonth() + 1).toString().padStart(2, "0");
+    const dd = d.getDate().toString().padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+}
+
+function isHumanInputOnDate(
+    h: { start_time?: string | null; session_time?: string | null },
+    targetDate: string
+): boolean {
+    const anchor = nonEmpty(h.start_time ?? h.session_time);
+    if (!anchor) return true;
+    const localDate = toLocalDateString(anchor);
+    if (!localDate) return true;
+    return localDate === targetDate;
+}
+
+function enrichSessionHumanInputs(session: SessionData, targetDate: string) {
     const project = sessionProjectName(session);
     const stableSessionTitle = session.session_title ?? session.title ?? session.session_name;
-    return (session.human_inputs ?? []).map((h) => ({
-        ...h,
-        topic: inferHumanInputTopic({
-            content: h.content,
-            category: h.category,
-            sessionTitle: stableSessionTitle,
-            topic: h.topic,
-        }),
-        session_title: h.session_title ?? stableSessionTitle,
-        session_agent: h.session_agent ?? agentDisplay(session),
-        session_time: nonEmpty(h.session_time ?? h.start_time),
-        session_model: h.session_model ?? pickSessionModel(session),
-        project,
-        files_changed: h.files_changed ?? 0,
-        lines_added: h.lines_added ?? 0,
-        lines_deleted: h.lines_deleted ?? 0,
-        start_time: nonEmpty(h.start_time ?? h.session_time),
-        end_time: nonEmpty(h.end_time ?? h.start_time ?? h.session_time),
-    }));
+    return (session.human_inputs ?? [])
+        .filter((h) => isHumanInputOnDate(h, targetDate))
+        .map((h) => ({
+            ...h,
+            topic: inferHumanInputTopic({
+                content: h.content,
+                category: h.category,
+                sessionTitle: stableSessionTitle,
+                topic: h.topic,
+            }),
+            session_title: h.session_title ?? stableSessionTitle,
+            session_agent: h.session_agent ?? agentDisplay(session),
+            session_time: nonEmpty(h.session_time ?? h.start_time),
+            session_model: h.session_model ?? pickSessionModel(session),
+            project,
+            files_changed: h.files_changed ?? 0,
+            lines_added: h.lines_added ?? 0,
+            lines_deleted: h.lines_deleted ?? 0,
+            start_time: nonEmpty(h.start_time ?? h.session_time),
+            end_time: nonEmpty(h.end_time ?? h.start_time ?? h.session_time),
+        }));
 }
 
 /**
@@ -265,25 +289,27 @@ export function buildDailyApiJson(
 
     const enrichSessionHumanInputs = (session: SessionData) => {
         const stableSessionTitle = session.session_title ?? session.title ?? session.session_name;
-        return (session.human_inputs ?? []).map((h) => ({
-            ...h,
-            topic: inferHumanInputTopic({
-                content: h.content,
-                category: h.category,
-                sessionTitle: stableSessionTitle,
-                topic: h.topic,
-            }),
-            session_title: h.session_title ?? stableSessionTitle,
-            session_agent: h.session_agent ?? session.agent,
-            session_time: nonEmpty(h.session_time ?? h.start_time),
-            session_model: h.session_model ?? pickSessionModel(session),
-            project: h.project ?? normalizeProjectName(session.project),
-            files_changed: h.files_changed ?? 0,
-            lines_added: h.lines_added ?? 0,
-            lines_deleted: h.lines_deleted ?? 0,
-            start_time: nonEmpty(h.start_time ?? h.session_time),
-            end_time: nonEmpty(h.end_time ?? h.start_time ?? h.session_time),
-        }));
+        return (session.human_inputs ?? [])
+            .filter((h) => isHumanInputOnDate(h, date))
+            .map((h) => ({
+                ...h,
+                topic: inferHumanInputTopic({
+                    content: h.content,
+                    category: h.category,
+                    sessionTitle: stableSessionTitle,
+                    topic: h.topic,
+                }),
+                session_title: h.session_title ?? stableSessionTitle,
+                session_agent: h.session_agent ?? session.agent,
+                session_time: nonEmpty(h.session_time ?? h.start_time),
+                session_model: h.session_model ?? pickSessionModel(session),
+                project: h.project ?? normalizeProjectName(session.project),
+                files_changed: h.files_changed ?? 0,
+                lines_added: h.lines_added ?? 0,
+                lines_deleted: h.lines_deleted ?? 0,
+                start_time: nonEmpty(h.start_time ?? h.session_time),
+                end_time: nonEmpty(h.end_time ?? h.start_time ?? h.session_time),
+            }));
     };
 
 
