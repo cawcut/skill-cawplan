@@ -127,13 +127,13 @@ agent 不会提交 `Outputs/`、chunks、summaries、JSON 文件或其他中间�
 
 如果存在非最终 Markdown 日报变更，或存在与目标日期/用户无关的 Markdown 变更，agent 会停止并报告状态，不会自动提交。
 
-提交成功后，agent 会询问是否需要 push。只有用户明确确认后，agent 才会执行：
+提交成功后，agent 会自动执行：
 
 ```bash
 git push
 ```
 
-如果 push 失败，agent 会提示失败原因，并说明本地 commit 已创建但尚未推送。
+agent 会把 push 结果告知用户。如果 push 失败，agent 会提示失败原因，并说明本地 commit 已创建但尚未推送。
 
 ## 常见问题
 
