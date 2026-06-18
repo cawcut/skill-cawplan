@@ -19,7 +19,7 @@ import {existsSync, readFileSync, readdirSync, statSync} from "node:fs";
 import {join} from "node:path";
 import {createRequire} from "node:module";
 import type {Database as DatabaseType} from "better-sqlite3";
-import {activityOverlapsLocalDate, dayBoundsMs} from "../date-utils.js";
+import {activityOverlapsLocalDate, dayBoundsMs, isTimestampOnLocalDate, localDateString} from "../date-utils.js";
 import {cursorProjectsDir, cursorStateDbCandidates} from "../paths.js";
 import {FileChange, HumanInput, RepoTouched} from "../types.js";
 import {gitRemoteRepo, gitFileNumstat} from "../git.js";
@@ -208,7 +208,7 @@ export interface GuiSession {
     human_inputs?: HumanInput[];
 }
 
-function parseTranscript(sessionId: string): {
+function parseTranscript(sessionId: string, filterDate?: string): {
     cwd: string;
     files: FileChange[];
     repos: RepoTouched[];
@@ -250,6 +250,7 @@ function parseTranscript(sessionId: string): {
     const files: FileChange[] = [];
     const fileIndex = new Map<string, number>();
     const humanInputs: HumanInput[] = [];
+    let currentPromptOnDate = filterDate ? false : true;
     const seenInput = new Set<string>();
     type PromptContext = {
         idx: number;
@@ -320,10 +321,15 @@ function parseTranscript(sessionId: string): {
                 textAcc = textAcc ? `${textAcc}\n${text}` : text;
             }
             if (textAcc) {
+                const promptTs = parseEventTimestamp(obj, message, textAcc);
+                currentPromptOnDate = !filterDate || (!!promptTs && isTimestampOnLocalDate(promptTs, filterDate));
+                if (!currentPromptOnDate) {
+                    currentContext = null;
+                    continue;
+                }
                 userCount++;
                 const norm = textAcc.slice(0, 200);
                 const extracted = extractHumanInputText(textAcc);
-                const promptTs = parseEventTimestamp(obj, message, textAcc);
                 if (!seenInput.has(norm) && extracted.length > 0 && extracted.length <= 1500) {
                     seenInput.add(norm);
                     const inputIdx = humanInputs.length;
@@ -353,8 +359,11 @@ function parseTranscript(sessionId: string): {
                 }
             }
         } else if (role === "assistant" && Array.isArray(content)) {
-            assistantCount++;
             const eventTs = parseEventTimestamp(obj, message);
+            const assistantOnDate = !filterDate ||
+                (eventTs ? isTimestampOnLocalDate(eventTs, filterDate) : currentPromptOnDate);
+            if (!assistantOnDate) continue;
+            assistantCount++;
             for (const block of content) {
                 const b = block as Record<string, unknown>;
                 if (b["type"] !== "tool_use") continue;
@@ -521,6 +530,7 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
             };
             const contexts: PromptContext[] = [];
             let currentContext: PromptContext | null = null;
+            let currentPromptOnDate = false;
             const upsertFile = (path: string, added: number, deleted: number, changeType?: string): void => {
                 const key = path.trim();
                 if (!key) return;
@@ -565,8 +575,10 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
                         textCombined = textCombined ? `${textCombined}\n${text}` : text;
                     }
                     if (textCombined) {
-                        userCount++;
                         const ts = parseEventTimestamp(obj, message, textCombined);
+                        currentPromptOnDate = !filterDate || (!!ts && isTimestampOnLocalDate(ts, filterDate));
+                        if (!currentPromptOnDate) continue;
+                        userCount++;
                         if (ts) {
                             if (!firstTs || ts < firstTs) firstTs = ts;
                             if (!lastTs || ts > lastTs) lastTs = ts;
@@ -600,8 +612,15 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
                         }
                     }
                 } else if (role === "assistant" && Array.isArray(content)) {
-                    assistantCount++;
                     const eventTs = parseEventTimestamp(obj, message);
+                    const assistantOnDate = !filterDate ||
+                        (eventTs ? isTimestampOnLocalDate(eventTs, filterDate) : currentPromptOnDate);
+                    if (!assistantOnDate) continue;
+                    assistantCount++;
+                    if (eventTs) {
+                        if (!firstTs || eventTs < firstTs) firstTs = eventTs;
+                        if (!lastTs || eventTs > lastTs) lastTs = eventTs;
+                    }
                     for (const c of content) {
                         const b = c as Record<string, unknown>;
                         if (b["type"] !== "tool_use") continue;
@@ -661,11 +680,11 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
             // Filter by target day using parsed timestamps, fallback to mtime
             let active = false;
             if (firstTs || lastTs) {
-                const inDate = (d: Date | null) => !!d && d.toISOString().slice(0, 10) === filterDate;
+                const inDate = (d: Date | null) => !!d && localDateString(d) === filterDate;
                 active = inDate(firstTs) || inDate(lastTs);
             } else {
                 try {
-                    const mtimeDate = statSync(jsonl).mtime.toISOString().slice(0, 10);
+                    const mtimeDate = localDateString(statSync(jsonl).mtime);
                     active = mtimeDate === filterDate;
                 } catch {
                     active = false;
@@ -830,7 +849,7 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
         }
 
         for (let i = 0; i < sessions.length; i++) {
-            const parsed = parseTranscript(sessions[i].id);
+            const parsed = parseTranscript(sessions[i].id, filterDate);
             sessions[i] = {
                 ...sessions[i],
                 cwd: parsed.cwd,

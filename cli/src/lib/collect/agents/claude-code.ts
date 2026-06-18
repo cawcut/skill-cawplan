@@ -26,6 +26,7 @@ import { SessionData, FileChange, RepoTouched, HumanInput } from "../types.js";
 import { aggregateUsageBuckets, foldBucketsToModel } from "../aggregators/tokens.js";
 import { gitRemoteRepo } from "../git.js";
 import { ChunkMessage } from "../aggregators/chunks.js";
+import {isTimestampOnLocalDate, localDateString} from "../date-utils.js";
 
 /**
  * Decode a Claude project directory name (URL-encoded path with dashes).
@@ -76,7 +77,10 @@ function getFileDateBounds(filePath: string): { firstDate: string | null; lastDa
         try {
           const obj = JSON.parse(trimmed) as Record<string, unknown>;
           const ts = obj["timestamp"] as string | undefined;
-          if (ts) return ts.slice(0, 10);
+          if (ts) {
+            const d = new Date(ts);
+            if (!Number.isNaN(d.getTime())) return localDateString(d);
+          }
         } catch { /* partial line at buffer edge */ }
       }
       return null;
@@ -100,7 +104,10 @@ function getFileDateBounds(filePath: string): { firstDate: string | null; lastDa
       try {
         const obj = JSON.parse(trimmed) as Record<string, unknown>;
         const ts = obj["timestamp"] as string | undefined;
-        if (ts) { lastDate = ts.slice(0, 10); break; }
+        if (ts) {
+          const d = new Date(ts);
+          if (!Number.isNaN(d.getTime())) { lastDate = localDateString(d); break; }
+        }
       } catch { /* partial first line in tail buffer */ }
     }
 
@@ -179,7 +186,7 @@ export function parseEvents(jsonlPath: string, filterDate?: string): Record<stri
         if (filterDate) {
           const ts = obj["timestamp"] as string | undefined;
           // Events without a timestamp are always included (e.g. ai-title events)
-          if (ts && ts.slice(0, 10) !== filterDate) continue;
+          if (ts && !isTimestampOnLocalDate(ts, filterDate)) continue;
         }
         events.push(obj);
       } catch {

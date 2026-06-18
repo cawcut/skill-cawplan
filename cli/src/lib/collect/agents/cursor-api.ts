@@ -256,11 +256,7 @@ export function aggregateCursorUsage(
     for (const event of events) {
         const tsMs = parseEventTimestampMs(event);
         if (tsMs == null) continue;
-        // Check date in UTC+8
-        const utc8Offset = 8 * 60 * 60 * 1000;
-        const localDateMs = tsMs + utc8Offset;
-        const eventDateStr = new Date(localDateMs).toISOString().slice(0, 10);
-        if (eventDateStr !== date) continue;
+        if (!isTimestampOnLocalDate(tsMs, date)) continue;
 
         const model = (event["model"] as string | undefined) ?? "unknown";
         const tokenUsage = event["tokenUsage"] as Record<string, unknown> | undefined;
@@ -394,9 +390,7 @@ export function aggregateCursorUsageBySession(
     for (const event of events) {
         const tsMs = parseEventTimestampMs(event);
         if (tsMs == null) continue;
-        const utc8Offset = 8 * 60 * 60 * 1000;
-        const eventDateStr = new Date(tsMs + utc8Offset).toISOString().slice(0, 10);
-        if (eventDateStr !== date) continue;
+        if (!isTimestampOnLocalDate(tsMs, date)) continue;
 
         const sid = assignEventToSession(tsMs, windows);
         if (!sid) continue;

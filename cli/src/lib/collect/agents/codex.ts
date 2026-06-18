@@ -141,7 +141,8 @@ function numberField(record: Record<string, unknown>, field: string): number {
 function parseRollout(
   rolloutPath: string | null,
   fallbackSessionsDir: string,
-  sessionId: string
+  sessionId: string,
+  filterDate?: string
 ): {
   userCount: number;
   assistantCount: number;
@@ -215,14 +216,15 @@ function parseRollout(
       const eventType = event["type"] as string | undefined;
       const payloadType = payload?.["type"] as string | undefined;
       const ts = (event["timestamp"] ?? payload?.["timestamp"]) as string | undefined;
+      const d = ts ? new Date(ts) : null;
+      const eventOnDate = !filterDate || (d !== null && !isNaN(d.getTime()) && localDateString(d) === filterDate);
 
-      if (ts) {
-        const d = new Date(ts);
-        if (!isNaN(d.getTime())) {
+      if (eventOnDate && d !== null && !isNaN(d.getTime())) {
           if (!result.firstTs || d < result.firstTs) result.firstTs = d;
           if (!result.lastTs || d > result.lastTs) result.lastTs = d;
-        }
       }
+
+      if (!eventOnDate) continue;
 
       if (eventType === "event_msg" && payload?.["type"] === "token_count") {
         const info = payload["info"] as Record<string, unknown> | undefined;
@@ -347,15 +349,21 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
       for (const thread of threads) {
         const createdAt = dateFromCodexTimestamp(thread.created_at);
         const threadDate = createdAt ? localDateString(createdAt) : "";
-        if (threadDate !== filterDate) continue;
 
         const model = thread.model || "unknown";
         const tokensUsed = thread.tokens_used ?? 0;
         const currency = getCurrency(model);
         const cwd = thread.cwd ?? "";
 
-        // Parse rollout for message counts and timestamps
-        const rolloutData = parseRollout(thread.rollout_path, sessionsDir, thread.id);
+        // Parse rollout for message counts and timestamps scoped to the target day.
+        const rolloutData = parseRollout(thread.rollout_path, sessionsDir, thread.id, filterDate);
+        const hasRolloutActivityOnDate =
+          rolloutData.firstTs !== null ||
+          rolloutData.userCount > 0 ||
+          rolloutData.assistantCount > 0 ||
+          rolloutData.tokenCountEvents > 0 ||
+          rolloutData.filesChanged > 0;
+        if (threadDate !== filterDate && !hasRolloutActivityOnDate) continue;
 
         const hasDetailedUsage =
           rolloutData.tokenCountEvents > 0 &&

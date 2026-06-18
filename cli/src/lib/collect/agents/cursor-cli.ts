@@ -338,6 +338,7 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
       let hasActivityOnDate = false;
       let firstTs: Date | null = null;
       let lastTs: Date | null = null;
+      const dayTranscriptEvents: Record<string, unknown>[] = [];
 
       for (const event of transcriptEvents) {
         const ts = (event["timestamp"] ?? event["ts"]) as string | number | undefined;
@@ -348,6 +349,7 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
         const eventDate = localDateString(d);
         if (eventDate === filterDate) {
           hasActivityOnDate = true;
+          dayTranscriptEvents.push(event);
           if (!firstTs || d < firstTs) firstTs = d;
           if (!lastTs || d > lastTs) lastTs = d;
         }
@@ -370,7 +372,15 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
 
       // Read session metadata
       const meta = readStoreMeta(storeDbPath);
-      const messages = readStoreMessages(storeDbPath);
+      const allMessages = readStoreMessages(storeDbPath);
+      const hasMessageTimestamps = allMessages.some((msg) => msg.timestamp != null);
+      const messages = hasMessageTimestamps
+        ? allMessages.filter((msg) => {
+          if (msg.timestamp == null) return false;
+          const d = new Date(msg.timestamp > 1_000_000_000_000 ? msg.timestamp : msg.timestamp * 1000);
+          return !Number.isNaN(d.getTime()) && localDateString(d) === filterDate;
+        })
+        : allMessages;
 
       // Count message stats
       let userCount = 0;
@@ -392,7 +402,8 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
       const filesSet = new Set<string>();
       let cwd = "";
 
-      for (const event of transcriptEvents) {
+      const fileEvents = dayTranscriptEvents.length > 0 ? dayTranscriptEvents : transcriptEvents;
+      for (const event of fileEvents) {
         const cwdVal = event["cwd"] as string | undefined;
         if (cwdVal && !cwd) cwd = cwdVal;
 

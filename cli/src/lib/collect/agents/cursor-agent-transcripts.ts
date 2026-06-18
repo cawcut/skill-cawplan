@@ -385,7 +385,7 @@ export function collectCursorAgentTranscripts(filterDate: string): SessionData[]
       }
     }
 
-    const statsTurns = dayTurns.length ? allTurns : dayTurns;
+    const statsTurns = dayTurns;
     let userCount = 0;
     let assistantCount = 0;
     let rawToolCallCount = 0;
