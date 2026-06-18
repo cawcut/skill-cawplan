@@ -1,5 +1,4 @@
 import {
-    ApiSessionData,
     DailyApiJson,
     ModelUsageEntry,
     RepoTouched,
@@ -170,29 +169,6 @@ function sessionProjectName(session: SessionData): string {
     if (cwdName) return cwdName;
     const project = normalizeProjectName(session.project);
     return isEncodedCursorProject(project) ? readableEncodedCursorProject(project) : project;
-}
-
-function toApiSession(session: SessionData, round2: (value: number) => number): ApiSessionData {
-    return {
-        agent: apiAgent(session),
-        source: sessionSource(session),
-        agent_display: agentDisplay(session),
-        session_id: session.session_id,
-        session_name: session.session_name,
-        time_range: session.time_range.display,
-        project: sessionProjectName(session),
-        message_stats: session.message_stats,
-        files_changed: session.files_changed,
-        files_added: session.files_added ?? 0,
-        files_deleted: session.files_deleted ?? 0,
-        models: Object.keys(session.model_usage),
-        total_tokens: totalTokens(session.usage_breakdown),
-        session_cost: sessionCost(session.usage_breakdown, round2),
-        cost_basis: costBasis(session),
-        token_source: tokenSource(session),
-        repos_touched: session.repos_touched.map((repo) => repo.repo),
-        repos_touched_detail: session.repos_touched,
-    };
 }
 
 function normalizeProjectName(project: string): string {
@@ -383,7 +359,10 @@ export function buildDailyApiJson(
                 { ...v, cost: typeof v.cost === "number" ? r2(v.cost) : v.cost },
             ])
         ),
-        sessions: sessions.map((session) => toApiSession(session, r2)),
+        sessions: sessions.map(({ human_inputs: _humanInputs, ...session }) => ({
+            ...session,
+            title: session.title ?? session.session_name,
+        })),
         repos: allRepos,
         human_inputs: sessions.flatMap((s) => enrichSessionHumanInputs(s)),
     };

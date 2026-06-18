@@ -456,15 +456,19 @@ function parseTimestampFromText(text: string): Date | null {
     return Number.isNaN(d2.getTime()) ? null : d2;
 }
 
-function extractSessionNameFromText(text: string, fallback: string): string {
-    const m = text.match(USER_QUERY_RE);
-    if (m && m[1].trim()) {
-        const s = m[1].trim().split("\n")[0];
-        return s.length > 80 ? `${s.slice(0, 80)}...` : s;
+function fallbackSessionName(projectDir: string, sid: string): string {
+    const shortId = sid.slice(0, 8);
+    const cwd = decodeCursorProjectDirToCwd(projectDir);
+    if (cwd) {
+        const parts = cwd.split("/").filter(Boolean);
+        const repo = parts[parts.length - 1] ?? "";
+        if (repo) return `${repo}/${shortId}`;
     }
-    const oneLine = text.replace(/\s+/g, " ").trim();
-    if (!oneLine) return fallback;
-    return oneLine.length > 80 ? `${oneLine.slice(0, 80)}...` : oneLine;
+    const normalizedProject = (projectDir ?? "").trim();
+    if (normalizedProject && normalizedProject !== "agent-transcripts") {
+        return `${normalizedProject}/${shortId}`;
+    }
+    return shortId;
 }
 
 function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
@@ -501,7 +505,7 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
             let toolCalls = 0;
             let firstTs: Date | null = null;
             let lastTs: Date | null = null;
-            let name = sid.slice(0, 8);
+            let name = fallbackSessionName(project, sid);
             let cwd = decodeCursorProjectDirToCwd(project);
             const files: FileChange[] = [];
             const fileIndex = new Map<string, number>();
@@ -562,7 +566,6 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
                     }
                     if (textCombined) {
                         userCount++;
-                        if (name === sid.slice(0, 8)) name = extractSessionNameFromText(textCombined, name);
                         const ts = parseEventTimestamp(obj, message, textCombined);
                         if (ts) {
                             if (!firstTs || ts < firstTs) firstTs = ts;

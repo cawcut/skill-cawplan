@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ApiSessionData, DailyApiJson, HumanInput } from "./types.js";
+import { DailyApiJson, HumanInput, SessionData } from "./types.js";
 
 interface SessionSummary {
   session_title?: string;
@@ -15,7 +15,6 @@ interface SessionSummary {
 }
 
 type SummaryMap = Record<string, SessionSummary>;
-type RenderSession = ApiSessionData;
 
 function toRepoName(repo?: string): string {
   const trimmed = String(repo ?? "").trim();
@@ -32,12 +31,13 @@ function readJsonFile<T>(path: string): T | null {
   }
 }
 
-function summaryKeyCandidates(session: RenderSession): string[] {
+function summaryKeyCandidates(session: SessionData): string[] {
   const shortId = session.session_id.slice(0, 8);
+  const agent = renderAgent(session);
   return [
-    `${session.agent_display}-${shortId}`,
+    `${agent}-${shortId}`,
     `${session.agent}-${shortId}`,
-    `${session.agent_display}-${session.session_id}`,
+    `${agent}-${session.session_id}`,
     `${session.agent}-${session.session_id}`,
     shortId,
     session.session_id,
@@ -67,7 +67,7 @@ function loadSummaries(summariesDir: string): { byKey: SummaryMap; overallSummar
   return { byKey, overallSummary };
 }
 
-function pickSessionSummary(session: RenderSession, summaryByKey: SummaryMap): SessionSummary {
+function pickSessionSummary(session: SessionData, summaryByKey: SummaryMap): SessionSummary {
   const candidates = summaryKeyCandidates(session);
   for (const key of candidates) {
     if (summaryByKey[key]) return summaryByKey[key];
@@ -79,8 +79,8 @@ function pickSessionSummary(session: RenderSession, summaryByKey: SummaryMap): S
   return {};
 }
 
-function pickProject(session: RenderSession): string {
-  const repos = Array.isArray(session.repos_touched_detail) ? session.repos_touched_detail : [];
+function pickProject(session: SessionData): string {
+  const repos = Array.isArray(session.repos_touched) ? session.repos_touched : [];
   if (!repos.length) return session.project ?? "";
   const top = [...repos].sort((a, b) => {
     if (a.files !== b.files) return b.files - a.files;
@@ -92,10 +92,25 @@ function pickProject(session: RenderSession): string {
   return toRepoName(top.repo) || session.project || "";
 }
 
-function enrichRenderedSessionContext(sessions: RenderSession[]): RenderSession[] {
+function renderAgent(session: SessionData): string {
+  if (session.agent === "cursor") {
+    return session.message_stats.tool_calls > 0 ? "cursor-gui" : "cursor-cli";
+  }
+  return session.agent;
+}
+
+function renderTimeRange(session: SessionData): string {
+  return session.time_range.display ?? "";
+}
+
+function sessionModels(session: SessionData): string[] {
+  return Object.keys(session.model_usage ?? {});
+}
+
+function enrichRenderedSessionContext(sessions: SessionData[]): SessionData[] {
   const knownRepos = Array.from(
     new Set(
-      sessions.flatMap((s) => s.repos_touched_detail ?? []).map((r) => String(r.repo ?? "").trim()).filter(Boolean)
+      sessions.flatMap((s) => s.repos_touched ?? []).map((r) => String(r.repo ?? "").trim()).filter(Boolean)
     )
   );
 
@@ -103,30 +118,30 @@ function enrichRenderedSessionContext(sessions: RenderSession[]): RenderSession[
   const fallbackProject = toRepoName(fallbackRepo);
 
   return sessions.map((s) => {
-    const next: RenderSession = { ...s };
+    const next: SessionData = { ...s };
     if ((!next.project || next.project.length <= 8) && fallbackProject) next.project = fallbackProject;
-    if ((next.repos_touched_detail?.length ?? 0) === 0 && fallbackRepo) {
-      next.repos_touched_detail = [{
+    if ((next.repos_touched?.length ?? 0) === 0 && fallbackRepo) {
+      next.repos_touched = [{
         repo: fallbackRepo,
         files: next.files_changed,
         added: next.files_added ?? 0,
         deleted: next.files_deleted ?? 0,
       }];
-      next.repos_touched = [fallbackRepo];
     }
     return next;
   });
 }
 
 function flattenSummaryHumanInputs(
-  session: RenderSession,
+  session: SessionData,
   summary: SessionSummary
 ): Array<Record<string, unknown>> {
   const result: Array<Record<string, unknown>> = [];
   const title = summary.session_title || session.session_name;
-  const agent = session.agent_display || session.agent;
-  const sessionTime = session.time_range ?? "";
-  const sessionModel = session.models.length > 0 ? session.models[0] ?? "" : "";
+  const agent = renderAgent(session);
+  const sessionTime = renderTimeRange(session);
+  const models = sessionModels(session);
+  const sessionModel = models.length > 0 ? models[0] ?? "" : "";
   const project = pickProject(session);
 
   const pushCategory = (
@@ -190,7 +205,7 @@ export function renderDailyApiJson(
     const summary = pickSessionSummary(session, byKey);
     return {
       ...session,
-      title: summary.session_title ?? session.session_name,
+      title: summary.session_title ?? session.title ?? session.session_name,
       project: pickProject(session),
       files_added: session.files_added ?? 0,
       files_deleted: session.files_deleted ?? 0,
@@ -209,12 +224,12 @@ export function renderDailyApiJson(
     ? summaryHumanInputs
     : daily.human_inputs.map((h) => {
       const matched = normalizedSessions.find((s) =>
-        s.session_name === h.session_title || s.agent_display === h.session_agent || s.agent === h.session_agent
+        s.session_name === h.session_title || renderAgent(s) === h.session_agent || s.agent === h.session_agent
       );
       return {
         ...h,
         session_time: nonEmpty(h.session_time ?? h.start_time),
-        session_model: h.session_model ?? (matched?.models[0] ?? ""),
+        session_model: h.session_model ?? (matched ? sessionModels(matched)[0] ?? "" : ""),
         project: h.project ?? (matched ? pickProject(matched) : ""),
         files_changed: h.files_changed ?? 0,
         lines_added: h.lines_added ?? 0,

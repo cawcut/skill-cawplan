@@ -413,7 +413,7 @@ describe("src lib collect daily aggregator", () => {
     });
   });
 
-  test("serializes sessions in Python API payload shape", () => {
+  test("serializes sessions using SessionData without nested human_inputs", () => {
     const session: SessionData = {
       schema: "2.0",
       date: "2026-06-17",
@@ -477,29 +477,35 @@ describe("src lib collect daily aggregator", () => {
 
     expect(daily.totals.agents).toEqual(["cursor-cli"]);
     expect(apiSession).toMatchObject({
-      agent: "cursor",
-      source: "cli",
-      agent_display: "cursor-cli",
+      schema: "2.0",
+      date: "2026-06-17",
+      agent: "cursor-cli",
       session_id: "session-1",
       session_name: "Cursor Work",
-      time_range: "10:00 - 10:05",
+      title: "Cursor Work",
+      time_range: {
+        display: "10:00 - 10:05",
+        timezone: "Asia/Shanghai",
+        start_local: "2026-06-17T10:00:00+08:00",
+      },
       project: "flow-cawplan-skill",
+      cwd: "/repo/flow-cawplan-skill",
+      model_usage: {
+        "composer-2.5": expect.objectContaining({
+          cost: 1.234,
+        }),
+      },
+      usage_breakdown: [
+        expect.objectContaining({
+          model: "composer-2.5",
+          cost: 1.234,
+        }),
+      ],
       files_changed: 2,
       files_added: 3,
       files_deleted: 4,
-      models: ["composer-2.5"],
-      total_tokens: 100,
-      session_cost: 1.23,
-      cost_basis: "estimate",
-      token_source: "char-based estimate (API unavailable)",
-      repos_touched: ["Ubiquiti-UID/flow-cawplan-skill"],
-      repos_touched_detail: [{ repo: "Ubiquiti-UID/flow-cawplan-skill", files: 2, added: 3, deleted: 4 }],
+      repos_touched: [{ repo: "Ubiquiti-UID/flow-cawplan-skill", files: 2, added: 3, deleted: 4 }],
     });
-    expect(apiSession).not.toHaveProperty("schema");
-    expect(apiSession).not.toHaveProperty("date");
-    expect(apiSession).not.toHaveProperty("cwd");
-    expect(apiSession).not.toHaveProperty("model_usage");
-    expect(apiSession).not.toHaveProperty("usage_breakdown");
     expect(apiSession).not.toHaveProperty("human_inputs");
     expect(daily.human_inputs).toHaveLength(1);
   });
