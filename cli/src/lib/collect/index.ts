@@ -1,4 +1,4 @@
-import {writeFileSync, mkdirSync, statSync} from "node:fs";
+import {writeFileSync, mkdirSync} from "node:fs";
 import {dirname} from "node:path";
 import {CollectOptions, DailyApiJson} from "./types.js";
 import {gitAuthor} from "./git.js";
@@ -13,7 +13,6 @@ import {
     aggregateCursorUsageBySession,
     buildCursorSessionWindows,
 } from "./agents/cursor-api.js";
-import {cursorStateDbCandidates} from "./paths.js";
 import {buildDailyApiJson} from "./aggregators/daily.js";
 import {SessionData} from "./types.js";
 
@@ -114,18 +113,7 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     const author = gitAuthor();
     const sessions: SessionData[] = [];
 
-    // Decide whether to include cursor agents in the default set.
-    // Use state.vscdb mtime as a lightweight activity hint; do not require API token.
-    const cursorDbActiveOnDate = cursorStateDbCandidates().some((p) => {
-        try {
-            return statSync(p).mtime.getTime() >= new Date(date + "T00:00:00").getTime();
-        } catch {
-            return false;
-        }
-    });
-    const defaultAgents: CollectOptions["agents"] = cursorDbActiveOnDate
-        ? ["claude-code", "cursor", "cursor-gui", "codex"]
-        : ["claude-code", "codex"];
+    const defaultAgents: CollectOptions["agents"] = ["claude-code", "cursor", "codex"];
     const targetAgents = opts.agents ?? defaultAgents;
 
     // Collect Claude Code sessions
