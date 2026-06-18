@@ -28,19 +28,17 @@ There are three modes. Choose based on **what the user explicitly says**:
 
 ---
 
-### Mode 1: Collect → AI summarize → confirm → upload
+### Mode 1: Collect → review raw details → confirm → upload
 
 Use **only** when the user explicitly asks to upload or submit the report.
 
 **Do not upload directly.** Always collect, AI-summarize, then confirm before uploading.
 
-**Step 1 — Collect API JSON:**
+**Step 1 — Collect:**
 ```bash
 cawplan ai-session collect --date <YYYY-MM-DD>
 # output defaults to ./ai-daily-<date>.json
 ```
-
-The command runs the TypeScript collector and writes the API JSON to `./ai-daily-<date>.json` by default.
 
 **Step 2 — Show summary to the user:**
 
@@ -99,25 +97,13 @@ The CLI validates the file contains `author` and `date` fields before uploading.
 
 ---
 
-## Agents Supported by Collect
-
-| Agent | Source | Notes |
-|-------|--------|-------|
-| `claude-code` | `~/.claude/projects/*/` JSONL files | Reads cost, tokens, session names, file changes |
-| `cursor-gui` | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` | Reads composer sessions; token data requires `CURSOR_ACCESS_TOKEN` |
-| `cursor` | Same as cursor-gui | Alias |
-| `codex` | `~/.codex/sessions/` SQLite | Reads Codex CLI sessions |
-
-If `CURSOR_ACCESS_TOKEN` is not set, Cursor cost/token fields will be empty (non-fatal warning).
-Local collection is provided by the TypeScript `cawplan` CLI collector. No Python runtime is required.
-
----
-
 ## Rules
 
 - If no `--date` is given, defaults to today.
 - Do not fabricate session data. Only report what the agents produce locally.
 - If `--file` is used, the file must contain `author` (git username) and `date` (YYYY-MM-DD) fields.
+- Preserve raw fields in `human_inputs` (for example `start_time`, `end_time`, `files_changed`, `lines_added`, `lines_deleted`).
+- Never replace raw `human_inputs` with summarized content.
 
 ## Confirmation
 
