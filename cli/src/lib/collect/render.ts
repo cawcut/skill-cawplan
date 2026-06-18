@@ -104,7 +104,7 @@ function renderTimeRange(session: SessionData): string {
 }
 
 function sessionModels(session: SessionData): string[] {
-    return Object.keys(session.model_usage ?? {});
+    return session.models ?? Object.keys(session.model_usage ?? {});
 }
 
 function enrichRenderedSessionContext(sessions: SessionData[]): SessionData[] {

@@ -364,7 +364,13 @@ export function buildDailyApiJson(
         ),
         sessions: sessions.map(({ human_inputs: _humanInputs, title: _legacyTitle, ...session }) => ({
             ...session,
+            source: session.source ?? sessionSource(session),
             session_title: session.session_title ?? _legacyTitle ?? session.session_name,
+            models: session.models ?? Object.keys(session.model_usage),
+            total_tokens: session.total_tokens ?? totalTokens(session.usage_breakdown),
+            session_cost: session.session_cost ?? sessionCost(session.usage_breakdown, r2),
+            cost_basis: session.cost_basis ?? costBasis(session),
+            token_source: session.token_source ?? tokenSource(session),
         })),
         repos: allRepos,
         human_inputs: sessions.flatMap((s) => enrichSessionHumanInputs(s)),

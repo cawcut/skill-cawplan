@@ -43,6 +43,7 @@ export interface SessionData {
     schema: "2.0";
     date: string;
     agent: string;
+    source?: string;
     session_id: string;
     session_name: string;
     /** Legacy title field used by older generated JSON. */
@@ -56,6 +57,11 @@ export interface SessionData {
         timezone: string;
         start?: string;
     };
+    models?: string[];
+    total_tokens?: number;
+    session_cost?: number;
+    cost_basis?: string;
+    token_source?: string;
     model_usage: Record<string, ModelUsageEntry>;
     usage_breakdown: UsageBucket[];
     /** Number of files changed in this session (API wire format) */
