@@ -434,7 +434,7 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
           time_range: {
             display: timeDisplay,
             timezone: getLocalTimezone(),
-            start_local: startLocal,
+            start: startLocal,
           },
           model_usage: modelUsage,
           usage_breakdown: [usageBucket],

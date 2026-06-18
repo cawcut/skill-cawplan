@@ -182,7 +182,7 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
                     time_range: {
                         display: timeDisplay,
                         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                        start_local: startLocal,
+                        start: startLocal,
                     },
                     model_usage: {},
                     usage_breakdown: [],

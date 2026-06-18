@@ -342,12 +342,12 @@ export function buildCursorSessionWindows(
     sessions: Array<{
         session_id: string;
         agent: string;
-        time_range: { start_local?: string; display: string };
+        time_range: { start?: string; display: string };
     }>
 ): SessionWindow[] {
     const windows: SessionWindow[] = [];
     for (const s of sessions) {
-        const startLocal = s.time_range?.start_local;
+        const startLocal = s.time_range?.start;
         if (!startLocal) continue;
         const start = new Date(startLocal);
         if (Number.isNaN(start.getTime())) continue;

@@ -324,7 +324,7 @@ describe("src lib collect daily aggregator", () => {
         session_id: "cursor-session-1",
         agent: "cursor-gui",
         time_range: {
-          start_local: "2026-06-17T02:00:00.000Z",
+          start: "2026-06-17T02:00:00.000Z",
           display: "10:00 - 10:30",
         },
       },
@@ -425,7 +425,7 @@ describe("src lib collect daily aggregator", () => {
       time_range: {
         display: "10:00 - 10:05",
         timezone: "Asia/Shanghai",
-        start_local: "2026-06-17T10:00:00+08:00",
+        start: "2026-06-17T10:00:00+08:00",
       },
       model_usage: {
         "composer-2.5": {
@@ -486,7 +486,7 @@ describe("src lib collect daily aggregator", () => {
       time_range: {
         display: "10:00 - 10:05",
         timezone: "Asia/Shanghai",
-        start_local: "2026-06-17T10:00:00+08:00",
+        start: "2026-06-17T10:00:00+08:00",
       },
       project: "flow-cawplan-skill",
       cwd: "/repo/flow-cawplan-skill",

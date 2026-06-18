@@ -441,7 +441,7 @@ export function collectCursorAgentTranscripts(filterDate: string): SessionData[]
       time_range: {
         display: timeDisplay,
         timezone: getLocalTimezone(),
-        start_local: startLocal,
+        start: startLocal,
       },
       model_usage: {},
       usage_breakdown: agent === "cursor-cli" ? [{

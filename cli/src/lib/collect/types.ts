@@ -52,7 +52,7 @@ export interface SessionData {
     time_range: {
         display: string;
         timezone: string;
-        start_local?: string;
+        start?: string;
     };
     model_usage: Record<string, ModelUsageEntry>;
     usage_breakdown: UsageBucket[];
