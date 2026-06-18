@@ -1,7 +1,7 @@
 import {existsSync, readdirSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 import {DailyApiJson, HumanInput, SessionData} from "./types.js";
-import {inferHumanInputTopic} from "./aggregators/human-topic.js";
+import {inferHumanInputTopicDetails} from "./aggregators/human-topic.js";
 
 interface SessionSummary {
     session_title?: string;
@@ -153,14 +153,15 @@ function flattenSummaryHumanInputs(
         for (const content of items) {
             const text = String(content || "").trim();
             if (!text) continue;
+            const topicDetails = inferHumanInputTopicDetails({
+                content: text,
+                category,
+                sessionTitle: title,
+            });
             result.push({
                 category,
                 content: text,
-                topic: inferHumanInputTopic({
-                    content: text,
-                    category,
-                    sessionTitle: title,
-                }),
+                ...topicDetails,
                 session_title: title,
                 session_agent: agent,
                 session_time: sessionTime,
@@ -234,14 +235,19 @@ export function renderDailyApiJson(
             const matched = normalizedSessions.find((s) =>
                 s.session_name === h.session_title || renderAgent(s) === h.session_agent || s.agent === h.session_agent
             );
+            const topicDetails = inferHumanInputTopicDetails({
+                content: h.content,
+                category: h.category,
+                sessionTitle: h.session_title ?? matched?.session_title ?? matched?.session_name ?? "",
+                topic: h.topic,
+                topic_source: h.topic_source,
+                topic_confidence: h.topic_confidence,
+                topic_reason: h.topic_reason,
+                raw_block: h.raw_block,
+            });
             return {
                 ...h,
-                topic: inferHumanInputTopic({
-                    content: h.content,
-                    category: h.category,
-                    sessionTitle: h.session_title ?? matched?.session_title ?? matched?.session_name ?? "",
-                    topic: h.topic,
-                }),
+                ...topicDetails,
                 session_time: nonEmpty(h.session_time ?? h.start_time),
                 session_model: h.session_model ?? (matched ? sessionModels(matched)[0] ?? "" : ""),
                 project: h.project ?? (matched ? pickProject(matched) : ""),

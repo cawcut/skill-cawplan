@@ -6,7 +6,7 @@ import {
     UsageBucket,
     MessageStats,
 } from "../types.js";
-import {inferHumanInputTopic} from "./human-topic.js";
+import {inferHumanInputTopicDetails} from "./human-topic.js";
 
 function unionAgents(a?: string[], b?: string[]): string[] | undefined {
     const all = [...(a ?? []), ...(b ?? [])];
@@ -230,25 +230,32 @@ function enrichSessionHumanInputs(session: SessionData, targetDate: string) {
     const stableSessionTitle = session.session_title ?? session.title ?? session.session_name;
     return (session.human_inputs ?? [])
         .filter((h) => isHumanInputOnDate(h, targetDate))
-        .map((h) => ({
-            ...h,
-            topic: inferHumanInputTopic({
+        .map((h) => {
+            const topicDetails = inferHumanInputTopicDetails({
                 content: h.content,
                 category: h.category,
                 sessionTitle: stableSessionTitle,
                 topic: h.topic,
-            }),
-            session_title: h.session_title ?? stableSessionTitle,
-            session_agent: h.session_agent ?? agentDisplay(session),
-            session_time: nonEmpty(h.session_time ?? h.start_time),
-            session_model: h.session_model ?? pickSessionModel(session),
-            project,
-            files_changed: h.files_changed ?? 0,
-            lines_added: h.lines_added ?? 0,
-            lines_deleted: h.lines_deleted ?? 0,
-            start_time: nonEmpty(h.start_time ?? h.session_time),
-            end_time: nonEmpty(h.end_time ?? h.start_time ?? h.session_time),
-        }));
+                topic_source: h.topic_source,
+                topic_confidence: h.topic_confidence,
+                topic_reason: h.topic_reason,
+                raw_block: h.raw_block,
+            });
+            return {
+                ...h,
+                ...topicDetails,
+                session_title: h.session_title ?? stableSessionTitle,
+                session_agent: h.session_agent ?? agentDisplay(session),
+                session_time: nonEmpty(h.session_time ?? h.start_time),
+                session_model: h.session_model ?? pickSessionModel(session),
+                project,
+                files_changed: h.files_changed ?? 0,
+                lines_added: h.lines_added ?? 0,
+                lines_deleted: h.lines_deleted ?? 0,
+                start_time: nonEmpty(h.start_time ?? h.session_time),
+                end_time: nonEmpty(h.end_time ?? h.start_time ?? h.session_time),
+            };
+        });
 }
 
 /**
@@ -291,25 +298,32 @@ export function buildDailyApiJson(
         const stableSessionTitle = session.session_title ?? session.title ?? session.session_name;
         return (session.human_inputs ?? [])
             .filter((h) => isHumanInputOnDate(h, date))
-            .map((h) => ({
-                ...h,
-                topic: inferHumanInputTopic({
+            .map((h) => {
+                const topicDetails = inferHumanInputTopicDetails({
                     content: h.content,
                     category: h.category,
                     sessionTitle: stableSessionTitle,
                     topic: h.topic,
-                }),
-                session_title: h.session_title ?? stableSessionTitle,
-                session_agent: h.session_agent ?? session.agent,
-                session_time: nonEmpty(h.session_time ?? h.start_time),
-                session_model: h.session_model ?? pickSessionModel(session),
-                project: h.project ?? normalizeProjectName(session.project),
-                files_changed: h.files_changed ?? 0,
-                lines_added: h.lines_added ?? 0,
-                lines_deleted: h.lines_deleted ?? 0,
-                start_time: nonEmpty(h.start_time ?? h.session_time),
-                end_time: nonEmpty(h.end_time ?? h.start_time ?? h.session_time),
-            }));
+                    topic_source: h.topic_source,
+                    topic_confidence: h.topic_confidence,
+                    topic_reason: h.topic_reason,
+                    raw_block: h.raw_block,
+                });
+                return {
+                    ...h,
+                    ...topicDetails,
+                    session_title: h.session_title ?? stableSessionTitle,
+                    session_agent: h.session_agent ?? session.agent,
+                    session_time: nonEmpty(h.session_time ?? h.start_time),
+                    session_model: h.session_model ?? pickSessionModel(session),
+                    project: h.project ?? normalizeProjectName(session.project),
+                    files_changed: h.files_changed ?? 0,
+                    lines_added: h.lines_added ?? 0,
+                    lines_deleted: h.lines_deleted ?? 0,
+                    start_time: nonEmpty(h.start_time ?? h.session_time),
+                    end_time: nonEmpty(h.end_time ?? h.start_time ?? h.session_time),
+                };
+            });
     };
 
 

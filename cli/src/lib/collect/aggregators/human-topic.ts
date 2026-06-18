@@ -65,6 +65,63 @@ function extractAnnotatedTopic(content: string): string {
     return "";
 }
 
+function parseTopicConfidence(raw?: string | null): number | undefined {
+    const text = String(raw ?? "").trim();
+    if (!text) return undefined;
+    const n = Number(text);
+    if (!Number.isFinite(n)) return undefined;
+    if (n <= 1) return n >= 0 ? n : undefined;
+    if (n <= 100) return n / 100;
+    return undefined;
+}
+
+function extractTopicMetadata(content: string): {
+    topic?: string;
+    source?: string;
+    confidence?: number;
+    reason?: string;
+    rawBlock?: string;
+} {
+    const text = String(content ?? "").trim();
+    if (!text) return {};
+    const patterns = [
+        /\[\s*(topic\s*[:=].*?)\s*\]/i,
+        /\{\s*(topic\s*[:=].*?)\s*\}/i,
+        /<!--\s*(topic\s*[:=].*?)\s*-->/i,
+    ];
+    for (const pattern of patterns) {
+        const m = text.match(pattern);
+        if (!m?.[1]) continue;
+        const rawMeta = m[1];
+        let topic = "";
+        let source = "";
+        let reason = "";
+        let confidence: number | undefined;
+        const parts = rawMeta.split(/[;,]/);
+        for (const part of parts) {
+            const pair = part.split(/[:=]/);
+            if (pair.length < 2) continue;
+            const key = String(pair[0] ?? "").trim().toLowerCase().replace(/-/g, "_");
+            const value = String(pair.slice(1).join(":") ?? "").trim().replace(/^['"]|['"]$/g, "");
+            if (key === "topic") topic = normalizeTopic(value);
+            if (key === "topic_source" || key === "source") source = value.trim();
+            if (key === "topic_reason" || key === "reason") reason = value.trim();
+            if (key === "topic_confidence" || key === "confidence") {
+                confidence = parseTopicConfidence(value);
+            }
+        }
+        if (!topic) continue;
+        return {
+            topic,
+            source: source || "semantic_extractor",
+            confidence,
+            reason,
+            rawBlock: m[0],
+        };
+    }
+    return {};
+}
+
 function hasAny(text: string, keywords: string[]): boolean {
     return keywords.some((k) => text.includes(k));
 }
@@ -136,4 +193,36 @@ export function inferHumanInputTopic(params: {
     if (hasAny(titleText, uxTerms)) return "ux";
 
     return "other";
+}
+
+export function inferHumanInputTopicDetails(params: {
+    content?: string | null;
+    category?: string | null;
+    sessionTitle?: string | null;
+    topic?: string | null;
+    topic_source?: string | null;
+    topic_confidence?: number | null;
+    topic_reason?: string | null;
+    raw_block?: string | null;
+}): { topic: string; topic_source: string; topic_confidence: number; topic_reason: string; raw_block: string } {
+    const existingTopic = normalizeTopic(params.topic);
+    const metadata = extractTopicMetadata(String(params.content ?? ""));
+    const topic = metadata.topic || existingTopic || inferHumanInputTopic(params);
+    const topicSource = String(
+        params.topic_source ??
+            metadata.source ??
+            (metadata.topic ? "semantic_extractor" : "rule_fallback")
+    ).trim() || "rule_fallback";
+    const topicConfidence = typeof params.topic_confidence === "number"
+        ? params.topic_confidence
+        : (metadata.confidence ?? (topicSource === "rule_fallback" ? 0.8 : 0.9));
+    const topicReason = String(params.topic_reason ?? metadata.reason ?? "").trim();
+    const rawBlock = String(params.raw_block ?? metadata.rawBlock ?? params.content ?? "").trim();
+    return {
+        topic,
+        topic_source: topicSource,
+        topic_confidence: topicConfidence,
+        topic_reason: topicReason,
+        raw_block: rawBlock,
+    };
 }

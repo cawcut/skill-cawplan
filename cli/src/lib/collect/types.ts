@@ -101,6 +101,10 @@ export interface HumanInput {
   category: "decision" | "direction" | "correction" | "planning";
   content: string;
   topic?: string;
+  topic_source?: string;
+  topic_confidence?: number;
+  topic_reason?: string;
+  raw_block?: string;
   session_title?: string;
   session_agent?: string;
   session_time?: string | null;
