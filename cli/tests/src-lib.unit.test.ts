@@ -476,6 +476,11 @@ describe("src lib collect daily aggregator", () => {
     const [apiSession] = daily.sessions;
 
     expect(daily.totals.agents).toEqual(["cursor-cli"]);
+    expect(daily.usage_breakdown[0]).toMatchObject({
+      model: "composer-2.5",
+      agent: "cursor",
+      agents: ["cursor-cli"],
+    });
     expect(apiSession).toMatchObject({
       schema: "2.0",
       date: "2026-06-17",

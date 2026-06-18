@@ -13,6 +13,7 @@ export interface ModelUsageEntry {
 
 export interface UsageBucket extends ModelUsageEntry {
     model: string;
+    agent?: string;
     speed: string;
     service_tier: string;
     effort: string;

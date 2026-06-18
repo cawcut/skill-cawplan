@@ -107,6 +107,17 @@ function sessionSource(session: SessionData): string {
     return "";
 }
 
+function primaryBucketAgent(bucket: UsageBucket): string | undefined {
+    if (bucket.agent) return bucket.agent;
+    const agents = bucket.agents ?? [];
+    if (agents.length === 0) return undefined;
+    if (agents.includes("cursor") || agents.includes("cursor-cli") || agents.includes("cursor-gui")) {
+        return "cursor";
+    }
+    if (agents.length === 1) return agents[0];
+    return agents[0];
+}
+
 function totalTokens(buckets: UsageBucket[]): number {
     return buckets.reduce(
         (sum, bucket) =>
@@ -354,6 +365,7 @@ export function buildDailyApiJson(
         },
         usage_breakdown: usageBreakdown.map((b) => ({
             ...b,
+            agent: primaryBucketAgent(b),
             cost: typeof b.cost === "number" ? r2(b.cost) : b.cost,
         })),
         model_usage: Object.fromEntries(
