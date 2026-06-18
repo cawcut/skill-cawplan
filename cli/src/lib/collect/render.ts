@@ -1,6 +1,7 @@
 import {existsSync, readdirSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 import {DailyApiJson, HumanInput, SessionData} from "./types.js";
+import {inferHumanInputTopic} from "./aggregators/human-topic.js";
 
 interface SessionSummary {
     session_title?: string;
@@ -155,6 +156,11 @@ function flattenSummaryHumanInputs(
             result.push({
                 category,
                 content: text,
+                topic: inferHumanInputTopic({
+                    content: text,
+                    category,
+                    sessionTitle: title,
+                }),
                 session_title: title,
                 session_agent: agent,
                 session_time: sessionTime,
@@ -230,6 +236,12 @@ export function renderDailyApiJson(
             );
             return {
                 ...h,
+                topic: inferHumanInputTopic({
+                    content: h.content,
+                    category: h.category,
+                    sessionTitle: h.session_title ?? matched?.session_title ?? matched?.session_name ?? "",
+                    topic: h.topic,
+                }),
                 session_time: nonEmpty(h.session_time ?? h.start_time),
                 session_model: h.session_model ?? (matched ? sessionModels(matched)[0] ?? "" : ""),
                 project: h.project ?? (matched ? pickProject(matched) : ""),

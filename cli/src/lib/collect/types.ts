@@ -100,6 +100,7 @@ export interface DailyApiJson {
 export interface HumanInput {
   category: "decision" | "direction" | "correction" | "planning";
   content: string;
+  topic?: string;
   session_title?: string;
   session_agent?: string;
   session_time?: string | null;

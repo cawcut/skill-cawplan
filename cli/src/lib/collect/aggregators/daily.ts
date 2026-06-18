@@ -6,6 +6,7 @@ import {
     UsageBucket,
     MessageStats,
 } from "../types.js";
+import {inferHumanInputTopic} from "./human-topic.js";
 
 function unionAgents(a?: string[], b?: string[]): string[] | undefined {
     const all = [...(a ?? []), ...(b ?? [])];
@@ -207,6 +208,12 @@ function enrichSessionHumanInputs(session: SessionData) {
     const stableSessionTitle = session.session_title ?? session.title ?? session.session_name;
     return (session.human_inputs ?? []).map((h) => ({
         ...h,
+        topic: inferHumanInputTopic({
+            content: h.content,
+            category: h.category,
+            sessionTitle: stableSessionTitle,
+            topic: h.topic,
+        }),
         session_title: h.session_title ?? stableSessionTitle,
         session_agent: h.session_agent ?? agentDisplay(session),
         session_time: nonEmpty(h.session_time ?? h.start_time),
@@ -260,6 +267,12 @@ export function buildDailyApiJson(
         const stableSessionTitle = session.session_title ?? session.title ?? session.session_name;
         return (session.human_inputs ?? []).map((h) => ({
             ...h,
+            topic: inferHumanInputTopic({
+                content: h.content,
+                category: h.category,
+                sessionTitle: stableSessionTitle,
+                topic: h.topic,
+            }),
             session_title: h.session_title ?? stableSessionTitle,
             session_agent: h.session_agent ?? session.agent,
             session_time: nonEmpty(h.session_time ?? h.start_time),
