@@ -47,6 +47,8 @@ For CI or headless use: `cawplan auth configure` (API key).
 
 More examples: `COOKBOOK.md`.
 
+For developer AI daily reporting, see `docs/AI_DAILY_REPORTING.md`.
+
 ## Troubleshooting
 
 - `Not authenticated` → run `cawplan auth login`
