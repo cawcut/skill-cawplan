@@ -7,6 +7,8 @@ interface PricingEntry {
 }
 
 const PRICING: Record<string, PricingEntry> = {
+  // OpenAI ($/MTok)
+  "gpt-5-5": { input: 5, output: 30, cache_read: 0.50, cache_write: 5, currency: "$" },
   // DeepSeek (¥/MTok)
   "deepseek-v4-pro":   { input: 3,  output: 6,   cache_read: 0.025, cache_write: 3,     currency: "¥" },
   "deepseek-v4-flash": { input: 1,  output: 2,   cache_read: 0.02,  cache_write: 1,     currency: "¥" },

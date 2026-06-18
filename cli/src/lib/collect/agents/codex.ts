@@ -13,7 +13,7 @@
  *   - Session list: all threads where created_at matches the target date
  *   - Time range: timestamps from rollout JSONL; falls back to thread.created_at
  *   - Model: thread.model
- *   - Tokens: thread.tokens_used (total only — no input/output split; cost cannot be calculated)
+ *   - Tokens: rollout token_count events when available; falls back to thread.tokens_used total
  *   - Message counts / tool calls: parsed from rollout JSONL
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -22,13 +22,13 @@ import { createRequire } from "node:module";
 import { codexStateDb, codexSessionsDir } from "../paths.js";
 
 const require = createRequire(import.meta.url);
-import { SessionData, ModelUsageEntry, UsageBucket, RepoTouched } from "../types.js";
-import { getCurrency } from "../pricing.js";
+import { SessionData, ModelUsageEntry, UsageBucket, RepoTouched, HumanInput } from "../types.js";
+import { calculateCost, getCurrency } from "../pricing.js";
 
 interface CodexThread {
   id: string;
   rollout_path: string | null;
-  created_at: string;
+  created_at: string | number;
   model: string;
   tokens_used: number | null;
   title: string | null;
@@ -45,6 +45,96 @@ function formatLocalTime(date: Date): string {
   return `${h}:${m}`;
 }
 
+function localDateString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function dateFromCodexTimestamp(value: string | number | null | undefined): Date | null {
+  if (typeof value === "number") {
+    const ms = value > 1_000_000_000_000 ? value : value * 1000;
+    const date = new Date(ms);
+    return isNaN(date.getTime()) ? null : date;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return dateFromCodexTimestamp(numeric);
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? null : date;
+  }
+
+  return null;
+}
+
+function extractTextContent(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => {
+      const b = block as Record<string, unknown>;
+      const type = b["type"];
+      if (type === "input_text" || type === "output_text" || type === "text") {
+        return String(b["text"] ?? "").trim();
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function isHumanInputText(text: string): boolean {
+  if (text.length < 4) return false;
+  if (text.length > 1500) return false;
+  if (text.includes("<environment_context>")) return false;
+  if (text.includes("<INSTRUCTIONS>")) return false;
+  if (/^# AGENTS\.md instructions/.test(text)) return false;
+  if (/^Base directory for this skill:/.test(text)) return false;
+  if (/^This session is being continued/.test(text)) return false;
+  if (/^Continue from where you left off\.?$/i.test(text)) return false;
+  if (/^(git |npm |npx |cawplan |cd |ls |cat |echo )/.test(text)) return false;
+  return true;
+}
+
+function classifyHumanInput(text: string): HumanInput["category"] {
+  const lower = text.toLowerCase();
+  const contains = (words: string[]) => words.some((w) => lower.includes(w));
+  if (contains(["决定","決定","定了","採用","采用","改成","改為","用这个","用這個","最终","最終","结论","結論","就按","agreed","decide","decision"])) {
+    return "decision";
+  }
+  if (contains(["计划","計劃","方案","步驟","步骤","下一步","roadmap","plan","planning","拆分","排期"])) {
+    return "planning";
+  }
+  if (contains(["修复","修復","修正","改一下","不对","不對","有问题","有問題","报错","報錯","错误","錯誤","bug","fix","broken","failed"])) {
+    return "correction";
+  }
+  return "direction";
+}
+
+function countDiffLines(diff: string): { added: number; deleted: number } {
+  let added = 0;
+  let deleted = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+")) added++;
+    else if (line.startsWith("-")) deleted++;
+  }
+  return { added, deleted };
+}
+
+function countTextLines(value: unknown): number {
+  if (typeof value !== "string" || !value) return 0;
+  return value.split("\n").length;
+}
+
+function numberField(record: Record<string, unknown>, field: string): number {
+  const value = Number(record[field] ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
 /**
  * Parse Codex rollout JSONL to count messages and find time bounds.
  */
@@ -58,8 +148,36 @@ function parseRollout(
   toolCallCount: number;
   firstTs: Date | null;
   lastTs: Date | null;
+  humanInputs: HumanInput[];
+  filesChanged: number;
+  linesAdded: number;
+  linesDeleted: number;
+  tokenUsage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_input_tokens: number;
+    cache_creation_input_tokens: number;
+  };
+  tokenCountEvents: number;
 } {
-  const result = { userCount: 0, assistantCount: 0, toolCallCount: 0, firstTs: null as Date | null, lastTs: null as Date | null };
+  const result = {
+    userCount: 0,
+    assistantCount: 0,
+    toolCallCount: 0,
+    firstTs: null as Date | null,
+    lastTs: null as Date | null,
+    humanInputs: [] as HumanInput[],
+    filesChanged: 0,
+    linesAdded: 0,
+    linesDeleted: 0,
+    tokenUsage: {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+    },
+    tokenCountEvents: 0,
+  };
 
   // Determine path to rollout JSONL
   const paths: string[] = [];
@@ -81,13 +199,22 @@ function parseRollout(
 
   if (!content) return result;
 
+  const seenHumanInputs = new Set<string>();
+  const allChangedFiles = new Set<string>();
+  const humanInputFiles: Array<Set<string>> = [];
+  let currentHumanInputIndex: number | null = null;
+  const seenTokenCounts = new Set<string>();
+
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
       const event = JSON.parse(trimmed) as Record<string, unknown>;
-      const role = event["role"] as string | undefined;
-      const ts = event["timestamp"] as string | undefined;
+      const payload = event["payload"] as Record<string, unknown> | undefined;
+      const role = (event["role"] ?? payload?.["role"]) as string | undefined;
+      const eventType = event["type"] as string | undefined;
+      const payloadType = payload?.["type"] as string | undefined;
+      const ts = (event["timestamp"] ?? payload?.["timestamp"]) as string | undefined;
 
       if (ts) {
         const d = new Date(ts);
@@ -97,17 +224,95 @@ function parseRollout(
         }
       }
 
-      if (role === "user") result.userCount++;
+      if (eventType === "event_msg" && payload?.["type"] === "token_count") {
+        const info = payload["info"] as Record<string, unknown> | undefined;
+        const lastUsage = info?.["last_token_usage"] as Record<string, unknown> | undefined;
+        if (lastUsage) {
+          const dedupKey = `${ts ?? ""}::${JSON.stringify(lastUsage)}`;
+          if (!seenTokenCounts.has(dedupKey)) {
+            seenTokenCounts.add(dedupKey);
+            const inputTokens = numberField(lastUsage, "input_tokens");
+            const cachedInputTokens = numberField(lastUsage, "cached_input_tokens");
+            result.tokenUsage.input_tokens += Math.max(inputTokens - cachedInputTokens, 0);
+            result.tokenUsage.cache_read_input_tokens += cachedInputTokens;
+            result.tokenUsage.output_tokens += numberField(lastUsage, "output_tokens");
+            result.tokenCountEvents += 1;
+          }
+        }
+      }
+
+      if (role === "user") {
+        result.userCount++;
+        if (eventType === "response_item" && payloadType === "message") {
+          const text = extractTextContent(payload?.["content"]);
+          if (isHumanInputText(text)) {
+            const key = text.slice(0, 120);
+            if (!seenHumanInputs.has(key)) {
+              seenHumanInputs.add(key);
+              result.humanInputs.push({
+                category: classifyHumanInput(text),
+                content: text,
+                session_agent: "codex",
+                start_time: ts ?? null,
+                files_changed: 0,
+                lines_added: 0,
+                lines_deleted: 0,
+              });
+              humanInputFiles.push(new Set<string>());
+              currentHumanInputIndex = result.humanInputs.length - 1;
+            }
+          }
+        }
+      }
       else if (role === "assistant") {
         result.assistantCount++;
+        if (eventType === "response_item" && payloadType === "message" && currentHumanInputIndex != null && ts) {
+          result.humanInputs[currentHumanInputIndex]!.end_time = ts;
+        }
         // Count tool calls in content
-        const content = event["content"];
+        const content = event["content"] ?? payload?.["content"];
         if (Array.isArray(content)) {
           for (const block of content as unknown[]) {
             const b = block as Record<string, unknown>;
             if (b["type"] === "tool_use") result.toolCallCount++;
           }
         }
+      }
+
+      if (eventType === "response_item" && payloadType === "function_call") {
+        result.toolCallCount++;
+      }
+      if (eventType === "response_item" && payloadType === "custom_tool_call") {
+        result.toolCallCount++;
+      }
+
+      if (eventType === "event_msg" && payload?.["type"] === "patch_apply_end") {
+        const changes = payload["changes"] as Record<string, Record<string, unknown>> | undefined;
+        if (!changes) continue;
+        const humanInput = currentHumanInputIndex == null ? null : result.humanInputs[currentHumanInputIndex];
+        const filesForInput = currentHumanInputIndex == null ? null : humanInputFiles[currentHumanInputIndex];
+        for (const [filePath, change] of Object.entries(changes)) {
+          allChangedFiles.add(filePath);
+          filesForInput?.add(filePath);
+
+          let delta = countDiffLines(String(change["unified_diff"] ?? ""));
+          if (delta.added === 0 && delta.deleted === 0) {
+            if (change["type"] === "delete") {
+              delta = { added: 0, deleted: countTextLines(change["content"]) };
+            } else if (change["type"] === "add") {
+              delta = { added: countTextLines(change["content"]), deleted: 0 };
+            }
+          }
+
+          result.linesAdded += delta.added;
+          result.linesDeleted += delta.deleted;
+          if (humanInput) {
+            humanInput.lines_added = (humanInput.lines_added ?? 0) + delta.added;
+            humanInput.lines_deleted = (humanInput.lines_deleted ?? 0) + delta.deleted;
+            humanInput.files_changed = filesForInput?.size ?? humanInput.files_changed ?? 0;
+          }
+        }
+        result.filesChanged = allChangedFiles.size;
       }
     } catch {
       // skip
@@ -140,8 +345,8 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
         .all() as CodexThread[];
 
       for (const thread of threads) {
-        // Filter by created_at date (ISO8601 — take first 10 chars)
-        const threadDate = (thread.created_at ?? "").slice(0, 10);
+        const createdAt = dateFromCodexTimestamp(thread.created_at);
+        const threadDate = createdAt ? localDateString(createdAt) : "";
         if (threadDate !== filterDate) continue;
 
         const model = thread.model || "unknown";
@@ -152,17 +357,36 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
         // Parse rollout for message counts and timestamps
         const rolloutData = parseRollout(thread.rollout_path, sessionsDir, thread.id);
 
-        // Build model usage — only total tokens available, no input/output split
+        const hasDetailedUsage =
+          rolloutData.tokenCountEvents > 0 &&
+          rolloutData.tokenUsage.input_tokens +
+            rolloutData.tokenUsage.output_tokens +
+            rolloutData.tokenUsage.cache_read_input_tokens +
+            rolloutData.tokenUsage.cache_creation_input_tokens >
+            0;
+        const usage = hasDetailedUsage
+          ? rolloutData.tokenUsage
+          : {
+            input_tokens: 0,
+            output_tokens: tokensUsed,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          };
+        const calculatedCost = hasDetailedUsage ? calculateCost(model, usage) : null;
+
+        // Build model usage from rollout token_count events when present.
         const modelEntry: ModelUsageEntry = {
-          api_calls: rolloutData.assistantCount || 1,
-          input_tokens: 0,
-          output_tokens: tokensUsed,
-          cache_read_input_tokens: 0,
-          cache_creation_input_tokens: 0,
-          cost: "unknown",
+          api_calls: rolloutData.tokenCountEvents || rolloutData.assistantCount || 1,
+          input_tokens: usage.input_tokens,
+          output_tokens: usage.output_tokens,
+          cache_read_input_tokens: usage.cache_read_input_tokens,
+          cache_creation_input_tokens: usage.cache_creation_input_tokens,
+          cost: calculatedCost ?? "unknown",
           currency,
-          token_source: "total_only",
-          note: "Codex only provides total token count without input/output breakdown",
+          token_source: hasDetailedUsage ? "codex_token_count_estimate" : "total_only",
+          note: hasDetailedUsage
+            ? "Estimated from Codex rollout token_count events"
+            : "Codex only provides total token count without input/output breakdown",
         };
 
         const modelUsage: Record<string, ModelUsageEntry> = { [model]: modelEntry };
@@ -177,7 +401,12 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
         };
 
         const reposTouched: RepoTouched[] = cwd
-          ? [{ repo: cwd, files: 0, added: 0, deleted: 0 }]
+          ? [{
+            repo: cwd,
+            files: rolloutData.filesChanged,
+            added: rolloutData.linesAdded,
+            deleted: rolloutData.linesDeleted,
+          }]
           : [];
 
         // Time range
@@ -187,12 +416,9 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
         if (rolloutData.firstTs && rolloutData.lastTs) {
           timeDisplay = `${formatLocalTime(rolloutData.firstTs)} - ${formatLocalTime(rolloutData.lastTs)}`;
           startLocal = rolloutData.firstTs.toISOString();
-        } else if (thread.created_at) {
-          const created = new Date(thread.created_at);
-          if (!isNaN(created.getTime())) {
-            timeDisplay = formatLocalTime(created);
-            startLocal = created.toISOString();
-          }
+        } else if (createdAt) {
+          timeDisplay = formatLocalTime(createdAt);
+          startLocal = createdAt.toISOString();
         }
 
         const sessionName = thread.title || thread.id.slice(0, 8);
@@ -212,13 +438,16 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
           },
           model_usage: modelUsage,
           usage_breakdown: [usageBucket],
-          files_changed: 0,
+          files_changed: rolloutData.filesChanged,
+          files_added: rolloutData.linesAdded,
+          files_deleted: rolloutData.linesDeleted,
           repos_touched: reposTouched,
           message_stats: {
             user: rolloutData.userCount,
             assistant: rolloutData.assistantCount,
             tool_calls: rolloutData.toolCallCount,
           },
+          human_inputs: rolloutData.humanInputs.length > 0 ? rolloutData.humanInputs : undefined,
         });
       }
     } finally {
