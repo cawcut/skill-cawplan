@@ -203,9 +203,11 @@ export function renderDailyApiJson(
     const normalizedSessions = enrichRenderedSessionContext(daily.sessions);
     const mergedSessions = normalizedSessions.map((session) => {
         const summary = pickSessionSummary(session, byKey);
+        const stableTitle = summary.session_title ?? session.session_title ?? session.title ?? session.session_name;
+        const {title: _legacyTitle, ...sessionWithoutLegacyTitle} = session;
         return {
-            ...session,
-            title: summary.session_title ?? session.title ?? session.session_name,
+            ...sessionWithoutLegacyTitle,
+            session_title: stableTitle,
             project: pickProject(session),
             files_added: session.files_added ?? 0,
             files_deleted: session.files_deleted ?? 0,

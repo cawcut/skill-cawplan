@@ -193,9 +193,10 @@ function nonEmpty(value?: string | null): string | undefined {
 
 function enrichSessionHumanInputs(session: SessionData) {
     const project = sessionProjectName(session);
+    const stableSessionTitle = session.session_title ?? session.title ?? session.session_name;
     return (session.human_inputs ?? []).map((h) => ({
         ...h,
-        session_title: h.session_title ?? session.session_name,
+        session_title: h.session_title ?? stableSessionTitle,
         session_agent: h.session_agent ?? agentDisplay(session),
         session_time: nonEmpty(h.session_time ?? h.start_time),
         session_model: h.session_model ?? pickSessionModel(session),
@@ -244,10 +245,11 @@ export function buildDailyApiJson(
         return t.length > 0 ? t : undefined;
     };
 
-    const enrichSessionHumanInputs = (session: SessionData) =>
-        (session.human_inputs ?? []).map((h) => ({
+    const enrichSessionHumanInputs = (session: SessionData) => {
+        const stableSessionTitle = session.session_title ?? session.title ?? session.session_name;
+        return (session.human_inputs ?? []).map((h) => ({
             ...h,
-            session_title: h.session_title ?? session.session_name,
+            session_title: h.session_title ?? stableSessionTitle,
             session_agent: h.session_agent ?? session.agent,
             session_time: nonEmpty(h.session_time ?? h.start_time),
             session_model: h.session_model ?? pickSessionModel(session),
@@ -258,6 +260,7 @@ export function buildDailyApiJson(
             start_time: nonEmpty(h.start_time ?? h.session_time),
             end_time: nonEmpty(h.end_time ?? h.start_time ?? h.session_time),
         }));
+    };
 
 
     // 1. Merge all session usage_breakdown buckets
@@ -359,9 +362,9 @@ export function buildDailyApiJson(
                 { ...v, cost: typeof v.cost === "number" ? r2(v.cost) : v.cost },
             ])
         ),
-        sessions: sessions.map(({ human_inputs: _humanInputs, ...session }) => ({
+        sessions: sessions.map(({ human_inputs: _humanInputs, title: _legacyTitle, ...session }) => ({
             ...session,
-            title: session.title ?? session.session_name,
+            session_title: session.session_title ?? _legacyTitle ?? session.session_name,
         })),
         repos: allRepos,
         human_inputs: sessions.flatMap((s) => enrichSessionHumanInputs(s)),

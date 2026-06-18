@@ -45,8 +45,10 @@ export interface SessionData {
     agent: string;
     session_id: string;
     session_name: string;
-    /** Stable display title collected from source metadata (if available). */
+    /** Legacy title field used by older generated JSON. */
     title?: string;
+    /** Preferred session title field in generated JSON. */
+    session_title?: string;
     project: string;
     cwd: string;
     time_range: {
