@@ -13,7 +13,12 @@
 
 ## 首次准备
 
-1. 安装并认证 `cawplan`：
+1. 安装 Skill
+    ```bash
+    npx skills add Ubiquiti-UID/flow-cawplan-skill --skill cawplan-coding-commit -g -y
+    ```
+
+2. 安装并认证 `cawplan`：
 
    ```bash
    npm install -g cawplan@0.0.3
@@ -22,7 +27,7 @@
    cawplan auth status
    ```
 
-2. 确认本机有 `uid-team-skills` 仓库。
+3. 确认本机有 `uid-team-skills` 仓库。
 
    如果 `uid-team-skills` 不是当前项目的兄弟目录，请配置：
 
@@ -31,12 +36,6 @@
    ```
 
    建议写入自己的 shell 配置文件，例如 `~/.zshrc`。
-
-3. 确认旧日报脚本存在：
-
-   ```bash
-   test -f "$UID_TEAM_SKILLS_DIR/.agents/skills/ai-coding-reports/scripts/cli.py"
-   ```
 
 ## 每日上报流程
 
@@ -128,7 +127,13 @@ agent 不会提交 `Outputs/`、chunks、summaries、JSON 文件或其他中间�
 
 如果存在非最终 Markdown 日报变更，或存在与目标日期/用户无关的 Markdown 变更，agent 会停止并报告状态，不会自动提交。
 
-agent 不会执行 `git push`。
+提交成功后，agent 会询问是否需要 push。只有用户明确确认后，agent 才会执行：
+
+```bash
+git push
+```
+
+如果 push 失败，agent 会提示失败原因，并说明本地 commit 已创建但尚未推送。
 
 ## 常见问题
 

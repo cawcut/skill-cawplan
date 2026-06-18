@@ -183,7 +183,8 @@ Git commit rule in `uid-team-skills`:
    git commit -m "daily report: <one-line summary>"
    ```
 5. If `git status --short` shows any non-Markdown report changes, or Markdown changes unrelated to the target report date/user, stop and report the status. Do not auto-commit.
-6. Do not push.
+6. After a successful commit, ask whether the developer wants to push the `uid-team-skills` report commit.
+7. Only run `git push` after explicit confirmation. If `git push` fails, show the failure and tell the developer the local commit was created but not pushed.
 
 For multiple uploaded dates, complete collect/prepare/summarize/render and the final-Markdown-only commit check separately for each date.
 
@@ -207,6 +208,7 @@ After uploading, report:
 - Code field (SUCCESS / FAILURE).
 - If FAILURE, show the error message.
 - Legacy `uid-team-skills` report path and git commit hash when created.
+- Whether the developer confirmed push, and the `git push` result when attempted.
 - If legacy sync stops because non-final-report files changed, show the status and do not claim completion.
 
 ## References

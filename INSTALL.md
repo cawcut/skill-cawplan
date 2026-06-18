@@ -18,7 +18,7 @@ npx skills add Ubiquiti-UID/flow-cawplan-skill --all -y
 Install only selected skills:
 
 ```bash
-npx skills add Ubiquiti-UID/flow-cawplan-skill --skill cawplan-query --skill cawplan-ticket -g
+npx skills add Ubiquiti-UID/flow-cawplan-skill --skill cawplan-ticket-create -g
 ```
 
 Update to latest:
