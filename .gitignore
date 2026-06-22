@@ -12,3 +12,4 @@ cli/coverage/
 .idea/
 Outputs/
 Reports/
+ai-daily-*.json

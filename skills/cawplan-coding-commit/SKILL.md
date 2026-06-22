@@ -22,19 +22,20 @@ cawplan auth status >/dev/null || { echo "Not authenticated. Run: cawplan auth l
 
 There are three modes. Choose by this priority:
 
-1. User provides one or more file paths and asks to **upload / submit / report / 上传 / 提交** → Mode 3
+1. User invokes `/cawplan-coding-commit` with no additional prompt or arguments → Mode 1
 2. User asks to **upload / submit / report / 上传 / 提交** without file paths → Mode 1
 3. User asks to **generate / collect / summarize / 生成 / 收集 / 总结** without upload intent → Mode 2
+4. User provides one or more file paths and asks to **upload / submit / report / 上传 / 提交** → Mode 3
 
 Do not use this skill for a plain `git commit` request unless the user explicitly mentions CawPlan, AI report upload, or an `ai-daily-*.json` file.
 
 ---
 
-### Mode 1: Collect → review raw details → confirm → upload
+### Mode 1: Collect → Review → Upload
 
-Use **only** when the user explicitly asks to upload or submit the report.
+Use when the user explicitly asks to upload or submit the report, or when the user invokes `/cawplan-coding-commit` with no additional prompt or arguments.
 
-**Do not upload directly.** Always collect, AI-summarize, then confirm before uploading.
+Always collect and present the AI-summarized review before uploading. Do not wait for a second confirmation after the review; proceed to upload immediately.
 
 **Step 1 — Collect:**
 ```bash
@@ -46,26 +47,20 @@ cawplan ai-session collect --date <YYYY-MM-DD>
 
 Present the full review described in **Review content contract**. Do not show only a stats table.
 
-**Step 3 — Ask for confirmation:**
-
-> "Ready to upload the AI report for <date>. Confirm?"
-
-Wait for explicit confirmation before proceeding. If the user declines, stop.
-
-**Step 4 — Upload:**
+**Step 3 — Upload:**
 ```bash
 cawplan ai-session report --file ./ai-daily-<date>.json
 ```
 
-**Step 5 — Sync legacy uid-team-skills report:**
+**Step 4 — Sync legacy uid-team-skills report:**
 
 After a successful upload, run **Default dual-write: uid-team-skills report sync** for the report date.
 
 ---
 
-### Mode 2: Collect + summarize (default when no upload intent)
+### Mode 2: Collect + Review (default when no upload intent)
 
-**Step 1 — Collect API JSON:**
+**Step 1 — Collect:**
 ```bash
 # Collect all agents — output defaults to ./ai-daily-<date>.json
 cawplan ai-session collect --date <YYYY-MM-DD>
@@ -81,33 +76,26 @@ cawplan ai-session collect --date <YYYY-MM-DD> --output ~/reports/ai-daily-2026-
 **Step 2 — Review the report with the user:**
 
 Present the full review described in **Review content contract**. Do not show only a stats table.
----
 
 ### Mode 3: Upload pre-existing file(s)
 
 Use when the user provides one or more existing report files and asks to upload/submit/report them.
 
-**Do not upload directly.** Always inspect, summarize, and confirm before uploading.
+Always inspect and summarize before uploading. Do not wait for a second confirmation after the review; proceed to upload immediately.
 
 **Step 1 — Inspect each file:**
 - Confirm the file exists and contains `author` and `date`.
 - Present the full review described in **Review content contract** for each report file.
 - Preserve raw `human_inputs`; never rewrite the JSON just to summarize it.
 
-**Step 2 — Ask for confirmation:**
-
-> "Ready to upload these AI reports: <dates/files>. Confirm?"
-
-Wait for explicit confirmation before proceeding. If the user declines, stop.
-
-**Step 3 — Upload each file sequentially:**
+**Step 2 — Upload each file sequentially:**
 ```bash
 cawplan ai-session report --file <path>
 ```
 
 For multiple files, run one `report --file` command per file. Do not guess alternate command names.
 
-**Step 4 — Sync legacy uid-team-skills report(s):**
+**Step 3 — Sync legacy uid-team-skills report(s):**
 
 After successful upload, run **Default dual-write: uid-team-skills report sync** once for each distinct report `date` from the inspected files.
 
@@ -122,7 +110,6 @@ Before asking for upload confirmation, include these sections:
 - Session review: for each important session, include title/name, agent, time range, cost, repo/files changed, and 1-2 sentences describing what work happened. Do not list only title/time/cost.
 - Human input highlights: summarize notable `human_inputs` by category (`decision`, `direction`, `correction`, `planning`) and include representative prompts when useful.
 - Data quality notes: mention missing/estimated costs, API warnings, sessions without cost, empty models, or legacy sync blockers.
-- Confirmation question: ask for explicit confirmation only after the narrative review.
 
 Use a compact table for numbers if useful, but always include the narrative summary and session review text.
 
@@ -136,7 +123,7 @@ Developers do **not** need to run `/cawplan-coding-commit` from inside `uid-team
 
 1. If the current working directory is the `uid-team-skills` repository, use it.
 2. Else if `UID_TEAM_SKILLS_DIR` is set, use that path.
-3. Else try common sibling locations from the current repo, such as `../uid-team-skills` and `../../uid-team-skills`.
+3. Else try common sibling locations from the current repo, such as a nearby `uid-team-skills` checkout in the same workspace tree.
 4. If not found, stop and ask the developer to set:
    ```bash
    export UID_TEAM_SKILLS_DIR=/path/to/uid-team-skills
