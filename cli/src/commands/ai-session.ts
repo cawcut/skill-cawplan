@@ -1,9 +1,11 @@
 import {readFileSync, writeFileSync} from "node:fs";
 import {Command} from "commander";
+import {select} from "@inquirer/prompts";
 import {cawplanRequest} from "../lib/http.js";
 import {buildQueryFromFlags} from "../lib/cache.js";
 import {collect} from "../lib/collect/index.js";
-import { renderDailyApiJson } from "../lib/collect/render.js";
+import {renderDailyApiJson} from "../lib/collect/render.js";
+import type {DailyApiJson} from "../lib/collect/types.js";
 
 type AiSessionAgent = "claude-code" | "cursor" | "codex";
 
@@ -41,16 +43,170 @@ function addDateOptions(cmd: Command): Command {
 const DATE_PAGE_KEYS = ["date", "date_from", "date_to", "page_num", "page_size"] as const;
 const DATE_KEYS = ["date", "date_from", "date_to"] as const;
 
-async function collectAiSessions(opts: {
-    date: string;
-    agents?: AiSessionAgent[];
-    outputPath: string;
-}): Promise<Record<string, unknown>> {
-    return collect({
-        date: opts.date,
-        agents: opts.agents,
-        outputPath: opts.outputPath,
-    }) as unknown as Record<string, unknown>;
+interface ProductRepoMapping {
+    product_id?: string;
+    product_name?: string;
+    repo_name?: string;
+    repo_url?: string;
+}
+
+interface ProductChoice {
+    product_id: string;
+    product_name: string;
+}
+
+function extractList<T>(payload: unknown): T[] {
+    if (Array.isArray(payload)) return payload as T[];
+    const p = payload as Record<string, unknown> | undefined;
+    if (Array.isArray(p?.data)) return p.data as T[];
+    const inner = p?.data as Record<string, unknown> | undefined;
+    if (Array.isArray(inner?.list)) return inner.list as T[];
+    if (Array.isArray(inner?.data)) return inner.data as T[];
+    return [];
+}
+
+function shortRepoName(value?: string): string {
+    const raw = (value ?? "").trim();
+    if (!raw) return "";
+    const parts = raw.replace(/\.git$/, "").split(/[/:]/).filter(Boolean);
+    return parts[parts.length - 1] ?? raw;
+}
+
+function repoKeys(value?: string): string[] {
+    const raw = (value ?? "").trim();
+    const short = shortRepoName(raw);
+    return [...new Set([raw, short].filter(Boolean).map((v) => v.toLowerCase()))];
+}
+
+async function listProductRepoMappings(): Promise<ProductRepoMapping[]> {
+    const result = await cawplanRequest({
+        method: "GET",
+        path: "/api/v1/public/openapi/ai-session-usage/product-repo",
+    });
+    return extractList<ProductRepoMapping>(result).filter((m) => m.product_id && m.repo_name);
+}
+
+function uniqueProducts(mappings: ProductRepoMapping[]): ProductChoice[] {
+    const byID = new Map<string, ProductChoice>();
+    for (const mapping of mappings) {
+        const productID = (mapping.product_id ?? "").trim();
+        if (!productID || byID.has(productID)) continue;
+        byID.set(productID, {
+            product_id: productID,
+            product_name: (mapping.product_name ?? productID).trim(),
+        });
+    }
+    return [...byID.values()].sort((a, b) => a.product_name.localeCompare(b.product_name));
+}
+
+function findMappingForProject(project: string, mappings: ProductRepoMapping[]): ProductRepoMapping | undefined {
+    const keys = new Set(repoKeys(project));
+    return mappings.find((mapping) => repoKeys(mapping.repo_name).some((key) => keys.has(key)));
+}
+
+function updateReposForSelectedMapping(
+    repos: DailyApiJson["repos"] | undefined,
+    originalProject: string,
+    mapping: ProductRepoMapping
+): void {
+    if (!Array.isArray(repos)) return;
+    const originalKeys = new Set(repoKeys(originalProject));
+    const selectedKeys = new Set(repoKeys(mapping.repo_name));
+    for (const repo of repos) {
+        const keys = repoKeys(repo.repo_name ?? repo.repo);
+        const matched = keys.some((key) => originalKeys.has(key) || selectedKeys.has(key));
+        if (!matched) continue;
+        repo.repo_name = mapping.repo_name;
+        repo.repo_url = mapping.repo_url;
+        repo.product_id = mapping.product_id;
+        repo.product_name = mapping.product_name;
+    }
+}
+
+async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<number> {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        throw new Error("--assign-product requires an interactive TTY");
+    }
+
+    const mappings = await listProductRepoMappings();
+    if (mappings.length === 0) {
+        throw new Error("No product-repo mappings returned from cloud");
+    }
+
+    const sessions = daily.sessions;
+    if (!Array.isArray(sessions) || sessions.length === 0) {
+        console.error("No sessions found in the collected report; skipping product assignment.");
+        return 0;
+    }
+
+    const products = uniqueProducts(mappings);
+    const repos = daily.repos;
+
+    let matched = 0;
+    for (const [index, session] of sessions.entries()) {
+        const originalProject = (session.project ?? "").trim();
+        const sessionLabel = session.session_name ?? session.session_title ?? session.session_id ?? `session ${index + 1}`;
+        const inferredMapping = findMappingForProject(originalProject, mappings);
+        if (inferredMapping?.repo_name && inferredMapping.product_id) {
+            session.project = inferredMapping.repo_name;
+            session.product_id = inferredMapping.product_id;
+            session.product_name = inferredMapping.product_name;
+            matched++;
+            updateReposForSelectedMapping(repos, originalProject, inferredMapping);
+            console.error(`Auto-assigned session "${sessionLabel}" to ${inferredMapping.product_name ?? inferredMapping.product_id} / ${inferredMapping.repo_name}`);
+            continue;
+        }
+
+        const product = await select<ProductChoice>({
+            message: `Select product for session "${sessionLabel}"${originalProject ? ` (project: ${originalProject})` : ""}`,
+            choices: [
+                ...products.map((p) => ({
+                    name: p.product_name,
+                    value: p,
+                    description: p.product_id,
+                })),
+                {
+                    name: "Skip this project",
+                    value: {product_id: "", product_name: ""},
+                },
+            ],
+            pageSize: 15,
+        });
+        if (!product.product_id) continue;
+
+        const productMappings = mappings
+            .filter((m) => m.product_id === product.product_id && m.repo_name)
+            .sort((a, b) => String(a.repo_name).localeCompare(String(b.repo_name)));
+        const mapping = await select<ProductRepoMapping>({
+            message: `Select repository for session "${sessionLabel}"`,
+            choices: [
+                ...productMappings.map((m) => ({
+                    name: String(m.repo_name),
+                    value: m,
+                    description: m.repo_url ?? m.product_name ?? m.product_id,
+                })),
+                {
+                    name: "No repository; assign product only",
+                    value: {
+                        product_id: product.product_id,
+                        product_name: product.product_name,
+                    },
+                },
+            ],
+            pageSize: 15,
+        });
+        if (!mapping.product_id) continue;
+
+        if (mapping.repo_name) {
+            session.project = mapping.repo_name;
+            updateReposForSelectedMapping(repos, originalProject, mapping);
+        }
+        session.product_id = mapping.product_id;
+        session.product_name = mapping.product_name;
+        matched++;
+    }
+
+    return matched;
 }
 
 export function registerAiSessionCommand(program: Command): void {
@@ -63,7 +219,7 @@ export function registerAiSessionCommand(program: Command): void {
         .option("--date <YYYY-MM-DD>", "Date to collect (default: today)")
         .option(
             "--agent <name>",
-            "Agent(s) to collect from: claude-code, cursor, cursor-gui, codex (repeatable)",
+            "Agent(s) to collect from: claude-code, cursor, codex (repeatable)",
             (val: string, prev: string[]) => [...prev, val],
             [] as string[]
         )
@@ -78,7 +234,7 @@ export function registerAiSessionCommand(program: Command): void {
 
             console.error(`Collecting AI session data for ${date}...`);
             try {
-                const daily = await collectAiSessions({
+                const daily = await collect({
                     date,
                     agents,
                     outputPath,
@@ -90,6 +246,12 @@ export function registerAiSessionCommand(program: Command): void {
                         ((daily.totals as { agents?: string[] })?.agents ?? []).join(", ") || "none"
                     }`
                 );
+
+                // manually specify the product and repo
+                const matched = await assignProjectsFromCloudMappings(daily);
+                writeFileSync(outputPath, JSON.stringify(daily, null, 2), "utf-8");
+                console.error(`Product/project assignment written for ${matched} sessions.`);
+
                 console.error(`Output written to ${outputPath}`);
                 console.log(JSON.stringify(daily, null, 2));
             } catch (e) {
@@ -102,37 +264,20 @@ export function registerAiSessionCommand(program: Command): void {
 
     ai.command("report")
         .description(
-            "Upload a daily AI coding session report. Provide --file, or use --date to auto-collect."
+            "Upload a daily AI coding session report. Provide --file"
         )
-        .option("--file <path>", "Path to daily.json; must contain 'author' and 'date' fields")
-        .option("--date <YYYY-MM-DD>", "Date to auto-collect and upload (default: today if no --file)")
+        .requiredOption("--file <path>", "Path to daily.json; must contain 'author' and 'date' fields")
         .action(async (opts) => {
-            let payload: Record<string, unknown> = {};
+            let payload: DailyApiJson | undefined;
 
-            if (opts.file) {
-                // Load from file as before
-                try {
-                    payload = JSON.parse(readFileSync(opts.file, "utf-8")) as Record<string, unknown>;
-                } catch (e) {
-                    console.error(`Error: cannot read ${opts.file}: ${(e as Error).message}`);
-                    process.exit(1);
-                }
-            } else {
-                // Auto-collect for the given date (or today)
-                const date = opts.date ?? new Date().toISOString().slice(0, 10);
-                console.error(`Auto-collecting AI session data for ${date}...`);
-                try {
-                    payload = await collectAiSessions({
-                        date,
-                        outputPath: `ai-daily-${date}.json`,
-                    });
-                } catch (e) {
-                    console.error(`Error during collection: ${(e as Error).message}`);
-                    process.exit(1);
-                }
+            try {
+                payload = JSON.parse(readFileSync(opts.file, "utf-8")) as DailyApiJson;
+            } catch (e) {
+                console.error(`Error: cannot read ${opts.file}: ${(e as Error).message}`);
+                process.exit(1);
             }
 
-            if (!payload.author || !payload.date) {
+            if (!payload?.author || !payload.date) {
                 console.error("Error: daily.json must contain 'author' and 'date' fields");
                 process.exit(1);
             }
@@ -159,7 +304,7 @@ export function registerAiSessionCommand(program: Command): void {
             const outputPath = String(opts.output ?? "daily.api.json");
 
             try {
-                const daily = JSON.parse(readFileSync(inputPath, "utf-8")) as import("../lib/collect/types.js").DailyApiJson;
+                const daily = JSON.parse(readFileSync(inputPath, "utf-8")) as DailyApiJson;
                 const rendered = renderDailyApiJson(daily, summariesDir);
                 writeFileSync(outputPath, JSON.stringify(rendered, null, 2), "utf-8");
                 console.error(`Rendered report written to ${outputPath}`);

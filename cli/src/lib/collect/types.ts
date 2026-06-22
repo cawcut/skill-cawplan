@@ -29,6 +29,10 @@ export interface FileChange {
 
 export interface RepoTouched {
     repo: string;
+    repo_name?: string;
+    repo_url?: string;
+    product_id?: string;
+    product_name?: string;
     files: number;
     added: number;
     deleted: number;
@@ -52,6 +56,8 @@ export interface SessionData {
     /** Preferred session title field in generated JSON. */
     session_title?: string;
     project: string;
+    product_id?: string;
+    product_name?: string;
     cwd: string;
     time_range: {
         display: string;
