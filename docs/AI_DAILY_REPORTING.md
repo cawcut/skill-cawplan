@@ -42,7 +42,7 @@
 
 ## 每日上报流程
 
-在任意工作仓库中向 agent 发起：
+在任意目录中唤起 agent 并发送提示词：
 
 ```text
 /cawplan-coding-commit collect and submit today's coding sessions
