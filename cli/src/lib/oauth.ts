@@ -24,17 +24,24 @@ export interface OAuthLoginOptions {
 
 // ─── Browser opener ──────────────────────────────────────────────────────────
 
-export async function openBrowser(url: string): Promise<void> {
-    const platform = process.platform;
+export function browserOpenCommand(
+    url: string,
+    platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[] } {
     if (platform === "darwin") {
-        await execFileAsync("open", [url]);
-        return;
+        return {command: "open", args: [url]};
     }
     if (platform === "win32") {
-        await execFileAsync("cmd", ["/c", "start", "", url]);
-        return;
+        // Avoid `cmd /c start <url>`: cmd treats `&` in OAuth query strings as
+        // command separators unless every layer quotes perfectly.
+        return {command: "rundll32.exe", args: ["url.dll,FileProtocolHandler", url]};
     }
-    await execFileAsync("xdg-open", [url]);
+    return {command: "xdg-open", args: [url]};
+}
+
+export async function openBrowser(url: string): Promise<void> {
+    const {command, args} = browserOpenCommand(url);
+    await execFileAsync(command, args);
 }
 
 // ─── Local callback server ───────────────────────────────────────────────────

@@ -9,7 +9,7 @@ import {
   readCredentials,
   writeCredentials,
 } from "../src/lib/credentials";
-import { exchangeStateToken } from "../src/lib/oauth";
+import { browserOpenCommand, buildConsentUrl, exchangeStateToken } from "../src/lib/oauth";
 import { getAuthState } from "../src/lib/auth-state";
 import { buildScopedCacheKey, getCacheScope } from "../src/lib/cache";
 import {
@@ -228,6 +228,28 @@ describe("src lib cache", () => {
 });
 
 describe("src lib oauth", () => {
+  test("builds consent URL with redirect_uri and state query params", () => {
+    process.env.CAWPLAN_PORTAL_URL = "https://core-web-product.uid.dev.ui.com";
+
+    const url = buildConsentUrl("http://127.0.0.1:52244/callback", "9f520c0d0195c8ae599ea82563cf2080");
+    const parsed = new URL(url);
+
+    expect(parsed.origin).toBe("https://core-web-product.uid.dev.ui.com");
+    expect(parsed.pathname).toBe("/cli/auth");
+    expect(parsed.searchParams.get("client")).toBe("cawplan-cli");
+    expect(parsed.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:52244/callback");
+    expect(parsed.searchParams.get("state")).toBe("9f520c0d0195c8ae599ea82563cf2080");
+  });
+
+  test("opens OAuth URL on Windows without routing ampersands through cmd", () => {
+    const url = "https://core-web-product.uid.dev.ui.com/cli/auth?client=cawplan-cli&redirect_uri=http%3A%2F%2F127.0.0.1%3A52244%2Fcallback&state=9f520c0d0195c8ae599ea82563cf2080";
+
+    const command = browserOpenCommand(url, "win32");
+
+    expect(command.command).toBe("rundll32.exe");
+    expect(command.args).toEqual(["url.dll,FileProtocolHandler", url]);
+  });
+
   test("exchange error reads message before falling back to unknown", async () => {
     globalThis.fetch = async () =>
       new Response(JSON.stringify({ message: "state token expired" }), {
