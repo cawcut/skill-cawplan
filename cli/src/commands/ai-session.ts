@@ -5,7 +5,7 @@ import {buildQueryFromFlags} from "../lib/cache.js";
 import {collect} from "../lib/collect/index.js";
 import { renderDailyApiJson } from "../lib/collect/render.js";
 
-type AiSessionAgent = "claude-code" | "cursor" | "cursor-gui" | "codex";
+type AiSessionAgent = "claude-code" | "cursor" | "codex";
 
 function dateParams(opts: { date?: string; from?: string; to?: string }): Record<string, string> {
     const q: Record<string, string> = {};

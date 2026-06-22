@@ -133,7 +133,7 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     }
 
     // Collect Cursor GUI sessions
-    if (targetAgents.includes("cursor-gui") || targetAgents.includes("cursor")) {
+    if (targetAgents.includes("cursor")) {
         try {
             const guiSessions = collectGuiSessions(date);
             // Convert GuiSession to SessionData — skip sessions with no activity.
@@ -194,7 +194,7 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     enrichCursorGuiFallbackContext(sessions);
 
     // Collect Cursor CLI sessions
-    if (targetAgents.includes("cursor") || targetAgents.includes("cursor-gui")) {
+    if (targetAgents.includes("cursor")) {
         try {
             sessions.push(...collectCursorCliSessions(date));
         } catch (e) {
@@ -216,7 +216,7 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
         | { byModel: Record<string, import("./types.js").ModelUsageEntry>; totalCost: number; currency: string }
         | undefined;
 
-    if (targetAgents.includes("cursor") || targetAgents.includes("cursor-gui")) {
+    if (targetAgents.includes("cursor")) {
         try {
             const {cookie} = buildSessionCookie();
             const {startMs, endMs} = dayBoundsMs(date);
