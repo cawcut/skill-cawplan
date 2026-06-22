@@ -15,7 +15,17 @@
 
 1. 安装 Skill
     ```bash
-    npx skills add Ubiquiti-UID/flow-cawplan-skill --skill cawplan-coding-commit --agent cursor claude-code codex  -g -y
+    // 方式 1: https clone
+    npx skills add Ubiquiti-UID/flow-cawplan-skill \
+      --skill cawplan-coding-commit \
+      --agent cursor claude-code codex \
+      -g -y
+   
+   // 方式 2: ssh clone
+   npx skills add git@github.com:Ubiquiti-UID/flow-cawplan-skill.git \
+    --skill cawplan-coding-commit \
+    --agent cursor claude-code codex \
+    -g -y
     ```
     Skill 安装完成后需要重启 agent 完成 Skill 预加载
 2. 安装 `cawplan`：
@@ -42,9 +52,11 @@
 
 ## 每日上报流程
 
-在任意目录中唤起 agent 并发送提示词：
+在任意目录中唤起 agent 使用 skill 或发送提示词：
 
 ```text
+/cawplan-coding-commit
+
 /cawplan-coding-commit collect and submit today's coding sessions
 ```
 agent 才会上传到 CawPlan Cloud。
