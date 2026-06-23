@@ -43,6 +43,8 @@ cawplan ai-session collect --date <YYYY-MM-DD>
 # output defaults to ./ai-daily-<date>.json
 ```
 
+When running this command from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) because Cursor token/cost collection depends on the Cursor Dashboard API at `cursor.com`.
+
 During collection, `cawplan ai-session collect` may ask the user to assign each session to a CawPlan product and repository using existing product-repo mappings. If no mapping exists, the user can link a GitHub repository URL in the required format `https://github.com/owner/repo`.
 
 In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, complete missing assignments in chat using **Chat-based product/repo assignment** below before reviewing/uploading.
@@ -72,6 +74,8 @@ cawplan ai-session collect --date <YYYY-MM-DD> --agent claude-code
 cawplan ai-session collect --date <YYYY-MM-DD> --output ~/reports/ai-daily-2026-06-14.json
 
 ```
+
+When running any collect command from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) because Cursor token/cost collection depends on the Cursor Dashboard API at `cursor.com`.
 
 **Step 2 — Review the report with the user:**
 
@@ -143,6 +147,7 @@ Use this flow after collection when any important `sessions[]` entry lacks `prod
 
 - If no `--date` is given, defaults to today.
 - Do not fabricate session data. Only report what the agents produce locally.
+- When running `cawplan ai-session collect` from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) so Cursor Dashboard token/cost data can be fetched from `cursor.com`.
 - If product/repo assignment prompts appear during collection, only use explicit user selections or existing mappings.
 - If product/repo assignment is skipped in Cursor because the agent shell is non-interactive, keep the user in chat and use unfiltered `cawplan ai-session products`, unfiltered `cawplan ai-session product-repos`, and `cawplan ai-session assign` to complete assignment.
 - GitHub repository URLs used to create mappings must be in the format `https://github.com/owner/repo`.

@@ -274,6 +274,33 @@ function applyProductRepoMapping(
     session.product_name = mapping.product_name;
 }
 
+function applyProductRepoMappingToProject(
+    daily: DailyApiJson,
+    session: DailySession,
+    mapping: ProductRepoMapping
+): number {
+    const originalProject = (session.project ?? "").trim();
+    const originalKeys = new Set(repoKeys(originalProject));
+    let updated = 1;
+
+    applyProductRepoMapping(daily, session, mapping);
+
+    if (!originalKeys.size) return updated;
+
+    for (const candidate of daily.sessions) {
+        if (candidate === session || candidate.product_id) continue;
+
+        const candidateKeys = repoKeys(candidate.project);
+        const sameProject = candidateKeys.some((key) => originalKeys.has(key));
+        if (!sameProject) continue;
+
+        applyProductRepoMapping(daily, candidate, mapping);
+        updated++;
+    }
+
+    return updated;
+}
+
 async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<number> {
 
     const sessions = daily.sessions;
@@ -291,12 +318,13 @@ async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<num
     if (canPrompt && products.length === 0) throw new Error("No products returned from cawplan products list");
 
     for (const [index, session] of sessions.entries()) {
+        if (session.product_id) continue;
+
         const originalProject = (session.project ?? "").trim();
         const sessionLabel = session.session_name ?? session.session_title ?? session.session_id ?? `session ${index + 1}`;
         const inferredMapping = findMappingForProject(originalProject, mappings);
         if (inferredMapping?.repo_name && inferredMapping.product_id) {
-            applyProductRepoMapping(daily, session, inferredMapping);
-            matched++;
+            matched += applyProductRepoMappingToProject(daily, session, inferredMapping);
             console.error(`Auto-assigned session "${sessionLabel}" to ${inferredMapping.product_name ?? inferredMapping.product_id} / ${inferredMapping.repo_name}`);
             continue;
         }
@@ -364,8 +392,7 @@ async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<num
         }
         if (!mapping.product_id) continue;
 
-        applyProductRepoMapping(daily, session, mapping);
-        matched++;
+        matched += applyProductRepoMappingToProject(daily, session, mapping);
     }
 
     if (skippedInteractiveSelection > 0) {
@@ -537,7 +564,7 @@ export function registerAiSessionCommand(program: Command): void {
                     mapping = existing;
                 }
 
-                applyProductRepoMapping(daily, session, mapping);
+                const assignedSessions = applyProductRepoMappingToProject(daily, session, mapping);
                 writeFileSync(String(opts.file), JSON.stringify(daily, null, 2), "utf-8");
                 console.log(JSON.stringify({
                     file: String(opts.file),
@@ -548,6 +575,7 @@ export function registerAiSessionCommand(program: Command): void {
                     repo_name: mapping.repo_name,
                     repo_url: mapping.repo_url,
                     created_mapping: createdMapping,
+                    assigned_sessions: assignedSessions,
                 }, null, 2));
             } catch (e) {
                 console.error(`Error: ${(e as Error).message}`);
