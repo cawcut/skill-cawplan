@@ -1,6 +1,6 @@
 import {readFileSync, writeFileSync} from "node:fs";
 import {Command} from "commander";
-import {select} from "@inquirer/prompts";
+import {input, search, select} from "@inquirer/prompts";
 import {cawplanRequest} from "../lib/http.js";
 import {buildQueryFromFlags} from "../lib/cache.js";
 import {collect} from "../lib/collect/index.js";
@@ -55,6 +55,15 @@ interface ProductChoice {
     product_name: string;
 }
 
+interface ProductListItem {
+    unique_id?: string;
+    name?: string;
+}
+
+interface ProductRepoSelection extends ProductRepoMapping {
+    create_from_url?: boolean;
+}
+
 function extractList<T>(payload: unknown): T[] {
     if (Array.isArray(payload)) return payload as T[];
     const p = payload as Record<string, unknown> | undefined;
@@ -78,6 +87,14 @@ function repoKeys(value?: string): string[] {
     return [...new Set([raw, short].filter(Boolean).map((v) => v.toLowerCase()))];
 }
 
+function repoNameFromGitHubUrl(repoURL: string): string {
+    const repoName = shortRepoName(repoURL);
+    if (!repoName || repoName === "github.com") {
+        throw new Error(`Invalid GitHub repository URL: ${repoURL}`);
+    }
+    return repoName;
+}
+
 async function listProductRepoMappings(): Promise<ProductRepoMapping[]> {
     const result = await cawplanRequest({
         method: "GET",
@@ -86,17 +103,66 @@ async function listProductRepoMappings(): Promise<ProductRepoMapping[]> {
     return extractList<ProductRepoMapping>(result).filter((m) => m.product_id && m.repo_name);
 }
 
-function uniqueProducts(mappings: ProductRepoMapping[]): ProductChoice[] {
-    const byID = new Map<string, ProductChoice>();
-    for (const mapping of mappings) {
-        const productID = (mapping.product_id ?? "").trim();
-        if (!productID || byID.has(productID)) continue;
-        byID.set(productID, {
-            product_id: productID,
-            product_name: (mapping.product_name ?? productID).trim(),
-        });
-    }
-    return [...byID.values()].sort((a, b) => a.product_name.localeCompare(b.product_name));
+async function listProductsForSelector(): Promise<ProductChoice[]> {
+    const result = await cawplanRequest({
+        method: "GET",
+        path: "/api/v1/public/openapi/products",
+        query: {page_size: "100"},
+    });
+    return extractList<ProductListItem>(result)
+        .filter((p) => p.unique_id && p.name)
+        .map((p) => ({
+            product_id: String(p.unique_id),
+            product_name: String(p.name),
+        }))
+        .sort((a, b) => a.product_name.localeCompare(b.product_name));
+}
+
+async function createProductRepoMapping(product: ProductChoice, repoURL: string): Promise<ProductRepoMapping> {
+    const repoName = repoNameFromGitHubUrl(repoURL);
+    const result = await cawplanRequest({
+        method: "POST",
+        path: "/api/v1/public/openapi/ai-session-usage/product-repo",
+        body: {
+            product_id: product.product_id,
+            repo_name: repoName,
+            repo_url: repoURL.trim(),
+        },
+    });
+    const created = ((result as {data?: unknown}).data ?? result) as ProductRepoMapping;
+    return {
+        ...created,
+        product_id: created.product_id ?? product.product_id,
+        product_name: created.product_name ?? product.product_name,
+        repo_name: created.repo_name ?? repoName,
+        repo_url: created.repo_url ?? repoURL.trim(),
+    };
+}
+
+async function searchProduct(products: ProductChoice[], message: string): Promise<ProductChoice> {
+    return search<ProductChoice>({
+        message,
+        source: (term) => {
+            const needle = (term ?? "").trim().toLowerCase();
+            const filtered = needle
+                ? products.filter((p) =>
+                    p.product_name.toLowerCase().includes(needle)
+                )
+                : products;
+            return [
+                ...filtered.slice(0, 10).map((p) => ({
+                    name: p.product_name,
+                    value: p,
+                    description: p.product_id,
+                })),
+                {
+                    name: "No product",
+                    value: {product_id: "", product_name: ""},
+                },
+            ];
+        },
+        pageSize: 10,
+    });
 }
 
 function findMappingForProject(project: string, mappings: ProductRepoMapping[]): ProductRepoMapping | undefined {
@@ -129,9 +195,8 @@ async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<num
     }
 
     const mappings = await listProductRepoMappings();
-    if (mappings.length === 0) {
-        throw new Error("No product-repo mappings returned from cloud");
-    }
+    const products = await listProductsForSelector();
+    if (products.length === 0) throw new Error("No products returned from cawplan products list");
 
     const sessions = daily.sessions;
     if (!Array.isArray(sessions) || sessions.length === 0) {
@@ -139,7 +204,6 @@ async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<num
         return 0;
     }
 
-    const products = uniqueProducts(mappings);
     const repos = daily.repos;
 
     let matched = 0;
@@ -157,27 +221,16 @@ async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<num
             continue;
         }
 
-        const product = await select<ProductChoice>({
-            message: `Select product for session "${sessionLabel}"${originalProject ? ` (project: ${originalProject})` : ""}`,
-            choices: [
-                ...products.map((p) => ({
-                    name: p.product_name,
-                    value: p,
-                    description: p.product_id,
-                })),
-                {
-                    name: "Skip this project",
-                    value: {product_id: "", product_name: ""},
-                },
-            ],
-            pageSize: 15,
-        });
+        const product = await searchProduct(
+            products,
+            `Search product for session "${sessionLabel}"${originalProject ? ` (project: ${originalProject})` : ""}`
+        );
         if (!product.product_id) continue;
 
         const productMappings = mappings
             .filter((m) => m.product_id === product.product_id && m.repo_name)
             .sort((a, b) => String(a.repo_name).localeCompare(String(b.repo_name)));
-        const mapping = await select<ProductRepoMapping>({
+        let mapping = await select<ProductRepoSelection>({
             message: `Select repository for session "${sessionLabel}"`,
             choices: [
                 ...productMappings.map((m) => ({
@@ -185,6 +238,14 @@ async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<num
                     value: m,
                     description: m.repo_url ?? m.product_name ?? m.product_id,
                 })),
+                {
+                    name: "Create mapping from GitHub URL",
+                    value: {
+                        product_id: product.product_id,
+                        product_name: product.product_name,
+                        create_from_url: true,
+                    },
+                },
                 {
                     name: "No repository; assign product only",
                     value: {
@@ -195,6 +256,21 @@ async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<num
             ],
             pageSize: 15,
         });
+        if (mapping.create_from_url) {
+            const repoURL = await input({
+                message: `GitHub repository URL for session "${sessionLabel}"`,
+                validate: (value) => {
+                    try {
+                        repoNameFromGitHubUrl(value);
+                        return true;
+                    } catch (e) {
+                        return (e as Error).message;
+                    }
+                },
+            });
+            mapping = await createProductRepoMapping(product, repoURL);
+            mappings.push(mapping);
+        }
         if (!mapping.product_id) continue;
 
         if (mapping.repo_name) {
