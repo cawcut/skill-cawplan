@@ -3,6 +3,7 @@ import {Command} from "commander";
 import {input, search, select} from "@inquirer/prompts";
 import {cawplanRequest} from "../lib/http.js";
 import {buildQueryFromFlags} from "../lib/cache.js";
+import {listProducts} from "./products.js";
 import {collect} from "../lib/collect/index.js";
 import {renderDailyApiJson} from "../lib/collect/render.js";
 import type {DailyApiJson} from "../lib/collect/types.js";
@@ -43,16 +44,17 @@ function addDateOptions(cmd: Command): Command {
 const DATE_PAGE_KEYS = ["date", "date_from", "date_to", "page_num", "page_size"] as const;
 const DATE_KEYS = ["date", "date_from", "date_to"] as const;
 
+interface ProductChoice {
+    product_id: string;
+    product_name: string;
+}
+
 interface ProductRepoMapping {
     product_id?: string;
     product_name?: string;
     repo_name?: string;
     repo_url?: string;
-}
-
-interface ProductChoice {
-    product_id: string;
-    product_name: string;
+    unique_id?: string;
 }
 
 interface ProductListItem {
@@ -121,12 +123,32 @@ async function listProductRepoMappings(): Promise<ProductRepoMapping[]> {
     return extractList<ProductRepoMapping>(result).filter((m) => m.product_id && m.repo_name);
 }
 
-async function listProductsForSelector(): Promise<ProductChoice[]> {
+async function createProductRepoMapping(opts: {
+    productId: string;
+    repoUrl: string;
+    repoName?: string;
+}): Promise<ProductRepoMapping> {
+    const repoName = opts.repoName?.trim() || repoNameFromGitHubUrl(opts.repoUrl);
+    const repoUrl = opts.repoUrl.trim();
     const result = await cawplanRequest({
-        method: "GET",
-        path: "/api/v1/public/openapi/products",
-        query: {page_size: "100"},
+        method: "POST",
+        path: "/api/v1/public/openapi/ai-session-usage/product-repo",
+        body: {
+            product_id: opts.productId,
+            repo_name: repoName,
+            repo_url: repoUrl,
+        },
     });
+    const created = ((result as {data?: unknown}).data ?? result) as ProductRepoMapping;
+    return {
+        ...created,
+        product_id: created.product_id ?? opts.productId,
+        repo_name: created.repo_name ?? repoName,
+        repo_url: created.repo_url ?? repoUrl,
+    };
+}
+
+function toProductChoices(result: unknown): ProductChoice[] {
     return extractList<ProductListItem>(result)
         .filter((p) => p.unique_id && p.name)
         .map((p) => ({
@@ -136,25 +158,8 @@ async function listProductsForSelector(): Promise<ProductChoice[]> {
         .sort((a, b) => a.product_name.localeCompare(b.product_name));
 }
 
-async function createProductRepoMapping(product: ProductChoice, repoURL: string): Promise<ProductRepoMapping> {
-    const repoName = repoNameFromGitHubUrl(repoURL);
-    const result = await cawplanRequest({
-        method: "POST",
-        path: "/api/v1/public/openapi/ai-session-usage/product-repo",
-        body: {
-            product_id: product.product_id,
-            repo_name: repoName,
-            repo_url: repoURL.trim(),
-        },
-    });
-    const created = ((result as {data?: unknown}).data ?? result) as ProductRepoMapping;
-    return {
-        ...created,
-        product_id: created.product_id ?? product.product_id,
-        product_name: created.product_name ?? product.product_name,
-        repo_name: created.repo_name ?? repoName,
-        repo_url: created.repo_url ?? repoURL.trim(),
-    };
+async function listProductsForSelector(): Promise<ProductChoice[]> {
+    return toProductChoices(await listProducts({pageSize: "100"}));
 }
 
 async function searchProduct(products: ProductChoice[], message: string): Promise<ProductChoice> {
@@ -186,6 +191,42 @@ async function searchProduct(products: ProductChoice[], message: string): Promis
 function findMappingForProject(project: string, mappings: ProductRepoMapping[]): ProductRepoMapping | undefined {
     const keys = new Set(repoKeys(project));
     return mappings.find((mapping) => repoKeys(mapping.repo_name).some((key) => keys.has(key)));
+}
+
+function findMappingForProductRepo(
+    productId: string,
+    repoName: string,
+    mappings: ProductRepoMapping[]
+): ProductRepoMapping | undefined {
+    const keys = new Set(repoKeys(repoName));
+    return mappings.find((mapping) =>
+        mapping.product_id === productId &&
+        repoKeys(mapping.repo_name).some((key) => keys.has(key))
+    );
+}
+
+function readDailyReport(path: string): DailyApiJson {
+    try {
+        const daily = JSON.parse(readFileSync(path, "utf-8")) as DailyApiJson;
+        if (!daily?.author || !daily.date || !Array.isArray(daily.sessions)) {
+            throw new Error("daily report must contain author, date, and sessions");
+        }
+        return daily;
+    } catch (e) {
+        throw new Error(`cannot read ${path}: ${(e as Error).message}`);
+    }
+}
+
+function findSessionById(daily: DailyApiJson, sessionId: string): DailySession {
+    const session = daily.sessions.find((s) => s.session_id === sessionId);
+    if (!session) throw new Error(`session not found: ${sessionId}`);
+    return session;
+}
+
+function findProductById(products: ProductChoice[], productId: string): ProductChoice {
+    const product = products.find((p) => p.product_id === productId);
+    if (!product) throw new Error(`product not found: ${productId}`);
+    return product;
 }
 
 function updateReposForSelectedMapping(
@@ -312,7 +353,13 @@ async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<num
                     }
                 },
             });
-            mapping = await createProductRepoMapping(product, repoURL);
+            mapping = {
+                ...(await createProductRepoMapping({
+                    productId: product.product_id,
+                    repoUrl: repoURL,
+                })),
+                product_name: product.product_name,
+            };
             mappings.push(mapping);
         }
         if (!mapping.product_id) continue;
@@ -378,6 +425,130 @@ export function registerAiSessionCommand(program: Command): void {
 
                 console.error(`Output written to ${outputPath}`);
                 console.log(JSON.stringify(daily, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    // ── Product assignment ───────────────────────────────────────────────────────
+
+    ai.command("products")
+        .description("List CawPlan products for report assignment")
+        .option("--q <text>", "Filter products by name")
+        .action(async (opts) => {
+            try {
+                const needle = String(opts.q ?? "").trim().toLowerCase();
+                const products = toProductChoices(await listProducts({search: String(opts.q ?? ""), pageSize: "100"}))
+                    .filter((product) => !needle || product.product_name.toLowerCase().includes(needle));
+                console.log(JSON.stringify({products}, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    const productRepos = ai.command("product-repos")
+        .description("List product-repository mappings for report assignment")
+        .option("--product-id <id>", "Filter mappings by product unique_id")
+        .option("--q <text>", "Filter mappings by repo name or URL")
+        .action(async (opts) => {
+            try {
+                const needle = String(opts.q ?? "").trim().toLowerCase();
+                const mappings = (await listProductRepoMappings())
+                    .filter((mapping) => !opts.productId || mapping.product_id === opts.productId)
+                    .filter((mapping) => {
+                        if (!needle) return true;
+                        return [mapping.repo_name, mapping.repo_url, mapping.product_name]
+                            .filter(Boolean)
+                            .some((value) => String(value).toLowerCase().includes(needle));
+                    })
+                    .sort((a, b) =>
+                        `${a.product_name ?? ""}/${a.repo_name ?? ""}`.localeCompare(
+                            `${b.product_name ?? ""}/${b.repo_name ?? ""}`
+                        )
+                    );
+                console.log(JSON.stringify({mappings}, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    productRepos
+        .command("create")
+        .description("Create a product-repository mapping for report assignment")
+        .requiredOption("--product-id <id>", "Product unique_id")
+        .requiredOption("--repo-url <url>", "GitHub repository URL")
+        .option("--repo-name <name>", "Repository name; inferred from --repo-url when omitted")
+        .action(async (opts) => {
+            try {
+                const mapping = await createProductRepoMapping({
+                    productId: String(opts.productId),
+                    repoUrl: String(opts.repoUrl),
+                    repoName: opts.repoName ? String(opts.repoName) : undefined,
+                });
+                console.log(JSON.stringify({mapping}, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    ai.command("assign")
+        .description("Assign a report session to a product and optional repository without interactive prompts")
+        .requiredOption("--file <path>", "Path to ai-daily JSON file")
+        .requiredOption("--session-id <id>", "Session ID to assign")
+        .requiredOption("--product-id <id>", "Product unique_id")
+        .option("--repo-name <name>", "Existing product-repo repo_name to assign")
+        .option("--repo-url <url>", "GitHub repository URL to create and assign")
+        .option("--create-mapping", "Create product-repo mapping from --repo-url before assigning")
+        .action(async (opts) => {
+            try {
+                const daily = readDailyReport(String(opts.file));
+                const session = findSessionById(daily, String(opts.sessionId));
+                const products = await listProductsForSelector();
+                const product = findProductById(products, String(opts.productId));
+                const mappings = await listProductRepoMappings();
+
+                let mapping: ProductRepoMapping = {
+                    product_id: product.product_id,
+                    product_name: product.product_name,
+                };
+                let createdMapping = false;
+
+                if (opts.repoUrl) {
+                    if (!opts.createMapping) {
+                        throw new Error("--repo-url requires --create-mapping so mapping creation is explicit");
+                    }
+                    mapping = {
+                        ...(await createProductRepoMapping({
+                            productId: product.product_id,
+                            repoUrl: String(opts.repoUrl),
+                        })),
+                        product_name: product.product_name,
+                    };
+                    createdMapping = true;
+                } else if (opts.repoName) {
+                    const existing = findMappingForProductRepo(product.product_id, String(opts.repoName), mappings);
+                    if (!existing) {
+                        throw new Error(`product-repo mapping not found for product ${product.product_id} and repo ${opts.repoName}`);
+                    }
+                    mapping = existing;
+                }
+
+                applyProductRepoMapping(daily, session, mapping);
+                writeFileSync(String(opts.file), JSON.stringify(daily, null, 2), "utf-8");
+                console.log(JSON.stringify({
+                    file: String(opts.file),
+                    session_id: session.session_id,
+                    session_name: session.session_name,
+                    product_id: session.product_id,
+                    product_name: session.product_name,
+                    repo_name: mapping.repo_name,
+                    repo_url: mapping.repo_url,
+                    created_mapping: createdMapping,
+                }, null, 2));
             } catch (e) {
                 console.error(`Error: ${(e as Error).message}`);
                 process.exit(1);
