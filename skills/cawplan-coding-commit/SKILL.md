@@ -43,6 +43,10 @@ cawplan ai-session collect --date <YYYY-MM-DD>
 # output defaults to ./ai-daily-<date>.json
 ```
 
+During collection, `cawplan ai-session collect` may ask the user to assign each session to a CawPlan product and repository using existing product-repo mappings. If no mapping exists, the user can link a GitHub repository URL in the required format `https://github.com/owner/repo`.
+
+In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, tell the user to run the same collect command in Cursor's own Terminal to complete the selector-based assignment.
+
 **Step 2 — Review the report with the user:**
 
 Present the full review described in **Review content contract**. Do not show only a stats table.
@@ -72,6 +76,10 @@ cawplan ai-session collect --date <YYYY-MM-DD> --output ~/reports/ai-daily-2026-
 **Step 2 — Review the report with the user:**
 
 Present the full review described in **Review content contract**. Do not show only a stats table.
+
+Collection may include interactive product/repo assignment prompts. If prompted, use the user's selections; do not fabricate product or repository mappings.
+
+In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, tell the user to run the same collect command in Cursor's own Terminal to complete the selector-based assignment.
 
 ### Mode 3: Upload pre-existing file(s)
 
@@ -105,12 +113,13 @@ Before asking for upload confirmation, include these sections:
 
 Use a compact table for numbers if useful, but always include the narrative summary and session review text.
 
----
-
 ## Rules
 
 - If no `--date` is given, defaults to today.
 - Do not fabricate session data. Only report what the agents produce locally.
+- If product/repo assignment prompts appear during collection, only use explicit user selections or existing mappings.
+- If product/repo assignment is skipped in Cursor because the agent shell is non-interactive, instruct the user to run `cawplan ai-session collect --date <YYYY-MM-DD>` in Cursor's own Terminal to complete the interactive selector flow.
+- GitHub repository URLs used to create mappings must be in the format `https://github.com/owner/repo`.
 - If `--file` is used, the file must contain `author` (git username) and `date` (YYYY-MM-DD) fields.
 - Preserve raw fields in `human_inputs` (for example `start_time`, `end_time`, `files_changed`, `lines_added`, `lines_deleted`).
 - Never replace raw `human_inputs` with summarized content.

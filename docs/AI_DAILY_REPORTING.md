@@ -48,6 +48,16 @@
 ```
 agent 才会上传到 CawPlan Cloud。
 
+### Cursor Terminal 中补全 Product / Repo
+
+在 Cursor 聊天页面中调用 skill 时，agent 执行的 shell 通常不是交互式 TTY，所以 CLI 的 product/repo 选择器可能不会弹出。如果日志提示 product/repo assignment 被跳过，请在 Cursor 自己的 Terminal 中运行同一条收集命令，走原生选择器完成补全：
+
+```bash
+cawplan ai-session collect --date <YYYY-MM-DD>
+```
+
+Terminal 中会优先使用已有 cloud product-repo mapping；如果没有匹配项，会通过选择器让你选择 product 和 repository，或输入 GitHub repository URL（格式必须是 `https://github.com/owner/repo`）。
+
 ## 常见问题
 
 

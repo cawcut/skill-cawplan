@@ -64,6 +64,8 @@ interface ProductRepoSelection extends ProductRepoMapping {
     create_from_url?: boolean;
 }
 
+type DailySession = DailyApiJson["sessions"][number];
+
 function extractList<T>(payload: unknown): T[] {
     if (Array.isArray(payload)) return payload as T[];
     const p = payload as Record<string, unknown> | undefined;
@@ -190,10 +192,11 @@ function updateReposForSelectedMapping(
     repos: DailyApiJson["repos"] | undefined,
     originalProject: string,
     mapping: ProductRepoMapping
-): void {
-    if (!Array.isArray(repos)) return;
+): number {
+    if (!Array.isArray(repos)) return 0;
     const originalKeys = new Set(repoKeys(originalProject));
     const selectedKeys = new Set(repoKeys(mapping.repo_name));
+    let updated = 0;
     for (const repo of repos) {
         const keys = repoKeys(repo.repo_name ?? repo.repo);
         const matched = keys.some((key) => originalKeys.has(key) || selectedKeys.has(key));
@@ -202,17 +205,35 @@ function updateReposForSelectedMapping(
         repo.repo_url = mapping.repo_url;
         repo.product_id = mapping.product_id;
         repo.product_name = mapping.product_name;
+        updated++;
     }
+    return updated;
+}
+
+function applyProductRepoMapping(
+    daily: DailyApiJson,
+    session: DailySession,
+    mapping: ProductRepoMapping
+): void {
+    if (!mapping.product_id) throw new Error("product_id is required");
+
+    const originalProject = (session.project ?? "").trim();
+    if (mapping.repo_name) {
+        session.project = mapping.repo_name;
+        updateReposForSelectedMapping(daily.repos, originalProject, mapping);
+        const updatedSessionRepos = updateReposForSelectedMapping(session.repos_touched, originalProject, mapping);
+        if (updatedSessionRepos === 0 && session.repos_touched.length === 1) {
+            session.repos_touched[0].repo_name = mapping.repo_name;
+            session.repos_touched[0].repo_url = mapping.repo_url;
+            session.repos_touched[0].product_id = mapping.product_id;
+            session.repos_touched[0].product_name = mapping.product_name;
+        }
+    }
+    session.product_id = mapping.product_id;
+    session.product_name = mapping.product_name;
 }
 
 async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<number> {
-    if (!process.stdin.isTTY || !process.stdout.isTTY) {
-        throw new Error("--assign-product requires an interactive TTY");
-    }
-
-    const mappings = await listProductRepoMappings();
-    const products = await listProductsForSelector();
-    if (products.length === 0) throw new Error("No products returned from cawplan products list");
 
     const sessions = daily.sessions;
     if (!Array.isArray(sessions) || sessions.length === 0) {
@@ -220,20 +241,27 @@ async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<num
         return 0;
     }
 
-    const repos = daily.repos;
-
     let matched = 0;
+    let skippedInteractiveSelection = 0;
+    const mappings = await listProductRepoMappings();
+
+    const canPrompt = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    const products = canPrompt ? await listProductsForSelector() : [];
+    if (canPrompt && products.length === 0) throw new Error("No products returned from cawplan products list");
+
     for (const [index, session] of sessions.entries()) {
         const originalProject = (session.project ?? "").trim();
         const sessionLabel = session.session_name ?? session.session_title ?? session.session_id ?? `session ${index + 1}`;
         const inferredMapping = findMappingForProject(originalProject, mappings);
         if (inferredMapping?.repo_name && inferredMapping.product_id) {
-            session.project = inferredMapping.repo_name;
-            session.product_id = inferredMapping.product_id;
-            session.product_name = inferredMapping.product_name;
+            applyProductRepoMapping(daily, session, inferredMapping);
             matched++;
-            updateReposForSelectedMapping(repos, originalProject, inferredMapping);
             console.error(`Auto-assigned session "${sessionLabel}" to ${inferredMapping.product_name ?? inferredMapping.product_id} / ${inferredMapping.repo_name}`);
+            continue;
+        }
+
+        if (!canPrompt) {
+            skippedInteractiveSelection++;
             continue;
         }
 
@@ -289,13 +317,17 @@ async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<num
         }
         if (!mapping.product_id) continue;
 
-        if (mapping.repo_name) {
-            session.project = mapping.repo_name;
-            updateReposForSelectedMapping(repos, originalProject, mapping);
-        }
-        session.product_id = mapping.product_id;
-        session.product_name = mapping.product_name;
+        applyProductRepoMapping(daily, session, mapping);
         matched++;
+    }
+
+    if (skippedInteractiveSelection > 0) {
+        console.error(
+            `Skipped product/repository selection for ${skippedInteractiveSelection} session(s) because collect is running without an interactive TTY.`
+        );
+        console.error(
+            `To complete selector-based assignment, run: cawplan ai-session collect --date ${daily.date}`
+        );
     }
 
     return matched;
