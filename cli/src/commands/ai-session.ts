@@ -1,3 +1,5 @@
+import {randomBytes} from "node:crypto";
+import {createServer, type IncomingMessage, type ServerResponse} from "node:http";
 import {readFileSync, writeFileSync} from "node:fs";
 import {Command} from "commander";
 import {input, search, select} from "@inquirer/prompts";
@@ -67,6 +69,8 @@ interface ProductRepoSelection extends ProductRepoMapping {
 }
 
 type DailySession = DailyApiJson["sessions"][number];
+
+const localAssignmentHost = "127.0.0.1";
 
 function extractList<T>(payload: unknown): T[] {
     if (Array.isArray(payload)) return payload as T[];
@@ -301,6 +305,363 @@ function applyProductRepoMappingToProject(
     return updated;
 }
 
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+    const payload = JSON.stringify(body);
+    res.writeHead(status, {
+        "content-type": "application/json; charset=utf-8",
+        "content-length": Buffer.byteLength(payload),
+        "cache-control": "no-store",
+    });
+    res.end(payload);
+}
+
+function sendText(res: ServerResponse, status: number, body: string, contentType = "text/plain; charset=utf-8"): void {
+    res.writeHead(status, {
+        "content-type": contentType,
+        "content-length": Buffer.byteLength(body),
+        "cache-control": "no-store",
+    });
+    res.end(body);
+}
+
+function readRequestBody(req: IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+        req.on("error", reject);
+    });
+}
+
+async function readJsonBody<T>(req: IncomingMessage): Promise<T> {
+    const raw = await readRequestBody(req);
+    return raw ? JSON.parse(raw) as T : {} as T;
+}
+
+function requestHasToken(req: IncomingMessage, token: string): boolean {
+    const url = new URL(req.url ?? "/", `http://${localAssignmentHost}`);
+    return url.searchParams.get("token") === token;
+}
+
+function localAssignmentHtml(): string {
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CawPlan AI Session Assignment</title>
+  <style>
+    :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 24px; }
+    h1 { margin-bottom: 8px; }
+    .muted { color: #777; margin-top: 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border-bottom: 1px solid #ddd; padding: 10px; text-align: left; vertical-align: top; }
+    th { position: sticky; top: 0; background: Canvas; }
+    input, select, button { font: inherit; padding: 6px 8px; }
+    input, select { width: 100%; box-sizing: border-box; }
+    .session-title { font-weight: 600; }
+    .session-meta { color: #777; font-size: 12px; margin-top: 4px; }
+    .actions { margin-top: 16px; display: flex; gap: 8px; align-items: center; }
+    .status { color: #777; }
+  </style>
+</head>
+<body>
+  <h1>CawPlan AI Session Assignment</h1>
+  <p class="muted">Assign each session to a product and optional repository, then save the updated daily report.</p>
+  <div class="actions">
+    <button id="save">Save assignments</button>
+    <button id="close">Close</button>
+    <span id="status" class="status">Loading...</span>
+  </div>
+  <datalist id="product-list"></datalist>
+  <table>
+    <thead>
+      <tr><th>Session</th><th>Product</th><th>Repo</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <script>
+    const token = new URLSearchParams(location.search).get('token') || '';
+    const api = (path, options = {}) => fetch(path + '?token=' + encodeURIComponent(token), {
+      ...options,
+      headers: {'content-type': 'application/json', ...(options.headers || {})},
+    }).then(async (res) => {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      return data;
+    });
+
+    let report;
+    let products = [];
+    let mappings = [];
+
+    function productLabel(product) {
+      return product.product_name || product.name || product.product_id || product.unique_id || '';
+    }
+
+    function normalizeProducts(items) {
+      return items.map((p) => ({
+        product_id: p.product_id || p.unique_id,
+        product_name: p.product_name || p.name || p.product_id || p.unique_id,
+      })).filter((p) => p.product_id && p.product_name);
+    }
+
+    function findProduct(value) {
+      const needle = String(value || '').trim().toLowerCase();
+      if (!needle) return null;
+      return products.find((p) =>
+        String(p.product_id).toLowerCase() === needle ||
+        String(p.product_name).toLowerCase() === needle
+      ) || null;
+    }
+
+    function repoOptions(productId, selectedRepo) {
+      const opts = mappings
+        .filter((m) => m.product_id === productId && m.repo_name)
+        .sort((a, b) => String(a.repo_name).localeCompare(String(b.repo_name)))
+        .map((m) => '<option value="' + escapeHtml(m.repo_name) + '"' +
+          (m.repo_name === selectedRepo ? ' selected' : '') + '>' +
+          escapeHtml(m.repo_name) + (m.repo_url ? ' - ' + escapeHtml(m.repo_url) : '') + '</option>');
+      opts.unshift('<option value="">No repository; assign product only</option>');
+      opts.push('<option value="__link__">No repository; link one</option>');
+      return opts.join('');
+    }
+
+    function repoCandidates(session) {
+      const values = [session.project];
+      for (const repo of session.repos_touched || []) {
+        values.push(repo.repo_name, repo.repo);
+      }
+      return values.filter(Boolean).map((value) => String(value).toLowerCase());
+    }
+
+    function selectedRepoForSession(session) {
+      if (!session.product_id) return '';
+      const candidates = repoCandidates(session);
+      const mapping = mappings.find((m) =>
+        m.product_id === session.product_id &&
+        m.repo_name &&
+        candidates.includes(String(m.repo_name).toLowerCase())
+      );
+      return mapping ? mapping.repo_name : '';
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function render() {
+      const productList = document.getElementById('product-list');
+      productList.innerHTML = products.map((p) => '<option value="' + escapeHtml(p.product_name) + '"></option>').join('');
+      const tbody = document.getElementById('rows');
+      tbody.innerHTML = report.sessions.map((s) => {
+        const title = s.session_title || s.session_name || s.session_id;
+        const currentProduct = products.find((p) => p.product_id === s.product_id);
+        const productValue = currentProduct ? currentProduct.product_name : (s.product_name || '');
+        const selectedRepo = selectedRepoForSession(s);
+        return '<tr data-session-id="' + escapeHtml(s.session_id) + '">' +
+          '<td><div class="session-title">' + escapeHtml(title) + '</div>' +
+          '<div class="session-meta">' + escapeHtml([s.agent, s.time_range && s.time_range.display, s.project].filter(Boolean).join(' | ')) + '</div></td>' +
+          '<td><input class="product" list="product-list" value="' + escapeHtml(productValue) + '" placeholder="Search product" /></td>' +
+          '<td><select class="repo">' + repoOptions(s.product_id, selectedRepo) + '</select></td>' +
+          '</tr>';
+      }).join('');
+      document.querySelectorAll('.product').forEach((el) => {
+        el.addEventListener('change', () => {
+          const tr = el.closest('tr');
+          const session = report.sessions.find((s) => s.session_id === tr.dataset.sessionId);
+          const product = findProduct(el.value);
+          const repo = tr.querySelector('.repo');
+          session.product_id = product ? product.product_id : undefined;
+          session.product_name = product ? product.product_name : undefined;
+          repo.innerHTML = repoOptions(session.product_id, session.project);
+        });
+      });
+    }
+
+    async function load() {
+      const [reportData, productData, mappingData] = await Promise.all([
+        api('/api/report'),
+        api('/api/products'),
+        api('/api/product-repos'),
+      ]);
+      report = reportData.report;
+      products = normalizeProducts(productData.products || []);
+      mappings = mappingData.mappings || [];
+      render();
+      document.getElementById('status').textContent = 'Ready';
+    }
+
+    async function save() {
+      const assignments = [];
+      for (const tr of document.querySelectorAll('tbody tr')) {
+        const sessionId = tr.dataset.sessionId;
+        const product = findProduct(tr.querySelector('.product').value);
+        if (!product) continue;
+        const repoValue = tr.querySelector('.repo').value;
+        let repoUrl;
+        if (repoValue === '__link__') {
+          repoUrl = prompt('GitHub repository URL (https://github.com/owner/repo)');
+          if (!repoUrl) continue;
+        }
+        const mapping = mappings.find((m) => m.product_id === product.product_id && m.repo_name === repoValue);
+        assignments.push({
+          session_id: sessionId,
+          product_id: product.product_id,
+          product_name: product.product_name,
+          repo_name: mapping ? mapping.repo_name : undefined,
+          repo_url: repoUrl || (mapping ? mapping.repo_url : undefined),
+          create_mapping: repoValue === '__link__',
+        });
+      }
+      document.getElementById('status').textContent = 'Saving...';
+      const result = await api('/api/assignments', {method: 'POST', body: JSON.stringify({assignments})});
+      document.getElementById('status').textContent = 'Saved ' + result.assigned_sessions + ' session(s). Closing server...';
+      alert('Saved assignments to ' + result.file);
+      await api('/api/close', {method: 'POST'});
+      window.close();
+    }
+
+    document.getElementById('save').addEventListener('click', () => save().catch((e) => alert(e.message)));
+    document.getElementById('close').addEventListener('click', () => api('/api/close', {method: 'POST'}).then(() => window.close()).catch((e) => alert(e.message)));
+    load().catch((e) => document.getElementById('status').textContent = e.message);
+  </script>
+</body>
+</html>`;
+}
+
+interface WebAssignment {
+    session_id?: string;
+    product_id?: string;
+    product_name?: string;
+    repo_name?: string;
+    repo_url?: string;
+    create_mapping?: boolean;
+}
+
+async function applyWebAssignments(
+    daily: DailyApiJson,
+    assignments: WebAssignment[]
+): Promise<number> {
+    let assigned = 0;
+    for (const assignment of assignments) {
+        if (!assignment.session_id || !assignment.product_id) continue;
+        const session = findSessionById(daily, assignment.session_id);
+        let mapping: ProductRepoMapping = {
+            product_id: assignment.product_id,
+            product_name: assignment.product_name,
+            repo_name: assignment.repo_name,
+            repo_url: assignment.repo_url,
+        };
+
+        if (assignment.create_mapping) {
+            if (!assignment.repo_url) throw new Error(`repo_url is required to create a mapping for session ${assignment.session_id}`);
+            mapping = {
+                ...(await createProductRepoMapping({
+                    productId: assignment.product_id,
+                    repoUrl: assignment.repo_url,
+                })),
+                product_name: assignment.product_name,
+            };
+        }
+
+        applyProductRepoMapping(daily, session, mapping);
+        assigned++;
+    }
+    return assigned;
+}
+
+async function startAssignmentWebServer(filePath: string, daily: DailyApiJson): Promise<void> {
+    const token = randomBytes(16).toString("hex");
+    let closed = false;
+
+    await new Promise<void>((resolve, reject) => {
+        const server = createServer(async (req, res) => {
+            try {
+                const url = new URL(req.url ?? "/", `http://${localAssignmentHost}`);
+                if (!requestHasToken(req, token)) {
+                    sendJson(res, 403, {error: "invalid token"});
+                    return;
+                }
+
+                if (req.method === "GET" && url.pathname === "/") {
+                    sendText(res, 200, localAssignmentHtml(), "text/html; charset=utf-8");
+                    return;
+                }
+
+                if (req.method === "GET" && url.pathname === "/api/report") {
+                    sendJson(res, 200, {report: daily});
+                    return;
+                }
+
+                if (req.method === "GET" && url.pathname === "/api/products") {
+                    sendJson(res, 200, {products: await listProductsForSelector()});
+                    return;
+                }
+
+                if (req.method === "GET" && url.pathname === "/api/product-repos") {
+                    sendJson(res, 200, {mappings: await listProductRepoMappings()});
+                    return;
+                }
+
+                if (req.method === "POST" && url.pathname === "/api/product-repos") {
+                    const body = await readJsonBody<{product_id?: string; repo_url?: string; repo_name?: string}>(req);
+                    if (!body.product_id) throw new Error("product_id is required");
+                    if (!body.repo_url) throw new Error("repo_url is required");
+                    const mapping = await createProductRepoMapping({
+                        productId: body.product_id,
+                        repoUrl: body.repo_url,
+                        repoName: body.repo_name,
+                    });
+                    sendJson(res, 200, {mapping});
+                    return;
+                }
+
+                if (req.method === "POST" && url.pathname === "/api/assignments") {
+                    const body = await readJsonBody<{assignments?: WebAssignment[]}>(req);
+                    if (!Array.isArray(body.assignments)) throw new Error("assignments must be an array");
+                    const assignedSessions = await applyWebAssignments(daily, body.assignments);
+                    writeFileSync(filePath, JSON.stringify(daily, null, 2), "utf-8");
+                    sendJson(res, 200, {
+                        file: filePath,
+                        assigned_sessions: assignedSessions,
+                    });
+                    return;
+                }
+
+                if (req.method === "POST" && url.pathname === "/api/close") {
+                    sendJson(res, 200, {closed: true});
+                    closed = true;
+                    setTimeout(() => server.close(() => resolve()), 50);
+                    return;
+                }
+
+                sendJson(res, 404, {error: "not found"});
+            } catch (e) {
+                sendJson(res, 500, {error: (e as Error).message});
+            }
+        });
+
+        server.on("error", reject);
+        server.listen(0, localAssignmentHost, () => {
+            const address = server.address();
+            if (!address || typeof address === "string") {
+                reject(new Error("failed to determine local assignment server address"));
+                return;
+            }
+            console.error(`Open this URL to assign AI sessions: http://${localAssignmentHost}:${address.port}/?token=${token}`);
+            console.error("Press Ctrl+C or click Close in the page when done.");
+        });
+
+        process.once("SIGINT", () => {
+            if (closed) return;
+            closed = true;
+            server.close(() => resolve());
+        });
+    });
+}
+
 async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<number> {
 
     const sessions = daily.sessions;
@@ -531,9 +892,15 @@ export function registerAiSessionCommand(program: Command): void {
         .option("--repo-url <url>", "GitHub repository URL to create and assign")
         .option("--create-mapping", "Create product-repo mapping from --repo-url before assigning")
         .option("--tty", "Assign sessions using cloud mappings and interactive selector when available")
+        .option("--web", "Assign sessions in a local web page")
         .action(async (opts) => {
             try {
                 const daily = readDailyReport(String(opts.file));
+                if (opts.web) {
+                    await startAssignmentWebServer(String(opts.file), daily);
+                    return;
+                }
+
                 if (opts.tty) {
                     const assignedSessions = await assignProjectsFromCloudMappings(daily);
                     writeFileSync(String(opts.file), JSON.stringify(daily, null, 2), "utf-8");
@@ -544,8 +911,8 @@ export function registerAiSessionCommand(program: Command): void {
                     return;
                 }
 
-                if (!opts.sessionId) throw new Error("--session-id is required unless --tty is set");
-                if (!opts.productId) throw new Error("--product-id is required unless --tty is set");
+                if (!opts.sessionId) throw new Error("--session-id is required unless --tty or --web is set");
+                if (!opts.productId) throw new Error("--product-id is required unless --tty or --web is set");
                 const session = findSessionById(daily, String(opts.sessionId));
                 const products = await listProductsForSelector();
                 const product = findProductById(products, String(opts.productId));
