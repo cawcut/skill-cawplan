@@ -21,7 +21,7 @@ import {existsSync} from "node:fs";
 import {createRequire} from "node:module";
 import {ModelUsageEntry, UsageBucket} from "../types.js";
 import {cursorStateDbCandidates} from "../paths.js";
-import {isTimestampOnLocalDate} from "../date-utils.js";
+import {isTimestampOnLocalDate, dayBoundsMs} from "../date-utils.js";
 import {calculateCost} from "../pricing.js";
 
 const require = createRequire(import.meta.url);
@@ -315,6 +315,112 @@ export function aggregateCursorUsage(
 }
 
 
+interface AttributionWindow {
+    sessionId: string;
+    agent: string;
+    startMs: number;
+    endMs: number;
+    humanInputIndex?: number;
+}
+
+export interface SessionUsageAttribution {
+    modelUsage: Record<string, ModelUsageEntry>;
+    usageBreakdown: UsageBucket[];
+    humanInputCosts?: Record<number, number>;
+    humanInputApiCalls?: Record<number, number>;
+}
+
+function parseIsoMs(value?: string | null): number | null {
+    if (!value?.trim()) return null;
+    const ms = new Date(value).getTime();
+    return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * Build attribution windows from human-input prompt times when available.
+ * Each prompt owns API events from its start until the next prompt (half-open interval).
+ * Falls back to session time_range when prompts lack timestamps.
+ */
+export function buildCursorAttributionWindows(
+    sessions: Array<{
+        session_id: string;
+        agent: string;
+        time_range: { start?: string; display: string };
+        human_inputs?: Array<{
+            start_time?: string | null;
+            end_time?: string | null;
+            session_time?: string | null;
+        }>;
+    }>,
+    date: string
+): AttributionWindow[] {
+    const {endMs: dayEndMs} = dayBoundsMs(date);
+    const windows: AttributionWindow[] = [];
+
+    for (const s of sessions) {
+        const prompts = (s.human_inputs ?? [])
+            .map((h, index) => ({
+                index,
+                startMs: parseIsoMs(h.start_time ?? h.session_time),
+                endMs: parseIsoMs(h.end_time),
+            }))
+            .filter((p): p is { index: number; startMs: number; endMs: number | null } => p.startMs != null)
+            .sort((a, b) => a.startMs - b.startMs);
+
+        if (prompts.length > 0) {
+            // Bursts with identical startMs share one window; last index in the burst is credited.
+            const segments: Array<{ startMs: number; humanInputIndex: number; endMsHint: number | null }> = [];
+            for (const p of prompts) {
+                const last = segments[segments.length - 1];
+                if (last && last.startMs === p.startMs) {
+                    last.humanInputIndex = p.index;
+                    if (p.endMs != null && (last.endMsHint == null || p.endMs > last.endMsHint)) {
+                        last.endMsHint = p.endMs;
+                    }
+                } else {
+                    segments.push({startMs: p.startMs, humanInputIndex: p.index, endMsHint: p.endMs});
+                }
+            }
+
+            for (let i = 0; i < segments.length; i++) {
+                const seg = segments[i];
+                const nextStart = segments[i + 1]?.startMs;
+                let endMs: number;
+                if (nextStart != null) {
+                    endMs = nextStart;
+                } else if (seg.endMsHint != null && seg.endMsHint > seg.startMs) {
+                    endMs = Math.min(seg.endMsHint, dayEndMs);
+                } else {
+                    endMs = dayEndMs;
+                }
+                if (endMs <= seg.startMs) {
+                    endMs = Math.min(seg.startMs + MAX_ASSIGN_DISTANCE_MS, dayEndMs);
+                }
+                windows.push({
+                    sessionId: s.session_id,
+                    agent: s.agent,
+                    startMs: seg.startMs,
+                    endMs,
+                    humanInputIndex: seg.humanInputIndex,
+                });
+            }
+            continue;
+        }
+
+        const startMs = parseIsoMs(s.time_range.start);
+        if (startMs == null) continue;
+        const start = new Date(startMs);
+        const end = parseDisplayEndFromStart(start, s.time_range.display);
+        windows.push({
+            sessionId: s.session_id,
+            agent: s.agent,
+            startMs,
+            endMs: Math.max(end.getTime(), startMs + 1),
+        });
+    }
+    return windows;
+}
+
 interface SessionWindow {
     sessionId: string;
     agent: string;
@@ -341,59 +447,62 @@ export function buildCursorSessionWindows(
         time_range: { start?: string; display: string };
     }>
 ): SessionWindow[] {
-    const windows: SessionWindow[] = [];
-    for (const s of sessions) {
-        const startLocal = s.time_range?.start;
-        if (!startLocal) continue;
-        const start = new Date(startLocal);
-        if (Number.isNaN(start.getTime())) continue;
-        const end = parseDisplayEndFromStart(start, s.time_range?.display);
-        windows.push({
-            sessionId: s.session_id,
-            agent: s.agent,
-            startMs: start.getTime(),
-            endMs: end.getTime(),
-        });
-    }
-    return windows;
+    return buildCursorAttributionWindows(sessions, "").map(({sessionId, agent, startMs, endMs}) => ({
+        sessionId,
+        agent,
+        startMs,
+        endMs,
+    }));
 }
 
-function assignEventToSession(tsMs: number, windows: SessionWindow[]): string | null {
-    // 1) inside any window -> nearest window midpoint
-    const inside = windows.filter((w) => tsMs >= w.startMs && tsMs <= w.endMs);
+function eventInsideWindow(tsMs: number, w: AttributionWindow): boolean {
+    if (w.humanInputIndex != null) {
+        return tsMs >= w.startMs && tsMs < w.endMs;
+    }
+    return tsMs >= w.startMs && tsMs <= w.endMs;
+}
+
+function assignEventToAttributionWindow(
+    tsMs: number,
+    windows: AttributionWindow[]
+): AttributionWindow | null {
+    const inside = windows.filter((w) => eventInsideWindow(tsMs, w));
     if (inside.length > 0) {
         inside.sort((a, b) => {
-            const amid = (a.startMs + a.endMs) / 2;
-            const bmid = (b.startMs + b.endMs) / 2;
-            return Math.abs(tsMs - amid) - Math.abs(tsMs - bmid);
+            const spanA = a.endMs - a.startMs;
+            const spanB = b.endMs - b.startMs;
+            if (spanA !== spanB) return spanA - spanB;
+            return Math.abs(tsMs - a.startMs) - Math.abs(tsMs - b.startMs);
         });
-        return inside[0].sessionId;
+        return inside[0];
     }
 
-    // 2) fallback nearest end/start point within threshold
-    let best: { sid: string; dist: number } | null = null;
+    let best: { window: AttributionWindow; dist: number } | null = null;
     for (const w of windows) {
         const dist = Math.min(Math.abs(tsMs - w.startMs), Math.abs(tsMs - w.endMs));
         if (dist > MAX_ASSIGN_DISTANCE_MS) continue;
-        if (!best || dist < best.dist) best = { sid: w.sessionId, dist };
+        if (!best || dist < best.dist) best = {window: w, dist};
     }
-    return best?.sid ?? null;
+    return best?.window ?? null;
 }
 
 export function aggregateCursorUsageBySession(
     events: Record<string, unknown>[],
     date: string,
-    windows: SessionWindow[]
-): Record<string, { modelUsage: Record<string, ModelUsageEntry>; usageBreakdown: UsageBucket[] }> {
+    windows: AttributionWindow[] | SessionWindow[]
+): Record<string, SessionUsageAttribution> {
     const perSession = new Map<string, Map<string, ModelUsageEntry>>();
+    const humanInputCosts = new Map<string, Record<number, number>>();
+    const humanInputApiCalls = new Map<string, Record<number, number>>();
 
     for (const event of events) {
         const tsMs = parseEventTimestampMs(event);
         if (tsMs == null) continue;
         if (!isTimestampOnLocalDate(tsMs, date)) continue;
 
-        const sid = assignEventToSession(tsMs, windows);
-        if (!sid) continue;
+        const window = assignEventToAttributionWindow(tsMs, windows as AttributionWindow[]);
+        if (!window) continue;
+        const sid = window.sessionId;
 
         const model = String(event["model"] ?? "unknown");
         const tokenUsage = (event["tokenUsage"] as Record<string, unknown> | undefined) ?? {};
@@ -411,7 +520,7 @@ export function aggregateCursorUsageBySession(
                 cache_creation_input_tokens: 0,
                 cost: 0,
                 currency: "$",
-                note: "dashboard API nearest-message attribution",
+                note: "dashboard API human-input window attribution",
                 token_source: "dashboard_api",
             });
         }
@@ -423,9 +532,19 @@ export function aggregateCursorUsageBySession(
         entry.cache_read_input_tokens += Number(tokenUsage["cacheReadTokens"] ?? 0);
         entry.cache_creation_input_tokens += Number(tokenUsage["cacheWriteTokens"] ?? 0);
         if (typeof entry.cost === "number") entry.cost += costUsd;
+
+        if (window.humanInputIndex != null) {
+            const idx = window.humanInputIndex;
+            const costs = humanInputCosts.get(sid) ?? {};
+            costs[idx] = (costs[idx] ?? 0) + costUsd;
+            humanInputCosts.set(sid, costs);
+            const calls = humanInputApiCalls.get(sid) ?? {};
+            calls[idx] = (calls[idx] ?? 0) + 1;
+            humanInputApiCalls.set(sid, calls);
+        }
     }
 
-    const out: Record<string, { modelUsage: Record<string, ModelUsageEntry>; usageBreakdown: UsageBucket[] }> = {};
+    const out: Record<string, SessionUsageAttribution> = {};
     for (const [sid, byModel] of perSession.entries()) {
         const modelUsage: Record<string, ModelUsageEntry> = {};
         const usageBreakdown: UsageBucket[] = [];
@@ -440,7 +559,12 @@ export function aggregateCursorUsageBySession(
                 agents: ["cursor", "cursor-gui"],
             });
         }
-        out[sid] = { modelUsage, usageBreakdown };
+        out[sid] = {
+            modelUsage,
+            usageBreakdown,
+            humanInputCosts: humanInputCosts.get(sid),
+            humanInputApiCalls: humanInputApiCalls.get(sid),
+        };
     }
     return out;
 }

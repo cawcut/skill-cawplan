@@ -121,6 +121,8 @@ export interface HumanInput {
   lines_deleted?: number;
   start_time?: string | null;
   end_time?: string | null;
+  usage_cost?: number;
+  api_calls?: number;
 }
 
 export interface CollectOptions {

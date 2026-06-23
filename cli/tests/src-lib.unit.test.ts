@@ -21,7 +21,7 @@ import {
 import { getConfigPath, readUserConfig, writeUserConfig } from "../src/lib/user-config";
 import { buildDailyApiJson } from "../src/lib/collect/aggregators/daily";
 import { aggregateUsageBuckets } from "../src/lib/collect/aggregators/tokens";
-import { aggregateCursorUsageBySession, buildCursorSessionWindows } from "../src/lib/collect/agents/cursor-api";
+import { aggregateCursorUsageBySession, buildCursorAttributionWindows, buildCursorSessionWindows } from "../src/lib/collect/agents/cursor-api";
 import type { SessionData } from "../src/lib/collect/types";
 
 let originalFetch: typeof fetch;
@@ -383,6 +383,46 @@ describe("src lib collect daily aggregator", () => {
       service_tier: "api",
       agents: ["cursor", "cursor-gui"],
     });
+  });
+
+  test("attributes Cursor API usage to human-input time windows", () => {
+    const windows = buildCursorAttributionWindows(
+      [
+        {
+          session_id: "cursor-session-2",
+          agent: "cursor-gui",
+          time_range: {start: "2026-06-17T02:00:00.000Z", display: "10:00 - 12:00"},
+          human_inputs: [
+            {start_time: "2026-06-17T02:00:00.000Z", end_time: "2026-06-17T02:15:00.000Z"},
+            {start_time: "2026-06-17T02:30:00.000Z", end_time: null},
+          ],
+        },
+      ],
+      "2026-06-17"
+    );
+
+    const bySession = aggregateCursorUsageBySession(
+      [
+        {
+          timestamp: "2026-06-17T02:05:00.000Z",
+          model: "gpt-5.5-medium",
+          tokenUsage: {inputTokens: 10, outputTokens: 5},
+          chargedCents: 10,
+        },
+        {
+          timestamp: "2026-06-17T02:35:00.000Z",
+          model: "gpt-5.5-medium",
+          tokenUsage: {inputTokens: 20, outputTokens: 10},
+          chargedCents: 20,
+        },
+      ],
+      "2026-06-17",
+      windows
+    );
+
+    expect(bySession["cursor-session-2"]?.modelUsage["gpt-5.5-medium"]?.cost).toBeCloseTo(0.3);
+    expect(bySession["cursor-session-2"]?.humanInputCosts).toEqual({0: 0.1, 1: 0.2});
+    expect(bySession["cursor-session-2"]?.humanInputApiCalls).toEqual({0: 1, 1: 1});
   });
 
   test("aggregates only billable Claude usage with usage dimensions", () => {

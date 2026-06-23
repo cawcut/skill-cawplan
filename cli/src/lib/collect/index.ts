@@ -11,7 +11,7 @@ import {
     fetchUsageEvents,
     aggregateCursorUsage,
     aggregateCursorUsageBySession,
-    buildCursorSessionWindows,
+    buildCursorAttributionWindows,
 } from "./agents/cursor-api.js";
 import {buildDailyApiJson} from "./aggregators/daily.js";
 import {SessionData} from "./types.js";
@@ -139,7 +139,6 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
             // Convert GuiSession to SessionData — skip sessions with no activity.
             for (const gs of guiSessions) {
                 if (
-                    gs.header_count === 0 &&
                     gs.message_stats.user === 0 &&
                     gs.message_stats.assistant === 0 &&
                     gs.files_changed.length === 0
@@ -224,7 +223,7 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
 
             // First try session-level attribution (uid-team style)
             const cursorSessions = sessions.filter((s) => s.agent === "cursor-gui" || s.agent === "cursor-cli");
-            const windows = buildCursorSessionWindows(cursorSessions);
+            const windows = buildCursorAttributionWindows(cursorSessions, date);
             const bySession = aggregateCursorUsageBySession(events, date, windows);
             let attributedSessions = 0;
             for (const s of sessions) {
@@ -232,6 +231,13 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
                 if (!assigned) continue;
                 s.model_usage = assigned.modelUsage;
                 s.usage_breakdown = assigned.usageBreakdown;
+                if (assigned.humanInputCosts && s.human_inputs?.length) {
+                    s.human_inputs = s.human_inputs.map((h, i) => ({
+                        ...h,
+                        usage_cost: assigned.humanInputCosts?.[i],
+                        api_calls: assigned.humanInputApiCalls?.[i],
+                    }));
+                }
                 attributedSessions++;
             }
 

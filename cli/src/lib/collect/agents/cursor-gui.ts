@@ -9,8 +9,9 @@
  * What we extract:
  *   - Session list: composerData rows whose createdAt or lastUpdatedAt falls in the target date window
  *   - Time range: createdAt / lastUpdatedAt from the composerData blob
- *     Per-bubble timestamps (keys "bubbleId:<composerId>:*") are intentionally NOT queried —
- *     scanning 1000+ LIKE patterns on a 3+ GB database causes multi-minute hangs.
+ *     Per-bubble timestamps (keys "bubbleId:<composerId>:*") are queried per matched
+ *     session only — not scanned globally — to backfill human-input times when transcripts
+ *     lack per-message timestamps.
  *   - Model: selectedModelId field
  *   - Cost / tokens: NOT available locally; fetched separately by cursor-api.ts
  *     only when CURSOR_ACCESS_TOKEN or CURSOR_SESSION_TOKEN is set.
@@ -134,6 +135,189 @@ function parseTsValue(raw: unknown): Date | null {
     return null;
 }
 
+function transcriptLinesHaveTimestamps(lines: string[]): boolean {
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+            const obj = JSON.parse(trimmed) as Record<string, unknown>;
+            // Only user turns carry Cursor activity timestamps; assistant text may quote
+            // "<timestamp>" examples and must not disable the mtime fallback.
+            if (obj["role"] !== "user") continue;
+            const message = (obj["message"] as Record<string, unknown> | undefined) ?? obj;
+            const content = message["content"];
+            let textFallback = "";
+            if (Array.isArray(content)) {
+                for (const block of content) {
+                    const b = block as Record<string, unknown>;
+                    if (b["type"] !== "text") continue;
+                    textFallback += String(b["text"] ?? "");
+                }
+            }
+            if (parseEventTimestamp(obj, message, textFallback || undefined)) return true;
+        } catch {
+            continue;
+        }
+    }
+    return false;
+}
+
+function resolveTranscriptPrimaryLocalDate(
+    transcriptPath: string,
+    lastUpdatedAtMs?: number
+): string | null {
+    if (lastUpdatedAtMs != null && lastUpdatedAtMs > 0) {
+        return localDateString(new Date(lastUpdatedAtMs));
+    }
+    try {
+        return localDateString(statSync(transcriptPath).mtime);
+    } catch {
+        return null;
+    }
+}
+
+/** Exported for unit tests. */
+export function shouldSkipTranscriptDateFilter(
+    filterDate: string | undefined,
+    lines: string[],
+    transcriptPath: string,
+    lastUpdatedAtMs?: number
+): boolean {
+    if (!filterDate) return true;
+    if (transcriptLinesHaveTimestamps(lines)) return false;
+    const primary = resolveTranscriptPrimaryLocalDate(transcriptPath, lastUpdatedAtMs);
+    return primary === filterDate;
+}
+
+/** Exported for unit tests. */
+export function normalizeBubbleMatchText(text: string): string {
+    return extractHumanInputText(text).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+interface UserBubble {
+    createdAt: Date;
+    text: string;
+    normalized: string;
+}
+
+interface SessionBubbleTimeline {
+    userBubbles: UserBubble[];
+    assistantTimes: Date[];
+}
+
+function loadSessionBubbleTimeline(
+    db: DatabaseType,
+    composerId: string
+): SessionBubbleTimeline | null {
+    try {
+        const rows = db
+            .prepare("SELECT value FROM cursorDiskKV WHERE key LIKE ?")
+            .all(`bubbleId:${composerId}:%`) as Array<{ value: string }>;
+        if (!rows.length) return null;
+
+        const userBubbles: UserBubble[] = [];
+        const assistantTimes: Date[] = [];
+
+        for (const row of rows) {
+            try {
+                const data = JSON.parse(row.value) as Record<string, unknown>;
+                const createdAt = parseTsValue(data["createdAt"]);
+                if (!createdAt) continue;
+                if (data["type"] === 1) {
+                    const text = String(data["text"] ?? "").trim();
+                    if (!text) continue;
+                    userBubbles.push({
+                        createdAt,
+                        text,
+                        normalized: normalizeBubbleMatchText(text),
+                    });
+                } else {
+                    assistantTimes.push(createdAt);
+                }
+            } catch {
+                continue;
+            }
+        }
+
+        if (!userBubbles.length) return null;
+        userBubbles.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        assistantTimes.sort((a, b) => a.getTime() - b.getTime());
+        return {userBubbles, assistantTimes};
+    } catch {
+        return null;
+    }
+}
+
+/** Exported for unit tests. */
+export function matchUserBubble(
+    content: string,
+    userBubbles: UserBubble[],
+    usedIndices: Set<number>
+): UserBubble | null {
+    const norm = normalizeBubbleMatchText(content);
+    if (!norm) return null;
+
+    for (let i = 0; i < userBubbles.length; i++) {
+        if (usedIndices.has(i)) continue;
+        if (userBubbles[i].normalized === norm) {
+            usedIndices.add(i);
+            return userBubbles[i];
+        }
+    }
+
+    const prefix = norm.slice(0, 80);
+    for (let i = 0; i < userBubbles.length; i++) {
+        if (usedIndices.has(i)) continue;
+        const candidate = userBubbles[i].normalized;
+        if (
+            (prefix.length >= 20 && candidate.startsWith(prefix)) ||
+            (candidate.length >= 20 && norm.startsWith(candidate.slice(0, 80)))
+        ) {
+            usedIndices.add(i);
+            return userBubbles[i];
+        }
+    }
+
+    for (let i = 0; i < userBubbles.length; i++) {
+        if (!usedIndices.has(i)) {
+            usedIndices.add(i);
+            return userBubbles[i];
+        }
+    }
+    return null;
+}
+
+function resolveBubbleEndTime(
+    start: Date,
+    nextUserStart: Date | null,
+    assistantTimes: Date[]
+): Date | null {
+    const startMs = start.getTime();
+    const upper = nextUserStart?.getTime() ?? Number.POSITIVE_INFINITY;
+    let end: Date | null = null;
+    for (const ts of assistantTimes) {
+        const ms = ts.getTime();
+        if (ms <= startMs) continue;
+        if (ms >= upper) break;
+        if (!end || ms > end.getTime()) end = ts;
+    }
+    return end ?? start;
+}
+
+function tryOpenCursorStateDb(): DatabaseType | null {
+    for (const dbPath of cursorStateDbCandidates()) {
+        if (!existsSync(dbPath)) continue;
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const Database = require("better-sqlite3") as typeof import("better-sqlite3");
+            return new Database(dbPath, {readonly: true});
+        } catch {
+            continue;
+        }
+    }
+    return null;
+}
+
 function parseEventTimestamp(
     obj: Record<string, unknown>,
     message: Record<string, unknown>,
@@ -208,12 +392,19 @@ export interface GuiSession {
     human_inputs?: HumanInput[];
 }
 
-function parseTranscript(sessionId: string, filterDate?: string): {
+interface ParseTranscriptOptions {
+    lastUpdatedAtMs?: number;
+    db?: DatabaseType;
+}
+
+function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTranscriptOptions): {
     cwd: string;
     files: FileChange[];
     repos: RepoTouched[];
     messageStats: { user: number; assistant: number; tool_calls: number };
     humanInputs: HumanInput[];
+    activityStart: Date | null;
+    activityEnd: Date | null;
 } {
     const projectsRoot = cursorProjectsDir();
     const transcriptCandidates = [
@@ -239,10 +430,31 @@ function parseTranscript(sessionId: string, filterDate?: string): {
             repos: [],
             messageStats: { user: 0, assistant: 0, tool_calls: 0 },
             humanInputs: [],
+            activityStart: null,
+            activityEnd: null,
         };
     }
 
     const lines = readFileSync(transcriptPath, "utf-8").split("\n");
+    const bubbleTimeline =
+        !transcriptLinesHaveTimestamps(lines) && opts?.db
+            ? loadSessionBubbleTimeline(opts.db, sessionId)
+            : null;
+    const useBubbleDayFilter = !!bubbleTimeline && !!filterDate;
+    const skipDateFilter =
+        !useBubbleDayFilter &&
+        shouldSkipTranscriptDateFilter(filterDate, lines, transcriptPath, opts?.lastUpdatedAtMs);
+    const usedBubbleIndices = new Set<number>();
+
+    let activityStart: Date | null = null;
+    let activityEnd: Date | null = null;
+    const touchActivity = (ts: Date | null | undefined): void => {
+        if (!ts) return;
+        if (filterDate && !isTimestampOnLocalDate(ts, filterDate)) return;
+        if (!activityStart || ts < activityStart) activityStart = ts;
+        if (!activityEnd || ts > activityEnd) activityEnd = ts;
+    };
+
     let cwd = inferCwdFromTranscriptPath(transcriptPath, projectsRoot);
     let userCount = 0;
     let assistantCount = 0;
@@ -250,7 +462,7 @@ function parseTranscript(sessionId: string, filterDate?: string): {
     const files: FileChange[] = [];
     const fileIndex = new Map<string, number>();
     const humanInputs: HumanInput[] = [];
-    let currentPromptOnDate = filterDate ? false : true;
+    let currentPromptOnDate = skipDateFilter;
     const seenInput = new Set<string>();
     type PromptContext = {
         idx: number;
@@ -321,15 +533,21 @@ function parseTranscript(sessionId: string, filterDate?: string): {
                 textAcc = textAcc ? `${textAcc}\n${text}` : text;
             }
             if (textAcc) {
-                const promptTs = parseEventTimestamp(obj, message, textAcc);
-                currentPromptOnDate = !filterDate || (!!promptTs && isTimestampOnLocalDate(promptTs, filterDate));
+                const extracted = extractHumanInputText(textAcc);
+                let promptTs = parseEventTimestamp(obj, message, textAcc);
+                if (!promptTs && bubbleTimeline && extracted) {
+                    const matched = matchUserBubble(extracted, bubbleTimeline.userBubbles, usedBubbleIndices);
+                    if (matched) promptTs = matched.createdAt;
+                }
+                currentPromptOnDate = skipDateFilter ||
+                    (!!filterDate && !!promptTs && isTimestampOnLocalDate(promptTs, filterDate));
                 if (!currentPromptOnDate) {
                     currentContext = null;
                     continue;
                 }
                 userCount++;
+                touchActivity(promptTs);
                 const norm = textAcc.slice(0, 200);
-                const extracted = extractHumanInputText(textAcc);
                 if (!seenInput.has(norm) && extracted.length > 0 && extracted.length <= 1500) {
                     seenInput.add(norm);
                     const inputIdx = humanInputs.length;
@@ -360,10 +578,11 @@ function parseTranscript(sessionId: string, filterDate?: string): {
             }
         } else if (role === "assistant" && Array.isArray(content)) {
             const eventTs = parseEventTimestamp(obj, message);
-            const assistantOnDate = !filterDate ||
-                (eventTs ? isTimestampOnLocalDate(eventTs, filterDate) : currentPromptOnDate);
+            const assistantOnDate = skipDateFilter ||
+                (!!filterDate && eventTs ? isTimestampOnLocalDate(eventTs, filterDate) : currentPromptOnDate);
             if (!assistantOnDate) continue;
             assistantCount++;
+            touchActivity(eventTs);
             for (const block of content) {
                 const b = block as Record<string, unknown>;
                 if (b["type"] !== "tool_use") continue;
@@ -408,17 +627,24 @@ function parseTranscript(sessionId: string, filterDate?: string): {
         }
     }
 
-    for (const ctx of contexts) {
+    for (let i = 0; i < contexts.length; i++) {
+        const ctx = contexts[i];
         const h = humanInputs[ctx.idx];
         if (!h) continue;
         const start = ctx.start ?? ctx.firstTool;
-        const end = ctx.lastTool ?? start;
+        let end = ctx.lastTool ?? ctx.firstTool ?? start;
+        if (!ctx.lastTool && bubbleTimeline && start) {
+            const nextStart = contexts[i + 1]?.start ?? null;
+            end = resolveBubbleEndTime(start, nextStart, bubbleTimeline.assistantTimes) ?? end;
+        }
         h.files_changed = ctx.files.size;
         h.lines_added = ctx.linesAdded;
         h.lines_deleted = ctx.linesDeleted;
         h.start_time = formatIsoTime(start);
         h.end_time = formatIsoTime(end);
         h.session_time = h.start_time;
+        touchActivity(start);
+        touchActivity(end);
     }
 
     const repo = gitRemoteRepo(cwd);
@@ -444,7 +670,37 @@ function parseTranscript(sessionId: string, filterDate?: string): {
         repos,
         messageStats: { user: userCount, assistant: assistantCount, tool_calls: toolCallCount },
         humanInputs: humanInputs.length > 0 ? humanInputs : [],
+        activityStart,
+        activityEnd,
     };
+}
+
+/** Exported for unit tests. */
+export function parseGuiSessionTranscript(
+    sessionId: string,
+    filterDate?: string,
+    opts?: ParseTranscriptOptions
+) {
+    return parseTranscript(sessionId, filterDate, opts);
+}
+
+function applyParsedDayActivity(session: GuiSession, parsed: ReturnType<typeof parseTranscript>): void {
+    if (parsed.activityStart) {
+        session.activity_start = parsed.activityStart;
+    }
+    if (parsed.activityEnd) {
+        session.activity_end = parsed.activityEnd;
+    } else if (parsed.activityStart) {
+        session.activity_end = parsed.activityStart;
+    }
+}
+
+function sessionHasDayActivity(session: GuiSession): boolean {
+    return (
+        session.message_stats.user > 0 ||
+        session.message_stats.assistant > 0 ||
+        session.files_changed.length > 0
+    );
 }
 
 function parseTimestampFromText(text: string): Date | null {
@@ -493,7 +749,9 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
 
     const out: GuiSession[] = [];
     const seen = new Set<string>();
-    for (const project of projectDirs) {
+    const db = tryOpenCursorStateDb();
+    try {
+        for (const project of projectDirs) {
         const atRoot = join(root, project, "agent-transcripts");
         let sessionDirs: string[] = [];
         try {
@@ -509,225 +767,57 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
             if (!existsSync(jsonl) || seen.has(sid)) continue;
             seen.add(sid);
 
-            let userCount = 0;
-            let assistantCount = 0;
-            let toolCalls = 0;
-            let firstTs: Date | null = null;
-            let lastTs: Date | null = null;
-            let name = fallbackSessionName(project, sid);
-            let cwd = decodeCursorProjectDirToCwd(project);
-            const files: FileChange[] = [];
-            const fileIndex = new Map<string, number>();
-            const humanInputs: HumanInput[] = [];
-            type PromptContext = {
-                idx: number;
-                start: Date | null;
-                firstTool: Date | null;
-                lastTool: Date | null;
-                files: Set<string>;
-                linesAdded: number;
-                linesDeleted: number;
-            };
-            const contexts: PromptContext[] = [];
-            let currentContext: PromptContext | null = null;
-            let currentPromptOnDate = false;
-            const upsertFile = (path: string, added: number, deleted: number, changeType?: string): void => {
-                const key = path.trim();
-                if (!key) return;
-                const idx = fileIndex.get(key);
-                if (idx == null) {
-                    fileIndex.set(key, files.length);
-                    files.push({
-                        path: key,
-                        added: Math.max(0, added),
-                        deleted: Math.max(0, deleted),
-                        repo: "",
-                        change_type: changeType,
-                    });
-                    return;
-                }
-                const f = files[idx];
-                f.added = (f.added ?? 0) + Math.max(0, added);
-                f.deleted = (f.deleted ?? 0) + Math.max(0, deleted);
-                if (!f.change_type && changeType) f.change_type = changeType;
-            };
-            const lines = readFileSync(jsonl, "utf-8").split("\n");
-            for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed) continue;
-                let obj: Record<string, unknown>;
+            const parsed = parseTranscript(sid, filterDate, {db: db ?? undefined});
+            const hasActivity =
+                parsed.messageStats.user > 0 ||
+                parsed.messageStats.assistant > 0 ||
+                parsed.files.length > 0;
+            if (!hasActivity) continue;
+
+            const name = fallbackSessionName(project, sid);
+            let createdAt = parsed.activityStart;
+            let endAt = parsed.activityEnd ?? parsed.activityStart;
+            if (!createdAt || !endAt) {
                 try {
-                    obj = JSON.parse(trimmed) as Record<string, unknown>;
+                    const mtime = statSync(jsonl).mtime;
+                    createdAt = createdAt ?? mtime;
+                    endAt = endAt ?? mtime;
                 } catch {
-                    continue;
-                }
-                if (!cwd && typeof obj["cwd"] === "string") cwd = obj["cwd"];
-                const role = obj["role"];
-                const message = (obj["message"] as Record<string, unknown> | undefined) ?? obj;
-                const content = message["content"];
-                if (role === "user" && Array.isArray(content)) {
-                    let textCombined = "";
-                    for (const c of content) {
-                        const b = c as Record<string, unknown>;
-                        if (b["type"] !== "text") continue;
-                        const text = String(b["text"] ?? "").trim();
-                        if (!text) continue;
-                        textCombined = textCombined ? `${textCombined}\n${text}` : text;
-                    }
-                    if (textCombined) {
-                        const ts = parseEventTimestamp(obj, message, textCombined);
-                        currentPromptOnDate = !filterDate || (!!ts && isTimestampOnLocalDate(ts, filterDate));
-                        if (!currentPromptOnDate) continue;
-                        userCount++;
-                        if (ts) {
-                            if (!firstTs || ts < firstTs) firstTs = ts;
-                            if (!lastTs || ts > lastTs) lastTs = ts;
-                        }
-                        if (textCombined.length <= 1500) {
-                            const extracted = extractHumanInputText(textCombined);
-                            if (!extracted) continue;
-                            const inputIdx = humanInputs.length;
-                            humanInputs.push({
-                                category: classifyHumanInput(extracted),
-                                content: extracted,
-                                session_title: name,
-                                session_agent: "cursor-gui",
-                                session_time: formatIsoTime(ts),
-                                start_time: formatIsoTime(ts),
-                                end_time: formatIsoTime(ts),
-                                files_changed: 0,
-                                lines_added: 0,
-                                lines_deleted: 0,
-                            });
-                            currentContext = {
-                                idx: inputIdx,
-                                start: ts,
-                                firstTool: null,
-                                lastTool: null,
-                                files: new Set<string>(),
-                                linesAdded: 0,
-                                linesDeleted: 0,
-                            };
-                            contexts.push(currentContext);
-                        }
-                    }
-                } else if (role === "assistant" && Array.isArray(content)) {
-                    const eventTs = parseEventTimestamp(obj, message);
-                    const assistantOnDate = !filterDate ||
-                        (eventTs ? isTimestampOnLocalDate(eventTs, filterDate) : currentPromptOnDate);
-                    if (!assistantOnDate) continue;
-                    assistantCount++;
-                    if (eventTs) {
-                        if (!firstTs || eventTs < firstTs) firstTs = eventTs;
-                        if (!lastTs || eventTs > lastTs) lastTs = eventTs;
-                    }
-                    for (const c of content) {
-                        const b = c as Record<string, unknown>;
-                        if (b["type"] !== "tool_use") continue;
-                        toolCalls++;
-                        const rawInput = b["input"];
-                        if (typeof rawInput === "string" && String(b["name"] ?? "") === "ApplyPatch") {
-                            const patchFiles = parseApplyPatchStats(rawInput);
-                            for (const pf of patchFiles) {
-                                upsertFile(pf.path, pf.added, pf.deleted, "ApplyPatch");
-                                if (currentContext) {
-                                    currentContext.files.add(pf.path);
-                                    currentContext.linesAdded += Math.max(0, pf.added);
-                                    currentContext.linesDeleted += Math.max(0, pf.deleted);
-                                    if (eventTs) {
-                                        currentContext.firstTool = currentContext.firstTool ?? eventTs;
-                                        currentContext.lastTool = eventTs;
-                                    }
-                                }
-                            }
-                            continue;
-                        }
-
-                        const input = (rawInput as Record<string, unknown> | undefined) ?? {};
-                        if (!cwd && typeof input["working_directory"] === "string") cwd = String(input["working_directory"]);
-                        const toolName = typeof b["name"] === "string" ? b["name"] : "";
-                        const delta = estimateDeltaFromToolInput(toolName, rawInput);
-                        const p = delta.path ??
-                            (input["path"] ?? input["file_path"] ?? input["target_file"] ?? input["target_notebook"]) as string | undefined;
-                        if (!p) continue;
-                        upsertFile(p, delta.added, delta.deleted, toolName || undefined);
-                        if (currentContext) {
-                            currentContext.files.add(p);
-                            currentContext.linesAdded += Math.max(0, delta.added);
-                            currentContext.linesDeleted += Math.max(0, delta.deleted);
-                            if (eventTs) {
-                                currentContext.firstTool = currentContext.firstTool ?? eventTs;
-                                currentContext.lastTool = eventTs;
-                            }
-                        }
-                    }
+                    createdAt = createdAt ?? new Date();
+                    endAt = endAt ?? createdAt;
                 }
             }
 
-            for (const ctx of contexts) {
-                const h = humanInputs[ctx.idx];
-                if (!h) continue;
-                const start = ctx.start ?? ctx.firstTool;
-                const end = ctx.lastTool ?? start;
-                h.files_changed = ctx.files.size;
-                h.lines_added = ctx.linesAdded;
-                h.lines_deleted = ctx.linesDeleted;
-                h.start_time = formatIsoTime(start);
-                h.end_time = formatIsoTime(end);
-                h.session_time = h.start_time;
-            }
-
-            // Filter by target day using parsed timestamps, fallback to mtime
-            let active = false;
-            if (firstTs || lastTs) {
-                const inDate = (d: Date | null) => !!d && localDateString(d) === filterDate;
-                active = inDate(firstTs) || inDate(lastTs);
-            } else {
-                try {
-                    const mtimeDate = localDateString(statSync(jsonl).mtime);
-                    active = mtimeDate === filterDate;
-                } catch {
-                    active = false;
-                }
-            }
-            if (!active) continue;
-
-            const repo = gitRemoteRepo(cwd);
+            const repo = gitRemoteRepo(parsed.cwd);
             let totalAdded = 0;
             let totalDeleted = 0;
-            for (const f of files) {
-                f.repo = repo;
-                const stat = gitFileNumstat(cwd, f.path);
-                if (stat.added !== 0 || stat.deleted !== 0) {
-                    f.added = stat.added;
-                    f.deleted = stat.deleted;
-                }
+            for (const f of parsed.files) {
                 totalAdded += f.added ?? 0;
                 totalDeleted += f.deleted ?? 0;
             }
-            const reposTouched: RepoTouched[] = repo ? [{ repo, files: files.length, added: 0, deleted: 0 }] : [];
-            if (reposTouched.length > 0) {
-                reposTouched[0].added = totalAdded;
-                reposTouched[0].deleted = totalDeleted;
-            }
-            const createdAt = firstTs ?? lastTs ?? new Date();
-            const endAt = lastTs ?? firstTs ?? createdAt;
+            const reposTouched: RepoTouched[] = repo
+                ? [{ repo, files: parsed.files.length, added: totalAdded, deleted: totalDeleted }]
+                : [];
+
             out.push({
                 id: sid,
                 name,
                 created_at_ms: createdAt.getTime(),
                 last_updated_at_ms: endAt.getTime(),
                 model: "",
-                header_count: userCount + assistantCount,
+                header_count: parsed.messageStats.user + parsed.messageStats.assistant,
                 activity_start: createdAt,
                 activity_end: endAt,
-                cwd,
-                files_changed: files,
+                cwd: parsed.cwd,
+                files_changed: parsed.files,
                 repos_touched: reposTouched,
-                message_stats: { user: userCount, assistant: assistantCount, tool_calls: toolCalls },
-                human_inputs: humanInputs.length > 0 ? humanInputs : undefined,
+                message_stats: parsed.messageStats,
+                human_inputs: parsed.humanInputs.length > 0 ? parsed.humanInputs : undefined,
             });
         }
+        }
+    } finally {
+        db?.close();
     }
     return out;
 }
@@ -849,7 +939,10 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
         }
 
         for (let i = 0; i < sessions.length; i++) {
-            const parsed = parseTranscript(sessions[i].id, filterDate);
+            const parsed = parseTranscript(sessions[i].id, filterDate, {
+                lastUpdatedAtMs: sessions[i].last_updated_at_ms,
+                db,
+            });
             sessions[i] = {
                 ...sessions[i],
                 cwd: parsed.cwd,
@@ -858,9 +951,11 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
                 message_stats: parsed.messageStats,
                 human_inputs: parsed.humanInputs.length > 0 ? parsed.humanInputs : undefined,
             };
+            applyParsedDayActivity(sessions[i], parsed);
         }
 
-        return sessions.length > 0 ? sessions : collectGuiSessionsFromTranscripts(filterDate);
+        const activeSessions = sessions.filter(sessionHasDayActivity);
+        return activeSessions.length > 0 ? activeSessions : collectGuiSessionsFromTranscripts(filterDate);
     } finally {
         db.close();
     }
