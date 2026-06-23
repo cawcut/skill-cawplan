@@ -523,16 +523,29 @@ export function registerAiSessionCommand(program: Command): void {
         });
 
     ai.command("assign")
-        .description("Assign a report session to a product and optional repository without interactive prompts")
+        .description("Assign report sessions to products and optional repositories")
         .requiredOption("--file <path>", "Path to ai-daily JSON file")
-        .requiredOption("--session-id <id>", "Session ID to assign")
-        .requiredOption("--product-id <id>", "Product unique_id")
+        .option("--session-id <id>", "Session ID to assign")
+        .option("--product-id <id>", "Product unique_id")
         .option("--repo-name <name>", "Existing product-repo repo_name to assign")
         .option("--repo-url <url>", "GitHub repository URL to create and assign")
         .option("--create-mapping", "Create product-repo mapping from --repo-url before assigning")
+        .option("--tty", "Assign sessions using cloud mappings and interactive selector when available")
         .action(async (opts) => {
             try {
                 const daily = readDailyReport(String(opts.file));
+                if (opts.tty) {
+                    const assignedSessions = await assignProjectsFromCloudMappings(daily);
+                    writeFileSync(String(opts.file), JSON.stringify(daily, null, 2), "utf-8");
+                    console.log(JSON.stringify({
+                        file: String(opts.file),
+                        assigned_sessions: assignedSessions,
+                    }, null, 2));
+                    return;
+                }
+
+                if (!opts.sessionId) throw new Error("--session-id is required unless --tty is set");
+                if (!opts.productId) throw new Error("--product-id is required unless --tty is set");
                 const session = findSessionById(daily, String(opts.sessionId));
                 const products = await listProductsForSelector();
                 const product = findProductById(products, String(opts.productId));

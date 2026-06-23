@@ -122,6 +122,13 @@ Use a compact table for numbers if useful, but always include the narrative summ
 
 Use this flow after collection when any important `sessions[]` entry lacks `product_id`.
 
+There are two supported ways to complete missing assignment. First ask the user to choose Option A or Option B; do not choose on their behalf.
+
+- **Option A — Chat-directed assignment:** Use when the user chooses to complete assignment in the current chat. Query products/mappings, ask the user, then write the exact assignment with `cawplan ai-session assign --file ... --session-id ...`.
+- **Option B — TTY selector assignment:** Use when the user chooses to complete assignment in their own terminal with the CLI's native selector. Tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --tty`; do not run this command from the agent shell. Always provide an absolute report file path so the command works from any current directory. This calls the same cloud-mapping assignment flow used by collection and writes the updated file.
+
+For Option A:
+
 1. Inspect the report and list unassigned sessions with `session_id`, `session_name`, `session_title`, `project`, and touched repos.
 2. Query products and mappings in chat:
    ```bash
@@ -149,7 +156,7 @@ Use this flow after collection when any important `sessions[]` entry lacks `prod
 - Do not fabricate session data. Only report what the agents produce locally.
 - When running `cawplan ai-session collect` from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) so Cursor Dashboard token/cost data can be fetched from `cursor.com`.
 - If product/repo assignment prompts appear during collection, only use explicit user selections or existing mappings.
-- If product/repo assignment is skipped in Cursor because the agent shell is non-interactive, keep the user in chat and use unfiltered `cawplan ai-session products`, unfiltered `cawplan ai-session product-repos`, and `cawplan ai-session assign` to complete assignment.
+- If product/repo assignment is skipped in Cursor because the agent shell is non-interactive, ask the user to choose Option A or Option B. For Option A, keep the user in chat and use unfiltered `cawplan ai-session products`, unfiltered `cawplan ai-session product-repos`, and `cawplan ai-session assign` to complete assignment. For Option B, tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --tty` in their own terminal, using the report's absolute path.
 - GitHub repository URLs used to create mappings must be in the format `https://github.com/owner/repo`.
 - Never create a new product-repo mapping unless the user explicitly confirms the exact product and GitHub repository URL in chat.
 - If `--file` is used, the file must contain `author` (git username) and `date` (YYYY-MM-DD) fields.
