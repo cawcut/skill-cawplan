@@ -88,11 +88,27 @@ function repoKeys(value?: string): string[] {
 }
 
 function repoNameFromGitHubUrl(repoURL: string): string {
-    const repoName = shortRepoName(repoURL);
-    if (!repoName || repoName === "github.com") {
-        throw new Error(`Invalid GitHub repository URL: ${repoURL}`);
+    const raw = repoURL.trim();
+    if (!raw) throw new Error("GitHub repository URL is required");
+
+    try {
+        const url = new URL(raw);
+        const isGitHubHost = url.hostname.toLowerCase() === "github.com";
+        const parts = url.pathname.replace(/^\//, "").split("/");
+        const owner = parts[0] ?? "";
+        const repo = parts[1] ?? "";
+        const hasRepoPath = parts.length === 2 && owner && repo;
+        const validOwner = /^[A-Za-z0-9-]+$/.test(owner);
+        const validRepo = /^[A-Za-z0-9._-]+$/.test(repo);
+
+        if (url.protocol === "https:" && isGitHubHost && hasRepoPath && validOwner && validRepo) {
+            return repo;
+        }
+    } catch {
+        // Fall through to the consistent error below.
     }
-    return repoName;
+
+    throw new Error(`Invalid GitHub repository URL: ${repoURL}`);
 }
 
 async function listProductRepoMappings(): Promise<ProductRepoMapping[]> {
@@ -223,7 +239,7 @@ async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<num
 
         const product = await searchProduct(
             products,
-            `Search product for session "${sessionLabel}"${originalProject ? ` (project: ${originalProject})` : ""}`
+            `Select product for session "${sessionLabel}"${originalProject ? ` (project: ${originalProject})` : ""}`
         );
         if (!product.product_id) continue;
 
@@ -239,7 +255,7 @@ async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<num
                     description: m.repo_url ?? m.product_name ?? m.product_id,
                 })),
                 {
-                    name: "Create mapping from GitHub URL",
+                    name: "No repository; link one",
                     value: {
                         product_id: product.product_id,
                         product_name: product.product_name,
