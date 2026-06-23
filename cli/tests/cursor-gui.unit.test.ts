@@ -1,17 +1,20 @@
-import { mkdirSync, mkdtempSync, writeFileSync, utimesSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { localDateString } from "../src/lib/collect/date-utils.js";
 import {
   collectGuiSessions,
+  decodeCursorProjectDirToCwd,
   matchUserBubble,
   normalizeBubbleMatchText,
   parseGuiSessionTranscript,
   shouldSkipTranscriptDateFilter,
 } from "../src/lib/collect/agents/cursor-gui.js";
+import { enrichCursorGuiFallbackContext } from "../src/lib/collect/index.js";
 import * as paths from "../src/lib/collect/paths.js";
+import type { SessionData } from "../src/lib/collect/types.js";
 
 const NO_TS_USER =
   '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\\nhello\\n</user_query>"}]}}';
@@ -20,11 +23,45 @@ const NO_TS_ASSISTANT =
 const WITH_TS_USER =
   '{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Monday, Jun 22, 2026, 11:09 AM (UTC+8)</timestamp>\\n<user_query>\\nhello\\n</user_query>"}]}}';
 
+function encodeCursorProjectDir(absPath: string): string {
+  return absPath
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => segment.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, ""))
+    .filter(Boolean)
+    .join("-");
+}
+
+function minimalCursorSession(overrides: Partial<SessionData>): SessionData {
+  return {
+    schema: "2.0",
+    date: "2026-06-23",
+    agent: "cursor-gui",
+    session_id: "session",
+    session_name: "session",
+    project: "session",
+    cwd: "",
+    time_range: { display: "unknown", timezone: "UTC" },
+    model_usage: {},
+    usage_breakdown: [],
+    files_changed: 0,
+    files_added: 0,
+    files_deleted: 0,
+    repos_touched: [],
+    message_stats: { user: 0, assistant: 0, tool_calls: 0 },
+    ...overrides,
+  };
+}
+
 describe("cursor-gui mtime fallback", () => {
   let tempRoot = "";
+  const tempRoots: string[] = [];
 
   afterEach(() => {
     vi.restoreAllMocks();
+    for (const root of tempRoots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
     tempRoot = "";
   });
 
@@ -117,6 +154,91 @@ describe("cursor-gui mtime fallback", () => {
     expect(human?.start_time).toBeUndefined();
     expect(human?.session_time).toBeUndefined();
     expect(human?.end_time).toBeUndefined();
+  });
+
+  test("decodeCursorProjectDirToCwd handles encoded email and dotted repo segments", () => {
+    const testRoot = mkdtempSync(join(process.cwd(), "tmp-cursor-real-"));
+    tempRoots.push(testRoot);
+    const realCwd = join(
+      testRoot,
+      "Users",
+      "husky.su@ui.com",
+      "Documents",
+      "UBNT",
+      "unifi.hw.access-fe"
+    );
+    mkdirSync(realCwd, { recursive: true });
+
+    expect(decodeCursorProjectDirToCwd(encodeCursorProjectDir(realCwd))).toBe(realCwd);
+  });
+
+  test("parseGuiSessionTranscript infers cwd from absolute tool paths without counting read tools", () => {
+    const realRepo = join(mkdtempSync(join(tmpdir(), "cawplan-cursor-repo-")), "unifi.hw.access-fe");
+    mkdirSync(join(realRepo, ".git"), { recursive: true });
+    mkdirSync(join(realRepo, "src"), { recursive: true });
+    const editedFile = join(realRepo, "src", "index.ts");
+    const readOnlyFile = join(realRepo, "README.md");
+
+    tempRoot = mkdtempSync(join(tmpdir(), "cawplan-cursor-gui-"));
+    const sessionId = "absolute-path-sess";
+    const jsonl = join(
+      tempRoot,
+      "Users-husky-su-ui-com-Documents-UBNT-unifi-hw-access-fe",
+      "agent-transcripts",
+      sessionId,
+      `${sessionId}.jsonl`
+    );
+    mkdirSync(dirname(jsonl), { recursive: true });
+    writeFileSync(
+      jsonl,
+      [
+        WITH_TS_USER,
+        JSON.stringify({
+          role: "assistant",
+          message: {
+            content: [
+              { type: "tool_use", name: "ReadFile", input: { path: readOnlyFile } },
+              {
+                type: "tool_use",
+                name: "Edit",
+                input: { target_file: editedFile, old_string: "old", new_string: "new" },
+              },
+            ],
+          },
+        }),
+      ].join("\n"),
+      "utf-8"
+    );
+    vi.spyOn(paths, "cursorProjectsDir").mockReturnValue(tempRoot);
+
+    const parsed = parseGuiSessionTranscript(sessionId, "2026-06-22");
+
+    expect(parsed.cwd).toBe(realRepo);
+    expect(parsed.files).toHaveLength(1);
+    expect(parsed.files[0]?.path).toBe(editedFile);
+    expect(parsed.repos).toHaveLength(1);
+  });
+
+  test("enrichCursorGuiFallbackContext does not spread a single known repo to empty sessions", () => {
+    const known = minimalCursorSession({
+      session_id: "known",
+      project: "uid.core-web-product",
+      cwd: "/repo/uid.core-web-product",
+      repos_touched: [{ repo: "Ubiquiti-UID/uid.core-web-product", files: 3 }],
+      files_changed: 3,
+    });
+    const unknown = minimalCursorSession({
+      session_id: "unknown",
+      project: "unknown",
+      cwd: "",
+      repos_touched: [],
+    });
+
+    enrichCursorGuiFallbackContext([known, unknown]);
+
+    expect(unknown.cwd).toBe("");
+    expect(unknown.repos_touched).toEqual([]);
+    expect(unknown.project).toBe("unknown");
   });
 
   test("matchUserBubble pairs transcript content with bubble text", () => {

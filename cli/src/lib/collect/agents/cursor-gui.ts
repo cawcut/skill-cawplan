@@ -17,7 +17,8 @@
  *     only when CURSOR_ACCESS_TOKEN or CURSOR_SESSION_TOKEN is set.
  */
 import {existsSync, readFileSync, readdirSync, statSync} from "node:fs";
-import {join} from "node:path";
+import type {Dirent} from "node:fs";
+import {dirname, isAbsolute, join} from "node:path";
 import {createRequire} from "node:module";
 import type {Database as DatabaseType} from "better-sqlite3";
 import {activityOverlapsLocalDate, dayBoundsMs, isTimestampOnLocalDate, localDateString} from "../date-utils.js";
@@ -30,7 +31,67 @@ const USER_QUERY_RE = /<user_query>\s*([\s\S]*?)\s*<\/user_query>/i;
 const TS_TAG_RE = /<timestamp>([^<]+)<\/timestamp>/i;
 const PATCH_FILE_RE = /^\*\*\* (?:Update|Add) File: (.+)$/;
 
-function decodeCursorProjectDirToCwd(projectDir: string): string {
+function encodedPathSegmentTokens(name: string): string[] {
+    return name
+        .replace(/[^A-Za-z0-9]+/g, "-")
+        .split("-")
+        .filter(Boolean);
+}
+
+function projectDirTokens(projectDir: string): string[] {
+    const normalized = projectDir.replace(/%252F/g, "-");
+    try {
+        return decodeURIComponent(normalized).split("-").filter(Boolean);
+    } catch {
+        return normalized.split("-").filter(Boolean);
+    }
+}
+
+function tokensMatch(tokens: string[], offset: number, segmentTokens: string[]): boolean {
+    if (segmentTokens.length === 0 || offset + segmentTokens.length > tokens.length) return false;
+    for (let i = 0; i < segmentTokens.length; i++) {
+        if (tokens[offset + i] !== segmentTokens[i]) return false;
+    }
+    return true;
+}
+
+function decodeCursorProjectDirByFilesystem(projectDir: string): string {
+    const tokens = projectDirTokens(projectDir);
+    if (tokens.length === 0) return "";
+
+    const queue: Array<{ dir: string; offset: number }> = [{dir: "/", offset: 0}];
+    let visited = 0;
+    while (queue.length > 0 && visited < 2000) {
+        const current = queue.shift();
+        if (!current) break;
+        visited++;
+        if (current.offset === tokens.length) {
+            return current.dir;
+        }
+
+        let entries: Dirent[];
+        try {
+            entries = readdirSync(current.dir, {withFileTypes: true});
+        } catch {
+            continue;
+        }
+
+        for (const entry of entries) {
+            if (!entry.isDirectory()) continue;
+            const segmentTokens = encodedPathSegmentTokens(entry.name);
+            if (!tokensMatch(tokens, current.offset, segmentTokens)) continue;
+            queue.push({
+                dir: join(current.dir, entry.name),
+                offset: current.offset + segmentTokens.length,
+            });
+        }
+    }
+
+    return "";
+}
+
+/** Exported for unit tests. */
+export function decodeCursorProjectDirToCwd(projectDir: string): string {
     const trimmed = (projectDir ?? "").trim();
     if (!trimmed || trimmed === "agent-transcripts") return "";
     try {
@@ -38,10 +99,11 @@ function decodeCursorProjectDirToCwd(projectDir: string): string {
         // Example: media-spx-work-github-flow-cawplan-skill -> /media/spx/work/github/flow-cawplan-skill
         const decoded = decodeURIComponent(trimmed.replace(/-/g, "%2F").replace(/%252F/g, "-"));
         const normalized = decoded.startsWith("/") ? decoded : `/${decoded}`;
-        return existsSync(normalized) ? normalized : "";
+        if (existsSync(normalized)) return normalized;
     } catch {
-        return "";
+        // Fall through to filesystem-based decoding below.
     }
+    return decodeCursorProjectDirByFilesystem(trimmed);
 }
 
 function inferCwdFromTranscriptPath(transcriptPath: string, projectsRoot: string): string {
@@ -373,7 +435,32 @@ function estimateDeltaFromToolInput(
         return {path: getPath(), added: 0, deleted: 1};
     }
 
-    return {path: getPath(), added: 0, deleted: 0};
+    return {path: null, added: 0, deleted: 0};
+}
+
+function isMutationTool(toolName: string): boolean {
+    return ["StrReplace", "Edit", "EditNotebook", "MultiEdit", "Write", "Delete"].includes(toolName);
+}
+
+function inferGitRootFromPath(filePath: string | null | undefined): string {
+    if (!filePath || !isAbsolute(filePath)) return "";
+    let current = filePath;
+    try {
+        if (existsSync(current) && !statSync(current).isDirectory()) {
+            current = dirname(current);
+        }
+    } catch {
+        // Continue by walking parent paths; the target file may not exist yet.
+    }
+    while (current && current !== dirname(current)) {
+        if (existsSync(join(current, ".git"))) return current;
+        current = dirname(current);
+    }
+    return "";
+}
+
+function resolveCwdForFile(sessionCwd: string, filePath: string): string {
+    return inferGitRootFromPath(filePath) || sessionCwd;
 }
 
 export interface GuiSession {
@@ -610,8 +697,14 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
                     cwd = String(input["working_directory"]);
                 }
                 const toolName = typeof b["name"] === "string" ? b["name"] : "";
+                const inputPath = pickPathFromInput(input);
+                if (!cwd) {
+                    const pathCwd = inferGitRootFromPath(inputPath);
+                    if (pathCwd) cwd = pathCwd;
+                }
+                if (!isMutationTool(toolName)) continue;
                 const delta = estimateDeltaFromToolInput(toolName, rawInput);
-                const p = delta.path ?? pickPathFromInput(input);
+                const p = delta.path ?? inputPath;
                 if (!p) continue;
                 upsertFile(p, delta.added, delta.deleted, toolName || undefined);
                 if (currentContext) {
@@ -647,22 +740,29 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         touchActivity(end);
     }
 
-    const repo = gitRemoteRepo(cwd);
-    let totalAdded = 0;
-    let totalDeleted = 0;
+    const repoStats = new Map<string, { files: number; added: number; deleted: number }>();
     for (const f of files) {
+        const fileCwd = resolveCwdForFile(cwd, f.path);
+        const repo = gitRemoteRepo(fileCwd);
         f.repo = repo;
-        const stat = gitFileNumstat(cwd, f.path);
+        const stat = gitFileNumstat(fileCwd, f.path);
         if (stat.added !== 0 || stat.deleted !== 0) {
             f.added = stat.added;
             f.deleted = stat.deleted;
         }
-        totalAdded += f.added ?? 0;
-        totalDeleted += f.deleted ?? 0;
+        if (!repo) continue;
+        const current = repoStats.get(repo) ?? {files: 0, added: 0, deleted: 0};
+        current.files += 1;
+        current.added += f.added ?? 0;
+        current.deleted += f.deleted ?? 0;
+        repoStats.set(repo, current);
     }
-    const repos: RepoTouched[] = repo
-        ? [{ repo, files: files.length, added: totalAdded, deleted: totalDeleted }]
-        : [];
+    const repos: RepoTouched[] = Array.from(repoStats.entries()).map(([repo, stats]) => ({
+        repo,
+        files: stats.files,
+        added: stats.added,
+        deleted: stats.deleted,
+    }));
 
     return {
         cwd,
@@ -788,17 +888,6 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
                 }
             }
 
-            const repo = gitRemoteRepo(parsed.cwd);
-            let totalAdded = 0;
-            let totalDeleted = 0;
-            for (const f of parsed.files) {
-                totalAdded += f.added ?? 0;
-                totalDeleted += f.deleted ?? 0;
-            }
-            const reposTouched: RepoTouched[] = repo
-                ? [{ repo, files: parsed.files.length, added: totalAdded, deleted: totalDeleted }]
-                : [];
-
             out.push({
                 id: sid,
                 name,
@@ -810,7 +899,7 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
                 activity_end: endAt,
                 cwd: parsed.cwd,
                 files_changed: parsed.files,
-                repos_touched: reposTouched,
+                repos_touched: parsed.repos,
                 message_stats: parsed.messageStats,
                 human_inputs: parsed.humanInputs.length > 0 ? parsed.humanInputs : undefined,
             });

@@ -71,37 +71,17 @@ function inferCursorTitle(gs: {
     return gs.name || gs.id.slice(0, 8);
 }
 
-function enrichCursorGuiFallbackContext(sessions: SessionData[]): void {
+export function enrichCursorGuiFallbackContext(sessions: SessionData[]): void {
     const gui = sessions.filter((s) => s.agent === "cursor-gui");
     if (gui.length === 0) return;
 
-    const knownCwds = Array.from(new Set(gui.map((s) => (s.cwd ?? "").trim()).filter(Boolean)));
-    const knownRepos = Array.from(
-        new Set(
-            gui
-                .flatMap((s) => s.repos_touched ?? [])
-                .map((r) => (r.repo ?? "").trim())
-                .filter(Boolean)
-        )
-    );
-
-    const fallbackCwd = knownCwds.length === 1 ? knownCwds[0] : "";
-    const fallbackRepo = knownRepos.length === 1 ? knownRepos[0] : "";
-    const fallbackProject = toRepoName(fallbackRepo) ?? "";
-
-    if (!fallbackCwd && !fallbackRepo) return;
-
     for (const s of gui) {
-        if (!s.cwd && fallbackCwd) s.cwd = fallbackCwd;
-        if ((!s.project || s.project.length <= 8) && fallbackProject) s.project = fallbackProject;
-        if ((s.repos_touched?.length ?? 0) === 0 && fallbackRepo) {
-            s.repos_touched = [{
-                repo: fallbackRepo,
-                files: s.files_changed,
-                added: s.files_added ?? 0,
-                deleted: s.files_deleted ?? 0,
-            }];
-        }
+        if (s.project && s.project.length > 8) continue;
+        const ownRepo = [...(s.repos_touched ?? [])]
+            .sort((a, b) => (b.files ?? 0) - (a.files ?? 0))
+            .find((r) => !!r.repo);
+        const ownRepoName = toRepoName(ownRepo?.repo);
+        if (ownRepoName) s.project = ownRepoName;
     }
 }
 
