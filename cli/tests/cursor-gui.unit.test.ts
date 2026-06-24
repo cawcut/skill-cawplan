@@ -156,6 +156,36 @@ describe("cursor-gui mtime fallback", () => {
     expect(human?.end_time).toBeUndefined();
   });
 
+  test("collectGuiSessions does not full-scan transcripts when db candidates have no day activity", () => {
+    const require = createRequire(import.meta.url);
+    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
+    const root = mkdtempSync(join(tmpdir(), "cawplan-cursor-gui-"));
+    tempRoots.push(root);
+    const dbPath = join(root, "state.vscdb");
+    const db = new Database(dbPath);
+    db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
+    db.prepare("INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)").run(
+      "composerData:no-activity-session",
+      JSON.stringify({
+        composerId: "no-activity-session",
+        name: "cross-day no activity",
+        createdAt: new Date("2026-06-05T09:00:00.000Z").getTime(),
+        lastUpdatedAt: new Date("2026-06-08T09:00:00.000Z").getTime(),
+      })
+    );
+    db.close();
+    vi.spyOn(paths, "cursorProjectsDir").mockReturnValue(root);
+    vi.spyOn(paths, "cursorStateDbCandidates").mockReturnValue([dbPath]);
+
+    const fallbackJsonl = join(root, "fallback-proj", "agent-transcripts", "fallback", "fallback.jsonl");
+    mkdirSync(dirname(fallbackJsonl), { recursive: true });
+    const juneSixUser =
+      '{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Saturday, Jun 6, 2026, 10:00 AM (UTC+8)</timestamp>\\n<user_query>\\nshould not be scanned\\n</user_query>"}]}}';
+    writeFileSync(fallbackJsonl, [juneSixUser, NO_TS_ASSISTANT].join("\n"), "utf-8");
+
+    expect(collectGuiSessions("2026-06-06")).toEqual([]);
+  });
+
   test("decodeCursorProjectDirToCwd handles encoded email and dotted repo segments", () => {
     const testRoot = mkdtempSync(join(process.cwd(), "tmp-cursor-real-"));
     tempRoots.push(testRoot);
@@ -170,6 +200,10 @@ describe("cursor-gui mtime fallback", () => {
     mkdirSync(realCwd, { recursive: true });
 
     expect(decodeCursorProjectDirToCwd(encodeCursorProjectDir(realCwd))).toBe(realCwd);
+  });
+
+  test("decodeCursorProjectDirToCwd skips opaque numeric project directories", () => {
+    expect(decodeCursorProjectDirToCwd("1780652652852")).toBe("");
   });
 
   test("parseGuiSessionTranscript infers cwd from absolute tool paths without counting read tools", () => {

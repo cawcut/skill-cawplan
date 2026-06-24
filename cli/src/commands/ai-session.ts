@@ -28,6 +28,13 @@ function pageParams(opts: { pageNum?: number; pageSize?: number }): Record<strin
     return q;
 }
 
+function limitOffsetParams(opts: { limit?: number; offset?: number }): Record<string, string> {
+    const q: Record<string, string> = {};
+    if (opts.limit != null) q.limit = String(opts.limit);
+    if (opts.offset != null) q.offset = String(opts.offset);
+    return q;
+}
+
 function addDatePageOptions(cmd: Command): Command {
     return cmd
         .option("--date <YYYY-MM-DD>", "Single date")
@@ -42,6 +49,16 @@ function addDateOptions(cmd: Command): Command {
         .option("--date <YYYY-MM-DD>", "Single date")
         .option("--from <YYYY-MM-DD>", "Start date")
         .option("--to <YYYY-MM-DD>", "End date");
+}
+
+function addReportQueryOptions(cmd: Command): Command {
+    return cmd
+        .option("--date <YYYY-MM-DD>", "Single date")
+        .option("--from <YYYY-MM-DD>", "Start date")
+        .option("--to <YYYY-MM-DD>", "End date")
+        .option("--user-id <id>", "Filter by user unique_id")
+        .option("--limit <n>", "Result limit", parseInt)
+        .option("--offset <n>", "Pagination offset", parseInt);
 }
 
 const DATE_PAGE_KEYS = ["date", "date_from", "date_to", "page_num", "page_size"] as const;
@@ -1257,6 +1274,22 @@ export function registerAiSessionCommand(program: Command): void {
                 console.error(`Warning: monthly report backfill skipped: ${(e as Error).message}`);
                 console.log(JSON.stringify(result, null, 2));
             }
+        });
+
+    addReportQueryOptions(ai.command("reports")
+        .description("List uploaded AI daily reports"))
+        .action(async (opts) => {
+            const query = buildQueryFromFlags({
+                ...dateParams(opts),
+                ...limitOffsetParams(opts),
+                ...(opts.userId ? {user_id: String(opts.userId)} : {}),
+            }, ["date", "date_from", "date_to", "user_id", "limit", "offset"]);
+            const result = await cawplanRequest({
+                method: "GET",
+                path: "/api/v1/public/openapi/ai-session-usage/reports",
+                query,
+            });
+            console.log(JSON.stringify(result, null, 2));
         });
 
 

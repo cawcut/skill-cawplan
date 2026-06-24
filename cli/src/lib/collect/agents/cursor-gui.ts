@@ -94,6 +94,7 @@ function decodeCursorProjectDirByFilesystem(projectDir: string): string {
 export function decodeCursorProjectDirToCwd(projectDir: string): string {
     const trimmed = (projectDir ?? "").trim();
     if (!trimmed || trimmed === "agent-transcripts") return "";
+    if (/^\d+$/.test(trimmed)) return "";
     try {
         // Cursor project dir is commonly an encoded workspace path.
         // Example: media-spx-work-github-flow-cawplan-skill -> /media/spx/work/github/flow-cawplan-skill
@@ -1044,7 +1045,7 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
         }
 
         const activeSessions = sessions.filter(sessionHasDayActivity);
-        return activeSessions.length > 0 ? activeSessions : collectGuiSessionsFromTranscripts(filterDate);
+        return sessions.length > 0 ? activeSessions : collectGuiSessionsFromTranscripts(filterDate);
     } finally {
         db.close();
     }
