@@ -75,7 +75,15 @@ The CLI reads sessions from:
 
 Cursor token/cost data requires `CURSOR_ACCESS_TOKEN` to be set; absence is a non-fatal warning.
 
-## 7. cawplan-coding-insights
+## 7. cawplan-coding-init
+
+Initialize the current repository's Product/Repo mapping for AI coding reports.
+
+```text
+/cawplan-coding-init
+```
+
+## 8. cawplan-coding-insights
 
 Track coding costs, token usage, session activity, and productivity across multiple dimensions.
 

@@ -10,6 +10,7 @@ import {listProducts} from "./products.js";
 import {collect} from "../lib/collect/index.js";
 import {renderDailyApiJson} from "../lib/collect/render.js";
 import type {DailyApiJson} from "../lib/collect/types.js";
+import {openBrowser} from "../lib/oauth.js";
 
 type AiSessionAgent = "claude-code" | "cursor" | "codex";
 
@@ -925,7 +926,11 @@ async function startAssignmentWebServer(filePath: string, daily: DailyApiJson): 
                 reject(new Error("failed to determine local assignment server address"));
                 return;
             }
-            console.error(`Open this URL to assign AI sessions: http://${localAssignmentHost}:${address.port}/?token=${token}`);
+            const assignmentUrl = `http://${localAssignmentHost}:${address.port}/?token=${token}`;
+            console.error(`Open this URL to assign AI sessions: ${assignmentUrl}`);
+            void openBrowser(assignmentUrl).catch(() => {
+                console.error("Could not open the browser automatically; please open the URL manually.");
+            });
             console.error("Press Ctrl+C or click Close in the page when done.");
         });
 
