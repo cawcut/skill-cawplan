@@ -357,6 +357,17 @@ function assertAllSessionsHaveProduct(daily: DailyApiJson): void {
     throw new Error(`product is required for every session; missing: ${missing.join(", ")}`);
 }
 
+function warnMissingProductAssignment(file: string, daily: DailyApiJson): boolean {
+    const missing = missingProductSessionLabels(daily);
+    if (missing.length === 0) return false;
+    console.error(
+        `Product assignment is incomplete for ${missing.length} session(s) in ${file}: ${missing.join(", ")}`
+    );
+    console.error(`Please complete product assignment before uploading: cawplan ai-session assign --file ${file} --web`);
+    console.error(`TTY alternative: cawplan ai-session assign --file ${file} --tty`);
+    return true;
+}
+
 function updateReposForSelectedMapping(
     repos: DailyApiJson["repos"] | undefined,
     originalProject: string,
@@ -993,6 +1004,11 @@ async function backfillMissingMonthlyReports(anchorPayload: DailyApiJson): Promi
             if (assigned > 0 || created) {
                 writeFileSync(file, JSON.stringify(daily, null, 2), "utf-8");
             }
+            if (warnMissingProductAssignment(file, daily)) {
+                console.error(`Skipping upload for ${date} until product assignment is complete.`);
+                skippedDates.push(date);
+                continue;
+            }
             await uploadDailyReport(daily);
             uploadedDates.push(date);
             console.error(`Backfilled ${date} from ${file}.`);
@@ -1257,6 +1273,7 @@ export function registerAiSessionCommand(program: Command): void {
                 const matched = await assignProjectsFromCloudMappings(daily);
                 writeFileSync(outputPath, JSON.stringify(daily, null, 2), "utf-8");
                 console.error(`Product/project assignment written for ${matched} sessions.`);
+                warnMissingProductAssignment(outputPath, daily);
 
                 console.error(`Output written to ${outputPath}`);
                 console.log(JSON.stringify(daily, null, 2));
@@ -1431,6 +1448,9 @@ export function registerAiSessionCommand(program: Command): void {
 
             if (!payload?.author || !payload.date) {
                 console.error("Error: daily.json must contain 'author' and 'date' fields");
+                process.exit(1);
+            }
+            if (warnMissingProductAssignment(String(opts.file), payload)) {
                 process.exit(1);
             }
 
