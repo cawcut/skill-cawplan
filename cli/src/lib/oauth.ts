@@ -159,7 +159,6 @@ export async function exchangeStateToken(stateToken: string): Promise<Credential
     const accessToken = data.access_token as string | undefined;
     const refreshToken = data.refresh_token as string | undefined;
     const expire = data.expire as number | undefined;
-    const user = data.user as Record<string, unknown> | undefined;
 
     if (!accessToken || !refreshToken || typeof expire !== "number") {
         throw new Error("Exchange response missing required token fields");
@@ -169,7 +168,6 @@ export async function exchangeStateToken(stateToken: string): Promise<Credential
         accessToken,
         refreshToken,
         expire,
-        email: user?.email as string | undefined,
     };
 }
 

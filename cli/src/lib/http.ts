@@ -3,6 +3,7 @@ import {
   readCredentials,
   writeCredentials,
   isAccessTokenExpired,
+  withAccessTokenIdentity,
   type Credentials,
 } from "./credentials.js";
 
@@ -87,12 +88,12 @@ async function refreshStoredAccessToken(
   }
 
   const refreshed = await refreshAccessToken(credentials.refreshToken);
-  const nextCredentials = {
+  const nextCredentials = withAccessTokenIdentity({
     ...credentials,
     accessToken: refreshed.accessToken,
     refreshToken: refreshed.refreshToken,
     expire: refreshed.expire,
-  };
+  });
   await writeCredentials(nextCredentials);
   return {
     accessToken: refreshed.accessToken,

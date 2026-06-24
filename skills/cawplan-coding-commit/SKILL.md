@@ -58,6 +58,8 @@ Present the full review described in **Review content contract**. Do not show on
 cawplan ai-session report --file ./ai-daily-<date>.json
 ```
 
+After upload, `cawplan ai-session report` checks the uploaded report's month for missing reports by the current `user_id`; if the CLI cannot resolve the current user, the backfill check fails and reports the error. Missing dates up to today are collected into `ai-daily-YYYY-MM-DD.json` when no local file exists, then uploaded automatically. Use `--no-backfill` only when the user explicitly wants to skip this catch-up step.
+
 ---
 
 ### Mode 2: Collect + Review (default when no upload intent)
@@ -102,7 +104,7 @@ Always inspect and summarize before uploading. Do not wait for a second confirma
 cawplan ai-session report --file <path>
 ```
 
-For multiple files, run one `report --file` command per file. Do not guess alternate command names.
+For multiple files, run one `report --file` command per file. Do not guess alternate command names. The first successful upload may backfill missing reports in the same month automatically; if the user is intentionally uploading an isolated historical file, add `--no-backfill`.
 
 ---
 
@@ -137,6 +139,7 @@ There are two supported ways to complete missing assignment. First ask the user 
 - GitHub repository URLs used to create mappings must be in the format `https://github.com/owner/repo`.
 - Never create a new product-repo mapping unless the user explicitly selects or confirms the exact product and GitHub repository URL.
 - If `--file` is used, the file must contain `author` (git username) and `date` (YYYY-MM-DD) fields.
+- After `cawplan ai-session report --file <path>` succeeds, allow its default monthly backfill to run unless the user explicitly asks to skip it.
 - Preserve raw fields in `human_inputs` (for example `start_time`, `end_time`, `files_changed`, `lines_added`, `lines_deleted`).
 - Never replace raw `human_inputs` with summarized content.
 

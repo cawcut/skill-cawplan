@@ -1,10 +1,11 @@
 import {randomBytes} from "node:crypto";
 import {createServer, type IncomingMessage, type ServerResponse} from "node:http";
-import {readFileSync, writeFileSync} from "node:fs";
+import {existsSync, readFileSync, writeFileSync} from "node:fs";
 import {Command} from "commander";
 import {input, search, select} from "@inquirer/prompts";
 import {cawplanRequest} from "../lib/http.js";
 import {buildQueryFromFlags} from "../lib/cache.js";
+import {readCredentials} from "../lib/credentials.js";
 import {listProducts} from "./products.js";
 import {collect} from "../lib/collect/index.js";
 import {renderDailyApiJson} from "../lib/collect/render.js";
@@ -68,9 +69,22 @@ interface ProductRepoSelection extends ProductRepoMapping {
     create_from_url?: boolean;
 }
 
+interface AiSessionReportItem {
+    date?: string;
+    reporter_key?: string;
+    user_id?: string;
+}
+
+interface UserListItem {
+    unique_id?: string;
+    user_id?: string;
+    email?: string;
+}
+
 type DailySession = DailyApiJson["sessions"][number];
 
 const localAssignmentHost = "127.0.0.1";
+const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 function extractList<T>(payload: unknown): T[] {
     if (Array.isArray(payload)) return payload as T[];
@@ -78,8 +92,92 @@ function extractList<T>(payload: unknown): T[] {
     if (Array.isArray(p?.data)) return p.data as T[];
     const inner = p?.data as Record<string, unknown> | undefined;
     if (Array.isArray(inner?.list)) return inner.list as T[];
+    if (Array.isArray(inner?.items)) return inner.items as T[];
     if (Array.isArray(inner?.data)) return inner.data as T[];
     return [];
+}
+
+function extractDataObject(payload: unknown): Record<string, unknown> {
+    const p = payload as Record<string, unknown> | undefined;
+    const data = p?.data as Record<string, unknown> | undefined;
+    return data ?? p ?? {};
+}
+
+function userIdFromUsersQuery(payload: unknown, email: string): string | undefined {
+    const needle = email.trim().toLowerCase();
+    const users = extractList<UserListItem>(payload);
+    const user = users.find((item) => String(item.email ?? "").trim().toLowerCase() === needle) ?? users[0];
+    const userId = user?.unique_id ?? user?.user_id;
+    return typeof userId === "string" && userId.trim() ? userId.trim() : undefined;
+}
+
+async function resolveCurrentUserId(): Promise<string | undefined> {
+    const credentials = await readCredentials();
+    if (credentials?.user_id?.trim()) return credentials.user_id.trim();
+
+    const email = credentials?.email?.trim();
+    if (!email) return undefined;
+
+    try {
+        const result = await cawplanRequest({
+            method: "POST",
+            path: "/api/v1/public/openapi/users/query",
+            body: {email},
+        });
+        return userIdFromUsersQuery(result, email);
+    } catch (e) {
+        console.error(`Warning: cannot resolve current user_id from ${email}: ${(e as Error).message}`);
+        return undefined;
+    }
+}
+
+async function requireCurrentUserId(): Promise<string> {
+    const userId = await resolveCurrentUserId();
+    if (userId) return userId;
+    throw new Error("current user_id is not available in credentials.json; run: cawplan auth login");
+}
+
+function parseISODate(date: string): Date {
+    if (!isoDatePattern.test(date)) throw new Error(`invalid date: ${date}`);
+    const parsed = new Date(`${date}T00:00:00.000Z`);
+    if (Number.isNaN(parsed.getTime()) || formatISODate(parsed) !== date) {
+        throw new Error(`invalid date: ${date}`);
+    }
+    return parsed;
+}
+
+function formatISODate(date: Date): string {
+    return date.toISOString().slice(0, 10);
+}
+
+function addUTCDays(date: Date, days: number): Date {
+    const next = new Date(date);
+    next.setUTCDate(next.getUTCDate() + days);
+    return next;
+}
+
+function monthRangeForBackfill(anchorDate: string, today = new Date()): { dateFrom: string; dateTo: string } {
+    const anchor = parseISODate(anchorDate);
+    const first = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1));
+    const monthEnd = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 0));
+    const todayUTC = parseISODate(formatISODate(today));
+    const end = monthEnd.getTime() < todayUTC.getTime() ? monthEnd : todayUTC;
+    return {
+        dateFrom: formatISODate(first),
+        dateTo: formatISODate(end),
+    };
+}
+
+function dateRangeInclusive(dateFrom: string, dateTo: string): string[] {
+    const start = parseISODate(dateFrom);
+    const end = parseISODate(dateTo);
+    if (start.getTime() > end.getTime()) return [];
+
+    const dates: string[] = [];
+    for (let current = start; current.getTime() <= end.getTime(); current = addUTCDays(current, 1)) {
+        dates.push(formatISODate(current));
+    }
+    return dates;
 }
 
 function shortRepoName(value?: string): string {
@@ -143,7 +241,7 @@ async function createProductRepoMapping(opts: {
             repo_url: repoUrl,
         },
     });
-    const created = ((result as {data?: unknown}).data ?? result) as ProductRepoMapping;
+    const created = ((result as { data?: unknown }).data ?? result) as ProductRepoMapping;
     return {
         ...created,
         product_id: created.product_id ?? opts.productId,
@@ -590,6 +688,144 @@ async function applyWebAssignments(
     return assigned;
 }
 
+async function uploadDailyReport(payload: DailyApiJson): Promise<unknown> {
+    return cawplanRequest({
+        method: "POST",
+        path: "/api/v1/public/openapi/ai-session-usage/reports",
+        body: payload,
+    });
+}
+
+function reportItemsFromResponse(payload: unknown): AiSessionReportItem[] {
+    const data = extractDataObject(payload);
+    if (Array.isArray(data.items)) return data.items as AiSessionReportItem[];
+    return extractList<AiSessionReportItem>(payload);
+}
+
+function totalFromReportsResponse(payload: unknown): number | undefined {
+    const total = extractDataObject(payload).total;
+    return typeof total === "number" ? total : undefined;
+}
+
+async function listMonthlyReportItems(dateFrom: string, dateTo: string, userId?: string): Promise<AiSessionReportItem[]> {
+    const items: AiSessionReportItem[] = [];
+    const limit = 100;
+    for (let offset = 0; ; offset += limit) {
+        const query: Record<string, string> = {
+            date_from: dateFrom,
+            date_to: dateTo,
+            limit: String(limit),
+            offset: String(offset),
+        };
+        if (userId) query.user_id = userId;
+        const result = await cawplanRequest({
+            method: "GET",
+            path: "/api/v1/public/openapi/ai-session-usage/reports",
+            query,
+        });
+        const pageItems = reportItemsFromResponse(result);
+        items.push(...pageItems);
+        const total = totalFromReportsResponse(result);
+        if (pageItems.length < limit || (total != null && items.length >= total)) break;
+    }
+    return items;
+}
+
+async function autoAssignProjectsFromCloudMappings(daily: DailyApiJson): Promise<number> {
+    const mappings = await listProductRepoMappings();
+    let matched = 0;
+    for (const session of daily.sessions) {
+        if (session.product_id) continue;
+        const mapping = findMappingForProject(session.project, mappings);
+        if (!mapping?.repo_name || !mapping.product_id) continue;
+        applyProductRepoMapping(daily, session, mapping);
+        matched++;
+    }
+    return matched;
+}
+
+async function collectOrReadDailyReport(date: string): Promise<{
+    daily: DailyApiJson;
+    file: string;
+    created: boolean
+}> {
+    const file = `ai-daily-${date}.json`;
+    if (existsSync(file)) {
+        return {
+            daily: readDailyReport(file),
+            file,
+            created: false,
+        };
+    }
+
+    const daily = await collect({
+        date,
+        outputPath: file,
+    });
+    return {
+        daily,
+        file,
+        created: true,
+    };
+}
+
+async function backfillMissingMonthlyReports(anchorPayload: DailyApiJson): Promise<{
+    checked_dates: string[];
+    missing_dates: string[];
+    uploaded_dates: string[];
+    skipped_dates: string[];
+}> {
+    const reporterKey = anchorPayload.author;
+    const {dateFrom, dateTo} = monthRangeForBackfill(anchorPayload.date);
+    const expectedDates = dateRangeInclusive(dateFrom, dateTo);
+    const userId = await requireCurrentUserId();
+    console.error(`Checking missing AI daily reports for user_id ${userId} from ${dateFrom} to ${dateTo}...`);
+    const reports = await listMonthlyReportItems(dateFrom, dateTo, userId);
+    const existingDates = new Set(
+        reports
+            .filter((item) => item.user_id === userId)
+            .map((item) => item.date)
+            .filter((date): date is string => Boolean(date))
+    );
+    existingDates.add(anchorPayload.date);
+
+    const missingDates = expectedDates.filter((date) => !existingDates.has(date));
+    const uploadedDates: string[] = [];
+    const skippedDates: string[] = [];
+
+    for (const date of missingDates) {
+        try {
+            console.error(`Backfilling missing AI daily report for ${date}...`);
+            const {daily, file, created} = await collectOrReadDailyReport(date);
+            if (!daily.author || !daily.date) {
+                throw new Error(`${file} must contain author and date`);
+            }
+            if (daily.author !== reporterKey) {
+                console.error(`Skipping ${date}: report author ${daily.author} does not match uploaded reporter ${reporterKey}.`);
+                skippedDates.push(date);
+                continue;
+            }
+            const assigned = await autoAssignProjectsFromCloudMappings(daily);
+            if (assigned > 0 || created) {
+                writeFileSync(file, JSON.stringify(daily, null, 2), "utf-8");
+            }
+            await uploadDailyReport(daily);
+            uploadedDates.push(date);
+            console.error(`Backfilled ${date} from ${file}.`);
+        } catch (e) {
+            skippedDates.push(date);
+            console.error(`Failed to backfill ${date}: ${(e as Error).message}`);
+        }
+    }
+
+    return {
+        checked_dates: expectedDates,
+        missing_dates: missingDates,
+        uploaded_dates: uploadedDates,
+        skipped_dates: skippedDates,
+    };
+}
+
 async function startAssignmentWebServer(filePath: string, daily: DailyApiJson): Promise<void> {
     const token = randomBytes(16).toString("hex");
     let closed = false;
@@ -624,7 +860,11 @@ async function startAssignmentWebServer(filePath: string, daily: DailyApiJson): 
                 }
 
                 if (req.method === "POST" && url.pathname === "/api/product-repos") {
-                    const body = await readJsonBody<{product_id?: string; repo_url?: string; repo_name?: string}>(req);
+                    const body = await readJsonBody<{
+                        product_id?: string;
+                        repo_url?: string;
+                        repo_name?: string
+                    }>(req);
                     if (!body.product_id) throw new Error("product_id is required");
                     if (!body.repo_url) throw new Error("repo_url is required");
                     const mapping = await createProductRepoMapping({
@@ -637,7 +877,7 @@ async function startAssignmentWebServer(filePath: string, daily: DailyApiJson): 
                 }
 
                 if (req.method === "POST" && url.pathname === "/api/assignments") {
-                    const body = await readJsonBody<{assignments?: WebAssignment[]}>(req);
+                    const body = await readJsonBody<{ assignments?: WebAssignment[] }>(req);
                     if (!Array.isArray(body.assignments)) throw new Error("assignments must be an array");
                     const assignedSessions = await applyWebAssignments(daily, body.assignments);
                     writeFileSync(filePath, JSON.stringify(daily, null, 2), "utf-8");
@@ -988,6 +1228,7 @@ export function registerAiSessionCommand(program: Command): void {
             "Upload a daily AI coding session report. Provide --file"
         )
         .requiredOption("--file <path>", "Path to daily.json; must contain 'author' and 'date' fields")
+        .option("--no-backfill", "Skip checking and uploading missing reports in the same month")
         .action(async (opts) => {
             let payload: DailyApiJson | undefined;
 
@@ -1003,12 +1244,19 @@ export function registerAiSessionCommand(program: Command): void {
                 process.exit(1);
             }
 
-            const result = await cawplanRequest({
-                method: "POST",
-                path: `/api/v1/public/openapi/ai-session-usage/reports`,
-                body: payload,
-            });
-            console.log(JSON.stringify(result, null, 2));
+            const result = await uploadDailyReport(payload);
+            if (opts.backfill === false) {
+                console.log(JSON.stringify(result, null, 2));
+                return;
+            }
+
+            try {
+                const backfill = await backfillMissingMonthlyReports(payload);
+                console.log(JSON.stringify({result, backfill}, null, 2));
+            } catch (e) {
+                console.error(`Warning: monthly report backfill skipped: ${(e as Error).message}`);
+                console.log(JSON.stringify(result, null, 2));
+            }
         });
 
 
@@ -1096,21 +1344,22 @@ export function registerAiSessionCommand(program: Command): void {
 
     ai.command("my-sessions")
         .description("Your own session list and overview")
-        .requiredOption("--user-id <id>", "Your user unique_id (from: cawplan users query --email <you>)")
+        .option("--user-id <id>", "User unique_id override; defaults to current credentials user_id")
         .option("--date <YYYY-MM-DD>", "Single date")
         .option("--from <YYYY-MM-DD>", "Start date")
         .option("--to <YYYY-MM-DD>", "End date")
         .action(async (opts) => {
+            const userId = opts.userId ? String(opts.userId) : await requireCurrentUserId();
             const query = buildQueryFromFlags(dateParams(opts), [...DATE_KEYS]);
             const [overview, sessions] = await Promise.all([
                 cawplanRequest({
                     method: "GET",
-                    path: `/api/v1/public/openapi/ai-session-usage/user/${opts.userId}/overview`,
+                    path: `/api/v1/public/openapi/ai-session-usage/user/${userId}/overview`,
                     query
                 }),
                 cawplanRequest({
                     method: "GET",
-                    path: `/api/v1/public/openapi/ai-session-usage/user/${opts.userId}/sessions`,
+                    path: `/api/v1/public/openapi/ai-session-usage/user/${userId}/sessions`,
                     query
                 }),
             ]);

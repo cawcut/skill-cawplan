@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { getBaseUrl, getCachePath, getCacheTtlMs } from "./config.js";
-import { readCredentials } from "./credentials.js";
+import {readCredentials, userIdFromAccessToken} from "./credentials.js";
 
 type CacheEntry = { fetched_at: number; data: unknown };
 type CacheStore = { version: 1; entries: Record<string, CacheEntry> };
@@ -97,7 +97,7 @@ export async function getCacheScope(): Promise<string> {
       return `${base}:workspace:${workspaceId}`;
     }
 
-    const userId = payload?.uid_id ?? payload?.user_id ?? payload?.sub ?? credentials.email;
+    const userId = credentials.user_id ?? userIdFromAccessToken(credentials.accessToken) ?? credentials.email;
     if (typeof userId === "string" && userId.trim()) {
       return `${base}:oauth:${shortHash(userId)}`;
     }
