@@ -504,6 +504,9 @@ function localAssignmentHtml(): string {
     .field-error { color: #b42318; font-size: 12px; margin-top: 4px; }
     tr.invalid-product input.product { border-color: #b42318; outline-color: #b42318; }
     .hidden { display: none; }
+    .bulk-controls { margin-top: 16px; display: grid; grid-template-columns: minmax(240px, 360px) auto 1fr; gap: 8px; align-items: end; }
+    .bulk-controls label { display: grid; gap: 4px; font-weight: 600; }
+    .bulk-hint { color: #777; font-size: 12px; align-self: center; }
     .actions { margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
     .status { color: #777; }
   </style>
@@ -512,6 +515,13 @@ function localAssignmentHtml(): string {
   <h1>CawPlan AI Session Assignment</h1>
   <p class="muted">Assign each session to a product and optional repository, then save the updated daily report.</p>
   <datalist id="product-list"></datalist>
+  <div class="bulk-controls">
+    <label>Default product
+      <input id="bulk-product" list="product-list" placeholder="Search product" />
+    </label>
+    <button id="apply-product" type="button">Apply to visible sessions</button>
+    <span class="bulk-hint">Use this to assign the same product to all rows shown below. Repository remains optional.</span>
+  </div>
   <table>
     <colgroup>
       <col class="session-col" />
@@ -678,6 +688,35 @@ function localAssignmentHtml(): string {
       }
     }
 
+    function setRowProduct(row, product) {
+      const entry = entryForRow(row);
+      const session = entry && entry.report.sessions.find((s) => s.session_id === row.dataset.sessionId);
+      const productInput = row.querySelector('.product');
+      const repo = row.querySelector('.repo');
+      if (!session || !productInput || !repo) return;
+      productInput.value = product ? product.product_name : '';
+      session.product_id = product ? product.product_id : undefined;
+      session.product_name = product ? product.product_name : undefined;
+      repo.innerHTML = product ? repoOptions(session.product_id, session.project) : repoOptions('', '');
+      repo.value = '';
+      updateRepoUrlInput(row);
+      validateProductRow(row);
+    }
+
+    function applyBulkProduct() {
+      const productInput = document.getElementById('bulk-product');
+      const product = findProduct(productInput.value);
+      if (!product) {
+        productInput.setCustomValidity('Choose a product from the list.');
+        productInput.reportValidity();
+        return;
+      }
+      productInput.setCustomValidity('');
+      const rows = Array.from(document.querySelectorAll('tbody tr')).filter((row) => row.querySelector('.product'));
+      rows.forEach((row) => setRowProduct(row, product));
+      document.getElementById('status').textContent = 'Applied ' + product.product_name + ' to ' + rows.length + ' visible session(s).';
+    }
+
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
@@ -772,16 +811,7 @@ function localAssignmentHtml(): string {
       document.querySelectorAll('.product').forEach((el) => {
         el.addEventListener('change', () => {
           const tr = el.closest('tr');
-          const entry = entryForRow(tr);
-          const session = entry && entry.report.sessions.find((s) => s.session_id === tr.dataset.sessionId);
-          if (!session) return;
-          const product = findProduct(el.value);
-          const repo = tr.querySelector('.repo');
-          session.product_id = product ? product.product_id : undefined;
-          session.product_name = product ? product.product_name : undefined;
-          repo.innerHTML = product ? repoOptions(session.product_id, session.project) : repoOptions('', '');
-          updateRepoUrlInput(tr);
-          validateProductRow(tr);
+          setRowProduct(tr, findProduct(el.value));
         });
       });
       document.querySelectorAll('.repo').forEach((el) => {
@@ -863,6 +893,7 @@ function localAssignmentHtml(): string {
     }
 
     document.getElementById('save').addEventListener('click', () => save().catch((e) => alert(e.message)));
+    document.getElementById('apply-product').addEventListener('click', () => applyBulkProduct());
     document.getElementById('close').addEventListener('click', () => api('/api/close', {method: 'POST'}).then(() => window.close()).catch((e) => alert(e.message)));
     load().catch((e) => document.getElementById('status').textContent = e.message);
   </script>
