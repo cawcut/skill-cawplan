@@ -47,7 +47,7 @@ When running this command from Cursor agent tools, request full network access (
 
 During collection, `cawplan ai-session collect` may ask the user to assign each session to a CawPlan product and repository using existing product-repo mappings. If no mapping exists, the user can link a GitHub repository URL in the required format `https://github.com/owner/repo`.
 
-In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, complete missing assignments using **Product/repo assignment options** below before reviewing/uploading.
+In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, or if any `sessions[]` entry lacks `product_id` after collection, complete missing assignments using **Product/repo assignment options** below before reviewing/uploading.
 
 **Step 2 — Review the report with the user:**
 
@@ -85,7 +85,7 @@ Present the full review described in **Review content contract**. Do not show on
 
 Collection may include interactive product/repo assignment prompts. If prompted, use the user's selections; do not fabricate product or repository mappings.
 
-In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, complete missing assignments using **Product/repo assignment options** below before reviewing.
+In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, or if any `sessions[]` entry lacks `product_id` after collection, complete missing assignments using **Product/repo assignment options** below before reviewing.
 
 ### Mode 3: Upload pre-existing file(s)
 
@@ -96,7 +96,7 @@ Always inspect and summarize before uploading. Do not wait for a second confirma
 **Step 1 — Inspect each file:**
 - Confirm the file exists and contains `author` and `date`.
 - Present the full review described in **Review content contract** for each report file.
-- If any important `sessions[]` entry lacks `product_id`, complete **Product/repo assignment options** before uploading.
+- If any `sessions[]` entry lacks `product_id`, complete **Product/repo assignment options** before uploading.
 - Preserve raw `human_inputs`; never rewrite the JSON just to summarize it.
 
 **Step 2 — Upload each file sequentially:**
@@ -122,7 +122,7 @@ Use a compact table for numbers if useful, but always include the narrative summ
 
 ## Product/repo assignment options
 
-Use this flow after collection when any important `sessions[]` entry lacks `product_id`.
+Use this flow after collection or inspection when any `sessions[]` entry lacks `product_id`.
 
 There are two supported ways to complete missing assignment. First ask the user to choose Option A or Option B; do not choose on their behalf.
 
@@ -135,6 +135,7 @@ There are two supported ways to complete missing assignment. First ask the user 
 - Do not fabricate session data. Only report what the agents produce locally.
 - When running `cawplan ai-session collect` from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) so Cursor Dashboard token/cost data can be fetched from `cursor.com`.
 - If product/repo assignment prompts appear during collection, only use explicit user selections or existing mappings.
+- Before reviewing or uploading, inspect every `sessions[]` entry. If any session lacks `product_id`, ask the user to choose Option A or Option B, even when the session has no file changes or repository data.
 - If product/repo assignment is skipped in Cursor because the agent shell is non-interactive, ask the user to choose Option A or Option B. For Option A, tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --tty` in their own terminal, using the report's absolute path. For Option B, tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --web` and open the printed local URL.
 - GitHub repository URLs used to create mappings must be in the format `https://github.com/owner/repo`.
 - Never create a new product-repo mapping unless the user explicitly selects or confirms the exact product and GitHub repository URL.

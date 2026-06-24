@@ -836,6 +836,94 @@ function parseTimestampFromText(text: string): Date | null {
     return Number.isNaN(d2.getTime()) ? null : d2;
 }
 
+function bubbleText(data: Record<string, unknown>): string {
+    const candidates = [data["text"], data["richText"], data["content"], data["message"], data["prompt"]];
+    for (const candidate of candidates) {
+        if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    }
+    return "";
+}
+
+function parseBubbleSession(
+    db: DatabaseType,
+    sessionId: string,
+    filterDate: string,
+    initialCwd = ""
+): ReturnType<typeof parseTranscript> {
+    let activityStart: Date | null = null;
+    let activityEnd: Date | null = null;
+    let userCount = 0;
+    let assistantCount = 0;
+    const humanInputs: HumanInput[] = [];
+    const seenInput = new Set<string>();
+
+    const touchActivity = (ts: Date | null | undefined): void => {
+        if (!ts || !isTimestampOnLocalDate(ts, filterDate)) return;
+        if (!activityStart || ts < activityStart) activityStart = ts;
+        if (!activityEnd || ts > activityEnd) activityEnd = ts;
+    };
+
+    let rows: Array<{ key: string; value: string }> = [];
+    try {
+        rows = db
+            .prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE ? ORDER BY key")
+            .all(`bubbleId:${sessionId}:%`) as Array<{ key: string; value: string }>;
+    } catch {
+        rows = [];
+    }
+
+    for (const row of rows) {
+        let data: Record<string, unknown>;
+        try {
+            data = JSON.parse(row.value) as Record<string, unknown>;
+        } catch {
+            continue;
+        }
+
+        const ts = parseTsValue(data["createdAt"] ?? data["created_at"] ?? data["timestamp"]);
+        if (!ts || !isTimestampOnLocalDate(ts, filterDate)) continue;
+
+        const type = data["type"];
+        const text = bubbleText(data);
+        touchActivity(ts);
+
+        if (type === 1) {
+            userCount++;
+            const extracted = extractHumanInputText(text);
+            const norm = extracted.slice(0, 200);
+            if (extracted && extracted.length <= 1500 && !seenInput.has(norm)) {
+                seenInput.add(norm);
+                humanInputs.push({
+                    category: classifyHumanInput(extracted),
+                    content: extracted,
+                    session_agent: "cursor-gui",
+                    session_time: formatIsoTime(ts),
+                    start_time: formatIsoTime(ts),
+                    end_time: formatIsoTime(ts),
+                    files_changed: 0,
+                    lines_added: 0,
+                    lines_deleted: 0,
+                });
+            }
+            continue;
+        }
+
+        if (type === 2 && text) {
+            assistantCount++;
+        }
+    }
+
+    return {
+        cwd: initialCwd,
+        files: [],
+        repos: [],
+        messageStats: {user: userCount, assistant: assistantCount, tool_calls: 0},
+        humanInputs,
+        activityStart,
+        activityEnd,
+    };
+}
+
 function fallbackSessionName(projectDir: string, sid: string): string {
     const shortId = sid.slice(0, 8);
     const cwd = decodeCursorProjectDirToCwd(projectDir);
@@ -1049,15 +1137,22 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
                 initialCwd: sessions[i].cwd,
                 db,
             });
+            const dayParsed = (
+                parsed.messageStats.user > 0 ||
+                parsed.messageStats.assistant > 0 ||
+                parsed.files.length > 0
+            )
+                ? parsed
+                : parseBubbleSession(db, sessions[i].id, filterDate, sessions[i].cwd);
             sessions[i] = {
                 ...sessions[i],
-                cwd: parsed.cwd || sessions[i].cwd,
-                files_changed: parsed.files,
-                repos_touched: parsed.repos,
-                message_stats: parsed.messageStats,
-                human_inputs: parsed.humanInputs.length > 0 ? parsed.humanInputs : undefined,
+                cwd: dayParsed.cwd || sessions[i].cwd,
+                files_changed: dayParsed.files,
+                repos_touched: dayParsed.repos,
+                message_stats: dayParsed.messageStats,
+                human_inputs: dayParsed.humanInputs.length > 0 ? dayParsed.humanInputs : undefined,
             };
-            applyParsedDayActivity(sessions[i], parsed);
+            applyParsedDayActivity(sessions[i], dayParsed);
         }
 
         const activeSessions = sessions.filter(sessionHasDayActivity);
