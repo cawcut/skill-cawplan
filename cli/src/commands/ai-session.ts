@@ -179,18 +179,6 @@ function addUTCDays(date: Date, days: number): Date {
     return next;
 }
 
-function monthRangeForBackfill(anchorDate: string, today = new Date()): { dateFrom: string; dateTo: string } {
-    const anchor = parseISODate(anchorDate);
-    const first = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1));
-    const monthEnd = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 0));
-    const todayUTC = parseISODate(formatISODate(today));
-    const end = monthEnd.getTime() < todayUTC.getTime() ? monthEnd : todayUTC;
-    return {
-        dateFrom: formatISODate(first),
-        dateTo: formatISODate(end),
-    };
-}
-
 function dateRangeInclusive(dateFrom: string, dateTo: string): string[] {
     const start = parseISODate(dateFrom);
     const end = parseISODate(dateTo);
@@ -1037,15 +1025,15 @@ async function collectOrReadDailyReport(date: string): Promise<{
     };
 }
 
-async function backfillMissingMonthlyReports(anchorPayload: DailyApiJson): Promise<{
+async function backfillMissingReports(dateFrom: string, dateTo: string, options: {dryRun?: boolean} = {}): Promise<{
     checked_dates: string[];
     missing_dates: string[];
     uploaded_dates: string[];
     skipped_dates: string[];
+    dry_run: boolean;
 }> {
-    const reporterKey = anchorPayload.author;
-    const {dateFrom, dateTo} = monthRangeForBackfill(anchorPayload.date);
     const expectedDates = dateRangeInclusive(dateFrom, dateTo);
+    if (expectedDates.length === 0) throw new Error("--from must be earlier than or equal to --to");
     const userId = await requireCurrentUserId();
     console.error(`Checking missing AI daily reports for user_id ${userId} from ${dateFrom} to ${dateTo}...`);
     const reports = await listMonthlyReportItems(dateFrom, dateTo, userId);
@@ -1055,11 +1043,21 @@ async function backfillMissingMonthlyReports(anchorPayload: DailyApiJson): Promi
             .map((item) => item.date)
             .filter((date): date is string => Boolean(date))
     );
-    existingDates.add(anchorPayload.date);
 
     const missingDates = expectedDates.filter((date) => !existingDates.has(date));
     const uploadedDates: string[] = [];
     const skippedDates: string[] = [];
+    console.error(`Missing AI daily report dates: ${missingDates.length > 0 ? missingDates.join(", ") : "none"}`);
+
+    if (options.dryRun) {
+        return {
+            checked_dates: expectedDates,
+            missing_dates: missingDates,
+            uploaded_dates: uploadedDates,
+            skipped_dates: skippedDates,
+            dry_run: true,
+        };
+    }
 
     for (const date of missingDates) {
         try {
@@ -1067,11 +1065,6 @@ async function backfillMissingMonthlyReports(anchorPayload: DailyApiJson): Promi
             const {daily, file, created} = await collectOrReadDailyReport(date);
             if (!daily.author || !daily.date) {
                 throw new Error(`${file} must contain author and date`);
-            }
-            if (daily.author !== reporterKey) {
-                console.error(`Skipping ${date}: report author ${daily.author} does not match uploaded reporter ${reporterKey}.`);
-                skippedDates.push(date);
-                continue;
             }
             const assigned = await autoAssignProjectsFromCloudMappings(daily);
             if (assigned > 0 || created) {
@@ -1096,6 +1089,7 @@ async function backfillMissingMonthlyReports(anchorPayload: DailyApiJson): Promi
         missing_dates: missingDates,
         uploaded_dates: uploadedDates,
         skipped_dates: skippedDates,
+        dry_run: false,
     };
 }
 
@@ -1490,7 +1484,6 @@ export function registerAiSessionCommand(program: Command): void {
             "Upload a daily AI coding session report. Provide --file"
         )
         .requiredOption("--file <path>", "Path to daily.json; must contain 'author' and 'date' fields")
-        .option("--no-backfill", "Skip checking and uploading missing reports in the same month")
         .action(async (opts) => {
             let payload: DailyApiJson | undefined;
 
@@ -1510,17 +1503,28 @@ export function registerAiSessionCommand(program: Command): void {
             }
 
             const result = await uploadDailyReport(payload);
-            if (opts.backfill === false) {
-                console.log(JSON.stringify(result, null, 2));
-                return;
-            }
+            console.log(JSON.stringify(result, null, 2));
+        });
 
+    ai.command("backfill")
+        .description("Collect and upload missing AI daily reports in a date range")
+        .requiredOption("--from <YYYY-MM-DD>", "Start date")
+        .requiredOption("--to <YYYY-MM-DD>", "End date")
+        .option("--dry-run", "Only list missing report dates without collecting or uploading")
+        .action(async (opts) => {
             try {
-                const backfill = await backfillMissingMonthlyReports(payload);
-                console.log(JSON.stringify({result, backfill}, null, 2));
+                const dateFrom = String(opts.from);
+                const dateTo = String(opts.to);
+                parseISODate(dateFrom);
+                parseISODate(dateTo);
+
+                const backfill = await backfillMissingReports(dateFrom, dateTo, {
+                    dryRun: Boolean(opts.dryRun),
+                });
+                console.log(JSON.stringify(backfill, null, 2));
             } catch (e) {
-                console.error(`Warning: monthly report backfill skipped: ${(e as Error).message}`);
-                console.log(JSON.stringify(result, null, 2));
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
             }
         });
 
