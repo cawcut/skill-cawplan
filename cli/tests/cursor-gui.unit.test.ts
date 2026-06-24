@@ -186,6 +186,46 @@ describe("cursor-gui mtime fallback", () => {
     expect(collectGuiSessions("2026-06-06")).toEqual([]);
   });
 
+  test("collectGuiSessions uses composer workspaceIdentifier as initial cwd", () => {
+    const require = createRequire(import.meta.url);
+    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
+    const root = mkdtempSync(join(tmpdir(), "cawplan-cursor-gui-"));
+    const workspace = mkdtempSync(join(tmpdir(), "cawplan-workspace-"));
+    tempRoots.push(root, workspace);
+    const dbPath = join(root, "state.vscdb");
+    const db = new Database(dbPath);
+    db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
+    const sessionId = "workspace-cwd-session";
+    db.prepare("INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)").run(
+      `composerData:${sessionId}`,
+      JSON.stringify({
+        composerId: sessionId,
+        name: "workspace cwd",
+        createdAt: new Date("2026-06-22T01:00:00.000Z").getTime(),
+        lastUpdatedAt: new Date("2026-06-22T02:00:00.000Z").getTime(),
+        workspaceIdentifier: {
+          id: "opaque-workspace",
+          uri: {
+            fsPath: workspace,
+            path: workspace,
+            scheme: "file",
+          },
+        },
+      })
+    );
+    db.close();
+
+    const jsonl = join(root, "1780652652852", "agent-transcripts", sessionId, `${sessionId}.jsonl`);
+    mkdirSync(dirname(jsonl), { recursive: true });
+    writeFileSync(jsonl, [WITH_TS_USER, NO_TS_ASSISTANT].join("\n"), "utf-8");
+    vi.spyOn(paths, "cursorProjectsDir").mockReturnValue(root);
+    vi.spyOn(paths, "cursorStateDbCandidates").mockReturnValue([dbPath]);
+
+    const sessions = collectGuiSessions("2026-06-22");
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.cwd).toBe(workspace);
+  });
+
   test("decodeCursorProjectDirToCwd handles encoded email and dotted repo segments", () => {
     const testRoot = mkdtempSync(join(process.cwd(), "tmp-cursor-real-"));
     tempRoots.push(testRoot);

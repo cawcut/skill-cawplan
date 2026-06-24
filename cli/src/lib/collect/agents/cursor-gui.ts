@@ -115,6 +115,19 @@ function inferCwdFromTranscriptPath(transcriptPath: string, projectsRoot: string
     return decodeCursorProjectDirToCwd(first);
 }
 
+function cwdFromWorkspaceIdentifier(data: Record<string, unknown>): string {
+    const workspace = data["workspaceIdentifier"] as Record<string, unknown> | undefined;
+    const uri = workspace?.["uri"] as Record<string, unknown> | undefined;
+    const fsPath = uri?.["fsPath"];
+    const path = uri?.["path"];
+    const candidate = typeof fsPath === "string" && fsPath.trim()
+        ? fsPath
+        : typeof path === "string" && path.trim()
+            ? path
+            : "";
+    return candidate && existsSync(candidate) ? candidate : "";
+}
+
 function classifyHumanInput(text: string): HumanInput["category"] {
     const lower = text.toLowerCase();
     const has = (arr: string[]) => arr.some((w) => lower.includes(w));
@@ -482,6 +495,7 @@ export interface GuiSession {
 
 interface ParseTranscriptOptions {
     lastUpdatedAtMs?: number;
+    initialCwd?: string;
     db?: DatabaseType;
 }
 
@@ -543,7 +557,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         if (!activityEnd || ts > activityEnd) activityEnd = ts;
     };
 
-    let cwd = inferCwdFromTranscriptPath(transcriptPath, projectsRoot);
+    let cwd = opts?.initialCwd || inferCwdFromTranscriptPath(transcriptPath, projectsRoot);
     let userCount = 0;
     let assistantCount = 0;
     let toolCallCount = 0;
@@ -997,6 +1011,7 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
                 const lastUpdatedAtMs = (data["lastUpdatedAt"] ?? data["last_updated_at"] ?? createdAtMs) as number;
                 const model = (data["selectedModelId"] ?? data["model"] ?? "") as string;
                 const headerCount = (data["headerCount"] ?? 0) as number;
+                const cwd = cwdFromWorkspaceIdentifier(data);
 
                 if (!createdAtMs) continue;
                 if (!activityOverlapsLocalDate(createdAtMs, lastUpdatedAtMs || createdAtMs, filterDate)) {
@@ -1018,7 +1033,7 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
                     header_count: headerCount,
                     activity_start: new Date(activityStartMs),
                     activity_end: new Date(clampedEndMs),
-                    cwd: "",
+                    cwd,
                     files_changed: [],
                     repos_touched: [],
                     message_stats: { user: 0, assistant: 0, tool_calls: 0 },
@@ -1031,11 +1046,12 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
         for (let i = 0; i < sessions.length; i++) {
             const parsed = parseTranscript(sessions[i].id, filterDate, {
                 lastUpdatedAtMs: sessions[i].last_updated_at_ms,
+                initialCwd: sessions[i].cwd,
                 db,
             });
             sessions[i] = {
                 ...sessions[i],
-                cwd: parsed.cwd,
+                cwd: parsed.cwd || sessions[i].cwd,
                 files_changed: parsed.files,
                 repos_touched: parsed.repos,
                 message_stats: parsed.messageStats,
