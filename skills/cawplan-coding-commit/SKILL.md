@@ -136,6 +136,7 @@ There are two supported ways to complete missing assignment. First ask the user 
 - When running `cawplan ai-session collect` from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) so Cursor Dashboard token/cost data can be fetched from `cursor.com`.
 - If product/repo assignment prompts appear during collection, only use explicit user selections or existing mappings.
 - Before reviewing or uploading, inspect every `sessions[]` entry. If any session lacks `product_id`, ask the user to choose Option A or Option B, even when the session has no file changes or repository data.
+- Product selection is required for every session in both `--tty` and `--web`; repository selection is optional.
 - If product/repo assignment is skipped in Cursor because the agent shell is non-interactive, ask the user to choose Option A or Option B. For Option A, tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --tty` in their own terminal, using the report's absolute path. For Option B, tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --web` and open the printed local URL.
 - GitHub repository URLs used to create mappings must be in the format `https://github.com/owner/repo`.
 - Never create a new product-repo mapping unless the user explicitly selects or confirms the exact product and GitHub repository URL.
