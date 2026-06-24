@@ -9,7 +9,7 @@ import {
   readCredentials,
   writeCredentials,
 } from "../src/lib/credentials";
-import { browserOpenCommand, buildConsentUrl, exchangeStateToken } from "../src/lib/oauth";
+import { browserOpenCommand, buildConsentUrl, pollOAuthExchange, startOAuthLogin } from "../src/lib/oauth";
 import { getAuthState } from "../src/lib/auth-state";
 import { buildScopedCacheKey, getCacheScope } from "../src/lib/cache";
 import {
@@ -228,21 +228,21 @@ describe("src lib cache", () => {
 });
 
 describe("src lib oauth", () => {
-  test("builds consent URL with redirect_uri and state query params", () => {
+  test("builds consent URL with public code query params for polling", () => {
     process.env.CAWPLAN_PORTAL_URL = "https://core-web-product.uid.dev.ui.com";
 
-    const url = buildConsentUrl("http://127.0.0.1:52244/callback", "9f520c0d0195c8ae599ea82563cf2080");
+    const url = buildConsentUrl("code-123");
     const parsed = new URL(url);
 
     expect(parsed.origin).toBe("https://core-web-product.uid.dev.ui.com");
     expect(parsed.pathname).toBe("/cli/auth");
     expect(parsed.searchParams.get("client")).toBe("cawplan-cli");
-    expect(parsed.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:52244/callback");
-    expect(parsed.searchParams.get("state")).toBe("9f520c0d0195c8ae599ea82563cf2080");
+    expect(parsed.searchParams.get("code")).toBe("code-123");
+    expect([...parsed.searchParams.keys()].sort()).toEqual(["client", "code"]);
   });
 
   test("opens OAuth URL on Windows without routing ampersands through cmd", () => {
-    const url = "https://core-web-product.uid.dev.ui.com/cli/auth?client=cawplan-cli&redirect_uri=http%3A%2F%2F127.0.0.1%3A52244%2Fcallback&state=9f520c0d0195c8ae599ea82563cf2080";
+    const url = "https://core-web-product.uid.dev.ui.com/cli/auth?client=cawplan-cli&code=code-123";
 
     const command = browserOpenCommand(url, "win32");
 
@@ -250,16 +250,67 @@ describe("src lib oauth", () => {
     expect(command.args).toEqual(["url.dll,FileProtocolHandler", url]);
   });
 
-  test("exchange error reads message before falling back to unknown", async () => {
-    globalThis.fetch = async () =>
-      new Response(JSON.stringify({ message: "state token expired" }), {
-        status: 401,
-        headers: { "content-type": "application/json" },
-      });
+  test("starts OAuth login and returns code with private polling token", async () => {
+    process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
+    const calls: string[] = [];
+    globalThis.fetch = async (_url, init) => {
+      calls.push(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          code: "SUCCESS",
+          data: {
+            code: "browser-code",
+            token: "private-token",
+            expires_in: 300,
+            interval: 2,
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
 
-    await expect(exchangeStateToken("expired")).rejects.toThrow(
-      "Exchange failed (401): state token expired",
-    );
+    await expect(startOAuthLogin()).resolves.toEqual({
+      code: "browser-code",
+      token: "private-token",
+      expiresIn: 300,
+      interval: 2,
+    });
+    expect(calls).toEqual([JSON.stringify({ client: "cawplan-cli" })]);
+  });
+
+  test("polls OAuth exchange until browser consent completes", async () => {
+    process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
+    const calls: string[] = [];
+    globalThis.fetch = async (_url, init) => {
+      calls.push(String(init?.body));
+      if (calls.length === 1) {
+        return new Response(JSON.stringify({ code: "PENDING", message: "authorization pending" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          code: "SUCCESS",
+          data: {
+            access_token: "access",
+            refresh_token: "refresh",
+            expire: 1770000000,
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    await expect(pollOAuthExchange("private-token", 1000, 1)).resolves.toEqual({
+      accessToken: "access",
+      refreshToken: "refresh",
+      expire: 1770000000,
+    });
+    expect(calls).toEqual([
+      JSON.stringify({ token: "private-token" }),
+      JSON.stringify({ token: "private-token" }),
+    ]);
   });
 });
 

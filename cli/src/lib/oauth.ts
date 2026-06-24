@@ -1,7 +1,5 @@
 import {execFile} from "node:child_process";
-import {createServer, type Server} from "node:http";
 import {promisify} from "node:util";
-import {randomBytes} from "node:crypto";
 import {getBaseUrl} from "./config.js";
 import {getPortalBase} from "./products.js";
 import type {Credentials} from "./credentials.js";
@@ -9,17 +7,22 @@ import type {Credentials} from "./credentials.js";
 const execFileAsync = promisify(execFile);
 
 export const OAUTH_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+export const OAUTH_POLL_INTERVAL_MS = 2000;
 export const OAUTH_TIMEOUT_ERROR = "oauth_timeout";
 export const OAUTH_DENIED_ERROR = "access_denied";
-
-export interface CallbackResult {
-    stateToken?: string;
-    error?: string;
-}
+export const OAUTH_PENDING_CODE = "PENDING";
 
 export interface OAuthLoginOptions {
     openBrowser?: (url: string) => Promise<void>;
-    callbackTimeoutMs?: number;
+    pollingTimeoutMs?: number;
+    pollIntervalMs?: number;
+}
+
+export interface OAuthStartResult {
+    code: string;
+    token: string;
+    expiresIn: number;
+    interval: number;
 }
 
 // ─── Browser opener ──────────────────────────────────────────────────────────
@@ -44,90 +47,18 @@ export async function openBrowser(url: string): Promise<void> {
     await execFileAsync(command, args);
 }
 
-// ─── Local callback server ───────────────────────────────────────────────────
-
-export function waitForOAuthCallback(
-    host = "127.0.0.1",
-    timeoutMs = OAUTH_TIMEOUT_MS,
-): Promise<{ port: number; result: Promise<CallbackResult> }> {
-    let resolveCallback!: (value: CallbackResult) => void;
-    const result = new Promise<CallbackResult>((resolve) => {
-        resolveCallback = resolve;
-    });
-
-    return new Promise((resolve, reject) => {
-        let timer: NodeJS.Timeout | undefined;
-
-        const cleanup = (server: Server) => {
-            if (timer) clearTimeout(timer);
-            server.close();
-        };
-
-        const server = createServer((req, res) => {
-            if (!req.url?.startsWith("/callback")) {
-                res.statusCode = 404;
-                res.end("Not found");
-                return;
-            }
-
-            const requestUrl = new URL(req.url, `http://${host}`);
-            const error = requestUrl.searchParams.get("error") ?? undefined;
-            const stateToken = requestUrl.searchParams.get("state_token") ?? undefined;
-
-            const message = error
-                ? `Authentication failed: ${error}.`
-                : !stateToken
-                    ? "Authentication failed: missing state token."
-                    : "Authentication successful.";
-            res.statusCode = 200;
-            res.setHeader("Content-Type", "text/plain; charset=utf-8");
-            res.setHeader("Connection", "close");
-            res.end(`${message} You can close this tab and return to the terminal.`);
-            cleanup(server);
-
-            if (error) {
-                resolveCallback({error});
-                return;
-            }
-            if (!stateToken) {
-                resolveCallback({error: "missing_state_token"});
-                return;
-            }
-            resolveCallback({stateToken});
-        });
-
-        server.once("error", reject);
-
-        server.listen(0, host, () => {
-            const address = server.address();
-            if (!address || typeof address === "string") {
-                reject(new Error("failed to bind local OAuth callback server"));
-                return;
-            }
-
-            timer = setTimeout(() => {
-                cleanup(server);
-                resolveCallback({error: OAUTH_TIMEOUT_ERROR});
-            }, timeoutMs);
-
-            resolve({port: address.port, result});
-        });
-    });
-}
-
 // ─── Consent URL builder ─────────────────────────────────────────────────────
 //
 // Points to the CawPlan web portal's /cli/auth page — NOT the BE API directly.
 // The portal page is already authenticated in the user's browser; it calls
-// POST /api/v1/cli/oauth/consent with the user's JWT, then redirects the browser
-// to the CLI localhost callback with the returned state_token.
+// POST /api/v1/cli/oauth/consent with the user's JWT and public code. The CLI
+// polls the public exchange endpoint with its private token until consent is complete.
 
-export function buildConsentUrl(redirectUri: string, state: string): string {
+export function buildConsentUrl(code: string): string {
     const portalBase = getPortalBase().replace(/\/$/, "");
     const params = new URLSearchParams({
         client: "cawplan-cli",
-        redirect_uri: redirectUri,
-        state,
+        code,
     });
     return `${portalBase}/cli/auth?${params.toString()}`;
 }
@@ -139,20 +70,10 @@ function responseMessage(body: Record<string, unknown>): string {
     return typeof message === "string" && message.trim() ? message : "unknown error";
 }
 
-export async function exchangeStateToken(stateToken: string): Promise<Credentials> {
-    const base = getBaseUrl().replace(/\/$/, "");
-    const url = `${base}/api/v1/cli/oauth/exchange`;
-
-    const res = await fetch(url, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({state_token: stateToken}),
-    });
-
-    const body = await res.json().catch(() => ({})) as Record<string, unknown>;
-
-    if (!res.ok) {
-        throw new Error(`Exchange failed (${res.status}): ${responseMessage(body)}`);
+function credentialsFromExchangeResponse(body: Record<string, unknown>): Credentials {
+    const code = body.code;
+    if (typeof code === "string" && code !== "SUCCESS") {
+        throw new Error(responseMessage(body));
     }
 
     const data = (body.data ?? {}) as Record<string, unknown>;
@@ -171,20 +92,102 @@ export async function exchangeStateToken(stateToken: string): Promise<Credential
     };
 }
 
+export async function startOAuthLogin(): Promise<OAuthStartResult> {
+    const base = getBaseUrl().replace(/\/$/, "");
+    const url = `${base}/api/v1/cli/oauth/start`;
+
+    const res = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({client: "cawplan-cli"}),
+    });
+    const responseBody = await res.json().catch(() => ({})) as Record<string, unknown>;
+
+    if (!res.ok) {
+        throw new Error(`OAuth start failed (${res.status}): ${responseMessage(responseBody)}`);
+    }
+    const code = responseBody.code;
+    if (typeof code === "string" && code !== "SUCCESS") {
+        throw new Error(`OAuth start failed: ${responseMessage(responseBody)}`);
+    }
+
+    const data = (responseBody.data ?? {}) as Record<string, unknown>;
+    const loginCode = data.code as string | undefined;
+    const token = data.token as string | undefined;
+    const expiresIn = data.expires_in as number | undefined;
+    const interval = data.interval as number | undefined;
+
+    if (!loginCode || !token) {
+        throw new Error("OAuth start response missing required code/token fields");
+    }
+
+    return {
+        code: loginCode,
+        token,
+        expiresIn: typeof expiresIn === "number" ? expiresIn : OAUTH_TIMEOUT_MS / 1000,
+        interval: typeof interval === "number" ? interval : OAUTH_POLL_INTERVAL_MS / 1000,
+    };
+}
+
+async function postExchange(body: Record<string, string>): Promise<Credentials | typeof OAUTH_PENDING_CODE> {
+    const base = getBaseUrl().replace(/\/$/, "");
+    const url = `${base}/api/v1/cli/oauth/exchange`;
+
+    const res = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+    });
+
+    const responseBody = await res.json().catch(() => ({})) as Record<string, unknown>;
+
+    if (!res.ok) {
+        throw new Error(`Exchange failed (${res.status}): ${responseMessage(responseBody)}`);
+    }
+
+    if (responseBody.code === OAUTH_PENDING_CODE) {
+        return OAUTH_PENDING_CODE;
+    }
+
+    try {
+        return credentialsFromExchangeResponse(responseBody);
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(`Exchange failed: ${msg}`);
+    }
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function pollOAuthExchange(
+    token: string,
+    timeoutMs = OAUTH_TIMEOUT_MS,
+    intervalMs = OAUTH_POLL_INTERVAL_MS,
+): Promise<Credentials> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const result = await postExchange({token});
+        if (result !== OAUTH_PENDING_CODE) {
+            return result;
+        }
+        await sleep(intervalMs);
+    }
+    throw new Error("Authentication timed out (5 minutes). Run: cawplan auth login");
+}
+
 // ─── Full login flow ──────────────────────────────────────────────────────────
 
 export async function runOAuthLogin(options?: OAuthLoginOptions): Promise<Credentials> {
-    const host = "127.0.0.1";
-    const {port, result} = await waitForOAuthCallback(host, options?.callbackTimeoutMs);
-
-    const redirectUri = `http://${host}:${port}/callback`;
-    const state = randomBytes(16).toString("hex");
-    const consentUrl = buildConsentUrl(redirectUri, state);
+    const login = await startOAuthLogin();
+    const consentUrl = buildConsentUrl(login.code);
 
     const open = options?.openBrowser ?? openBrowser;
 
     console.error(`Opening browser for authentication...`);
     console.error(`If the browser does not open, visit:\n  ${consentUrl}`);
+    console.error(`Waiting for browser authorization...`);
 
     try {
         await open(consentUrl);
@@ -192,17 +195,9 @@ export async function runOAuthLogin(options?: OAuthLoginOptions): Promise<Creden
         // Browser open failed — user can still visit the URL manually
     }
 
-    const callback = await result;
-
-    if (callback.error === OAUTH_DENIED_ERROR) {
-        throw new Error("Authentication was denied.");
-    }
-    if (callback.error === OAUTH_TIMEOUT_ERROR) {
-        throw new Error("Authentication timed out (5 minutes). Run: cawplan auth login");
-    }
-    if (callback.error || !callback.stateToken) {
-        throw new Error(`Authentication failed: ${callback.error ?? "missing state token"}`);
-    }
-
-    return exchangeStateToken(callback.stateToken);
+    return pollOAuthExchange(
+        login.token,
+        options?.pollingTimeoutMs ?? login.expiresIn * 1000,
+        options?.pollIntervalMs ?? login.interval * 1000,
+    );
 }
