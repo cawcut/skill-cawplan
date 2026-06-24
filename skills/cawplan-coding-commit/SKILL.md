@@ -47,7 +47,7 @@ When running this command from Cursor agent tools, request full network access (
 
 During collection, `cawplan ai-session collect` may ask the user to assign each session to a CawPlan product and repository using existing product-repo mappings. If no mapping exists, the user can link a GitHub repository URL in the required format `https://github.com/owner/repo`.
 
-In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, complete missing assignments in chat using **Chat-based product/repo assignment** below before reviewing/uploading.
+In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, complete missing assignments using **Product/repo assignment options** below before reviewing/uploading.
 
 **Step 2 — Review the report with the user:**
 
@@ -83,7 +83,7 @@ Present the full review described in **Review content contract**. Do not show on
 
 Collection may include interactive product/repo assignment prompts. If prompted, use the user's selections; do not fabricate product or repository mappings.
 
-In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, complete missing assignments in chat using **Chat-based product/repo assignment** below before reviewing.
+In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, complete missing assignments using **Product/repo assignment options** below before reviewing.
 
 ### Mode 3: Upload pre-existing file(s)
 
@@ -94,7 +94,7 @@ Always inspect and summarize before uploading. Do not wait for a second confirma
 **Step 1 — Inspect each file:**
 - Confirm the file exists and contains `author` and `date`.
 - Present the full review described in **Review content contract** for each report file.
-- If any important `sessions[]` entry lacks `product_id`, complete **Chat-based product/repo assignment** before uploading.
+- If any important `sessions[]` entry lacks `product_id`, complete **Product/repo assignment options** before uploading.
 - Preserve raw `human_inputs`; never rewrite the JSON just to summarize it.
 
 **Step 2 — Upload each file sequentially:**
@@ -118,38 +118,14 @@ Before asking for upload confirmation, include these sections:
 
 Use a compact table for numbers if useful, but always include the narrative summary and session review text.
 
-## Chat-based product/repo assignment
+## Product/repo assignment options
 
 Use this flow after collection when any important `sessions[]` entry lacks `product_id`.
 
-There are three supported ways to complete missing assignment. First ask the user to choose Option A, Option B, or Option C; do not choose on their behalf.
+There are two supported ways to complete missing assignment. First ask the user to choose Option A or Option B; do not choose on their behalf.
 
-- **Option A — Chat-directed assignment:** Use when the user chooses to complete assignment in the current chat. Query products/mappings, ask the user, then write the exact assignment with `cawplan ai-session assign --file ... --session-id ...`.
-- **Option B — TTY selector assignment:** Use when the user chooses to complete assignment in their own terminal with the CLI's native selector. Tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --tty`; do not run this command from the agent shell. Always provide an absolute report file path so the command works from any current directory. This calls the same cloud-mapping assignment flow used by collection and writes the updated file.
-- **Option C — Local Web assignment:** Use when the agent shell has no TTY, the report has many sessions, or the user wants a visual table. Tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --web` in their own terminal, then open the printed `127.0.0.1` URL. The page shows `session / product / repo`, supports product-only assignment, and can link a new GitHub repository URL in the format `https://github.com/owner/repo`.
-
-For Option A:
-
-1. Inspect the report and list unassigned sessions with `session_id`, `session_name`, `session_title`, `project`, and touched repos.
-2. Query products and mappings in chat:
-   ```bash
-   cawplan ai-session products
-   cawplan ai-session product-repos
-   ```
-3. Ask the user which product and repo should be used. Do not guess missing mappings beyond existing cloud mappings.
-4. If the user selects an existing mapping, write it back:
-   ```bash
-   cawplan ai-session assign --file <ai-daily-file> --session-id <session-id> --product-id <product-id> --repo-name <repo-name>
-   ```
-5. If the user chooses product-only assignment, write it back:
-   ```bash
-   cawplan ai-session assign --file <ai-daily-file> --session-id <session-id> --product-id <product-id>
-   ```
-6. If no mapping exists and the user wants to link a repository, first show the exact product and GitHub repository URL, then wait for explicit confirmation. After confirmation, run:
-   ```bash
-   cawplan ai-session assign --file <ai-daily-file> --session-id <session-id> --product-id <product-id> --repo-url https://github.com/owner/repo --create-mapping
-   ```
-7. Re-read the report after assignment and include updated product/repo status in the review.
+- **Option A — TTY selector assignment:** Use when the user chooses to complete assignment in their own terminal with the CLI's native selector. Tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --tty`; do not run this command from the agent shell. Always provide an absolute report file path so the command works from any current directory. This calls the same cloud-mapping assignment flow used by collection and writes the updated file.
+- **Option B — Local Web assignment:** Use when the agent shell has no TTY, the report has many sessions, or the user wants a visual table. Tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --web` in their own terminal, then open the printed `127.0.0.1` URL. The page shows `session / product / repo`, supports product-only assignment, and can link a new GitHub repository URL in the format `https://github.com/owner/repo`.
 
 ## Rules
 
@@ -157,9 +133,9 @@ For Option A:
 - Do not fabricate session data. Only report what the agents produce locally.
 - When running `cawplan ai-session collect` from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) so Cursor Dashboard token/cost data can be fetched from `cursor.com`.
 - If product/repo assignment prompts appear during collection, only use explicit user selections or existing mappings.
-- If product/repo assignment is skipped in Cursor because the agent shell is non-interactive, ask the user to choose Option A, Option B, or Option C. For Option A, keep the user in chat and use unfiltered `cawplan ai-session products`, unfiltered `cawplan ai-session product-repos`, and `cawplan ai-session assign` to complete assignment. For Option B, tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --tty` in their own terminal, using the report's absolute path. For Option C, tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --web` and open the printed local URL.
+- If product/repo assignment is skipped in Cursor because the agent shell is non-interactive, ask the user to choose Option A or Option B. For Option A, tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --tty` in their own terminal, using the report's absolute path. For Option B, tell the user to run `cawplan ai-session assign --file <absolute-ai-daily-file> --web` and open the printed local URL.
 - GitHub repository URLs used to create mappings must be in the format `https://github.com/owner/repo`.
-- Never create a new product-repo mapping unless the user explicitly confirms the exact product and GitHub repository URL in chat.
+- Never create a new product-repo mapping unless the user explicitly selects or confirms the exact product and GitHub repository URL.
 - If `--file` is used, the file must contain `author` (git username) and `date` (YYYY-MM-DD) fields.
 - Preserve raw fields in `human_inputs` (for example `start_time`, `end_time`, `files_changed`, `lines_added`, `lines_deleted`).
 - Never replace raw `human_inputs` with summarized content.

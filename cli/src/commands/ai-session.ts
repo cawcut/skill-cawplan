@@ -362,6 +362,8 @@ function localAssignmentHtml(): string {
     input, select { width: 100%; box-sizing: border-box; }
     .session-title { font-weight: 600; }
     .session-meta { color: #777; font-size: 12px; margin-top: 4px; }
+    .repo-url { margin-top: 8px; }
+    .hidden { display: none; }
     .actions { margin-top: 16px; display: flex; gap: 8px; align-items: center; }
     .status { color: #777; }
   </style>
@@ -447,6 +449,13 @@ function localAssignmentHtml(): string {
       return mapping ? mapping.repo_name : '';
     }
 
+    function updateRepoUrlInput(row) {
+      const repo = row.querySelector('.repo');
+      const repoUrl = row.querySelector('.repo-url');
+      repoUrl.classList.toggle('hidden', repo.value !== '__link__');
+      repoUrl.required = repo.value === '__link__';
+    }
+
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
@@ -464,7 +473,8 @@ function localAssignmentHtml(): string {
           '<td><div class="session-title">' + escapeHtml(title) + '</div>' +
           '<div class="session-meta">' + escapeHtml([s.agent, s.time_range && s.time_range.display, s.project].filter(Boolean).join(' | ')) + '</div></td>' +
           '<td><input class="product" list="product-list" value="' + escapeHtml(productValue) + '" placeholder="Search product" /></td>' +
-          '<td><select class="repo">' + repoOptions(s.product_id, selectedRepo) + '</select></td>' +
+          '<td><select class="repo">' + repoOptions(s.product_id, selectedRepo) + '</select>' +
+          '<input class="repo-url hidden" type="url" placeholder="https://github.com/owner/repo" pattern="https://github\\.com/[^/]+/[^/]+" /></td>' +
           '</tr>';
       }).join('');
       document.querySelectorAll('.product').forEach((el) => {
@@ -476,7 +486,13 @@ function localAssignmentHtml(): string {
           session.product_id = product ? product.product_id : undefined;
           session.product_name = product ? product.product_name : undefined;
           repo.innerHTML = repoOptions(session.product_id, session.project);
+          updateRepoUrlInput(tr);
         });
+      });
+      document.querySelectorAll('.repo').forEach((el) => {
+        const tr = el.closest('tr');
+        updateRepoUrlInput(tr);
+        el.addEventListener('change', () => updateRepoUrlInput(tr));
       });
     }
 
@@ -502,8 +518,10 @@ function localAssignmentHtml(): string {
         const repoValue = tr.querySelector('.repo').value;
         let repoUrl;
         if (repoValue === '__link__') {
-          repoUrl = prompt('GitHub repository URL (https://github.com/owner/repo)');
-          if (!repoUrl) continue;
+          repoUrl = tr.querySelector('.repo-url').value.trim();
+          if (!repoUrl) {
+            throw new Error('GitHub repository URL is required when linking a repository.');
+          }
         }
         const mapping = mappings.find((m) => m.product_id === product.product_id && m.repo_name === repoValue);
         assignments.push({
