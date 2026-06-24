@@ -101,6 +101,11 @@ interface UserListItem {
 
 type DailySession = DailyApiJson["sessions"][number];
 
+interface AssignmentReport {
+    file: string;
+    daily: DailyApiJson;
+}
+
 const localAssignmentHost = "127.0.0.1";
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -309,18 +314,6 @@ function findMappingForProject(project: string, mappings: ProductRepoMapping[]):
     return mappings.find((mapping) => repoKeys(mapping.repo_name).some((key) => keys.has(key)));
 }
 
-function findMappingForProductRepo(
-    productId: string,
-    repoName: string,
-    mappings: ProductRepoMapping[]
-): ProductRepoMapping | undefined {
-    const keys = new Set(repoKeys(repoName));
-    return mappings.find((mapping) =>
-        mapping.product_id === productId &&
-        repoKeys(mapping.repo_name).some((key) => keys.has(key))
-    );
-}
-
 function readDailyReport(path: string): DailyApiJson {
     try {
         const daily = JSON.parse(readFileSync(path, "utf-8")) as DailyApiJson;
@@ -333,16 +326,29 @@ function readDailyReport(path: string): DailyApiJson {
     }
 }
 
+function readDailyReports(files: string[]): AssignmentReport[] {
+    const uniqueFiles = [...new Set(files.map((file) => file.trim()).filter(Boolean))];
+    if (uniqueFiles.length === 0) {
+        throw new Error("--files requires at least one ai-daily JSON path");
+    }
+    return uniqueFiles.map((file) => ({
+        file,
+        daily: readDailyReport(file),
+    }));
+}
+
+function assignmentReportPayload(report: AssignmentReport): Record<string, unknown> {
+    return {
+        file: report.file,
+        date: report.daily.date,
+        report: report.daily,
+    };
+}
+
 function findSessionById(daily: DailyApiJson, sessionId: string): DailySession {
     const session = daily.sessions.find((s) => s.session_id === sessionId);
     if (!session) throw new Error(`session not found: ${sessionId}`);
     return session;
-}
-
-function findProductById(products: ProductChoice[], productId: string): ProductChoice {
-    const product = products.find((p) => p.product_id === productId);
-    if (!product) throw new Error(`product not found: ${productId}`);
-    return product;
 }
 
 function missingProductSessionLabels(daily: DailyApiJson): string[] {
@@ -363,7 +369,9 @@ function warnMissingProductAssignment(file: string, daily: DailyApiJson): boolea
     console.error(
         `Product assignment is incomplete for ${missing.length} session(s) in ${file}: ${missing.join(", ")}`
     );
-    console.error(`Please complete product assignment before uploading: cawplan ai-session assign --file ${file} --web`);
+    console.error("Please complete product assignment before uploading.");
+    console.error(`Batch multiple reports: cawplan ai-session assign --web --files ${file}`);
+    console.error(`Single-file web fallback: cawplan ai-session assign --file ${file} --web`);
     console.error(`TTY alternative: cawplan ai-session assign --file ${file} --tty`);
     return true;
 }
@@ -544,7 +552,8 @@ function localAssignmentHtml(): string {
       return data;
     });
 
-    let report;
+    let batch = false;
+    let reports = [];
     let products = [];
     let mappings = [];
 
@@ -631,8 +640,12 @@ function localAssignmentHtml(): string {
     function updateRepoUrlInput(row) {
       const repo = row.querySelector('.repo');
       const repoUrl = row.querySelector('.repo-url');
-      repoUrl.classList.toggle('hidden', repo.value !== '__link__');
-      repoUrl.required = repo.value === '__link__';
+      const product = findProduct(row.querySelector('.product').value);
+      const productSelected = Boolean(product);
+      repo.disabled = !productSelected;
+      repoUrl.disabled = !productSelected || repo.value !== '__link__';
+      repoUrl.classList.toggle('hidden', !productSelected || repo.value !== '__link__');
+      repoUrl.required = productSelected && repo.value === '__link__';
     }
 
     function refreshRepoOptionsForProduct(productId) {
@@ -668,7 +681,7 @@ function localAssignmentHtml(): string {
     }
 
     function validateProducts() {
-      const rows = Array.from(document.querySelectorAll('tbody tr'));
+      const rows = Array.from(document.querySelectorAll('tbody tr')).filter((row) => row.querySelector('.product'));
       const invalid = rows.filter((row) => !validateProductRow(row));
       if (invalid.length > 0) {
         invalid[0].querySelector('.product').reportValidity();
@@ -686,7 +699,12 @@ function localAssignmentHtml(): string {
       return input && (input.content || input.raw_block || input.topic || '');
     }
 
-    function humanInputsForSession(session) {
+    function truncateHumanInput(input) {
+      const text = String(input || '');
+      return text.length > 200 ? text.slice(0, 200) + '...' : text;
+    }
+
+    function humanInputsForSession(session, report) {
       const direct = Array.isArray(session.human_inputs) ? session.human_inputs : [];
       const all = Array.isArray(report.human_inputs) ? report.human_inputs : [];
       const sessionTitles = new Set([session.session_title, session.session_name, session.title, session.session_id].filter(Boolean));
@@ -703,10 +721,10 @@ function localAssignmentHtml(): string {
       return direct.length > 0 ? direct : matched;
     }
 
-    function humanInputsHtml(session) {
-      const inputs = humanInputsForSession(session).map(humanInputContent).filter(Boolean).slice(0, 3);
+    function humanInputsHtml(session, report) {
+      const inputs = humanInputsForSession(session, report).map(humanInputContent).filter(Boolean).slice(0, 3);
       if (inputs.length === 0) return '<span class="muted">No human inputs</span>';
-      return '<ol class="human-inputs">' + inputs.map((input) => '<li>' + escapeHtml(input) + '</li>').join('') + '</ol>';
+      return '<ol class="human-inputs">' + inputs.map((input) => '<li>' + escapeHtml(truncateHumanInput(input)) + '</li>').join('') + '</ol>';
     }
 
     function sessionStartMs(session) {
@@ -726,35 +744,54 @@ function localAssignmentHtml(): string {
       return cost > 0 ? '$' + cost.toFixed(2) : 'Cost unknown';
     }
 
+    function rowEntries() {
+      return reports.flatMap((entry) => {
+        const sessions = [...entry.report.sessions].sort((a, b) => sessionStartMs(a) - sessionStartMs(b));
+        return sessions
+          .filter((session) => !batch || !session.product_id)
+          .map((session) => ({...entry, session}));
+      });
+    }
+
+    function entryForRow(row) {
+      return reports.find((entry) => entry.file === row.dataset.file);
+    }
+
     function render() {
       const productList = document.getElementById('product-list');
       productList.innerHTML = products.map((p) => '<option value="' + escapeHtml(p.product_name) + '"></option>').join('');
       const tbody = document.getElementById('rows');
-      const sessions = [...report.sessions].sort((a, b) => sessionStartMs(a) - sessionStartMs(b));
-      tbody.innerHTML = sessions.map((s) => {
+      const entries = rowEntries();
+      if (entries.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4"><span class="muted">No sessions need product assignment.</span></td></tr>';
+      } else {
+      tbody.innerHTML = entries.map(({file, date, report, session: s}) => {
         const title = s.session_title || s.session_name || s.session_id;
         const currentProduct = products.find((p) => p.product_id === s.product_id);
         const productValue = currentProduct ? currentProduct.product_name : (s.product_name || '');
         const selectedRepo = selectedRepoForSession(s);
-        return '<tr data-session-id="' + escapeHtml(s.session_id) + '">' +
+        return '<tr data-file="' + escapeHtml(file) + '" data-session-id="' + escapeHtml(s.session_id) + '">' +
           '<td><div class="session-title">' + escapeHtml(title) + '</div>' +
-          '<div class="session-meta">' + escapeHtml([s.agent, s.time_range && s.time_range.display, sessionCostText(s), s.project].filter(Boolean).join(' | ')) + '</div></td>' +
-          '<td>' + humanInputsHtml(s) + '</td>' +
+          '<div class="session-meta">' + escapeHtml([batch ? date : '', s.agent, s.time_range && s.time_range.display, sessionCostText(s), s.project].filter(Boolean).join(' | ')) + '</div></td>' +
+          '<td>' + humanInputsHtml(s, report) + '</td>' +
           '<td><input class="product" list="product-list" value="' + escapeHtml(productValue) + '" placeholder="Search product" required />' +
           '<div class="product-error field-error"></div></td>' +
           '<td><select class="repo">' + repoOptions(s.product_id, selectedRepo) + '</select>' +
           '<input class="repo-url hidden" type="url" placeholder="https://github.com/owner/repo" pattern="https://github\\.com/[^/]+/[^/]+" /></td>' +
           '</tr>';
       }).join('');
+      }
       document.querySelectorAll('.product').forEach((el) => {
         el.addEventListener('change', () => {
           const tr = el.closest('tr');
-          const session = report.sessions.find((s) => s.session_id === tr.dataset.sessionId);
+          const entry = entryForRow(tr);
+          const session = entry && entry.report.sessions.find((s) => s.session_id === tr.dataset.sessionId);
+          if (!session) return;
           const product = findProduct(el.value);
           const repo = tr.querySelector('.repo');
           session.product_id = product ? product.product_id : undefined;
           session.product_name = product ? product.product_name : undefined;
-          repo.innerHTML = repoOptions(session.product_id, session.project);
+          repo.innerHTML = product ? repoOptions(session.product_id, session.project) : repoOptions('', '');
           updateRepoUrlInput(tr);
           validateProductRow(tr);
         });
@@ -777,11 +814,14 @@ function localAssignmentHtml(): string {
         api('/api/products'),
         api('/api/product-repos'),
       ]);
-      report = reportData.report;
+      batch = Boolean(reportData.batch);
+      reports = Array.isArray(reportData.reports)
+        ? reportData.reports
+        : [{file: reportData.file || '', date: reportData.report.date, report: reportData.report}];
       products = normalizeProducts(productData.products || []);
       mappings = mappingData.mappings || [];
       render();
-      document.getElementById('status').textContent = 'Ready';
+      document.getElementById('status').textContent = batch ? 'Ready: ' + reports.length + ' report(s)' : 'Ready';
     }
 
     async function save() {
@@ -817,6 +857,7 @@ function localAssignmentHtml(): string {
         const createMapping = Boolean(createKey && !pendingMappingsToCreate.has(createKey));
         if (createMapping) pendingMappingsToCreate.add(createKey);
         assignments.push({
+          file: tr.dataset.file,
           session_id: sessionId,
           product_id: product.product_id,
           product_name: product.product_name,
@@ -828,7 +869,7 @@ function localAssignmentHtml(): string {
       document.getElementById('status').textContent = 'Saving...';
       const result = await api('/api/assignments', {method: 'POST', body: JSON.stringify({assignments})});
       document.getElementById('status').textContent = 'Saved ' + result.assigned_sessions + ' session(s). Closing server...';
-      alert('Saved assignments to ' + result.file);
+      alert('Saved assignments to ' + (result.files || [result.file]).join(', '));
       await api('/api/close', {method: 'POST'});
       window.close();
     }
@@ -842,6 +883,7 @@ function localAssignmentHtml(): string {
 }
 
 interface WebAssignment {
+    file?: string;
     session_id?: string;
     product_id?: string;
     product_name?: string;
@@ -881,6 +923,37 @@ async function applyWebAssignments(
         assigned++;
     }
     return assigned;
+}
+
+async function applyBatchWebAssignments(
+    reports: AssignmentReport[],
+    assignments: WebAssignment[]
+): Promise<{ assignedSessions: number; files: string[] }> {
+    let assignedSessions = 0;
+    const savedFiles: string[] = [];
+    for (const report of reports) {
+        const fileAssignments = assignments.filter((assignment) => assignment.file === report.file);
+        if (fileAssignments.length > 0) {
+            assignedSessions += await applyWebAssignments(report.daily, fileAssignments);
+        }
+        assertAllSessionsHaveProduct(report.daily);
+        writeFileSync(report.file, JSON.stringify(report.daily, null, 2), "utf-8");
+        savedFiles.push(report.file);
+    }
+    return {assignedSessions, files: savedFiles};
+}
+
+async function assignReportsFromTty(reports: AssignmentReport[]): Promise<{ assignedSessions: number; files: string[] }> {
+    let assignedSessions = 0;
+    const files: string[] = [];
+    for (const report of reports) {
+        console.error(`Assigning products for ${report.file}...`);
+        assignedSessions += await assignProjectsFromCloudMappings(report.daily);
+        assertAllSessionsHaveProduct(report.daily);
+        writeFileSync(report.file, JSON.stringify(report.daily, null, 2), "utf-8");
+        files.push(report.file);
+    }
+    return {assignedSessions, files};
 }
 
 async function uploadDailyReport(payload: DailyApiJson): Promise<unknown> {
@@ -1026,7 +1099,7 @@ async function backfillMissingMonthlyReports(anchorPayload: DailyApiJson): Promi
     };
 }
 
-async function startAssignmentWebServer(filePath: string, daily: DailyApiJson): Promise<void> {
+async function startAssignmentWebServer(reports: AssignmentReport[], batchMode = false): Promise<void> {
     const token = randomBytes(16).toString("hex");
     let closed = false;
 
@@ -1045,7 +1118,17 @@ async function startAssignmentWebServer(filePath: string, daily: DailyApiJson): 
                 }
 
                 if (req.method === "GET" && url.pathname === "/api/report") {
-                    sendJson(res, 200, {report: daily});
+                    if (batchMode) {
+                        sendJson(res, 200, {
+                            batch: true,
+                            reports: reports.map(assignmentReportPayload),
+                        });
+                    } else {
+                        sendJson(res, 200, {
+                            batch: false,
+                            ...assignmentReportPayload(reports[0]),
+                        });
+                    }
                     return;
                 }
 
@@ -1079,12 +1162,16 @@ async function startAssignmentWebServer(filePath: string, daily: DailyApiJson): 
                 if (req.method === "POST" && url.pathname === "/api/assignments") {
                     const body = await readJsonBody<{ assignments?: WebAssignment[] }>(req);
                     if (!Array.isArray(body.assignments)) throw new Error("assignments must be an array");
-                    const assignedSessions = await applyWebAssignments(daily, body.assignments);
-                    assertAllSessionsHaveProduct(daily);
-                    writeFileSync(filePath, JSON.stringify(daily, null, 2), "utf-8");
+                    const result = batchMode
+                        ? await applyBatchWebAssignments(reports, body.assignments)
+                        : await applyBatchWebAssignments(reports, body.assignments.map((assignment) => ({
+                            ...assignment,
+                            file: reports[0].file,
+                        })));
                     sendJson(res, 200, {
-                        file: filePath,
-                        assigned_sessions: assignedSessions,
+                        file: result.files[0],
+                        files: result.files,
+                        assigned_sessions: result.assignedSessions,
                     });
                     return;
                 }
@@ -1349,19 +1436,32 @@ export function registerAiSessionCommand(program: Command): void {
 
     ai.command("assign")
         .description("Assign report sessions to products and optional repositories")
-        .requiredOption("--file <path>", "Path to ai-daily JSON file")
-        .option("--session-id <id>", "Session ID to assign")
-        .option("--product-id <id>", "Product unique_id")
-        .option("--repo-name <name>", "Existing product-repo repo_name to assign")
-        .option("--repo-url <url>", "GitHub repository URL to create and assign")
-        .option("--create-mapping", "Create product-repo mapping from --repo-url before assigning")
+        .option("--file <path>", "Path to ai-daily JSON file")
+        .option("--files <path>", "Batch assign ai-daily JSON file paths with --web or --tty (repeatable)", (val: string, prev: string[]) => [...prev, val], [] as string[])
         .option("--tty", "Assign sessions using cloud mappings and interactive selector when available")
         .option("--web", "Assign sessions in a local web page")
         .action(async (opts) => {
             try {
+                if (Array.isArray(opts.files) && opts.files.length > 0) {
+                    const reports = readDailyReports(opts.files.map(String));
+                    if (opts.web) {
+                        await startAssignmentWebServer(reports, true);
+                        return;
+                    }
+                    if (opts.tty) {
+                        const result = await assignReportsFromTty(reports);
+                        console.log(JSON.stringify({
+                            files: result.files,
+                            assigned_sessions: result.assignedSessions,
+                        }, null, 2));
+                        return;
+                    }
+                    throw new Error("--files requires --web or --tty");
+                }
+                if (!opts.file) throw new Error("--file is required unless --files is set");
                 const daily = readDailyReport(String(opts.file));
                 if (opts.web) {
-                    await startAssignmentWebServer(String(opts.file), daily);
+                    await startAssignmentWebServer([{file: String(opts.file), daily}]);
                     return;
                 }
 
@@ -1376,52 +1476,7 @@ export function registerAiSessionCommand(program: Command): void {
                     return;
                 }
 
-                if (!opts.sessionId) throw new Error("--session-id is required unless --tty or --web is set");
-                if (!opts.productId) throw new Error("--product-id is required unless --tty or --web is set");
-                const session = findSessionById(daily, String(opts.sessionId));
-                const products = await listProductsForSelector();
-                const product = findProductById(products, String(opts.productId));
-                const mappings = await listProductRepoMappings();
-
-                let mapping: ProductRepoMapping = {
-                    product_id: product.product_id,
-                    product_name: product.product_name,
-                };
-                let createdMapping = false;
-
-                if (opts.repoUrl) {
-                    if (!opts.createMapping) {
-                        throw new Error("--repo-url requires --create-mapping so mapping creation is explicit");
-                    }
-                    mapping = {
-                        ...(await createProductRepoMapping({
-                            productId: product.product_id,
-                            repoUrl: String(opts.repoUrl),
-                        })),
-                        product_name: product.product_name,
-                    };
-                    createdMapping = true;
-                } else if (opts.repoName) {
-                    const existing = findMappingForProductRepo(product.product_id, String(opts.repoName), mappings);
-                    if (!existing) {
-                        throw new Error(`product-repo mapping not found for product ${product.product_id} and repo ${opts.repoName}`);
-                    }
-                    mapping = existing;
-                }
-
-                const assignedSessions = applyProductRepoMappingToProject(daily, session, mapping);
-                writeFileSync(String(opts.file), JSON.stringify(daily, null, 2), "utf-8");
-                console.log(JSON.stringify({
-                    file: String(opts.file),
-                    session_id: session.session_id,
-                    session_name: session.session_name,
-                    product_id: session.product_id,
-                    product_name: session.product_name,
-                    repo_name: mapping.repo_name,
-                    repo_url: mapping.repo_url,
-                    created_mapping: createdMapping,
-                    assigned_sessions: assignedSessions,
-                }, null, 2));
+                throw new Error("assign requires --web or --tty");
             } catch (e) {
                 console.error(`Error: ${(e as Error).message}`);
                 process.exit(1);
