@@ -13,8 +13,8 @@ allowed-tools: Bash
 ## Bootstrap
 
 ```bash
-command -v cawplan >/dev/null || { echo "cawplan is not installed. Run: npm install -g cawplan@0.0.3"; exit 1; }
-[ "$(cawplan --version)" = "0.0.3" ] || { echo "cawplan 0.0.3 is required. Run: npm install -g cawplan@0.0.3"; exit 1; }
+command -v cawplan >/dev/null || { echo "cawplan is not installed. Run: npm install -g cawplan@0.0.4"; exit 1; }
+[ "$(cawplan --version)" = "0.0.4" ] || { echo "cawplan 0.0.4 is required. Run: npm install -g cawplan@0.0.4"; exit 1; }
 cawplan auth status >/dev/null || { echo "Not authenticated. Run: cawplan auth login"; exit 1; }
 git rev-parse --show-toplevel >/dev/null || { echo "Run /cawplan-coding-init inside a git repository."; exit 1; }
 ```
