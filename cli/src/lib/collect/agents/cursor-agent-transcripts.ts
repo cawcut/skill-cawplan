@@ -82,11 +82,6 @@ function extractText(content: TranscriptEvent["message"]): string {
     .trim();
 }
 
-function countToolCalls(content: TranscriptEvent["message"]): number {
-  if (!content?.content) return 0;
-  return content.content.filter((block) => block.type === "tool_use").length;
-}
-
 function extractToolCalls(content: TranscriptEvent["message"]): ToolCall[] {
   if (!content?.content) return [];
   return content.content

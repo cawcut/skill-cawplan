@@ -157,37 +157,11 @@ function costBasis(session: SessionData): string {
     return "unknown";
 }
 
-function projectBasename(value?: string | null): string {
-    const raw = (value ?? "").trim();
-    if (!raw) return "";
-    const parts = raw.split(/[\\/]/).filter(Boolean);
-    return parts.length > 0 ? parts[parts.length - 1] ?? raw : raw;
-}
-
-function isEncodedCursorProject(value: string): boolean {
-    return value.startsWith("Users-") || value.includes("-code-");
-}
-
-function readableEncodedCursorProject(value: string): string {
-    const marker = "-code-";
-    const idx = value.lastIndexOf(marker);
-    return idx >= 0 ? value.slice(idx + marker.length) : value;
-}
-
-function sessionProjectName(session: SessionData): string {
-    const repoName = projectBasename(session.repos_touched[0]?.repo);
-    if (repoName) return repoName;
-    const cwdName = projectBasename(session.cwd);
-    if (cwdName) return cwdName;
-    const project = normalizeProjectName(session.project);
-    return isEncodedCursorProject(project) ? readableEncodedCursorProject(project) : project;
-}
-
 function normalizeProjectName(project: string): string {
     const p = (project ?? "").trim();
     if (!p) return "";
     const parts = p.split("/").filter(Boolean);
-    return parts.length > 0 ? parts[parts.length - 1] ?? p : p;
+    return parts.length > 0 ? parts[parts.length - 1] : p;
 }
 
 function pickSessionModel(session: SessionData): string {
@@ -195,7 +169,7 @@ function pickSessionModel(session: SessionData): string {
         return session.usage_breakdown[0].model;
     }
     const models = Object.keys(session.model_usage ?? {});
-    return models.length > 0 ? models[0] ?? "" : "";
+    return models.length > 0 ? models[0] : "";
 }
 
 function nonEmpty(value?: string | null): string | undefined {
@@ -226,7 +200,6 @@ function isHumanInputOnDate(
 }
 
 function enrichSessionHumanInputs(session: SessionData, targetDate: string) {
-    const project = sessionProjectName(session);
     const stableSessionTitle = session.session_title ?? session.title ?? session.session_name;
     return (session.human_inputs ?? [])
         .filter((h) => isHumanInputOnDate(h, targetDate))
@@ -244,11 +217,12 @@ function enrichSessionHumanInputs(session: SessionData, targetDate: string) {
             return {
                 ...h,
                 ...topicDetails,
+                session_id: session.session_id,
                 session_title: h.session_title ?? stableSessionTitle,
                 session_agent: h.session_agent ?? agentDisplay(session),
                 session_time: nonEmpty(h.session_time ?? h.start_time),
                 session_model: h.session_model ?? pickSessionModel(session),
-                project,
+                project: h.project ?? normalizeProjectName(session.project),
                 files_changed: h.files_changed ?? 0,
                 lines_added: h.lines_added ?? 0,
                 lines_deleted: h.lines_deleted ?? 0,
@@ -274,58 +248,6 @@ export function buildDailyApiJson(
         currency: string;
     }
 ): DailyApiJson {
-    const normalizeProjectName = (project: string): string => {
-        const p = (project ?? "").trim();
-        if (!p) return "";
-        const parts = p.split("/").filter(Boolean);
-        return parts.length > 0 ? parts[parts.length - 1] : p;
-    };
-
-    const pickSessionModel = (session: SessionData): string => {
-        if (session.usage_breakdown.length > 0 && session.usage_breakdown[0].model) {
-            return session.usage_breakdown[0].model;
-        }
-        const models = Object.keys(session.model_usage ?? {});
-        return models.length > 0 ? models[0] : "";
-    };
-
-    const nonEmpty = (v?: string | null): string | undefined => {
-        const t = (v ?? "").trim();
-        return t.length > 0 ? t : undefined;
-    };
-
-    const enrichSessionHumanInputs = (session: SessionData) => {
-        const stableSessionTitle = session.session_title ?? session.title ?? session.session_name;
-        return (session.human_inputs ?? [])
-            .filter((h) => isHumanInputOnDate(h, date))
-            .map((h) => {
-                const topicDetails = inferHumanInputTopicDetails({
-                    content: h.content,
-                    category: h.category,
-                    sessionTitle: stableSessionTitle,
-                    topic: h.topic,
-                    topic_source: h.topic_source,
-                    topic_confidence: h.topic_confidence,
-                    topic_reason: h.topic_reason,
-                    raw_block: h.raw_block,
-                });
-                return {
-                    ...h,
-                    ...topicDetails,
-                    session_title: h.session_title ?? stableSessionTitle,
-                    session_agent: h.session_agent ?? session.agent,
-                    session_time: nonEmpty(h.session_time ?? h.start_time),
-                    session_model: h.session_model ?? pickSessionModel(session),
-                    project: h.project ?? normalizeProjectName(session.project),
-                    files_changed: h.files_changed ?? 0,
-                    lines_added: h.lines_added ?? 0,
-                    lines_deleted: h.lines_deleted ?? 0,
-                    start_time: nonEmpty(h.start_time ?? h.session_time),
-                    end_time: nonEmpty(h.end_time ?? h.start_time ?? h.session_time),
-                };
-            });
-    };
-
 
     // 1. Merge all session usage_breakdown buckets
     let allBuckets: Record<string, UsageBucket> = {};
@@ -429,7 +351,7 @@ export function buildDailyApiJson(
         ),
         sessions: sessions.map((session) => {
             const { human_inputs: _humanInputs, title: _legacyTitle, ...sessionRest } = session;
-            const enrichedHumanInputs = enrichSessionHumanInputs(session);
+            const enrichedHumanInputs = enrichSessionHumanInputs(session, date);
             return {
                 ...sessionRest,
                 source: session.source ?? sessionSource(session),
@@ -443,6 +365,6 @@ export function buildDailyApiJson(
             };
         }),
         repos: allRepos,
-        human_inputs: sessions.flatMap((s) => enrichSessionHumanInputs(s)),
+        human_inputs: sessions.flatMap((s) => enrichSessionHumanInputs(s, date)),
     };
 }
