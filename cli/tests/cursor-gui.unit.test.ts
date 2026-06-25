@@ -10,6 +10,7 @@ import {
   matchUserBubble,
   normalizeBubbleMatchText,
   parseGuiSessionTranscript,
+  resolveUserBubbleTimes,
 } from "../src/lib/collect/agents/cursor-gui.js";
 import { enrichCursorGuiFallbackContext } from "../src/lib/collect/index.js";
 import * as paths from "../src/lib/collect/paths.js";
@@ -447,5 +448,39 @@ describe("cursor-gui mtime fallback", () => {
     expect(june25.humanInputs.some((h) => h.content.includes("afternoon prompt today"))).toBe(true);
 
     db.close();
+  });
+
+  test("resolveUserBubbleTimes keeps mid-session backdated prompts off session creation day", () => {
+    const sessionCreatedAtMs = new Date("2026-06-23T10:12:16.177Z").getTime();
+    const userBubbles = [
+      {
+        createdAt: new Date("2026-06-25T01:58:08.197Z"),
+        text: "early prompt",
+        normalized: normalizeBubbleMatchText("early prompt"),
+      },
+      {
+        createdAt: new Date("2026-06-25T01:58:08.203Z"),
+        text: "agent logs from next day",
+        normalized: normalizeBubbleMatchText("agent logs from next day"),
+      },
+      {
+        createdAt: new Date("2026-06-25T12:14:35.171Z"),
+        text: "afternoon prompt",
+        normalized: normalizeBubbleMatchText("afternoon prompt"),
+      },
+    ];
+    const backdate = new Set([0, 1]);
+    const pairs = [
+      { bubbleIndex: 0, transcriptIndex: 0 },
+      { bubbleIndex: 1, transcriptIndex: 28 },
+      { bubbleIndex: 2, transcriptIndex: 90 },
+    ];
+    const resolved = resolveUserBubbleTimes(userBubbles, pairs, backdate, sessionCreatedAtMs);
+    const earlyDay = localDateString(resolved.get(0)!);
+    const midDay = localDateString(resolved.get(1)!);
+    const afternoonDay = localDateString(userBubbles[2].createdAt);
+    expect(earlyDay).toBe("2026-06-23");
+    expect(midDay).toBe("2026-06-24");
+    expect(afternoonDay).toBe("2026-06-25");
   });
 });

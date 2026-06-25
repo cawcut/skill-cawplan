@@ -345,6 +345,27 @@ export function matchTranscriptToBubbleIndices(
 }
 
 /** Exported for unit tests. */
+export function clusterResumeLocalDate(
+    userBubbles: UserBubble[],
+    backdateIndices: Set<number>
+): string | null {
+    const counts = new Map<string, number>();
+    for (const idx of backdateIndices) {
+        const day = localDateString(userBubbles[idx].createdAt);
+        counts.set(day, (counts.get(day) ?? 0) + 1);
+    }
+    let bestDay: string | null = null;
+    let bestCount = 0;
+    for (const [day, count] of counts) {
+        if (count > bestCount) {
+            bestDay = day;
+            bestCount = count;
+        }
+    }
+    return bestDay;
+}
+
+/** Exported for unit tests. */
 export function resolveUserBubbleTimes(
     userBubbles: UserBubble[],
     pairs: Array<{ bubbleIndex: number; transcriptIndex: number }>,
@@ -363,22 +384,28 @@ export function resolveUserBubbleTimes(
         .sort((a, b) => a.transcriptIndex - b.transcriptIndex);
     if (backdatePairs.length === 0) return resolved;
 
-    const trustedTimes = userBubbles
-        .map((b, i) => ({t: b.createdAt.getTime(), backdate: backdateIndices.has(i)}))
-        .filter((x) => !x.backdate)
-        .map((x) => x.t)
-        .sort((a, b) => a - b);
-    const endMs = trustedTimes.find((t) => t > sessionCreatedAtMs) ?? sessionCreatedAtMs + 86_400_000;
+    const resumeDay = clusterResumeLocalDate(userBubbles, backdateIndices);
+    let endMs: number;
+    if (resumeDay) {
+        endMs = dayBoundsMs(resumeDay).startMs - 1;
+    } else {
+        const trustedTimes = userBubbles
+            .map((b, i) => ({t: b.createdAt.getTime(), backdate: backdateIndices.has(i)}))
+            .filter((x) => !x.backdate)
+            .map((x) => x.t)
+            .sort((a, b) => a - b);
+        endMs = trustedTimes.find((t) => t > sessionCreatedAtMs) ?? sessionCreatedAtMs + 86_400_000;
+    }
     const span = Math.max(endMs - sessionCreatedAtMs, 60_000);
-    const maxTranscriptIndex = pairs.reduce((max, p) => Math.max(max, p.transcriptIndex), 0);
+    const maxTranscriptIndex = backdatePairs.reduce(
+        (max, p) => Math.max(max, p.transcriptIndex),
+        0
+    );
     const m = backdatePairs.length;
 
     for (let k = 0; k < m; k++) {
         const pair = backdatePairs[k];
-        const positionRatio =
-            maxTranscriptIndex > 0
-                ? pair.transcriptIndex / (maxTranscriptIndex + 1)
-                : (k + 1) / (m + 1);
+        const positionRatio = pair.transcriptIndex / (maxTranscriptIndex + 1);
         resolved.set(pair.bubbleIndex, new Date(sessionCreatedAtMs + positionRatio * span));
     }
     return resolved;
