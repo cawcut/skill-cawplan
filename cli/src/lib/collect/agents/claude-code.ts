@@ -498,6 +498,7 @@ export function collectClaudeCodeSession(
         if (block["type"] !== "tool_use") continue;
         const toolName = block["name"] as string | undefined;
         const input = block["input"] as Record<string, unknown> | undefined;
+        if (!input) continue;
         const fp = extractPathFromInput(input);
         if (!fp) continue;
         turnFiles.add(fp);
