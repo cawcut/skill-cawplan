@@ -26,11 +26,11 @@ import {cursorProjectsDir, cursorStateDbCandidates} from "../paths.js";
 import {FileChange, HumanInput, RepoTouched} from "../types.js";
 import {gitRemoteRepo, gitFileNumstat} from "../git.js";
 import {classifyHumanInput} from "../aggregators/human-category.js";
+import {parsePatchDeltas, extractPathFromInput, estimateToolDeltas} from "../aggregators/tool-utils.js";
 
 const require = createRequire(import.meta.url);
 const USER_QUERY_RE = /<user_query>\s*([\s\S]*?)\s*<\/user_query>/i;
 const TS_TAG_RE = /<timestamp>([^<]+)<\/timestamp>/i;
-const PATCH_FILE_RE = /^\*\*\* (?:Update|Add) File: (.+)$/;
 
 function encodedPathSegmentTokens(name: string): string[] {
     return name
@@ -138,39 +138,6 @@ function extractHumanInputText(raw: string): string {
         .replace(TS_TAG_RE, "")
         .replace(/<\/?user_query>/gi, "")
         .trim();
-}
-
-function parseApplyPatchStats(patch: string): Array<{ path: string; added: number; deleted: number }> {
-    const lines = patch.split("\n");
-    const result: Array<{ path: string; added: number; deleted: number }> = [];
-    let current: { path: string; added: number; deleted: number } | null = null;
-    const flush = () => {
-        if (!current) return;
-        result.push(current);
-        current = null;
-    };
-
-    for (const line of lines) {
-        const fm = line.match(PATCH_FILE_RE);
-        if (fm) {
-            flush();
-            current = {path: fm[1].trim(), added: 0, deleted: 0};
-            continue;
-        }
-        if (!current) continue;
-        if (line.startsWith("+") && !line.startsWith("+++")) {
-            current.added += 1;
-        } else if (line.startsWith("-") && !line.startsWith("---")) {
-            current.deleted += 1;
-        }
-    }
-    flush();
-    return result;
-}
-
-function lineCount(text: string): number {
-    if (!text) return 0;
-    return text.split("\n").length;
 }
 
 function formatIsoTime(ts: Date | null): string | undefined {
@@ -398,47 +365,6 @@ function parseEventTimestamp(
     return null;
 }
 
-function estimateDeltaFromToolInput(
-    toolName: string,
-    rawInput: unknown
-): { path: string | null; added: number; deleted: number } {
-    const input = (rawInput as Record<string, unknown> | undefined) ?? {};
-    const getPath = (): string | null => {
-        const p = (input["path"] ?? input["file_path"] ?? input["target_file"] ?? input["target_notebook"]) as string | undefined;
-        return p && p.trim() ? p.trim() : null;
-    };
-
-    if (toolName === "StrReplace" || toolName === "Edit" || toolName === "EditNotebook") {
-        const oldStr = String(input["old_string"] ?? "");
-        const newStr = String(input["new_string"] ?? "");
-        return {path: getPath(), added: lineCount(newStr), deleted: lineCount(oldStr)};
-    }
-
-    if (toolName === "MultiEdit") {
-        const edits = input["edits"] as Array<Record<string, unknown>> | undefined;
-        if (!Array.isArray(edits) || edits.length === 0) return {path: getPath(), added: 0, deleted: 0};
-        const firstPath = (edits[0]["path"] ?? edits[0]["target_file"] ?? getPath()) as string | null;
-        let added = 0;
-        let deleted = 0;
-        for (const e of edits) {
-            added += lineCount(String(e["new_string"] ?? ""));
-            deleted += lineCount(String(e["old_string"] ?? ""));
-        }
-        return {path: firstPath, added, deleted};
-    }
-
-    if (toolName === "Write") {
-        const content = String(input["content"] ?? input["new_string"] ?? "");
-        return {path: getPath(), added: lineCount(content), deleted: 0};
-    }
-
-    if (toolName === "Delete") {
-        return {path: getPath(), added: 0, deleted: 1};
-    }
-
-    return {path: null, added: 0, deleted: 0};
-}
-
 function isMutationTool(toolName: string): boolean {
     return ["StrReplace", "Edit", "EditNotebook", "MultiEdit", "Write", "Delete"].includes(toolName);
 }
@@ -565,16 +491,6 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
     const contexts: PromptContext[] = [];
     let currentContext: PromptContext | null = null;
 
-    const pickPathFromInput = (input: Record<string, unknown>): string | null => {
-        const keys = ["path", "file_path", "target_file", "target_notebook"] as const;
-        for (const key of keys) {
-            const val = input[key];
-            if (typeof val === "string" && val.trim()) return val.trim();
-        }
-        return null;
-    };
-
-
     const upsertFile = (path: string, added: number, deleted: number, changeType?: string): void => {
         const key = path.trim();
         if (!key) return;
@@ -678,7 +594,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
                 toolCallCount++;
                 const rawInput = b["input"];
                 if (typeof rawInput === "string" && String(b["name"] ?? "") === "ApplyPatch") {
-                    const patchFiles = parseApplyPatchStats(rawInput);
+                    const patchFiles = parsePatchDeltas(rawInput);
                     for (const pf of patchFiles) {
                         upsertFile(pf.path, pf.added, pf.deleted, "ApplyPatch");
                         if (currentContext) {
@@ -699,20 +615,21 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
                     cwd = String(input["working_directory"]);
                 }
                 const toolName = typeof b["name"] === "string" ? b["name"] : "";
-                const inputPath = pickPathFromInput(input);
+                const inputPath = extractPathFromInput(input);
                 if (!cwd) {
                     const pathCwd = inferGitRootFromPath(inputPath);
                     if (pathCwd) cwd = pathCwd;
                 }
                 if (!isMutationTool(toolName)) continue;
-                const delta = estimateDeltaFromToolInput(toolName, rawInput);
-                const p = delta.path ?? inputPath;
+                const deltas = estimateToolDeltas(toolName, rawInput as Record<string, unknown>);
+                const delta = deltas[0];
+                const p = delta?.path ?? inputPath;
                 if (!p) continue;
-                upsertFile(p, delta.added, delta.deleted, toolName || undefined);
+                upsertFile(p, delta?.added ?? 0, delta?.deleted ?? 0, toolName || undefined);
                 if (currentContext) {
                     currentContext.files.add(p);
-                    currentContext.linesAdded += Math.max(0, delta.added);
-                    currentContext.linesDeleted += Math.max(0, delta.deleted);
+                    currentContext.linesAdded += Math.max(0, delta?.added ?? 0);
+                    currentContext.linesDeleted += Math.max(0, delta?.deleted ?? 0);
                     if (eventTs) {
                         currentContext.firstTool = currentContext.firstTool ?? eventTs;
                         currentContext.lastTool = eventTs;
