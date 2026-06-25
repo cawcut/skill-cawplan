@@ -1,5 +1,5 @@
 ---
-version: 0.2.0
+version: 0.2.1
 name: cawplan-coding-commit
 description: |
   Use when the user asks to collect, generate, summarize, submit, upload, or report CawPlan AI coding session daily reports from local agent data or existing ai-daily JSON files.
@@ -13,8 +13,8 @@ allowed-tools: Bash
 ## Bootstrap
 
 ```bash
-command -v cawplan >/dev/null || { echo "cawplan is not installed. Run: npm install -g cawplan@0.0.4"; exit 1; }
-[ "$(cawplan --version)" = "0.0.4" ] || { echo "cawplan 0.0.4 is required. Run: npm install -g cawplan@0.0.4"; exit 1; }
+command -v cawplan >/dev/null || { echo "cawplan is not installed. Run: npm install -g cawplan@0.0.5"; exit 1; }
+[ "$(cawplan --version)" = "0.0.5" ] || { echo "cawplan 0.0.5 is required. Run: npm install -g cawplan@0.0.5"; exit 1; }
 cawplan auth status >/dev/null || { echo "Not authenticated. Run: cawplan auth login"; exit 1; }
 ```
 

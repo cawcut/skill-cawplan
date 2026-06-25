@@ -25,7 +25,7 @@ npx skills add git@github.com:Ubiquiti-UID/flow-cawplan-skill.git \
 2. 安装 `cawplan` CLI：
 
 ```bash
-npm install -g cawplan@0.0.4
+npm install -g cawplan@0.0.5
 cawplan --version
 ```
 
