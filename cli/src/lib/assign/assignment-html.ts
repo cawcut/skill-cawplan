@@ -47,11 +47,15 @@ export function assignmentHtml(): string {
     .badge-topic-infra { background: #f1f5f9; color: #475569; }
     .badge-topic-improvement { background: #dbeafe; color: #1d4ed8; }
     .badge-topic-other { background: #f3f4f6; color: #6b7280; }
+    #stats-bar { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; }
+    .stats-row { font-size: 13px; color: #444; margin-bottom: 4px; }
+    .stats-row:last-child { margin-bottom: 0; }
   </style>
 </head>
 <body>
   <h1>CawPlan AI Session Assignment</h1>
   <p class="muted">Assign each session to a product and optional repository, then save the updated daily report.</p>
+  <div id="stats-bar"></div>
   <datalist id="product-list"></datalist>
   <div class="bulk-controls">
     <label>Default product
@@ -313,7 +317,44 @@ export function assignmentHtml(): string {
       return reports.find((entry) => entry.file === row.dataset.file);
     }
 
+    function renderStats() {
+      const el = document.getElementById('stats-bar');
+      if (!el) return;
+      const allSessions = reports.flatMap((r) => Array.isArray(r.report.sessions) ? r.report.sessions : []);
+      const total = allSessions.length;
+      const assigned = allSessions.filter((s) => s.product_id).length;
+      const unassigned = total - assigned;
+      let cost = 0;
+      for (const r of reports) {
+        const costMap = r.report && r.report.totals && r.report.totals.cost;
+        if (costMap && typeof costMap === 'object') {
+          const val = typeof costMap['USD'] === 'number' ? costMap['USD'] : Object.values(costMap).find((v) => typeof v === 'number');
+          if (typeof val === 'number') cost += val;
+        }
+      }
+      const allInputs = reports.flatMap((r) => Array.isArray(r.report.human_inputs) ? r.report.human_inputs : []);
+      const catCounts = {};
+      const topicCounts = {};
+      for (const input of allInputs) {
+        if (input.category) catCounts[input.category] = (catCounts[input.category] || 0) + 1;
+        if (input.topic) topicCounts[input.topic] = (topicCounts[input.topic] || 0) + 1;
+      }
+      const catOrder = ['decision', 'direction', 'correction', 'planning'];
+      const catParts = catOrder
+        .filter((c) => catCounts[c])
+        .map((c) => '<span class="badge badge-cat-' + c + '">' + escapeHtml(c) + ': ' + catCounts[c] + '</span>');
+      const topicParts = Object.entries(topicCounts)
+        .filter(([, n]) => n > 0)
+        .sort((a, b) => b[1] - a[1])
+        .map(([t, n]) => '<span class="badge badge-topic-' + escapeHtml(t) + '">' + escapeHtml(t) + ': ' + n + '</span>');
+      const row2 = [...catParts, ...topicParts];
+      el.innerHTML =
+        '<div class="stats-row">Sessions: <strong>' + total + '</strong> total · <strong>' + assigned + '</strong> assigned · <strong>' + unassigned + '</strong> unassigned · <strong>$' + cost.toFixed(2) + '</strong> total cost</div>' +
+        (row2.length ? '<div class="stats-row">' + row2.join(' ') + '</div>' : '');
+    }
+
     function render() {
+      renderStats();
       const productList = document.getElementById('product-list');
       productList.innerHTML = products.map((p) => '<option value="' + escapeHtml(p.product_name) + '"></option>').join('');
       const tbody = document.getElementById('rows');

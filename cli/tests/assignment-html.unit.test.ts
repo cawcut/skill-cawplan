@@ -26,3 +26,17 @@ describe("assignmentHtml - badge CSS", () => {
         expect(html).toContain("badge-topic-");
     });
 });
+
+describe("assignmentHtml - stats panel", () => {
+    test("contains stats-bar element", () => {
+        expect(assignmentHtml()).toContain('id="stats-bar"');
+    });
+
+    test("contains stats-bar CSS", () => {
+        expect(assignmentHtml()).toContain("#stats-bar {");
+    });
+
+    test("contains renderStats function", () => {
+        expect(assignmentHtml()).toContain("renderStats()");
+    });
+});
