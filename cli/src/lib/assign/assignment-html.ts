@@ -33,6 +33,20 @@ export function assignmentHtml(): string {
     .bulk-hint { color: #777; font-size: 12px; align-self: center; }
     .actions { margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
     .status { color: #777; }
+    .badge { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-right: 4px; vertical-align: middle; }
+    .badge-cat-decision { background: #dbeafe; color: #1d4ed8; }
+    .badge-cat-direction { background: #ede9fe; color: #6d28d9; }
+    .badge-cat-correction { background: #fee2e2; color: #b42318; }
+    .badge-cat-planning { background: #dcfce7; color: #15803d; }
+    .badge-topic-bug { background: #fee2e2; color: #b42318; }
+    .badge-topic-security { background: #ffedd5; color: #c2410c; }
+    .badge-topic-new_feature { background: #dcfce7; color: #15803d; }
+    .badge-topic-ux { background: #cffafe; color: #0e7490; }
+    .badge-topic-performance { background: #fef3c7; color: #b45309; }
+    .badge-topic-docs { background: #f1f5f9; color: #475569; }
+    .badge-topic-infra { background: #f1f5f9; color: #475569; }
+    .badge-topic-improvement { background: #dbeafe; color: #1d4ed8; }
+    .badge-topic-other { background: #f3f4f6; color: #6b7280; }
   </style>
 </head>
 <body>
@@ -254,11 +268,19 @@ export function assignmentHtml(): string {
 
     function humanInputsHtml(session) {
       const inputs = (Array.isArray(session.human_inputs) ? session.human_inputs : [])
-        .map(humanInputContent)
-        .filter(Boolean)
+        .filter((input) => humanInputContent(input))
         .slice(0, 3);
       if (inputs.length === 0) return '<span class="muted">No human inputs</span>';
-      return '<ol class="human-inputs">' + inputs.map((input) => '<li>' + escapeHtml(truncateHumanInput(input)) + '</li>').join('') + '</ol>';
+      return '<ol class="human-inputs">' + inputs.map((input) => {
+        const text = escapeHtml(truncateHumanInput(humanInputContent(input)));
+        const catBadge = input.category
+          ? '<span class="badge badge-cat-' + escapeHtml(input.category) + '">' + escapeHtml(input.category) + '</span>'
+          : '';
+        const topicBadge = input.topic
+          ? '<span class="badge badge-topic-' + escapeHtml(input.topic) + '">' + escapeHtml(input.topic) + '</span>'
+          : '';
+        return '<li>' + catBadge + topicBadge + text + '</li>';
+      }).join('') + '</ol>';
     }
 
     function sessionStartMs(session) {
