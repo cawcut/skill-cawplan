@@ -1,6 +1,7 @@
 import {randomBytes} from "node:crypto";
 import {createServer, type IncomingMessage, type ServerResponse} from "node:http";
-import {existsSync, readFileSync, writeFileSync} from "node:fs";
+import {existsSync, mkdirSync, readFileSync, writeFileSync} from "node:fs";
+import {dirname} from "node:path";
 import {Command} from "commander";
 import {input, search, select} from "@inquirer/prompts";
 import {cawplanRequest} from "../lib/http.js";
@@ -129,7 +130,7 @@ function extractDataObject(payload: unknown): Record<string, unknown> {
 function userIdFromUsersQuery(payload: unknown, email: string): string | undefined {
     const needle = email.trim().toLowerCase();
     const users = extractList<UserListItem>(payload);
-    const user = users.find((item) => String(item.email ?? "").trim().toLowerCase() === needle) ?? users[0];
+    const user = users.find((item) => String(item.email ?? "").trim().toLowerCase() === needle);
     const userId = user?.unique_id ?? user?.user_id;
     return typeof userId === "string" && userId.trim() ? userId.trim() : undefined;
 }
@@ -219,7 +220,7 @@ function repoNameFromGitHubUrl(repoURL: string): string {
         const validRepo = /^[A-Za-z0-9._-]+$/.test(repo);
 
         if (url.protocol === "https:" && isGitHubHost && hasRepoPath && validOwner && validRepo) {
-            return repo;
+            return repo.replace(/\.git$/i, "");
         }
     } catch {
         // Fall through to the consistent error below.
@@ -300,6 +301,14 @@ async function searchProduct(products: ProductChoice[], message: string): Promis
 function findMappingForProject(project: string, mappings: ProductRepoMapping[]): ProductRepoMapping | undefined {
     const keys = new Set(repoKeys(project));
     return mappings.find((mapping) => repoKeys(mapping.repo_name).some((key) => keys.has(key)));
+}
+
+function writeDailyReport(path: string, daily: DailyApiJson): void {
+    const dir = dirname(path);
+    if (dir && dir !== ".") {
+        mkdirSync(dir, {recursive: true});
+    }
+    writeFileSync(path, JSON.stringify(daily, null, 2), "utf-8");
 }
 
 function readDailyReport(path: string): DailyApiJson {
@@ -577,7 +586,7 @@ function localAssignmentHtml(): string {
 
     function repoNameFromGitHubUrl(value) {
       const match = String(value || '').trim().match(/^https:\\/\\/github\\.com\\/([^/]+)\\/([^/]+)$/);
-      return match ? match[1] + '/' + match[2] : '';
+      return match ? match[2].replace(/\\.git$/i, '') : '';
     }
 
     function pendingMappingKey(productId, repoName) {
@@ -731,25 +740,11 @@ function localAssignmentHtml(): string {
       return text.length > 200 ? text.slice(0, 200) + '...' : text;
     }
 
-    function humanInputsForSession(session, report) {
-      const direct = Array.isArray(session.human_inputs) ? session.human_inputs : [];
-      const all = Array.isArray(report.human_inputs) ? report.human_inputs : [];
-      const sessionTitles = new Set([session.session_title, session.session_name, session.title, session.session_id].filter(Boolean));
-      const matched = all.filter((input) => {
-        if (!input || typeof input !== 'object') return false;
-        if (input.session_title && sessionTitles.has(input.session_title)) return true;
-        return Boolean(
-          input.project &&
-          session.project &&
-          input.project === session.project &&
-          (!input.session_agent || input.session_agent === session.agent)
-        );
-      });
-      return direct.length > 0 ? direct : matched;
-    }
-
-    function humanInputsHtml(session, report) {
-      const inputs = humanInputsForSession(session, report).map(humanInputContent).filter(Boolean).slice(0, 3);
+    function humanInputsHtml(session) {
+      const inputs = (Array.isArray(session.human_inputs) ? session.human_inputs : [])
+        .map(humanInputContent)
+        .filter(Boolean)
+        .slice(0, 3);
       if (inputs.length === 0) return '<span class="muted">No human inputs</span>';
       return '<ol class="human-inputs">' + inputs.map((input) => '<li>' + escapeHtml(truncateHumanInput(input)) + '</li>').join('') + '</ol>';
     }
@@ -800,7 +795,7 @@ function localAssignmentHtml(): string {
         return '<tr data-file="' + escapeHtml(file) + '" data-session-id="' + escapeHtml(s.session_id) + '">' +
           '<td><div class="session-title">' + escapeHtml(title) + '</div>' +
           '<div class="session-meta">' + escapeHtml([batch ? date : '', s.agent, s.time_range && s.time_range.display, sessionCostText(s), s.project].filter(Boolean).join(' | ')) + '</div></td>' +
-          '<td>' + humanInputsHtml(s, report) + '</td>' +
+          '<td>' + humanInputsHtml(s) + '</td>' +
           '<td><input class="product" list="product-list" value="' + escapeHtml(productValue) + '" placeholder="Search product" required />' +
           '<div class="product-error field-error"></div></td>' +
           '<td><select class="repo">' + repoOptions(s.product_id, selectedRepo) + '</select>' +
@@ -956,7 +951,7 @@ async function applyBatchWebAssignments(
             assignedSessions += await applyWebAssignments(report.daily, fileAssignments);
         }
         assertAllSessionsHaveProduct(report.daily);
-        writeFileSync(report.file, JSON.stringify(report.daily, null, 2), "utf-8");
+        writeDailyReport(report.file, report.daily);
         savedFiles.push(report.file);
     }
     return {assignedSessions, files: savedFiles};
@@ -967,9 +962,9 @@ async function assignReportsFromTty(reports: AssignmentReport[]): Promise<{ assi
     const files: string[] = [];
     for (const report of reports) {
         console.error(`Assigning products for ${report.file}...`);
-        assignedSessions += await assignProjectsFromCloudMappings(report.daily);
+        assignedSessions += await assignProjectsFromCloudMappings(report.daily, report.file);
         assertAllSessionsHaveProduct(report.daily);
-        writeFileSync(report.file, JSON.stringify(report.daily, null, 2), "utf-8");
+        writeDailyReport(report.file, report.daily);
         files.push(report.file);
     }
     return {assignedSessions, files};
@@ -1018,17 +1013,24 @@ async function listMonthlyReportItems(dateFrom: string, dateTo: string, userId?:
     return items;
 }
 
-async function autoAssignProjectsFromCloudMappings(daily: DailyApiJson): Promise<number> {
-    const mappings = await listProductRepoMappings();
+function autoAssignAllFromMappings(daily: DailyApiJson, mappings: ProductRepoMapping[]): number {
     let matched = 0;
-    for (const session of daily.sessions) {
+    for (const [index, session] of daily.sessions.entries()) {
         if (session.product_id) continue;
         const mapping = findMappingForProject(session.project, mappings);
         if (!mapping?.repo_name || !mapping.product_id) continue;
-        applyProductRepoMapping(daily, session, mapping);
-        matched++;
+        const sessionLabel = session.session_name ?? session.session_title ?? session.session_id ?? `session ${index + 1}`;
+        matched += applyProductRepoMappingToProject(daily, session, mapping);
+        console.error(
+            `Auto-assigned session "${sessionLabel}" to ${mapping.product_name ?? mapping.product_id} / ${mapping.repo_name}`
+        );
     }
     return matched;
+}
+
+async function autoAssignProjectsFromCloudMappings(daily: DailyApiJson): Promise<number> {
+    const mappings = await listProductRepoMappings();
+    return autoAssignAllFromMappings(daily, mappings);
 }
 
 async function collectOrReadDailyReport(date: string): Promise<{
@@ -1045,10 +1047,8 @@ async function collectOrReadDailyReport(date: string): Promise<{
         };
     }
 
-    const daily = await collect({
-        date,
-        outputPath: file,
-    });
+    const daily = await collect({date});
+    writeDailyReport(file, daily);
     return {
         daily,
         file,
@@ -1099,7 +1099,7 @@ async function backfillMissingReports(dateFrom: string, dateTo: string, options:
             }
             const assigned = await autoAssignProjectsFromCloudMappings(daily);
             if (assigned > 0 || created) {
-                writeFileSync(file, JSON.stringify(daily, null, 2), "utf-8");
+                writeDailyReport(file, daily);
             }
             if (warnMissingProductAssignment(file, daily)) {
                 console.error(`Skipping upload for ${date} until product assignment is complete.`);
@@ -1237,38 +1237,27 @@ async function startAssignmentWebServer(reports: AssignmentReport[], batchMode =
     });
 }
 
-async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<number> {
-
-    const sessions = daily.sessions;
-    if (!Array.isArray(sessions) || sessions.length === 0) {
-        console.error("No sessions found in the collected report; skipping product assignment.");
-        return 0;
+async function assignRemainingProjectsInteractively(
+    daily: DailyApiJson,
+    mappings: ProductRepoMapping[]
+): Promise<{ matched: number; skipped: number }> {
+    let matched = 0;
+    const canPrompt = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    if (!canPrompt) {
+        return {
+            matched,
+            skipped: daily.sessions.filter((session) => !session.product_id).length,
+        };
     }
 
-    let matched = 0;
-    let skippedInteractiveSelection = 0;
-    const mappings = await listProductRepoMappings();
+    const products = await listProductsForSelector();
+    if (products.length === 0) throw new Error("No products returned from cawplan products list");
 
-    const canPrompt = Boolean(process.stdin.isTTY && process.stdout.isTTY);
-    const products = canPrompt ? await listProductsForSelector() : [];
-    if (canPrompt && products.length === 0) throw new Error("No products returned from cawplan products list");
-
-    for (const [index, session] of sessions.entries()) {
+    for (const [index, session] of daily.sessions.entries()) {
         if (session.product_id) continue;
 
         const originalProject = (session.project ?? "").trim();
         const sessionLabel = session.session_name ?? session.session_title ?? session.session_id ?? `session ${index + 1}`;
-        const inferredMapping = findMappingForProject(originalProject, mappings);
-        if (inferredMapping?.repo_name && inferredMapping.product_id) {
-            matched += applyProductRepoMappingToProject(daily, session, inferredMapping);
-            console.error(`Auto-assigned session "${sessionLabel}" to ${inferredMapping.product_name ?? inferredMapping.product_id} / ${inferredMapping.repo_name}`);
-            continue;
-        }
-
-        if (!canPrompt) {
-            skippedInteractiveSelection++;
-            continue;
-        }
 
         const product = await searchProduct(
             products,
@@ -1331,9 +1320,28 @@ async function assignProjectsFromCloudMappings(daily: DailyApiJson): Promise<num
         matched += applyProductRepoMappingToProject(daily, session, mapping);
     }
 
-    if (skippedInteractiveSelection > 0) {
+    return {matched, skipped: 0};
+}
+
+async function assignProjectsFromCloudMappings(daily: DailyApiJson, outputPath?: string): Promise<number> {
+
+    const sessions = daily.sessions;
+    if (!Array.isArray(sessions) || sessions.length === 0) {
+        console.error("No sessions found in the collected report; skipping product assignment.");
+        return 0;
+    }
+
+    const mappings = await listProductRepoMappings();
+    let matched = autoAssignAllFromMappings(daily, mappings);
+    if (outputPath) writeDailyReport(outputPath, daily);
+
+    const {matched: interactiveMatched, skipped} = await assignRemainingProjectsInteractively(daily, mappings);
+    matched += interactiveMatched;
+    if (outputPath) writeDailyReport(outputPath, daily);
+
+    if (skipped > 0) {
         console.error(
-            `Skipped product/repository selection for ${skippedInteractiveSelection} session(s) because collect is running without an interactive TTY.`
+            `Skipped product/repository selection for ${skipped} session(s) because collect is running without an interactive TTY.`
         );
         console.error(
             `To complete selector-based assignment, run: cawplan ai-session collect --date ${daily.date}`
@@ -1371,8 +1379,8 @@ export function registerAiSessionCommand(program: Command): void {
                 const daily = await collect({
                     date,
                     agents,
-                    outputPath,
                 });
+                writeDailyReport(outputPath, daily);
                 console.error(
                     `Collected ${
                         (daily.totals as { sessions?: number })?.sessions ?? 0
@@ -1381,14 +1389,11 @@ export function registerAiSessionCommand(program: Command): void {
                     }`
                 );
 
-                // manually specify the product and repo
-                const matched = await assignProjectsFromCloudMappings(daily);
-                writeFileSync(outputPath, JSON.stringify(daily, null, 2), "utf-8");
+                const matched = await assignProjectsFromCloudMappings(daily, outputPath);
                 console.error(`Product/project assignment written for ${matched} sessions.`);
                 warnMissingProductAssignment(outputPath, daily);
 
                 console.error(`Output written to ${outputPath}`);
-                console.log(JSON.stringify(daily, null, 2));
             } catch (e) {
                 console.error(`Error: ${(e as Error).message}`);
                 process.exit(1);
@@ -1491,11 +1496,12 @@ export function registerAiSessionCommand(program: Command): void {
                 }
 
                 if (opts.tty) {
-                    const assignedSessions = await assignProjectsFromCloudMappings(daily);
+                    const file = String(opts.file);
+                    const assignedSessions = await assignProjectsFromCloudMappings(daily, file);
                     assertAllSessionsHaveProduct(daily);
-                    writeFileSync(String(opts.file), JSON.stringify(daily, null, 2), "utf-8");
+                    writeDailyReport(file, daily);
                     console.log(JSON.stringify({
-                        file: String(opts.file),
+                        file,
                         assigned_sessions: assignedSessions,
                     }, null, 2));
                     return;
