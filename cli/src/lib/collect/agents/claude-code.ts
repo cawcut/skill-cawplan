@@ -28,6 +28,7 @@ import { gitRemoteRepo } from "../git.js";
 import { ChunkMessage } from "../aggregators/chunks.js";
 import {isTimestampOnLocalDate, localDateString, formatLocalTime, getLocalTimezone} from "../date-utils.js";
 import {classifyHumanInput} from "../aggregators/human-category.js";
+import {countLines, extractPathFromInput} from "../aggregators/tool-utils.js";
 
 /**
  * Decode a Claude project directory name (URL-encoded path with dashes).
@@ -397,10 +398,8 @@ export function collectClaudeCodeSession(
         const input = b["input"] as Record<string, unknown> | undefined;
         if (!input) continue;
 
-        const filePath = (input["file_path"] ?? input["path"]) as string | undefined;
+        const filePath = extractPathFromInput(input);
         if (!filePath) continue;
-        const countLines = (s: unknown): number =>
-          typeof s === "string" ? s.split("\n").length : 0;
         let added = 0;
         let deleted = 0;
         if (toolName === "Edit") {
@@ -499,11 +498,9 @@ export function collectClaudeCodeSession(
         if (block["type"] !== "tool_use") continue;
         const toolName = block["name"] as string | undefined;
         const input = block["input"] as Record<string, unknown> | undefined;
-        const fp = (input?.["file_path"] ?? input?.["path"]) as string | undefined;
+        const fp = extractPathFromInput(input);
         if (!fp) continue;
         turnFiles.add(fp);
-        const countLines = (s: unknown): number =>
-          typeof s === "string" ? s.split("\n").length : 0;
         if (toolName === "Edit") {
           turnLinesAdded += countLines(input?.["new_string"]);
           turnLinesDeleted += countLines(input?.["old_string"]);
