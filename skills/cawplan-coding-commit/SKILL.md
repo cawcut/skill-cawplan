@@ -49,16 +49,55 @@ During collection, `cawplan ai-session collect` may ask the user to assign each 
 
 In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, or if any `sessions[]` entry lacks `product_id` after collection, complete missing assignments using **Product/repo assignment options** below before reviewing/uploading.
 
-**Step 2 — Review the report with the user:**
+**Step 2 — Classify human inputs (LLM):**
+
+Read `./ai-daily-<date>.json`. If `human_inputs` is non-empty, classify every entry in a single batch using the prompt below. Write the results back into the JSON file by updating each `human_input`'s `category`, `topic`, `topic_confidence`, `topic_reason`, and `topic_source` fields. If `human_inputs` is empty or absent, skip this step and continue.
+
+Classification prompt to use:
+
+> Classify each AI coding session human input below. Return a JSON array — one object per input — with these exact fields:
+> `{ "index": N, "category": "...", "topic": "...", "topic_confidence": 0.0–1.0, "topic_reason": "one sentence" }`
+>
+> **category** (pick one):
+> - `decision` — human chose between options ("定了", "agreed", "use X instead of Y")
+> - `direction` — human instructed AI what to build (default when nothing else fits)
+> - `correction` — human corrected AI output or reported an error ("bug", "fix", "报错")
+> - `planning` — human planned or designed the approach ("计划", "roadmap", "下一步")
+>
+> **topic** (pick one):
+> - `bug` — fixing a defect or regression
+> - `ux` — UI, interaction, or visual design
+> - `security` — authentication, authorization, or vulnerability
+> - `performance` — speed, memory, latency, or throughput
+> - `new_feature` — adding new functionality
+> - `improvement` — refactor, cleanup, or enhancement of existing code
+> - `docs` — documentation, README, or comments
+> - `infra` — CI/CD, build, deploy, or environment
+> - `other` — does not fit any category above
+>
+> Inputs (truncate content to 200 chars if needed):
+> [0] session:"<session_title>" content:"<human_input_content>"
+> [1] ...
+
+After receiving the JSON array, write back to `./ai-daily-<date>.json`: for each entry at `index` N, set:
+- `human_inputs[N].category` = classified `category`
+- `human_inputs[N].topic` = classified `topic`
+- `human_inputs[N].topic_confidence` = classified `topic_confidence`
+- `human_inputs[N].topic_reason` = classified `topic_reason`
+- `human_inputs[N].topic_source` = `"llm"`
+
+If the classification response is malformed or an error occurs, leave the existing values unchanged and continue to Step 3.
+
+**Step 3 — Review the report with the user:**
 
 Present the full review described in **Review content contract**. Do not show only a stats table.
 
-**Step 3 — Upload:**
+**Step 4 — Upload:**
 ```bash
 cawplan ai-session report --file ./ai-daily-<date>.json
 ```
 
-**Step 4 — Query and backfill missing current-month reports:**
+**Step 5 — Query and backfill missing current-month reports:**
 ```bash
 cawplan ai-session backfill --from <YYYY-MM-01> --to <YYYY-MM-DD> --dry-run
 ```
@@ -90,7 +129,46 @@ cawplan ai-session collect --date <YYYY-MM-DD> --output ~/reports/ai-daily-2026-
 
 When running any collect command from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) because Cursor token/cost collection depends on the Cursor Dashboard API at `cursor.com`.
 
-**Step 2 — Review the report with the user:**
+**Step 2 — Classify human inputs (LLM):**
+
+Read `./ai-daily-<date>.json`. If `human_inputs` is non-empty, classify every entry in a single batch using the prompt below. Write the results back into the JSON file by updating each `human_input`'s `category`, `topic`, `topic_confidence`, `topic_reason`, and `topic_source` fields. If `human_inputs` is empty or absent, skip this step and continue.
+
+Classification prompt to use:
+
+> Classify each AI coding session human input below. Return a JSON array — one object per input — with these exact fields:
+> `{ "index": N, "category": "...", "topic": "...", "topic_confidence": 0.0–1.0, "topic_reason": "one sentence" }`
+>
+> **category** (pick one):
+> - `decision` — human chose between options ("定了", "agreed", "use X instead of Y")
+> - `direction` — human instructed AI what to build (default when nothing else fits)
+> - `correction` — human corrected AI output or reported an error ("bug", "fix", "报错")
+> - `planning` — human planned or designed the approach ("计划", "roadmap", "下一步")
+>
+> **topic** (pick one):
+> - `bug` — fixing a defect or regression
+> - `ux` — UI, interaction, or visual design
+> - `security` — authentication, authorization, or vulnerability
+> - `performance` — speed, memory, latency, or throughput
+> - `new_feature` — adding new functionality
+> - `improvement` — refactor, cleanup, or enhancement of existing code
+> - `docs` — documentation, README, or comments
+> - `infra` — CI/CD, build, deploy, or environment
+> - `other` — does not fit any category above
+>
+> Inputs (truncate content to 200 chars if needed):
+> [0] session:"<session_title>" content:"<human_input_content>"
+> [1] ...
+
+After receiving the JSON array, write back to `./ai-daily-<date>.json`: for each entry at `index` N, set:
+- `human_inputs[N].category` = classified `category`
+- `human_inputs[N].topic` = classified `topic`
+- `human_inputs[N].topic_confidence` = classified `topic_confidence`
+- `human_inputs[N].topic_reason` = classified `topic_reason`
+- `human_inputs[N].topic_source` = `"llm"`
+
+If the classification response is malformed or an error occurs, leave the existing values unchanged and continue to Step 3.
+
+**Step 3 — Review the report with the user:**
 
 Present the full review described in **Review content contract**. Do not show only a stats table.
 
