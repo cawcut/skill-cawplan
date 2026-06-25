@@ -10,7 +10,6 @@ import {
   matchUserBubble,
   normalizeBubbleMatchText,
   parseGuiSessionTranscript,
-  shouldSkipTranscriptDateFilter,
 } from "../src/lib/collect/agents/cursor-gui.js";
 import { enrichCursorGuiFallbackContext } from "../src/lib/collect/index.js";
 import * as paths from "../src/lib/collect/paths.js";
@@ -87,56 +86,17 @@ describe("cursor-gui mtime fallback", () => {
     return jsonl;
   }
 
-  test("shouldSkipTranscriptDateFilter uses mtime when transcript has no timestamps", () => {
+  test("parseGuiSessionTranscript excludes no-timestamp prompts without bubble or transcript time", () => {
     const mtime = new Date("2026-06-23T15:00:00");
     const jsonl = writeTranscript("proj-a", "sess-1", [NO_TS_USER, NO_TS_ASSISTANT], mtime);
-    const lines = [NO_TS_USER, NO_TS_ASSISTANT];
-    const filterDate = localDateString(mtime);
+    void jsonl;
 
-    expect(shouldSkipTranscriptDateFilter(filterDate, lines, jsonl)).toBe(true);
-    expect(shouldSkipTranscriptDateFilter("2026-06-22", lines, jsonl)).toBe(false);
+    const parsed = parseGuiSessionTranscript("sess-1", localDateString(mtime));
+    expect(parsed.messageStats.user).toBe(0);
+    expect(parsed.humanInputs).toHaveLength(0);
   });
 
-  test("shouldSkipTranscriptDateFilter prefers lastUpdatedAtMs over mtime for cross-day sessions", () => {
-    const mtime = new Date("2026-06-23T15:00:00");
-    const jsonl = writeTranscript("proj-a", "sess-2", [NO_TS_USER, NO_TS_ASSISTANT], mtime);
-    const lines = [NO_TS_USER, NO_TS_ASSISTANT];
-    const lastUpdatedAtMs = new Date("2026-06-22T23:30:00").getTime();
-
-    expect(
-      shouldSkipTranscriptDateFilter("2026-06-22", lines, jsonl, lastUpdatedAtMs)
-    ).toBe(true);
-    expect(
-      shouldSkipTranscriptDateFilter("2026-06-23", lines, jsonl, lastUpdatedAtMs)
-    ).toBe(false);
-  });
-
-  test("shouldSkipTranscriptDateFilter does not apply when user turns have timestamp tags", () => {
-    const mtime = new Date("2026-06-23T15:00:00");
-    const jsonl = writeTranscript("proj-a", "sess-3", [WITH_TS_USER], mtime);
-    const lines = [WITH_TS_USER];
-
-    expect(shouldSkipTranscriptDateFilter("2026-06-22", lines, jsonl)).toBe(false);
-    expect(shouldSkipTranscriptDateFilter("2026-06-23", lines, jsonl)).toBe(false);
-  });
-
-  test("shouldSkipTranscriptDateFilter ignores timestamp mentions in assistant text", () => {
-    const mtime = new Date("2026-06-23T15:00:00");
-    const assistantQuotesTs =
-      '{"role":"assistant","message":{"content":[{"type":"text","text":"example: <timestamp>Monday, Jun 22, 2026</timestamp>"}]}}';
-    const jsonl = writeTranscript(
-      "proj-a",
-      "sess-4",
-      [NO_TS_USER, assistantQuotesTs],
-      mtime
-    );
-    const lines = [NO_TS_USER, assistantQuotesTs];
-    const filterDate = localDateString(mtime);
-
-    expect(shouldSkipTranscriptDateFilter(filterDate, lines, jsonl)).toBe(true);
-  });
-
-  test("collectGuiSessions leaves human input times unset when no state db bubbles", () => {
+  test("collectGuiSessions excludes transcript-only sessions without per-prompt timestamps", () => {
     const mtime = new Date("2026-06-23T15:00:00");
     const jsonl = writeTranscript(
       "proj-a",
@@ -147,13 +107,7 @@ describe("cursor-gui mtime fallback", () => {
     void jsonl;
     vi.spyOn(paths, "cursorStateDbCandidates").mockReturnValue(["/nonexistent/state.vscdb"]);
     const sessions = collectGuiSessions(localDateString(mtime));
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0]?.message_stats.user).toBe(1);
-    const human = sessions[0]?.human_inputs?.[0];
-    expect(human?.content).toContain("hello");
-    expect(human?.start_time).toBeUndefined();
-    expect(human?.session_time).toBeUndefined();
-    expect(human?.end_time).toBeUndefined();
+    expect(sessions).toEqual([]);
   });
 
   test("collectGuiSessions does not full-scan transcripts when db candidates have no day activity", () => {
@@ -335,6 +289,19 @@ describe("cursor-gui mtime fallback", () => {
     expect(second?.createdAt.toISOString()).toBe("2026-06-23T06:10:00.000Z");
   });
 
+  test("matchUserBubble does not assign unmatched content to the next bubble", () => {
+    const used = new Set<number>();
+    const bubbles = [
+      {
+        createdAt: new Date("2026-06-23T06:00:00.000Z"),
+        text: "first prompt",
+        normalized: normalizeBubbleMatchText("first prompt"),
+      },
+    ];
+    expect(matchUserBubble("completely different text", bubbles, used)).toBeNull();
+    expect(used.size).toBe(0);
+  });
+
   test("parseGuiSessionTranscript splits cross-day session by bubble createdAt", () => {
     const require = createRequire(import.meta.url);
     const Database = require("better-sqlite3") as typeof import("better-sqlite3");
@@ -376,8 +343,14 @@ describe("cursor-gui mtime fallback", () => {
       JSON.stringify({ type: 2, text: "ok", createdAt: "2026-06-23T06:05:00.000Z" })
     );
 
-    const monday = parseGuiSessionTranscript(sessionId, "2026-06-22", { db });
-    const tuesday = parseGuiSessionTranscript(sessionId, "2026-06-23", { db });
+    const monday = parseGuiSessionTranscript(sessionId, "2026-06-22", {
+      db,
+      sessionCreatedAtMs: new Date("2026-06-22T10:00:00.000Z").getTime(),
+    });
+    const tuesday = parseGuiSessionTranscript(sessionId, "2026-06-23", {
+      db,
+      sessionCreatedAtMs: new Date("2026-06-22T10:00:00.000Z").getTime(),
+    });
 
     expect(monday.messageStats.user).toBe(1);
     expect(monday.humanInputs[0]?.content).toBe("monday task");
@@ -388,6 +361,90 @@ describe("cursor-gui mtime fallback", () => {
     expect(tuesday.humanInputs[0]?.content).toBe("tuesday task");
     expect(tuesday.humanInputs[0]?.start_time).toBe("2026-06-23T06:00:00.000Z");
     expect(tuesday.activityStart?.toISOString()).toBe("2026-06-23T06:00:00.000Z");
+
+    db.close();
+  });
+
+  test("parseGuiSessionTranscript prefers bubble createdAt over transcript timestamp tags", () => {
+    const require = createRequire(import.meta.url);
+    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
+
+    const sessionId = "bubble-overrides-ts";
+    const userWithSyntheticTs =
+      '{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Wednesday, Jun 25, 2026, 9:58 AM (UTC+8)</timestamp>\\n<user_query>\\nreal prompt sent later\\n</user_query>"}]}}';
+    const assistant =
+      '{"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}';
+
+    writeTranscript("proj-a", sessionId, [userWithSyntheticTs, assistant], new Date("2026-06-25T15:00:00"));
+
+    db.prepare("INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)").run(
+      `bubbleId:${sessionId}:u1`,
+      JSON.stringify({
+        type: 1,
+        text: "real prompt sent later",
+        createdAt: "2026-06-25T12:14:35.171Z",
+      })
+    );
+
+    const parsed = parseGuiSessionTranscript(sessionId, "2026-06-25", { db });
+
+    expect(parsed.messageStats.user).toBe(1);
+    expect(parsed.humanInputs[0]?.content).toBe("real prompt sent later");
+    expect(parsed.humanInputs[0]?.start_time).toBe("2026-06-25T12:14:35.171Z");
+
+    db.close();
+  });
+
+  test("parseGuiSessionTranscript backdates resumed-session bubble clusters to session creation day", () => {
+    const require = createRequire(import.meta.url);
+    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
+
+    const sessionId = "resume-cluster-sess";
+    const sessionCreatedAtMs = new Date("2026-06-23T10:12:16.177Z").getTime();
+    const earlyUser =
+      '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\\nYR2 wifi prompt from earlier day\\n</user_query>"}]}}';
+    const laterUser =
+      '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\\nafternoon prompt today\\n</user_query>"}]}}';
+    const assistant =
+      '{"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}';
+
+    writeTranscript(
+      "proj-a",
+      sessionId,
+      [earlyUser, assistant, laterUser, assistant],
+      new Date("2026-06-25T15:00:00")
+    );
+
+    const insert = db.prepare("INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)");
+    for (let i = 0; i < 6; i++) {
+      insert.run(
+        `bubbleId:${sessionId}:cluster-${i}`,
+        JSON.stringify({
+          type: 1,
+          text: i === 0 ? "YR2 wifi prompt from earlier day" : `cluster filler ${i}`,
+          createdAt: `2026-06-25T01:58:08.${200 + i}Z`,
+        })
+      );
+    }
+    insert.run(
+      `bubbleId:${sessionId}:afternoon`,
+      JSON.stringify({
+        type: 1,
+        text: "afternoon prompt today",
+        createdAt: "2026-06-25T12:14:35.171Z",
+      })
+    );
+
+    const june23 = parseGuiSessionTranscript(sessionId, "2026-06-23", { db, sessionCreatedAtMs });
+    const june25 = parseGuiSessionTranscript(sessionId, "2026-06-25", { db, sessionCreatedAtMs });
+
+    expect(june23.humanInputs.some((h) => h.content.includes("YR2 wifi prompt"))).toBe(true);
+    expect(june25.humanInputs.some((h) => h.content.includes("YR2 wifi prompt"))).toBe(false);
+    expect(june25.humanInputs.some((h) => h.content.includes("afternoon prompt today"))).toBe(true);
 
     db.close();
   });

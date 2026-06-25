@@ -31,6 +31,8 @@ import {parsePatchDeltas, extractPathFromInput, estimateToolDeltas} from "../agg
 const require = createRequire(import.meta.url);
 const USER_QUERY_RE = /<user_query>\s*([\s\S]*?)\s*<\/user_query>/i;
 const TS_TAG_RE = /<timestamp>([^<]+)<\/timestamp>/i;
+const BUBBLE_CLUSTER_WINDOW_MS = 3_000;
+const BUBBLE_CLUSTER_MIN_SIZE = 5;
 
 function encodedPathSegmentTokens(name: string): string[] {
     return name
@@ -165,60 +167,6 @@ function parseTsValue(raw: unknown): Date | null {
     return null;
 }
 
-function transcriptLinesHaveTimestamps(lines: string[]): boolean {
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-            const obj = JSON.parse(trimmed) as Record<string, unknown>;
-            // Only user turns carry Cursor activity timestamps; assistant text may quote
-            // "<timestamp>" examples and must not disable the mtime fallback.
-            if (obj["role"] !== "user") continue;
-            const message = (obj["message"] as Record<string, unknown> | undefined) ?? obj;
-            const content = message["content"];
-            let textFallback = "";
-            if (Array.isArray(content)) {
-                for (const block of content) {
-                    const b = block as Record<string, unknown>;
-                    if (b["type"] !== "text") continue;
-                    textFallback += String(b["text"] ?? "");
-                }
-            }
-            if (parseEventTimestamp(obj, message, textFallback || undefined)) return true;
-        } catch {
-            continue;
-        }
-    }
-    return false;
-}
-
-function resolveTranscriptPrimaryLocalDate(
-    transcriptPath: string,
-    lastUpdatedAtMs?: number
-): string | null {
-    if (lastUpdatedAtMs != null && lastUpdatedAtMs > 0) {
-        return localDateString(new Date(lastUpdatedAtMs));
-    }
-    try {
-        return localDateString(statSync(transcriptPath).mtime);
-    } catch {
-        return null;
-    }
-}
-
-/** Exported for unit tests. */
-export function shouldSkipTranscriptDateFilter(
-    filterDate: string | undefined,
-    lines: string[],
-    transcriptPath: string,
-    lastUpdatedAtMs?: number
-): boolean {
-    if (!filterDate) return true;
-    if (transcriptLinesHaveTimestamps(lines)) return false;
-    const primary = resolveTranscriptPrimaryLocalDate(transcriptPath, lastUpdatedAtMs);
-    return primary === filterDate;
-}
-
 /** Exported for unit tests. */
 export function normalizeBubbleMatchText(text: string): string {
     return extractHumanInputText(text).replace(/\s+/g, " ").trim().toLowerCase();
@@ -308,13 +256,205 @@ export function matchUserBubble(
         }
     }
 
-    for (let i = 0; i < userBubbles.length; i++) {
-        if (!usedIndices.has(i)) {
-            usedIndices.add(i);
-            return userBubbles[i];
+    return null;
+}
+
+/** Exported for unit tests. */
+export function findDenseBubbleClusterIndices(
+    userBubbles: UserBubble[],
+    windowMs = BUBBLE_CLUSTER_WINDOW_MS,
+    minSize = BUBBLE_CLUSTER_MIN_SIZE
+): Set<number> {
+    const order = userBubbles
+        .map((_, index) => index)
+        .sort((a, b) => userBubbles[a].createdAt.getTime() - userBubbles[b].createdAt.getTime());
+    const suspect = new Set<number>();
+    let i = 0;
+    while (i < order.length) {
+        const startMs = userBubbles[order[i]].createdAt.getTime();
+        let j = i + 1;
+        while (j < order.length && userBubbles[order[j]].createdAt.getTime() - startMs <= windowMs) {
+            j++;
+        }
+        if (j - i >= minSize) {
+            for (let k = i; k < j; k++) suspect.add(order[k]);
+        }
+        i = j;
+    }
+    return suspect;
+}
+
+/** Exported for unit tests. */
+export function suspectBackdateBubbleIndices(
+    userBubbles: UserBubble[],
+    sessionCreatedAtMs?: number
+): Set<number> {
+    const clusters = findDenseBubbleClusterIndices(userBubbles);
+    if (sessionCreatedAtMs == null || clusters.size === 0) return new Set();
+    const sessionDay = localDateString(new Date(sessionCreatedAtMs));
+    const backdate = new Set<number>();
+    for (const idx of clusters) {
+        const bubbleDay = localDateString(userBubbles[idx].createdAt);
+        if (bubbleDay > sessionDay) backdate.add(idx);
+    }
+    return backdate;
+}
+
+function extractTranscriptUserTexts(lines: string[]): string[] {
+    const texts: string[] = [];
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+            const obj = JSON.parse(trimmed) as Record<string, unknown>;
+            if (obj["role"] !== "user") continue;
+            const message = (obj["message"] as Record<string, unknown> | undefined) ?? obj;
+            const content = message["content"];
+            if (!Array.isArray(content)) continue;
+            let textAcc = "";
+            for (const block of content) {
+                const b = block as Record<string, unknown>;
+                if (b["type"] !== "text") continue;
+                const text = String(b["text"] ?? "").trim();
+                if (!text) continue;
+                textAcc = textAcc ? `${textAcc}\n${text}` : text;
+            }
+            if (textAcc) texts.push(textAcc);
+        } catch {
+            continue;
         }
     }
-    return null;
+    return texts;
+}
+
+/** Exported for unit tests. */
+export function matchTranscriptToBubbleIndices(
+    transcriptTexts: string[],
+    userBubbles: UserBubble[]
+): Array<{ bubbleIndex: number; transcriptIndex: number }> {
+    const used = new Set<number>();
+    const pairs: Array<{ bubbleIndex: number; transcriptIndex: number }> = [];
+    for (let ti = 0; ti < transcriptTexts.length; ti++) {
+        const extracted = extractHumanInputText(transcriptTexts[ti]);
+        if (!extracted) continue;
+        const matched = matchUserBubble(extracted, userBubbles, used);
+        if (!matched) continue;
+        pairs.push({bubbleIndex: userBubbles.indexOf(matched), transcriptIndex: ti});
+    }
+    return pairs;
+}
+
+/** Exported for unit tests. */
+export function resolveUserBubbleTimes(
+    userBubbles: UserBubble[],
+    pairs: Array<{ bubbleIndex: number; transcriptIndex: number }>,
+    backdateIndices: Set<number>,
+    sessionCreatedAtMs: number
+): Map<number, Date> {
+    const resolved = new Map<number, Date>();
+    for (let i = 0; i < userBubbles.length; i++) {
+        if (!backdateIndices.has(i)) {
+            resolved.set(i, userBubbles[i].createdAt);
+        }
+    }
+
+    const backdatePairs = pairs
+        .filter((p) => backdateIndices.has(p.bubbleIndex))
+        .sort((a, b) => a.transcriptIndex - b.transcriptIndex);
+    if (backdatePairs.length === 0) return resolved;
+
+    const trustedTimes = userBubbles
+        .map((b, i) => ({t: b.createdAt.getTime(), backdate: backdateIndices.has(i)}))
+        .filter((x) => !x.backdate)
+        .map((x) => x.t)
+        .sort((a, b) => a - b);
+    const endMs = trustedTimes.find((t) => t > sessionCreatedAtMs) ?? sessionCreatedAtMs + 86_400_000;
+    const span = Math.max(endMs - sessionCreatedAtMs, 60_000);
+    const maxTranscriptIndex = pairs.reduce((max, p) => Math.max(max, p.transcriptIndex), 0);
+    const m = backdatePairs.length;
+
+    for (let k = 0; k < m; k++) {
+        const pair = backdatePairs[k];
+        const positionRatio =
+            maxTranscriptIndex > 0
+                ? pair.transcriptIndex / (maxTranscriptIndex + 1)
+                : (k + 1) / (m + 1);
+        resolved.set(pair.bubbleIndex, new Date(sessionCreatedAtMs + positionRatio * span));
+    }
+    return resolved;
+}
+
+function filterBubbleTimelineToDate(
+    timeline: SessionBubbleTimeline,
+    filterDate: string,
+    resolvedTimes?: Map<number, Date>
+): SessionBubbleTimeline {
+    const userBubbles = timeline.userBubbles.filter((bubble, index) => {
+        const ts = resolvedTimes?.get(index) ?? bubble.createdAt;
+        return isTimestampOnLocalDate(ts, filterDate);
+    });
+    return {
+        userBubbles,
+        assistantTimes: timeline.assistantTimes.filter((t) => isTimestampOnLocalDate(t, filterDate)),
+    };
+}
+
+function buildResolvedAtByBubble(
+    userBubbles: UserBubble[],
+    resolvedTimes: Map<number, Date>
+): Map<UserBubble, Date> {
+    const resolvedAtByBubble = new Map<UserBubble, Date>();
+    for (let i = 0; i < userBubbles.length; i++) {
+        resolvedAtByBubble.set(userBubbles[i], resolvedTimes.get(i) ?? userBubbles[i].createdAt);
+    }
+    return resolvedAtByBubble;
+}
+
+function buildHumanInputsFromDayBubbles(
+    bubbleTimeline: SessionBubbleTimeline,
+    statsByContent: Map<string, Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time">>,
+    resolvedAtByBubble: Map<UserBubble, Date>
+): HumanInput[] {
+    const sortedBubbles = [...bubbleTimeline.userBubbles].sort((a, b) => {
+        const ta = resolvedAtByBubble.get(a)?.getTime() ?? a.createdAt.getTime();
+        const tb = resolvedAtByBubble.get(b)?.getTime() ?? b.createdAt.getTime();
+        return ta - tb;
+    });
+    const inputs: HumanInput[] = [];
+    const seen = new Set<string>();
+
+    for (let i = 0; i < sortedBubbles.length; i++) {
+        const bubble = sortedBubbles[i];
+        const start = resolvedAtByBubble.get(bubble) ?? bubble.createdAt;
+        const extracted = extractHumanInputText(bubble.text);
+        const norm = normalizeBubbleMatchText(extracted);
+        if (!extracted || extracted.length > 1500 || seen.has(norm)) continue;
+        seen.add(norm);
+
+        const stats = statsByContent.get(norm);
+        const nextStart = sortedBubbles[i + 1]
+            ? resolvedAtByBubble.get(sortedBubbles[i + 1]) ?? sortedBubbles[i + 1].createdAt
+            : null;
+        let end = resolveBubbleEndTime(start, nextStart, bubbleTimeline.assistantTimes) ?? start;
+        if (stats?.end_time) {
+            const toolEnd = new Date(stats.end_time);
+            if (!Number.isNaN(toolEnd.getTime()) && toolEnd > end) end = toolEnd;
+        }
+
+        inputs.push({
+            category: classifyHumanInput(extracted),
+            content: extracted,
+            session_agent: "cursor-gui",
+            session_time: formatIsoTime(start),
+            start_time: formatIsoTime(start),
+            end_time: formatIsoTime(end),
+            files_changed: stats?.files_changed ?? 0,
+            lines_added: stats?.lines_added ?? 0,
+            lines_deleted: stats?.lines_deleted ?? 0,
+        });
+    }
+
+    return inputs;
 }
 
 function resolveBubbleEndTime(
@@ -332,6 +472,20 @@ function resolveBubbleEndTime(
         if (!end || ms > end.getTime()) end = ts;
     }
     return end ?? start;
+}
+
+function lookupComposerCreatedAtMs(db: DatabaseType, sessionId: string): number | undefined {
+    try {
+        const row = db
+            .prepare("SELECT value FROM cursorDiskKV WHERE key = ?")
+            .get(`composerData:${sessionId}`) as { value: string } | undefined;
+        if (!row) return undefined;
+        const data = JSON.parse(row.value) as Record<string, unknown>;
+        const createdAtMs = (data["createdAt"] ?? data["created_at"]) as number | undefined;
+        return createdAtMs && createdAtMs > 0 ? createdAtMs : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 function tryOpenCursorStateDb(): DatabaseType | null {
@@ -408,6 +562,7 @@ export interface GuiSession {
 
 interface ParseTranscriptOptions {
     lastUpdatedAtMs?: number;
+    sessionCreatedAtMs?: number;
     initialCwd?: string;
     db?: DatabaseType;
 }
@@ -451,14 +606,42 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
     }
 
     const lines = readFileSync(transcriptPath, "utf-8").split("\n");
+    const fullBubbleTimeline = opts?.db
+        ? loadSessionBubbleTimeline(opts.db, sessionId)
+        : null;
+    let resolvedTimes = new Map<number, Date>();
+    let resolvedAtByBubble = new Map<UserBubble, Date>();
+    if (fullBubbleTimeline) {
+        if (opts?.sessionCreatedAtMs != null) {
+            const backdate = suspectBackdateBubbleIndices(
+                fullBubbleTimeline.userBubbles,
+                opts.sessionCreatedAtMs
+            );
+            if (backdate.size > 0) {
+                const pairs = matchTranscriptToBubbleIndices(
+                    extractTranscriptUserTexts(lines),
+                    fullBubbleTimeline.userBubbles
+                );
+                resolvedTimes = resolveUserBubbleTimes(
+                    fullBubbleTimeline.userBubbles,
+                    pairs,
+                    backdate,
+                    opts.sessionCreatedAtMs
+                );
+            }
+        }
+        if (resolvedTimes.size === 0) {
+            resolvedTimes = new Map(
+                fullBubbleTimeline.userBubbles.map((bubble, index) => [index, bubble.createdAt])
+            );
+        }
+        resolvedAtByBubble = buildResolvedAtByBubble(fullBubbleTimeline.userBubbles, resolvedTimes);
+    }
     const bubbleTimeline =
-        !transcriptLinesHaveTimestamps(lines) && opts?.db
-            ? loadSessionBubbleTimeline(opts.db, sessionId)
-            : null;
-    const useBubbleDayFilter = !!bubbleTimeline && !!filterDate;
-    const skipDateFilter =
-        !useBubbleDayFilter &&
-        shouldSkipTranscriptDateFilter(filterDate, lines, transcriptPath, opts?.lastUpdatedAtMs);
+        fullBubbleTimeline && filterDate
+            ? filterBubbleTimelineToDate(fullBubbleTimeline, filterDate, resolvedTimes)
+            : fullBubbleTimeline;
+    const useBubbleAuthority = !!bubbleTimeline && !!filterDate && bubbleTimeline.userBubbles.length > 0;
     const usedBubbleIndices = new Set<number>();
 
     let activityStart: Date | null = null;
@@ -477,7 +660,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
     const files: FileChange[] = [];
     const fileIndex = new Map<string, number>();
     const humanInputs: HumanInput[] = [];
-    let currentPromptOnDate = skipDateFilter;
+    let currentPromptOnDate = false;
     const seenInput = new Set<string>();
     type PromptContext = {
         idx: number;
@@ -487,6 +670,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         files: Set<string>;
         linesAdded: number;
         linesDeleted: number;
+        contentNorm?: string;
     };
     const contexts: PromptContext[] = [];
     let currentContext: PromptContext | null = null;
@@ -540,12 +724,20 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
             if (textAcc) {
                 const extracted = extractHumanInputText(textAcc);
                 let promptTs = parseEventTimestamp(obj, message, textAcc);
-                if (!promptTs && bubbleTimeline && extracted) {
+                let bubbleMatched = false;
+                if (bubbleTimeline && extracted) {
                     const matched = matchUserBubble(extracted, bubbleTimeline.userBubbles, usedBubbleIndices);
-                    if (matched) promptTs = matched.createdAt;
+                    if (matched) {
+                        promptTs = resolvedAtByBubble.get(matched) ?? matched.createdAt;
+                        bubbleMatched = true;
+                    }
                 }
-                currentPromptOnDate = skipDateFilter ||
-                    (!!filterDate && !!promptTs && isTimestampOnLocalDate(promptTs, filterDate));
+                if (useBubbleAuthority && !bubbleMatched) {
+                    currentContext = null;
+                    continue;
+                }
+                currentPromptOnDate =
+                    !filterDate || (!!promptTs && isTimestampOnLocalDate(promptTs, filterDate));
                 if (!currentPromptOnDate) {
                     currentContext = null;
                     continue;
@@ -553,7 +745,11 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
                 userCount++;
                 touchActivity(promptTs);
                 const norm = textAcc.slice(0, 200);
-                if (!seenInput.has(norm) && extracted.length > 0 && extracted.length <= 1500) {
+                const trackHumanInput = !useBubbleAuthority &&
+                    !seenInput.has(norm) &&
+                    extracted.length > 0 &&
+                    extracted.length <= 1500;
+                if (trackHumanInput) {
                     seenInput.add(norm);
                     const inputIdx = humanInputs.length;
                     humanInputs.push({
@@ -577,14 +773,28 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
                         linesDeleted: 0,
                     };
                     contexts.push(currentContext);
+                } else if (useBubbleAuthority && bubbleMatched) {
+                    const contentNorm = normalizeBubbleMatchText(extracted);
+                    currentContext = {
+                        idx: contexts.length,
+                        start: promptTs,
+                        firstTool: null,
+                        lastTool: null,
+                        files: new Set<string>(),
+                        linesAdded: 0,
+                        linesDeleted: 0,
+                        contentNorm,
+                    };
+                    contexts.push(currentContext);
                 } else {
                     currentContext = null;
                 }
             }
         } else if (role === "assistant" && Array.isArray(content)) {
             const eventTs = parseEventTimestamp(obj, message);
-            const assistantOnDate = skipDateFilter ||
-                (!!filterDate && eventTs ? isTimestampOnLocalDate(eventTs, filterDate) : currentPromptOnDate);
+            const assistantOnDate =
+                !filterDate ||
+                (eventTs ? isTimestampOnLocalDate(eventTs, filterDate) : currentPromptOnDate);
             if (!assistantOnDate) continue;
             assistantCount++;
             touchActivity(eventTs);
@@ -639,24 +849,51 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         }
     }
 
+    const statsByContent = new Map<
+        string,
+        Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time">
+    >();
+
     for (let i = 0; i < contexts.length; i++) {
         const ctx = contexts[i];
-        const h = humanInputs[ctx.idx];
-        if (!h) continue;
         const start = ctx.start ?? ctx.firstTool;
         let end = ctx.lastTool ?? ctx.firstTool ?? start;
         if (!ctx.lastTool && bubbleTimeline && start) {
             const nextStart = contexts[i + 1]?.start ?? null;
             end = resolveBubbleEndTime(start, nextStart, bubbleTimeline.assistantTimes) ?? end;
         }
-        h.files_changed = ctx.files.size;
-        h.lines_added = ctx.linesAdded;
-        h.lines_deleted = ctx.linesDeleted;
+        const stats = {
+            files_changed: ctx.files.size,
+            lines_added: ctx.linesAdded,
+            lines_deleted: ctx.linesDeleted,
+            end_time: formatIsoTime(end),
+        };
+        if (useBubbleAuthority && ctx.contentNorm) {
+            statsByContent.set(ctx.contentNorm, stats);
+            touchActivity(start);
+            touchActivity(end);
+            continue;
+        }
+        const h = humanInputs[ctx.idx];
+        if (!h) continue;
+        h.files_changed = stats.files_changed;
+        h.lines_added = stats.lines_added;
+        h.lines_deleted = stats.lines_deleted;
         h.start_time = formatIsoTime(start);
         h.end_time = formatIsoTime(end);
         h.session_time = h.start_time;
         touchActivity(start);
         touchActivity(end);
+    }
+
+    let finalHumanInputs = humanInputs;
+    if (useBubbleAuthority && bubbleTimeline) {
+        finalHumanInputs = buildHumanInputsFromDayBubbles(
+            bubbleTimeline,
+            statsByContent,
+            resolvedAtByBubble
+        );
+        userCount = finalHumanInputs.length;
     }
 
     const repoStats = new Map<string, { files: number; added: number; deleted: number }>();
@@ -688,7 +925,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         files,
         repos,
         messageStats: { user: userCount, assistant: assistantCount, tool_calls: toolCallCount },
-        humanInputs: humanInputs.length > 0 ? humanInputs : [],
+        humanInputs: finalHumanInputs.length > 0 ? finalHumanInputs : [],
         activityStart,
         activityEnd,
     };
@@ -874,7 +1111,10 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
             if (!existsSync(jsonl) || seen.has(sid)) continue;
             seen.add(sid);
 
-            const parsed = parseTranscript(sid, filterDate, {db: db ?? undefined});
+            const parsed = parseTranscript(sid, filterDate, {
+                db: db ?? undefined,
+                sessionCreatedAtMs: db ? lookupComposerCreatedAtMs(db, sid) : undefined,
+            });
             const hasActivity =
                 parsed.messageStats.user > 0 ||
                 parsed.messageStats.assistant > 0 ||
@@ -1038,6 +1278,7 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
         for (let i = 0; i < sessions.length; i++) {
             const parsed = parseTranscript(sessions[i].id, filterDate, {
                 lastUpdatedAtMs: sessions[i].last_updated_at_ms,
+                sessionCreatedAtMs: sessions[i].created_at_ms,
                 initialCwd: sessions[i].cwd,
                 db,
             });
