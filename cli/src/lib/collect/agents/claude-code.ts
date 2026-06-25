@@ -27,6 +27,7 @@ import { aggregateUsageBuckets, foldBucketsToModel } from "../aggregators/tokens
 import { gitRemoteRepo } from "../git.js";
 import { ChunkMessage } from "../aggregators/chunks.js";
 import {isTimestampOnLocalDate, localDateString} from "../date-utils.js";
+import {classifyHumanInput} from "../aggregators/human-category.js";
 
 /**
  * Decode a Claude project directory name (URL-encoded path with dashes).
@@ -476,19 +477,7 @@ export function collectClaudeCodeSession(
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const lower = text.toLowerCase();
-    const contains = (words: string[]) => words.some((w) => lower.includes(w));
-    let category: HumanInput["category"] = "direction";
-    if (contains(["决定","決定","定了","採用","采用","改成","改為","用这个","用這個","最终","最終","结论","結論","就按","agreed","decide","decision"]))
-      category = "decision";
-    else if (contains(["计划","計劃","方案","步驟","步骤","下一步","roadmap","plan","planning","拆分","排期"]))
-      category = "planning";
-    else if (contains(["修复","修復","修正","改一下","不对","不對","有问题","有問題","报错","報錯","错误","錯誤","bug","fix","broken","failed"]))
-      category = "correction";
-    else if (contains(["需要","必须","必須","要求","请确保","請確保","should","must","requirement","需求"]))
-      category = "direction";
-    else if (contains(["帮我","幫我","请","請","分析","看看","解释","解釋","实现","實現","优化","優化","梳理","how","why","what","please"]))
-      category = "direction";
+    const category = classifyHumanInput(text);
 
     qualifiedTurns.push({
       index: i,

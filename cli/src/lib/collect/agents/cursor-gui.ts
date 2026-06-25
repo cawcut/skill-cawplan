@@ -25,6 +25,7 @@ import {activityOverlapsLocalDate, dayBoundsMs, isTimestampOnLocalDate, localDat
 import {cursorProjectsDir, cursorStateDbCandidates} from "../paths.js";
 import {FileChange, HumanInput, RepoTouched} from "../types.js";
 import {gitRemoteRepo, gitFileNumstat} from "../git.js";
+import {classifyHumanInput} from "../aggregators/human-category.js";
 
 const require = createRequire(import.meta.url);
 const USER_QUERY_RE = /<user_query>\s*([\s\S]*?)\s*<\/user_query>/i;
@@ -128,20 +129,6 @@ function cwdFromWorkspaceIdentifier(data: Record<string, unknown>): string {
     return candidate && existsSync(candidate) ? candidate : "";
 }
 
-function classifyHumanInput(text: string): HumanInput["category"] {
-    const lower = text.toLowerCase();
-    const has = (arr: string[]) => arr.some((w) => lower.includes(w));
-    if (has(["决定", "決定", "采用", "採用", "改成", "改為", "最终", "最終", "结论", "結論", "agreed", "decide", "decision"])) {
-        return "decision";
-    }
-    if (has(["修复", "修復", "修正", "报错", "報錯", "错误", "錯誤", "不对", "不對", "bug", "fix", "failed"])) {
-        return "correction";
-    }
-    if (has(["计划", "計劃", "方案", "下一步", "roadmap", "plan", "planning", "排期"])) {
-        return "planning";
-    }
-    return "direction";
-}
 
 function extractHumanInputText(raw: string): string {
     const query = raw.match(USER_QUERY_RE)?.[1]?.trim();

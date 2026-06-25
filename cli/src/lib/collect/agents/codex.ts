@@ -24,6 +24,7 @@ import { codexStateDb, codexSessionsDir } from "../paths.js";
 const require = createRequire(import.meta.url);
 import { SessionData, ModelUsageEntry, UsageBucket, RepoTouched, HumanInput } from "../types.js";
 import { calculateCost, getCurrency } from "../pricing.js";
+import { classifyHumanInput } from "../aggregators/human-category.js";
 
 interface CodexThread {
   id: string;
@@ -99,20 +100,6 @@ function isHumanInputText(text: string): boolean {
   return true;
 }
 
-function classifyHumanInput(text: string): HumanInput["category"] {
-  const lower = text.toLowerCase();
-  const contains = (words: string[]) => words.some((w) => lower.includes(w));
-  if (contains(["决定","決定","定了","採用","采用","改成","改為","用这个","用這個","最终","最終","结论","結論","就按","agreed","decide","decision"])) {
-    return "decision";
-  }
-  if (contains(["计划","計劃","方案","步驟","步骤","下一步","roadmap","plan","planning","拆分","排期"])) {
-    return "planning";
-  }
-  if (contains(["修复","修復","修正","改一下","不对","不對","有问题","有問題","报错","報錯","错误","錯誤","bug","fix","broken","failed"])) {
-    return "correction";
-  }
-  return "direction";
-}
 
 function countDiffLines(diff: string): { added: number; deleted: number } {
   let added = 0;
