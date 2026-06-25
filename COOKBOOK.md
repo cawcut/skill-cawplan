@@ -2,6 +2,8 @@
 
 Task-oriented examples for CawPlan agent skills.
 
+**Before you start:** install the CLI and authenticate (`README.md`). For AI daily reporting onboarding, see `docs/AI_DAILY_REPORTING.md`. Agent execution details live in each skill's `SKILL.md` under `skills/`.
+
 ## 1. cawplan-ticket-create
 
 Create a new ticket with details, assignee, and priority
@@ -49,43 +51,100 @@ Track release progress, dependencies, pending tasks, and target delivery dates
 
 ## 6. cawplan-coding-commit
 
-Collect local agent session data (Claude Code, Cursor, Codex) and upload to CawPlan.
+Collect local agent session data (Claude Code, Cursor, Codex) and upload a daily AI coding report to CawPlan.
+
+**Authoritative workflow:** `skills/cawplan-coding-commit/SKILL.md`
+
+### Recommended daily flow
 
 ```text
-# Auto-collect all agents for today and upload immediately
-/cawplan-coding-commit collect and submit today's coding sessions
-
-# Auto-collect for a specific date and upload
-/cawplan-coding-commit submit coding report for 2026-06-14
-
-# Collect only (write to file, do not upload)
-/cawplan-coding-commit collect sessions for 2026-06-14
-
-# Collect only Claude Code sessions for today
-/cawplan-coding-commit collect today's Claude Code sessions
-
-# Upload a pre-collected JSON file
-/cawplan-coding-commit submit today's coding report from ~/reports/daily.json
+# Default: collect today → review → upload → backfill missing days in the current month
+/cawplan-coding-commit
 ```
 
-The CLI reads sessions from:
-- **Claude Code**: `~/.claude/projects/` JSONL files
-- **Cursor GUI**: `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`
-- **Codex**: `~/.codex/sessions/`
+No extra prompt is required. The agent collects `ai-daily-<date>.json`, summarizes sessions and human inputs, uploads when product assignment is complete, then checks for missing reports in the current month.
 
-Cursor token/cost data requires `CURSOR_ACCESS_TOKEN` to be set; absence is a non-fatal warning.
+### Natural-language variants
+
+```text
+# Explicit upload for a specific date
+/cawplan-coding-commit submit coding report for 2026-06-14
+
+# Collect only (write JSON, do not upload)
+/cawplan-coding-commit collect sessions for 2026-06-14
+
+# Collect only Claude Code for today
+/cawplan-coding-commit collect today's Claude Code sessions
+
+# Upload a pre-collected file
+/cawplan-coding-commit submit today's coding report from ~/reports/ai-daily-2026-06-14.json
+```
+
+### CLI equivalents
+
+| Intent | Command |
+|--------|---------|
+| Collect | `cawplan ai-session collect --date <YYYY-MM-DD>` |
+| Upload | `cawplan ai-session report --file ./ai-daily-<date>.json` |
+| Assign products (TTY) | `cawplan ai-session assign --file ./ai-daily-<date>.json --tty` |
+| Assign products (Web UI) | `cawplan ai-session assign --file ./ai-daily-<date>.json --web` |
+| Backfill current month | `cawplan ai-session backfill --from <YYYY-MM-01> --to <YYYY-MM-DD>` |
+
+Use absolute paths with `assign` when running from another directory. For multiple files, repeat `--files <path>` with `--web` or `--tty`.
+
+### Product assignment
+
+Every `sessions[]` entry needs a `product_id` before upload.
+
+During `collect`, the CLI auto-matches sessions from cloud product-repo mappings, then prompts for remaining sessions when a TTY is available. In Cursor and other non-interactive shells, assignment is often skipped — complete it before upload:
+
+```bash
+# Option A: terminal selector
+cawplan ai-session assign --file /absolute/path/ai-daily-2026-06-24.json --tty
+
+# Option B: local browser table (session / human inputs / product / repo)
+cawplan ai-session assign --file /absolute/path/ai-daily-2026-06-24.json --web
+```
+
+Run `/cawplan-coding-init` once per repo so auto-matching works for future collects.
+
+### Data sources
+
+`cawplan ai-session collect` reads:
+
+- **Claude Code** — `~/.claude/projects/` JSONL session files
+- **Cursor GUI** — `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`
+- **Cursor CLI** — agent transcripts on disk (`cursor-cli` sessions)
+- **Codex** — `~/.codex/sessions/`
+
+Cursor token/cost enrichment uses the Cursor Dashboard API when `CURSOR_ACCESS_TOKEN` is set. Missing token or network is a non-fatal warning; the report is still written.
+
+### After upload
+
+After a successful daily upload, the skill may backfill other missing dates in the same calendar month:
+
+```bash
+cawplan ai-session backfill --from 2026-06-01 --to 2026-06-24 --dry-run
+cawplan ai-session backfill --from 2026-06-01 --to 2026-06-24
+```
 
 ## 7. cawplan-coding-init
 
-Initialize the current repository's Product/Repo mapping for AI coding reports.
+Link the **current git repository** to a CawPlan product (and optional GitHub repo mapping) so `/cawplan-coding-commit` can auto-fill `product_id` during collection.
+
+Run once per repo, from the repository root, before your first daily report from that codebase:
 
 ```text
 /cawplan-coding-init
 ```
 
+The skill resolves `git remote get-url origin`, lets you pick a CawPlan product, and creates a cloud `product-repo` mapping when needed. Details: `skills/cawplan-coding-init/SKILL.md`.
+
 ## 8. cawplan-coding-insights
 
 Track coding costs, token usage, session activity, and productivity across multiple dimensions.
+
+`by-product` and product-scoped views require product-repo mappings (see §7).
 
 ```text
 # Workspace overview
@@ -126,3 +185,19 @@ Track coding costs, token usage, session activity, and productivity across multi
 /cawplan-coding-insights show prompts that need review from last week
 /cawplan-coding-insights search for prompts about "door schedule" from the last month
 ```
+
+**CLI examples** (agents use these under the hood):
+
+```bash
+cawplan ai-session overview --from 2026-06-01 --to 2026-06-30
+cawplan ai-session trend --from 2026-06-01 --to 2026-06-30
+cawplan ai-session by-member --from 2026-06-01 --to 2026-06-30
+cawplan ai-session by-model --from 2026-06-01 --to 2026-06-30
+cawplan ai-session by-agent --from 2026-06-01 --to 2026-06-30
+cawplan ai-session by-project --from 2026-06-01 --to 2026-06-30
+cawplan ai-session by-product --from 2026-06-01 --to 2026-06-30
+cawplan ai-session my-sessions --from 2026-06-01 --to 2026-06-30
+cawplan ai-session human-input-summary --from 2026-06-01 --to 2026-06-30
+```
+
+Full command list: `skills/cawplan-coding-insights/SKILL.md`.
