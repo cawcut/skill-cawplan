@@ -58,3 +58,21 @@ describe("assignmentHtml - needs review filter", () => {
         expect(assignmentHtml()).toContain("!filterUnassigned || !session.product_id");
     });
 });
+
+describe("assignmentHtml - submit effect", () => {
+    test("contains Saved check-mark text", () => {
+        expect(assignmentHtml()).toContain("Saved ✓");
+    });
+
+    test("does not use alert for save confirmation", () => {
+        expect(assignmentHtml()).not.toContain("alert('Saved");
+    });
+
+    test("contains btn-saved CSS class", () => {
+        expect(assignmentHtml()).toContain(".btn-saved");
+    });
+
+    test("contains status-error CSS class", () => {
+        expect(assignmentHtml()).toContain(".status-error");
+    });
+});

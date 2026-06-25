@@ -33,6 +33,8 @@ export function assignmentHtml(): string {
     .bulk-hint { color: #777; font-size: 12px; align-self: center; }
     .actions { margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
     .status { color: #777; }
+    .btn-saved { color: #15803d; }
+    .status-error { color: #b42318; }
     .badge { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-right: 4px; vertical-align: middle; }
     .badge-cat-decision { background: #dbeafe; color: #1d4ed8; }
     .badge-cat-direction { background: #ede9fe; color: #6d28d9; }
@@ -430,7 +432,15 @@ export function assignmentHtml(): string {
     }
 
     async function save() {
-      validateProducts();
+      const saveBtn = document.getElementById('save');
+      const statusEl = document.getElementById('status');
+      try {
+        validateProducts();
+      } catch (e) {
+        statusEl.textContent = e.message;
+        statusEl.className = 'status status-error';
+        return;
+      }
       const assignments = [];
       const pendingMappingsToCreate = new Set();
       for (const tr of document.querySelectorAll('tbody tr')) {
@@ -438,7 +448,9 @@ export function assignmentHtml(): string {
         const product = findProduct(tr.querySelector('.product').value);
         if (!product) {
           const title = tr.querySelector('.session-title').textContent || sessionId;
-          throw new Error('Product is required for session: ' + title);
+          statusEl.textContent = 'Product is required for session: ' + title;
+          statusEl.className = 'status status-error';
+          return;
         }
         const repoValue = tr.querySelector('.repo').value;
         let repoUrl;
@@ -446,11 +458,15 @@ export function assignmentHtml(): string {
         if (repoValue === '__link__') {
           repoUrl = tr.querySelector('.repo-url').value.trim();
           if (!repoUrl) {
-            throw new Error('GitHub repository URL is required when linking a repository.');
+            statusEl.textContent = 'GitHub repository URL is required when linking a repository.';
+            statusEl.className = 'status status-error';
+            return;
           }
           linkedRepoName = parseRepoNameFromGitHubUrl(repoUrl);
           if (!linkedRepoName) {
-            throw new Error('GitHub repository URL must be in the format https://github.com/owner/repo.');
+            statusEl.textContent = 'GitHub repository URL must be in the format https://github.com/owner/repo.';
+            statusEl.className = 'status status-error';
+            return;
           }
         }
         const mapping = mappings.find((m) => m.product_id === product.product_id && m.repo_name === repoValue);
@@ -471,15 +487,33 @@ export function assignmentHtml(): string {
           create_mapping: createMapping,
         });
       }
-      document.getElementById('status').textContent = 'Saving...';
-      const result = await api('/api/assignments', {method: 'POST', body: JSON.stringify({assignments})});
-      document.getElementById('status').textContent = 'Saved ' + result.assigned_sessions + ' session(s). Closing server...';
-      alert('Saved assignments to ' + (result.files || [result.file]).join(', '));
-      await api('/api/close', {method: 'POST'});
-      window.close();
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+      saveBtn.classList.remove('btn-saved');
+      statusEl.textContent = 'Saving...';
+      statusEl.className = 'status';
+      try {
+        const result = await api('/api/assignments', {method: 'POST', body: JSON.stringify({assignments})});
+        const fileList = (result.files || [result.file]).join(', ');
+        saveBtn.textContent = 'Saved ✓';
+        saveBtn.classList.add('btn-saved');
+        statusEl.textContent = 'Saved ' + result.assigned_sessions + ' session(s) to ' + fileList;
+        statusEl.className = 'status';
+        setTimeout(() => {
+          saveBtn.textContent = 'Save assignments';
+          saveBtn.classList.remove('btn-saved');
+          saveBtn.disabled = false;
+        }, 2000);
+      } catch (e) {
+        saveBtn.textContent = 'Save assignments';
+        saveBtn.classList.remove('btn-saved');
+        saveBtn.disabled = false;
+        statusEl.textContent = e.message;
+        statusEl.className = 'status status-error';
+      }
     }
 
-    document.getElementById('save').addEventListener('click', () => save().catch((e) => alert(e.message)));
+    document.getElementById('save').addEventListener('click', () => save());
     document.getElementById('apply-product').addEventListener('click', () => applyBulkProduct());
     document.getElementById('close').addEventListener('click', () => api('/api/close', {method: 'POST'}).then(() => window.close()).catch((e) => alert(e.message)));
     load().catch((e) => document.getElementById('status').textContent = e.message);
