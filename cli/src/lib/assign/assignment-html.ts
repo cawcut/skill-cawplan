@@ -50,12 +50,20 @@ export function assignmentHtml(): string {
     #stats-bar { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; }
     .stats-row { font-size: 13px; color: #444; margin-bottom: 4px; }
     .stats-row:last-child { margin-bottom: 0; }
+    .filter-bar { margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .filter-btn { padding: 4px 12px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; background: Canvas; font: inherit; }
+    .filter-btn.active { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+    .filter-hint { color: #777; font-size: 12px; }
   </style>
 </head>
 <body>
   <h1>CawPlan AI Session Assignment</h1>
   <p class="muted">Assign each session to a product and optional repository, then save the updated daily report.</p>
   <div id="stats-bar"></div>
+  <div class="filter-bar">
+    <button id="filter-unassigned" class="filter-btn" type="button">Show unassigned only</button>
+    <span class="filter-hint" id="filter-hint"></span>
+  </div>
   <datalist id="product-list"></datalist>
   <div class="bulk-controls">
     <label>Default product
@@ -108,6 +116,7 @@ export function assignmentHtml(): string {
     let reports = [];
     let products = [];
     let mappings = [];
+    let filterUnassigned = false;
 
     function productLabel(product) {
       return product.product_name || product.name || product.product_id || product.unique_id || '';
@@ -309,6 +318,7 @@ export function assignmentHtml(): string {
         const sessions = [...entry.report.sessions].sort((a, b) => sessionStartMs(a) - sessionStartMs(b));
         return sessions
           .filter((session) => !batch || !session.product_id)
+          .filter((session) => !filterUnassigned || !session.product_id)
           .map((session) => ({...entry, session}));
       });
     }
@@ -410,6 +420,13 @@ export function assignmentHtml(): string {
       mappings = mappingData.mappings || [];
       render();
       document.getElementById('status').textContent = batch ? 'Ready: ' + reports.length + ' report(s)' : 'Ready';
+      document.getElementById('filter-unassigned').addEventListener('click', () => {
+        filterUnassigned = !filterUnassigned;
+        document.getElementById('filter-unassigned').classList.toggle('active', filterUnassigned);
+        const hint = document.getElementById('filter-hint');
+        hint.textContent = filterUnassigned ? 'Showing only sessions without a product.' : '';
+        render();
+      });
     }
 
     async function save() {

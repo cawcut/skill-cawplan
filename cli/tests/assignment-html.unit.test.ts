@@ -40,3 +40,21 @@ describe("assignmentHtml - stats panel", () => {
         expect(assignmentHtml()).toContain("renderStats()");
     });
 });
+
+describe("assignmentHtml - needs review filter", () => {
+    test("contains filter-unassigned button", () => {
+        expect(assignmentHtml()).toContain('id="filter-unassigned"');
+    });
+
+    test("contains filterUnassigned state variable", () => {
+        expect(assignmentHtml()).toContain("filterUnassigned");
+    });
+
+    test("contains filter-bar CSS", () => {
+        expect(assignmentHtml()).toContain(".filter-bar {");
+    });
+
+    test("rowEntries respects filterUnassigned in JS source", () => {
+        expect(assignmentHtml()).toContain("!filterUnassigned || !session.product_id");
+    });
+});
