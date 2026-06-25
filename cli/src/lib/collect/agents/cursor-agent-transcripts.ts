@@ -20,6 +20,7 @@ import {
   localDateString,
   parseTimestampTag,
 } from "../date-utils.js";
+import { FileDelta, estimateToolDeltas } from "../aggregators/tool-utils.js";
 
 const CHARS_PER_TOKEN = 4;
 
@@ -39,12 +40,6 @@ interface TranscriptEvent {
 interface ToolCall {
   name: string;
   input: Record<string, unknown> | string | undefined;
-}
-
-interface FileDelta {
-  path: string;
-  added: number;
-  deleted: number;
 }
 
 interface ParsedTurn {
@@ -108,71 +103,8 @@ function extractCwd(content: TranscriptEvent["message"]): string {
   return "";
 }
 
-function lineCount(value: unknown): number {
-  if (typeof value !== "string" || value.length === 0) return 0;
-  return value.split("\n").length;
-}
-
-function parsePatchFileDeltas(patch: string): FileDelta[] {
-  const byPath = new Map<string, FileDelta>();
-  let currentPath = "";
-
-  for (const line of patch.split("\n")) {
-    const fileMatch = line.match(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/);
-    if (fileMatch) {
-      currentPath = fileMatch[1]?.trim() ?? "";
-      if (currentPath && !byPath.has(currentPath)) {
-        byPath.set(currentPath, { path: currentPath, added: 0, deleted: 0 });
-      }
-      continue;
-    }
-
-    if (!currentPath) continue;
-    const delta = byPath.get(currentPath);
-    if (!delta) continue;
-    if (line.startsWith("+") && !line.startsWith("+++")) delta.added += 1;
-    if (line.startsWith("-") && !line.startsWith("---")) delta.deleted += 1;
-  }
-
-  return [...byPath.values()].filter((d) => d.added > 0 || d.deleted > 0);
-}
-
 function extractFileDeltasFromToolCall(call: ToolCall): FileDelta[] {
-  const name = call.name.toLowerCase();
-  const input = call.input;
-  if (!input) return [];
-
-  if (name === "applypatch" && typeof input === "string") {
-    return parsePatchFileDeltas(input);
-  }
-
-  if (typeof input === "string") return [];
-
-  if (name === "applypatch") {
-    const patch = input["patch"] ?? input["input"];
-    return typeof patch === "string" ? parsePatchFileDeltas(patch) : [];
-  }
-
-  const path =
-    (input["path"] as string | undefined) ??
-    (input["file_path"] as string | undefined) ??
-    (input["target_file"] as string | undefined) ??
-    (input["target_notebook"] as string | undefined);
-  if (!path) return [];
-
-  if (name === "write") {
-    return [{ path, added: lineCount(input["contents"] ?? input["content"]), deleted: 0 }];
-  }
-
-  if (name === "edit" || name === "strreplace" || name === "multiedit" || name === "editnotebook") {
-    return [{
-      path,
-      added: lineCount(input["new_string"]),
-      deleted: lineCount(input["old_string"]),
-    }];
-  }
-
-  return [];
+  return estimateToolDeltas(call.name, (call.input ?? {}) as Record<string, unknown>);
 }
 
 function mergeFileDeltas(deltas: FileDelta[]): FileDelta[] {

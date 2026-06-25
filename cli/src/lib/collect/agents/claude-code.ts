@@ -26,7 +26,7 @@ import { SessionData, FileChange, RepoTouched, HumanInput } from "../types.js";
 import { aggregateUsageBuckets, foldBucketsToModel } from "../aggregators/tokens.js";
 import { gitRemoteRepo } from "../git.js";
 import { ChunkMessage } from "../aggregators/chunks.js";
-import {isTimestampOnLocalDate, localDateString} from "../date-utils.js";
+import {isTimestampOnLocalDate, localDateString, formatLocalTime, getLocalTimezone} from "../date-utils.js";
 import {classifyHumanInput} from "../aggregators/human-category.js";
 
 /**
@@ -200,15 +200,6 @@ export function parseEvents(jsonlPath: string, filterDate?: string): Record<stri
   return events;
 }
 
-function formatLocalTime(date: Date): string {
-  const h = date.getHours().toString().padStart(2, "0");
-  const m = date.getMinutes().toString().padStart(2, "0");
-  return `${h}:${m}`;
-}
-
-function getLocalTimezone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
-}
 
 // XML patterns matching Claude Code slash command wrappers
 const COMMAND_ARGS_RE = /<command-args>\s*([\s\S]+?)\s*<\/command-args>/;

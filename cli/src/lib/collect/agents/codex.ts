@@ -25,6 +25,7 @@ const require = createRequire(import.meta.url);
 import { SessionData, ModelUsageEntry, UsageBucket, RepoTouched, HumanInput } from "../types.js";
 import { calculateCost, getCurrency } from "../pricing.js";
 import { classifyHumanInput } from "../aggregators/human-category.js";
+import { formatLocalTime, getLocalTimezone, localDateString } from "../date-utils.js";
 
 interface CodexThread {
   id: string;
@@ -34,23 +35,6 @@ interface CodexThread {
   tokens_used: number | null;
   title: string | null;
   cwd: string | null;
-}
-
-function getLocalTimezone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
-}
-
-function formatLocalTime(date: Date): string {
-  const h = date.getHours().toString().padStart(2, "0");
-  const m = date.getMinutes().toString().padStart(2, "0");
-  return `${h}:${m}`;
-}
-
-function localDateString(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
 }
 
 function dateFromCodexTimestamp(value: string | number | null | undefined): Date | null {
