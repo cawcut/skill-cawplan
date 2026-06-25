@@ -12,7 +12,7 @@ cawplan --version
 **Option A — `npx skills add` (recommended, no git clone needed)**
 
 ```bash
-npx skills add Ubiquiti-UID/flow-cawplan-skill --all -y
+npx skills add Ubiquiti-UID/flow-cawplan-skill --all -g -y
 ```
 
 Install only selected skills:

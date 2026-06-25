@@ -6,7 +6,7 @@ Quick path:
 
 ```bash
 npm install -g cawplan
-npx skills add Ubiquiti-UID/flow-cawplan-skill --all -y
+npx skills add Ubiquiti-UID/flow-cawplan-skill --all -g -y
 cawplan auth login
 cawplan auth status
 ```

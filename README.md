@@ -6,7 +6,7 @@ AI agent skills and CLI tooling for CawPlan product release management workflows
 
 ```bash
 npm install -g cawplan
-npx skills add Ubiquiti-UID/flow-cawplan-skill --all -y
+npx skills add Ubiquiti-UID/flow-cawplan-skill --all -g -y
 ```
 
 See `INSTALL.md` for all install options.
