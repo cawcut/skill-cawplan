@@ -2,11 +2,21 @@
 
 ## Development
 
+所有 npm 命令在 `cli/` 目录下运行。
 ```bash
-npm install
-npm run build
+# 首次安装 / 生产使用
+npm install && npm run build && npm install -g .
+
+# 开发中频繁改动（用 link 代替全局安装，rebuild 后立即生效）
+npm install && npm run build && npm link
+
+# 单独跑测试
 npm test
-npm run validate:skills
+```
+
+**验证 skills（从仓库根目录运行）：**
+```bash
+bash scripts/validate-skills.sh
 ```
 
 ## Commit Messages
@@ -46,7 +56,7 @@ Two independent version lines:
 1. Update `VERSION`.
 2. Sync `version` in every `skills/*/SKILL.md`.
 3. Sync `version` in `.cursor-plugin/plugin.json`, `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `.claude-plugin/marketplace.json`.
-4. Run `npm run validate:skills`.
+4. Run `bash scripts/validate-skills.sh`.
 
 ### CLI npm release
 

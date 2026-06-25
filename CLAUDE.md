@@ -45,10 +45,11 @@ All skills route through `cawplan`. Do not call CawPlan HTTP APIs directly from 
 ## Development
 
 ```bash
-cd cli && npm install
-cd cli && npm run build
-cd cli && npm test
+# 验证 skills（从仓库根目录运行）
 bash scripts/validate-skills.sh
+
+# npm 单独跑测试
+cd cli && npm install && npm run build && npm test
 ```
 
 ## Skill Authoring Rules
