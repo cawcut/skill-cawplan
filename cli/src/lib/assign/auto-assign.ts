@@ -16,12 +16,15 @@ function autoAssignAllFromMappings(daily: DailyApiJson, mappings: ProductRepoMap
     let matched = 0;
     for (const [index, session] of daily.sessions.entries()) {
         if (session.product_id) continue;
-        const mapping = findMappingForSession(session, mappings);
-        if (!mapping?.repo_name || !mapping.product_id) continue;
+        const mapping = findMappingForSession(session, mappings, {
+            warn: (message) => console.error(`Warning: ${message}`),
+        });
+        if (!mapping?.product_id) continue;
         const sessionLabel = session.session_name ?? session.session_title ?? session.session_id ?? `session ${index + 1}`;
         matched += applyProductRepoMappingToProject(daily, session, mapping);
+        const repoLabel = mapping.repo_name ?? mapping.repo_url ?? "product only";
         console.error(
-            `Auto-assigned session "${sessionLabel}" to ${mapping.product_name ?? mapping.product_id} / ${mapping.repo_name}`
+            `Auto-assigned session "${sessionLabel}" to ${mapping.product_name ?? mapping.product_id} / ${repoLabel}`
         );
     }
     return matched;
@@ -102,9 +105,9 @@ export async function assignProjectsFromCloudMappings(daily: DailyApiJson, outpu
         console.error(
             `Skipped product/repository selection for ${skipped} session(s) because collect is running without an interactive TTY.`
         );
-        console.error(
-            `To complete selector-based assignment, run: cawplan ai-session collect --date ${daily.date}`
-        );
+        const fileHint = outputPath ?? `ai-daily-${daily.date}.json`;
+        console.error(`To complete assignment, run: cawplan ai-session assign --file ${fileHint} --web`);
+        console.error(`TTY alternative: cawplan ai-session assign --file ${fileHint} --tty`);
     }
 
     return matched;

@@ -27,7 +27,7 @@ import {
     readDailyReports,
     startAssignmentWebServer,
 } from "../lib/assign/web-server.js";
-import {listProducts} from "./products.js";
+import {listCawplanProducts} from "../lib/product-catalog.js";
 import {registerAiSessionInsightsCommands} from "./ai-session-insights.js";
 
 export function registerAiSessionCommand(program: Command): void {
@@ -80,7 +80,7 @@ export function registerAiSessionCommand(program: Command): void {
         .action(async (opts) => {
             try {
                 const needle = String(opts.q ?? "").trim().toLowerCase();
-                const products = toProductChoices(await listProducts({search: String(opts.q ?? ""), pageSize: "100"}))
+                const products = toProductChoices(await listCawplanProducts({search: String(opts.q ?? ""), pageSize: "100"}))
                     .filter((product) => !needle || product.product_name.toLowerCase().includes(needle));
                 console.log(JSON.stringify({products}, null, 2));
             } catch (e) {
@@ -189,19 +189,14 @@ export function registerAiSessionCommand(program: Command): void {
         .description("Upload a daily AI coding session report. Provide --file")
         .requiredOption("--file <path>", "Path to daily.json; must contain 'author' and 'date' fields")
         .action(async (opts) => {
-            let payload: DailyApiJson | undefined;
-
+            let payload: DailyApiJson;
             try {
-                payload = JSON.parse(readFileSync(opts.file, "utf-8")) as DailyApiJson;
+                payload = readDailyReport(String(opts.file));
             } catch (e) {
-                console.error(`Error: cannot read ${opts.file}: ${(e as Error).message}`);
+                console.error(`Error: ${(e as Error).message}`);
                 process.exit(1);
             }
 
-            if (!payload?.author || !payload.date) {
-                console.error("Error: daily.json must contain 'author' and 'date' fields");
-                process.exit(1);
-            }
             if (warnMissingProductAssignment(String(opts.file), payload)) {
                 process.exit(1);
             }

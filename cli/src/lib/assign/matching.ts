@@ -12,6 +12,10 @@ export interface SessionRepoMatchInput {
     repos_touched?: RepoTouched[];
 }
 
+export interface FindMappingOptions {
+    warn?: (message: string) => void;
+}
+
 export {
     shortRepoName,
     repoKeys,

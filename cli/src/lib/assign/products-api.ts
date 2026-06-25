@@ -1,17 +1,19 @@
 import {input, search, select} from "@inquirer/prompts";
-import {listProducts} from "../../commands/products.js";
+import {listCawplanProducts} from "../product-catalog.js";
 import {cawplanRequest} from "../http.js";
 import {extractList} from "../ai-session/helpers.js";
 import type {ProductChoice, ProductListItem} from "../ai-session/types.js";
 import {repoNameFromGitHubUrl} from "./matching.js";
 import type {ProductRepoMapping, ProductRepoSelection} from "./types.js";
 
+const PRODUCT_PAGE_SIZE = 100;
+
 export async function listProductRepoMappings(): Promise<ProductRepoMapping[]> {
     const result = await cawplanRequest({
         method: "GET",
         path: "/api/v1/public/openapi/ai-session-usage/product-repo",
     });
-    return extractList<ProductRepoMapping>(result).filter((m) => m.product_id && m.repo_name);
+    return extractList<ProductRepoMapping>(result).filter((mapping) => mapping.product_id);
 }
 
 export async function createProductRepoMapping(opts: {
@@ -49,25 +51,37 @@ export function toProductChoices(result: unknown): ProductChoice[] {
         .sort((a, b) => a.product_name.localeCompare(b.product_name));
 }
 
-export async function listProductsForSelector(): Promise<ProductChoice[]> {
-    return toProductChoices(await listProducts({pageSize: "100"}));
+export async function listProductsForSelector(search?: string): Promise<ProductChoice[]> {
+    const needle = search?.trim();
+    const products: ProductChoice[] = [];
+    for (let pageNum = 1; ; pageNum++) {
+        const page = toProductChoices(
+            await listCawplanProducts({
+                search: needle || undefined,
+                pageSize: String(PRODUCT_PAGE_SIZE),
+                pageNum: String(pageNum),
+            })
+        );
+        products.push(...page);
+        if (page.length < PRODUCT_PAGE_SIZE) break;
+    }
+    const deduped = new Map(products.map((product) => [product.product_id, product]));
+    return [...deduped.values()].sort((a, b) => a.product_name.localeCompare(b.product_name));
 }
 
 export async function searchProduct(products: ProductChoice[], message: string): Promise<ProductChoice> {
     return search<ProductChoice>({
         message,
-        source: (term) => {
-            const needle = (term ?? "").trim().toLowerCase();
-            const filtered = needle
-                ? products.filter((p) => p.product_name.toLowerCase().includes(needle))
+        source: async (term) => {
+            const needle = (term ?? "").trim();
+            const source = needle
+                ? await listProductsForSelector(needle)
                 : products;
-            return [
-                ...filtered.slice(0, 10).map((p) => ({
-                    name: p.product_name,
-                    value: p,
-                    description: p.product_id,
-                })),
-            ];
+            return source.slice(0, 10).map((product) => ({
+                name: product.product_name,
+                value: product,
+                description: product.product_id,
+            }));
         },
         pageSize: 10,
     });

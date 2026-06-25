@@ -9,7 +9,7 @@ import {
     listProductsForSelector,
 } from "./products-api.js";
 import {assignProjectsFromCloudMappings} from "./auto-assign.js";
-import {applyProductRepoMapping} from "./apply.js";
+import {applyProductRepoMappingToProject} from "./apply.js";
 import {assignmentReportPayload, readDailyReports, writeDailyReport} from "./report-io.js";
 import {assertAllSessionsHaveProduct, findSessionById} from "./session-checks.js";
 import type {AssignmentReport, ProductRepoMapping, WebAssignment} from "./types.js";
@@ -81,8 +81,7 @@ async function applyWebAssignments(daily: DailyApiJson, assignments: WebAssignme
             };
         }
 
-        applyProductRepoMapping(daily, session, mapping);
-        assigned++;
+        assigned += applyProductRepoMappingToProject(daily, session, mapping);
     }
     return assigned;
 }
@@ -158,7 +157,8 @@ export async function startAssignmentWebServer(reports: AssignmentReport[], batc
                 }
 
                 if (req.method === "GET" && url.pathname === "/api/products") {
-                    sendJson(res, 200, {products: await listProductsForSelector()});
+                    const search = url.searchParams.get("search") ?? url.searchParams.get("q") ?? undefined;
+                    sendJson(res, 200, {products: await listProductsForSelector(search)});
                     return;
                 }
 

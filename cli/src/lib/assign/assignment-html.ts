@@ -218,7 +218,7 @@ export function assignmentHtml(): string {
       productInput.value = product ? product.product_name : '';
       session.product_id = product ? product.product_id : undefined;
       session.product_name = product ? product.product_name : undefined;
-      repo.innerHTML = product ? repoOptions(session.product_id, session.project) : repoOptions('', '');
+      repo.innerHTML = product ? repoOptions(session.product_id, '') : repoOptions('', '');
       repo.value = '';
       updateRepoUrlInput(row);
       validateProductRow(row);

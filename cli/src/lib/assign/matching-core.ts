@@ -58,14 +58,40 @@ export interface ProductRepoMappingCore {
     repo_url?: string;
 }
 
+export interface FindMappingOptions {
+    warn?: (message: string) => void;
+}
+
+function mappingRepoKeys(mapping: ProductRepoMappingCore): Set<string> {
+    const keys = new Set<string>();
+    for (const key of repoKeys(mapping.repo_name)) keys.add(key);
+    for (const key of repoKeys(mapping.repo_url)) keys.add(key);
+    return keys;
+}
+
 export function findMappingForSession(
     session: SessionRepoCandidateInput,
-    mappings: ProductRepoMappingCore[]
+    mappings: ProductRepoMappingCore[],
+    options: FindMappingOptions = {}
 ): ProductRepoMappingCore | undefined {
     const keys = sessionRepoCandidateKeys(session);
     if (keys.size === 0) return undefined;
-    return mappings.find((mapping) =>
-        mapping.repo_name &&
-        repoKeys(mapping.repo_name).some((key) => keys.has(key))
-    );
+
+    const matches = mappings.filter((mapping) => {
+        if (!mapping.product_id) return false;
+        const candidateKeys = mappingRepoKeys(mapping);
+        if (candidateKeys.size === 0) return false;
+        return [...candidateKeys].some((key) => keys.has(key));
+    });
+
+    if (matches.length > 1) {
+        const labels = matches
+            .map((mapping) => mapping.repo_name || mapping.repo_url || mapping.product_name || mapping.product_id)
+            .join(", ");
+        options.warn?.(
+            `Ambiguous product-repo mapping for session project "${session.project ?? ""}": ${labels}; using the first match`
+        );
+    }
+
+    return matches[0];
 }

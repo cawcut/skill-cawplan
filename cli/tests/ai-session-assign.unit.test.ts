@@ -81,6 +81,34 @@ describe("assignment repo matching", () => {
         ).toBeUndefined();
     });
 
+    test("findMappingForSession matches mapping.repo_url when repo_name differs", () => {
+        const mapping = findMappingForSession(
+            {project: "flow-cawplan-skill", repos_touched: []},
+            [
+                {
+                    product_id: "prod-cawplan",
+                    product_name: "CawPlan",
+                    repo_url: "https://github.com/Ubiquiti-UID/flow-cawplan-skill",
+                },
+            ]
+        );
+        expect(mapping?.product_id).toBe("prod-cawplan");
+    });
+
+    test("findMappingForSession warns when multiple mappings match", () => {
+        const warnings: string[] = [];
+        const mapping = findMappingForSession(
+            {project: "flow-cawplan-skill", repos_touched: []},
+            [
+                mappings[0],
+                {...mappings[0], product_id: "prod-dup"},
+            ],
+            {warn: (message) => warnings.push(message)}
+        );
+        expect(mapping?.product_id).toBe("prod-cawplan");
+        expect(warnings.some((message) => message.includes("Ambiguous"))).toBe(true);
+    });
+
     test("readMatchingBrowserModule serves compiled matching-core exports", () => {
         const source = readMatchingBrowserModule();
         expect(source).toContain("export function findMappingForSession");

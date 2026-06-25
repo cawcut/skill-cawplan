@@ -1,37 +1,9 @@
 import {Command} from "commander";
 import {cawplanRequest} from "../lib/http.js";
 import {getCache, setCache, buildScopedCacheKey, buildQueryFromFlags} from "../lib/cache.js";
+import {listCawplanProducts} from "../lib/product-catalog.js";
 
-const PRODUCT_LIST_QUERY_KEYS = ["search", "page_size", "page_num", "type_id", "product_line_id"];
-
-export async function listProducts(opts: {
-    search?: string;
-    pageSize?: string;
-    pageNum?: string;
-    typeId?: string;
-    productLineId?: string;
-    refresh?: boolean;
-} = {}): Promise<unknown> {
-    const flags: Record<string, string> = {};
-    if (opts.search) flags.search = opts.search;
-    if (opts.pageSize) flags.page_size = opts.pageSize;
-    if (opts.pageNum) flags.page_num = opts.pageNum;
-    if (opts.typeId) flags.type_id = opts.typeId;
-    if (opts.productLineId) flags.product_line_id = opts.productLineId;
-
-    const query = buildQueryFromFlags(flags, PRODUCT_LIST_QUERY_KEYS);
-    const key = await buildScopedCacheKey("products:list", query);
-    const cached = getCache(key, Boolean(opts.refresh));
-    if (cached) return cached;
-
-    const result = await cawplanRequest({
-        method: "GET",
-        path: "/api/v1/public/openapi/products",
-        query,
-    });
-    setCache(key, result);
-    return result;
-}
+export {listCawplanProducts as listProducts} from "../lib/product-catalog.js";
 
 export function registerProductsCommand(program: Command): void {
     const products = program.command("products").description("Manage products");
@@ -46,7 +18,7 @@ export function registerProductsCommand(program: Command): void {
         .option("--product_line_id <id>", "Filter by product line ID")
         .option("--refresh", "Bypass cache")
         .action(async (opts) => {
-            const result = await listProducts({
+            const result = await listCawplanProducts({
                 search: opts.search,
                 pageSize: opts.page_size,
                 pageNum: opts.page_num,
