@@ -45,10 +45,10 @@ All skills route through `cawplan`. Do not call CawPlan HTTP APIs directly from 
 ## Development
 
 ```bash
-npm install
-npm run build
-npm test
-npm run validate:skills
+cd cli && npm install
+cd cli && npm run build
+cd cli && npm test
+bash scripts/validate-skills.sh
 ```
 
 ## Skill Authoring Rules
@@ -57,4 +57,4 @@ npm run validate:skills
 - Include bootstrap checks for `cawplan` installation and auth.
 - Prefer CLI commands over direct HTTP.
 - Link to `references/` docs for endpoint details.
-- Run `npm run validate:skills` before committing.
+- Run `bash scripts/validate-skills.sh` before committing.
