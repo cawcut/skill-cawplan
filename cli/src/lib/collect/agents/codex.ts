@@ -26,6 +26,7 @@ import { SessionData, ModelUsageEntry, UsageBucket, RepoTouched, HumanInput } fr
 import { calculateCost, getCurrency } from "../pricing.js";
 import { classifyHumanInput } from "../aggregators/human-category.js";
 import { formatLocalTime, getLocalTimezone, localDateString } from "../date-utils.js";
+import { countDiffLines } from "../aggregators/tool-utils.js";
 
 interface CodexThread {
   id: string;
@@ -84,17 +85,6 @@ function isHumanInputText(text: string): boolean {
   return true;
 }
 
-
-function countDiffLines(diff: string): { added: number; deleted: number } {
-  let added = 0;
-  let deleted = 0;
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("+++") || line.startsWith("---")) continue;
-    if (line.startsWith("+")) added++;
-    else if (line.startsWith("-")) deleted++;
-  }
-  return { added, deleted };
-}
 
 function countTextLines(value: unknown): number {
   if (typeof value !== "string" || !value) return 0;
