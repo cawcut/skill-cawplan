@@ -517,6 +517,7 @@ export function collectClaudeCodeSession(
       session_agent: "claude-code",
       start_time: turn.startTs,
       end_time: endTs,
+      time_precision: "exact",
       files_changed: turnFiles.size > 0 ? turnFiles.size : undefined,
       lines_added: turnLinesAdded > 0 ? turnLinesAdded : undefined,
       lines_deleted: turnLinesDeleted > 0 ? turnLinesDeleted : undefined,
