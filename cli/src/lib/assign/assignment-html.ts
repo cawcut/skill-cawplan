@@ -305,8 +305,14 @@ export function assignmentHtml(): string {
       return text.length > 200 ? text.slice(0, 200) + '...' : text;
     }
 
-    function humanInputsHtml(session) {
-      const inputs = (Array.isArray(session.human_inputs) ? session.human_inputs : [])
+    function humanInputsForSession(report, session) {
+      const allInputs = Array.isArray(report.human_inputs) ? report.human_inputs : [];
+      const sessionId = String(session.session_id || '');
+      return allInputs.filter((input) => String(input && input.session_id || '') === sessionId);
+    }
+
+    function humanInputsHtml(report, session) {
+      const inputs = humanInputsForSession(report, session)
         .filter((input) => humanInputContent(input))
         .slice(0, 3);
       if (inputs.length === 0) return '<span class="muted">No human inputs</span>';
@@ -399,7 +405,7 @@ export function assignmentHtml(): string {
         return '<tr data-file="' + escapeHtml(file) + '" data-session-id="' + escapeHtml(s.session_id) + '">' +
           '<td><div class="session-title">' + escapeHtml(title) + '</div>' +
           '<div class="session-meta">' + escapeHtml([date, s.agent, s.time_range && s.time_range.display, sessionCostText(s), s.project].filter(Boolean).join(' | ')) + '</div></td>' +
-          '<td>' + humanInputsHtml(s) + '</td>' +
+          '<td>' + humanInputsHtml(report, s) + '</td>' +
           '<td><input class="product" list="product-list" value="' + escapeHtml(productValue) + '" placeholder="Search product" required />' +
           '<div class="product-error field-error"></div></td>' +
           '<td><select class="repo">' + repoOptions(s.product_id, selectedRepo) + '</select>' +

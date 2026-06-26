@@ -1,9 +1,7 @@
-import {readFileSync, writeFileSync} from "node:fs";
 import {Command} from "commander";
 import {buildQueryFromFlags} from "../lib/cache.js";
 import {cawplanRequest} from "../lib/http.js";
 import {collect} from "../lib/collect/index.js";
-import {renderDailyApiJson} from "../lib/collect/render.js";
 import type {DailyApiJson} from "../lib/collect/types.js";
 import {
     addReportQueryOptions,
@@ -241,28 +239,6 @@ export function registerAiSessionCommand(program: Command): void {
                 query,
             });
             console.log(JSON.stringify(result, null, 2));
-        });
-
-    ai.command("render")
-        .description("Render ai-daily JSON with summaries into enriched daily.api.json")
-        .option("--input <path>", "Input ai-daily file path", "ai-daily.json")
-        .option("--summaries <dir>", "Directory for per-session summaries", "summaries")
-        .option("--output <path>", "Output file path", "daily.api.json")
-        .action((opts) => {
-            const inputPath = String(opts.input ?? "ai-daily.json");
-            const summariesDir = String(opts.summaries ?? "summaries");
-            const outputPath = String(opts.output ?? "daily.api.json");
-
-            try {
-                const daily = JSON.parse(readFileSync(inputPath, "utf-8")) as DailyApiJson;
-                const rendered = renderDailyApiJson(daily, summariesDir);
-                writeFileSync(outputPath, JSON.stringify(rendered, null, 2), "utf-8");
-                console.error(`Rendered report written to ${outputPath}`);
-                console.log(JSON.stringify(rendered, null, 2));
-            } catch (e) {
-                console.error(`Error: ${(e as Error).message}`);
-                process.exit(1);
-            }
         });
 
     registerAiSessionInsightsCommands(ai);

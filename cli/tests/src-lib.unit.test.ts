@@ -526,7 +526,7 @@ describe("src lib collect daily aggregator", () => {
     });
   });
 
-  test("serializes sessions with nested human_inputs and top-level rollup", () => {
+  test("serializes human_inputs only in the top-level rollup", () => {
     const session: SessionData = {
       schema: "2.0",
       date: "2026-06-17",
@@ -629,16 +629,15 @@ describe("src lib collect daily aggregator", () => {
       files_added: 3,
       files_deleted: 4,
       repos_touched: [{ repo: "Ubiquiti-UID/flow-cawplan-skill", files: 2, added: 3, deleted: 4 }],
-      human_inputs: [
-        expect.objectContaining({
-          category: "direction",
-          content: "生成日报",
-          session_title: "Cursor Work",
-          session_agent: "cursor-cli",
-        }),
-      ],
     });
-    expect(apiSession?.human_inputs).toHaveLength(1);
+    expect(apiSession).not.toHaveProperty("human_inputs");
     expect(daily.human_inputs).toHaveLength(1);
+    expect(daily.human_inputs[0]).toMatchObject({
+      category: "direction",
+      content: "生成日报",
+      session_id: "session-1",
+      session_title: "Cursor Work",
+      session_agent: "cursor-cli",
+    });
   });
 });

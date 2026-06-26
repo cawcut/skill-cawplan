@@ -233,7 +233,7 @@ function enrichSessionHumanInputs(session: SessionData, targetDate: string) {
 }
 
 /**
- * Build the daily.api.json from collected sessions and optional Cursor API usage.
+ * Build the ai-daily JSON from collected sessions and optional Cursor API usage.
  *
  * Cursor API usage is treated as authoritative — it replaces cursor char-estimate
  * entries in the aggregated buckets.
@@ -351,7 +351,6 @@ export function buildDailyApiJson(
         ),
         sessions: sessions.map((session) => {
             const { human_inputs: _humanInputs, title: _legacyTitle, ...sessionRest } = session;
-            const enrichedHumanInputs = enrichSessionHumanInputs(session, date);
             return {
                 ...sessionRest,
                 source: session.source ?? sessionSource(session),
@@ -361,7 +360,6 @@ export function buildDailyApiJson(
                 session_cost: session.session_cost ?? sessionCost(session.usage_breakdown, r2),
                 cost_basis: session.cost_basis ?? costBasis(session),
                 token_source: session.token_source ?? tokenSource(session),
-                ...(enrichedHumanInputs.length > 0 ? { human_inputs: enrichedHumanInputs } : {}),
             };
         }),
         repos: allRepos,

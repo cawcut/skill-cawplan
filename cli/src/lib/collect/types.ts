@@ -111,6 +111,7 @@ export interface HumanInput {
   topic_confidence?: number;
   topic_reason?: string;
   raw_block?: string;
+  session_id?: string;
   session_title?: string;
   session_agent?: string;
   session_time?: string | null;

@@ -41,6 +41,17 @@ describe("assignmentHtml - stats panel", () => {
     });
 });
 
+describe("assignmentHtml - human input source", () => {
+    test("reads human inputs from report-level rows by session_id", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("function humanInputsForSession(report, session)");
+        expect(html).toContain("report.human_inputs");
+        expect(html).toContain("input.session_id");
+        expect(html).toContain("humanInputsHtml(report, s)");
+        expect(html).not.toContain("input.session_title");
+    });
+});
+
 describe("assignmentHtml - needs review filter", () => {
     test("contains filter-unassigned button", () => {
         expect(assignmentHtml()).toContain('id="filter-unassigned"');
