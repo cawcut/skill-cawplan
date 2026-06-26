@@ -1,14 +1,12 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { createRequire } from "node:module";
+import { DatabaseSync } from "node:sqlite";
 import { cursorChatsDir } from "../paths.js";
 import {
   formatLocalTime,
   getLocalTimezone,
   localDateString,
 } from "../date-utils.js";
-
-const require = createRequire(import.meta.url);
 import { SessionData, FileChange, RepoTouched, UsageBucket, ModelUsageEntry } from "../types.js";
 import { calculateCost, getCurrency } from "../pricing.js";
 
@@ -77,9 +75,7 @@ interface StoreMetadata {
  */
 function readStoreMeta(dbPath: string): StoreMetadata {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-    const db = new Database(dbPath, { readonly: true });
+    const db = new DatabaseSync(dbPath, { readOnly: true });
 
     try {
       let metaRow: { value: string } | undefined;
@@ -147,9 +143,7 @@ function readStoreMessages(dbPath: string): CursorMessage[] {
   const messages: CursorMessage[] = [];
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-    const db = new Database(dbPath, { readonly: true });
+    const db = new DatabaseSync(dbPath, { readOnly: true });
 
     try {
       const seenContent = new Set<string>();

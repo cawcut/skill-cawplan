@@ -18,10 +18,8 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createRequire } from "node:module";
+import { DatabaseSync } from "node:sqlite";
 import { codexStateDb, codexSessionsDir } from "../paths.js";
-
-const require = createRequire(import.meta.url);
 import { SessionData, ModelUsageEntry, UsageBucket, RepoTouched, HumanInput } from "../types.js";
 import { calculateCost, getCurrency } from "../pricing.js";
 import { classifyHumanInput } from "../aggregators/human-category.js";
@@ -297,16 +295,14 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
   const sessionsDir = codexSessionsDir();
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-    const db = new Database(dbPath, { readonly: true });
+    const db = new DatabaseSync(dbPath, { readOnly: true });
 
     try {
       const threads = db
         .prepare(
           "SELECT id, rollout_path, created_at, model, tokens_used, title, cwd FROM threads"
         )
-        .all() as CodexThread[];
+        .all() as unknown as CodexThread[];
 
       for (const thread of threads) {
         const createdAt = dateFromCodexTimestamp(thread.created_at);

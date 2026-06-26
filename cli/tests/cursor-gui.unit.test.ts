@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { createRequire } from "node:module";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { localDateString } from "../src/lib/collect/date-utils.js";
 import {
@@ -112,12 +112,10 @@ describe("cursor-gui mtime fallback", () => {
   });
 
   test("collectGuiSessions does not full-scan transcripts when db candidates have no day activity", () => {
-    const require = createRequire(import.meta.url);
-    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
     const root = mkdtempSync(join(tmpdir(), "cawplan-cursor-gui-"));
     tempRoots.push(root);
     const dbPath = join(root, "state.vscdb");
-    const db = new Database(dbPath);
+    const db = new DatabaseSync(dbPath);
     db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
     db.prepare("INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)").run(
       "composerData:no-activity-session",
@@ -142,13 +140,11 @@ describe("cursor-gui mtime fallback", () => {
   });
 
   test("collectGuiSessions uses composer workspaceIdentifier as initial cwd", () => {
-    const require = createRequire(import.meta.url);
-    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
     const root = mkdtempSync(join(tmpdir(), "cawplan-cursor-gui-"));
     const workspace = mkdtempSync(join(tmpdir(), "cawplan-workspace-"));
     tempRoots.push(root, workspace);
     const dbPath = join(root, "state.vscdb");
-    const db = new Database(dbPath);
+    const db = new DatabaseSync(dbPath);
     db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
     const sessionId = "workspace-cwd-session";
     db.prepare("INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)").run(
@@ -304,9 +300,7 @@ describe("cursor-gui mtime fallback", () => {
   });
 
   test("parseGuiSessionTranscript splits cross-day session by bubble createdAt", () => {
-    const require = createRequire(import.meta.url);
-    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-    const db = new Database(":memory:");
+    const db = new DatabaseSync(":memory:");
     db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
 
     const sessionId = "cross-day-sess";
@@ -367,9 +361,7 @@ describe("cursor-gui mtime fallback", () => {
   });
 
   test("parseGuiSessionTranscript prefers bubble createdAt over transcript timestamp tags", () => {
-    const require = createRequire(import.meta.url);
-    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-    const db = new Database(":memory:");
+    const db = new DatabaseSync(":memory:");
     db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
 
     const sessionId = "bubble-overrides-ts";
@@ -399,9 +391,7 @@ describe("cursor-gui mtime fallback", () => {
   });
 
   test("parseGuiSessionTranscript backdates resumed-session bubble clusters to session creation day", () => {
-    const require = createRequire(import.meta.url);
-    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-    const db = new Database(":memory:");
+    const db = new DatabaseSync(":memory:");
     db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
 
     const sessionId = "resume-cluster-sess";
@@ -521,9 +511,7 @@ describe("cursor-gui mtime fallback", () => {
   });
 
   test("parseGuiSessionTranscript flags backdated inputs approximate and keeps unmatched fillers off the resume day", () => {
-    const require = createRequire(import.meta.url);
-    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-    const db = new Database(":memory:");
+    const db = new DatabaseSync(":memory:");
     db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
 
     const sessionId = "resume-precision-sess";

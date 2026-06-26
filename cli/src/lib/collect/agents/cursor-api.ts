@@ -18,13 +18,11 @@
  */
 import {request} from "node:https";
 import {existsSync} from "node:fs";
-import {createRequire} from "node:module";
+import {DatabaseSync} from "node:sqlite";
 import {ModelUsageEntry, UsageBucket} from "../types.js";
 import {cursorStateDbCandidates} from "../paths.js";
 import {isTimestampOnLocalDate, dayBoundsMs} from "../date-utils.js";
 import {calculateCost} from "../pricing.js";
-
-const require = createRequire(import.meta.url);
 
 const PAGE_SIZE = 500;
 const MAX_ASSIGN_DISTANCE_MS = 2 * 60 * 60 * 1000; // 2h
@@ -68,9 +66,7 @@ export function readCursorAccessToken(): string | null {
     for (const dbPath of candidates) {
         if (!existsSync(dbPath)) continue;
         try {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-            const db = new Database(dbPath, {readonly: true});
+            const db = new DatabaseSync(dbPath, {readOnly: true});
             const row = db.prepare("SELECT value FROM ItemTable WHERE key = ?").get("cursorAuth/accessToken") as {
                 value: string
             } | undefined;
@@ -120,10 +116,7 @@ export function buildSessionCookie(): { cookie: string; userId: string } {
         for (const dbPath of dbCandidates) {
             if (!existsSync(dbPath)) continue;
             try {
-                // Use require-style dynamic load for sync SQLite access
-                // eslint-disable-next-line @typescript-eslint/no-var-requires
-                const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-                const db = new Database(dbPath, {readonly: true});
+                const db = new DatabaseSync(dbPath, {readOnly: true});
                 const row = db.prepare("SELECT value FROM ItemTable WHERE key = ?").get("cursorAuth/accessToken") as {
                     value: string
                 } | undefined;

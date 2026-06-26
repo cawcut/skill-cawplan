@@ -19,8 +19,7 @@
 import {existsSync, readFileSync, readdirSync, statSync} from "node:fs";
 import type {Dirent} from "node:fs";
 import {dirname, isAbsolute, join} from "node:path";
-import {createRequire} from "node:module";
-import type {Database as DatabaseType} from "better-sqlite3";
+import {DatabaseSync} from "node:sqlite";
 import {activityOverlapsLocalDate, dayBoundsMs, isTimestampOnLocalDate, localDateString} from "../date-utils.js";
 import {cursorProjectsDir, cursorStateDbCandidates} from "../paths.js";
 import {FileChange, HumanInput, RepoTouched} from "../types.js";
@@ -28,7 +27,6 @@ import {gitRemoteRepo, gitFileNumstat} from "../git.js";
 import {classifyHumanInput} from "../aggregators/human-category.js";
 import {parsePatchDeltas, extractPathFromInput, estimateToolDeltas} from "../aggregators/tool-utils.js";
 
-const require = createRequire(import.meta.url);
 const USER_QUERY_RE = /<user_query>\s*([\s\S]*?)\s*<\/user_query>/i;
 const TS_TAG_RE = /<timestamp>([^<]+)<\/timestamp>/i;
 const BUBBLE_CLUSTER_WINDOW_MS = 3_000;
@@ -184,7 +182,7 @@ interface SessionBubbleTimeline {
 }
 
 function loadSessionBubbleTimeline(
-    db: DatabaseType,
+    db: DatabaseSync,
     composerId: string
 ): SessionBubbleTimeline | null {
     try {
@@ -515,7 +513,7 @@ function resolveBubbleEndTime(
     return end ?? start;
 }
 
-function lookupComposerCreatedAtMs(db: DatabaseType, sessionId: string): number | undefined {
+function lookupComposerCreatedAtMs(db: DatabaseSync, sessionId: string): number | undefined {
     try {
         const row = db
             .prepare("SELECT value FROM cursorDiskKV WHERE key = ?")
@@ -529,13 +527,11 @@ function lookupComposerCreatedAtMs(db: DatabaseType, sessionId: string): number 
     }
 }
 
-function tryOpenCursorStateDb(): DatabaseType | null {
+function tryOpenCursorStateDb(): DatabaseSync | null {
     for (const dbPath of cursorStateDbCandidates()) {
         if (!existsSync(dbPath)) continue;
         try {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-            return new Database(dbPath, {readonly: true});
+            return new DatabaseSync(dbPath, {readOnly: true});
         } catch {
             continue;
         }
@@ -605,7 +601,7 @@ interface ParseTranscriptOptions {
     lastUpdatedAtMs?: number;
     sessionCreatedAtMs?: number;
     initialCwd?: string;
-    db?: DatabaseType;
+    db?: DatabaseSync;
 }
 
 function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTranscriptOptions): {
@@ -1034,7 +1030,7 @@ function bubbleText(data: Record<string, unknown>): string {
 }
 
 function parseBubbleSession(
-    db: DatabaseType,
+    db: DatabaseSync,
     sessionId: string,
     filterDate: string,
     initialCwd = ""
@@ -1211,7 +1207,7 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
  * Queries cursorDiskKV for bubble entries keyed as bubbleId:{composerId}:*
  */
 export function getGuiSessionBubbleTimestamps(
-    db: DatabaseType,
+    db: DatabaseSync,
     composerId: string
 ): { start: Date | null; end: Date | null } {
     try {
@@ -1263,9 +1259,7 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
         return collectGuiSessionsFromTranscripts(filterDate);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
-    const db = new Database(dbPath, {readonly: true});
+    const db = new DatabaseSync(dbPath, {readOnly: true});
 
     try {
         const {startMs, endMs} = dayBoundsMs(filterDate);
