@@ -36,6 +36,12 @@ describe("assignmentHtml - stats panel", () => {
         expect(assignmentHtml()).toContain("#stats-bar {");
     });
 
+    test("contains storage bar stats layout", () => {
+        const html = assignmentHtml();
+        expect(html).toContain(".storage-wrap");
+        expect(html).toContain("function storageRow(title, counts, preferredOrder)");
+    });
+
     test("contains renderStats function", () => {
         expect(assignmentHtml()).toContain("renderStats()");
     });
@@ -50,6 +56,21 @@ describe("assignmentHtml - human input source", () => {
         expect(html).toContain("humanInputsHtml(report, s)");
         expect(html).not.toContain("input.session_title");
     });
+
+    test("shows most common category and topic for a session", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("function mostCommonHumanInputValue(report, session, field)");
+        expect(html).toContain("return mostCommonHumanInputValue(report, session, 'category')");
+        expect(html).toContain("return mostCommonHumanInputValue(report, session, 'topic')");
+    });
+
+    test("input column shows first three rows without wrapping", () => {
+        const html = assignmentHtml();
+        expect(html).toContain(".slice(0, 3)");
+        expect(html).toContain(".input-cell { overflow: hidden; }");
+        expect(html).toContain("white-space: nowrap; overflow: hidden; text-overflow: ellipsis;");
+        expect(html).toContain("'<td class=\"input-cell\">' + humanInputsHtml(report, s) + '</td>'");
+    });
 });
 
 describe("assignmentHtml - needs review filter", () => {
@@ -61,8 +82,11 @@ describe("assignmentHtml - needs review filter", () => {
         expect(assignmentHtml()).toContain("showAssignedSessions");
     });
 
-    test("contains filter-bar CSS", () => {
-        expect(assignmentHtml()).toContain(".filter-bar {");
+    test("contains standalone search and filter toolbar CSS", () => {
+        const html = assignmentHtml();
+        expect(html).toContain(".tsearch {");
+        expect(html).toContain(".filter-group {");
+        expect(html).toContain("input.unassigned-cb");
     });
 
     test("rowEntries hides assigned sessions by default", () => {
@@ -70,6 +94,44 @@ describe("assignmentHtml - needs review filter", () => {
         expect(html).toContain("function shouldShowSession(session)");
         expect(html).toContain("function sessionHasProduct(session)");
         expect(html).toContain("!showAssignedSessions && sessionHasProduct(session)");
+    });
+});
+
+describe("assignmentHtml - session column", () => {
+    test("renders session column as title only", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("'<td><div class=\"session-title\">' + escapeHtml(title) + '</div></td>'");
+        expect(html).not.toContain("[s.agent, s.project].filter(Boolean).join(' | ')");
+    });
+});
+
+describe("assignmentHtml - lines column", () => {
+    test("uses session files_added/files_deleted fields for line deltas", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("Number(session.files_added || 0)");
+        expect(html).toContain("Number(session.files_deleted || 0)");
+        expect(html).not.toContain("Number(session.lines_added || 0)");
+        expect(html).not.toContain("Number(session.lines_deleted || 0)");
+    });
+});
+
+describe("assignmentHtml - date time column", () => {
+    test("formats date time like the standalone design", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("d.toLocaleDateString('en-US', {month: 'short', day: 'numeric'})");
+        expect(html).toContain("d.toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'})");
+        expect(html).toContain("'<td class=\"dt-cell\">' + escapeHtml(sessionDateTimeText(s)) + '</td>'");
+        expect(html).not.toContain("sessionDateTimeText(date, s)");
+    });
+});
+
+describe("assignmentHtml - model column", () => {
+    test("renders model column as an agent icon chip", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("function agentChip(agent)");
+        expect(html).toContain(".agent-chip {");
+        expect(html).toContain("'<td>' + agentChip(s.agent) + '</td>'");
+        expect(html).not.toContain("escapeHtml(model || '—')");
     });
 });
 
