@@ -178,6 +178,7 @@ function extractHumanInputs(turns: ParsedTurn[], sessionTitle: string): HumanInp
       content: text,
       session_title: sessionTitle,
       session_agent: "cursor",
+      time_precision: "exact",
       files_changed: deltaSummary.files,
       lines_added: deltaSummary.added,
       lines_deleted: deltaSummary.deleted,

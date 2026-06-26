@@ -217,6 +217,7 @@ function parseRollout(
                 content: text,
                 session_agent: "codex",
                 start_time: ts ?? null,
+                time_precision: "exact",
                 files_changed: 0,
                 lines_added: 0,
                 lines_deleted: 0,
