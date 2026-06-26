@@ -21,7 +21,20 @@ import {
 import { getConfigPath, readUserConfig, writeUserConfig } from "../src/lib/user-config";
 import { buildDailyApiJson } from "../src/lib/collect/aggregators/daily";
 import { aggregateUsageBuckets } from "../src/lib/collect/aggregators/tokens";
-import { aggregateCursorUsageBySession, buildCursorAttributionWindows, buildCursorSessionWindows } from "../src/lib/collect/agents/cursor-api";
+import {
+  aggregateCursorUsageBySession,
+  buildCursorAttributionWindows,
+  buildCursorSessionWindows,
+  clusterUsageEventsIntoBursts,
+  burstPosForSequenceOrder,
+  humanInputBillingActivityWeight,
+  humanInputFileActivityWeight,
+  refineCursorHumanInputsFromBillingEvents,
+  refineHumanInputsFromAttributedEvents,
+  mapAttributedEventTimesByHumanInput,
+  shouldPreserveExactHumanInputTime,
+  refineSessionHumanInputsFromBillingBursts,
+} from "../src/lib/collect/agents/cursor-api";
 import type { SessionData } from "../src/lib/collect/types";
 
 let originalFetch: typeof fetch;
@@ -474,6 +487,355 @@ describe("src lib collect daily aggregator", () => {
     expect(bySession["cursor-session-2"]?.modelUsage["gpt-5.5-medium"]?.cost).toBeCloseTo(0.3);
     expect(bySession["cursor-session-2"]?.humanInputCosts).toEqual({0: 0.1, 1: 0.2});
     expect(bySession["cursor-session-2"]?.humanInputApiCalls).toEqual({0: 1, 1: 1});
+  });
+
+  test("clusters dashboard usage events into billing bursts", () => {
+    const bursts = clusterUsageEventsIntoBursts(
+      [
+        {timestamp: "2026-06-24T06:10:00.000Z", chargedCents: 10},
+        {timestamp: "2026-06-24T06:11:00.000Z", chargedCents: 5},
+        {timestamp: "2026-06-24T06:20:00.000Z", chargedCents: 20},
+      ],
+      5 * 60 * 1000
+    );
+
+    expect(bursts).toHaveLength(2);
+    expect(bursts[0]?.eventCount).toBe(2);
+    expect(bursts[0]?.chargedCents).toBe(15);
+    expect(bursts[1]?.startMs).toBe(new Date("2026-06-24T06:20:00.000Z").getTime());
+  });
+
+  test("refines approximate human inputs from billing bursts before attribution", () => {
+    const humanInputs = [
+      {
+        category: "direction" as const,
+        content: "first prompt",
+        start_time: "2026-06-24T02:00:00.000Z",
+        end_time: "2026-06-24T02:00:00.000Z",
+        time_precision: "approximate" as const,
+      },
+      {
+        category: "direction" as const,
+        content: "second prompt",
+        start_time: "2026-06-24T03:00:00.000Z",
+        end_time: "2026-06-24T03:00:00.000Z",
+        time_precision: "approximate" as const,
+      },
+    ];
+    const refined = refineSessionHumanInputsFromBillingBursts(humanInputs, [
+      {startMs: new Date("2026-06-24T06:10:00.000Z").getTime(), endMs: new Date("2026-06-24T06:12:00.000Z").getTime(), eventCount: 2, chargedCents: 10},
+      {startMs: new Date("2026-06-24T06:30:00.000Z").getTime(), endMs: new Date("2026-06-24T06:35:00.000Z").getTime(), eventCount: 1, chargedCents: 20},
+    ]);
+
+    expect(refined[0]?.start_time).toBe("2026-06-24T06:10:00.000Z");
+    expect(refined[0]?.time_precision).toBe("inferred_from_billing");
+    expect(refined[1]?.start_time).toBe("2026-06-24T06:30:00.000Z");
+  });
+
+  test("anchors active human inputs to billable bursts in transcript order", () => {
+    const humanInputs = [
+      {
+        category: "direction" as const,
+        content: "passive early",
+        start_time: "2026-06-24T01:00:00.000Z",
+        end_time: "2026-06-24T01:00:00.000Z",
+        time_precision: "approximate" as const,
+        sequence_index: 5,
+      },
+      {
+        category: "correction" as const,
+        content: "first code change",
+        start_time: "2026-06-24T02:00:00.000Z",
+        end_time: "2026-06-24T02:00:00.000Z",
+        time_precision: "approximate" as const,
+        sequence_index: 8,
+        files_changed: 1,
+        lines_added: 10,
+      },
+      {
+        category: "correction" as const,
+        content: "code change",
+        start_time: "2026-06-24T02:00:00.000Z",
+        end_time: "2026-06-24T02:00:00.000Z",
+        time_precision: "approximate" as const,
+        sequence_index: 10,
+        files_changed: 2,
+        lines_added: 40,
+        lines_deleted: 10,
+      },
+      {
+        category: "correction" as const,
+        content: "third code change",
+        start_time: "2026-06-24T02:30:00.000Z",
+        end_time: "2026-06-24T02:30:00.000Z",
+        time_precision: "approximate" as const,
+        sequence_index: 12,
+        files_changed: 1,
+        lines_added: 5,
+      },
+      {
+        category: "direction" as const,
+        content: "passive late",
+        start_time: "2026-06-24T03:00:00.000Z",
+        end_time: "2026-06-24T03:00:00.000Z",
+        time_precision: "approximate" as const,
+        sequence_index: 20,
+      },
+    ];
+    const bursts = [
+      {startMs: new Date("2026-06-24T06:10:00.000Z").getTime(), endMs: new Date("2026-06-24T06:12:00.000Z").getTime(), eventCount: 1, chargedCents: 0},
+      {startMs: new Date("2026-06-24T06:16:00.000Z").getTime(), endMs: new Date("2026-06-24T06:18:00.000Z").getTime(), eventCount: 2, chargedCents: 12},
+      {startMs: new Date("2026-06-24T06:27:00.000Z").getTime(), endMs: new Date("2026-06-24T06:29:00.000Z").getTime(), eventCount: 3, chargedCents: 30},
+    ];
+
+    expect(humanInputFileActivityWeight(humanInputs[2]!)).toBe(52);
+
+    const refined = refineSessionHumanInputsFromBillingBursts(humanInputs, bursts);
+
+    expect(refined[2]?.start_time).toBe("2026-06-24T06:16:00.000Z");
+    expect(refined[2]?.time_precision).toBe("inferred_from_billing");
+    expect(refined[1]?.start_time).toBe("2026-06-24T06:10:00.000Z");
+    expect(refined[3]?.start_time).toBe("2026-06-24T06:16:00.000Z");
+    expect(refined[0]?.start_time).toBe("2026-06-24T06:10:00.000Z");
+    expect(refined[4]?.start_time).toBe("2026-06-24T06:27:00.000Z");
+  });
+
+  test("maps late-sequence active inputs to late billing bursts", () => {
+    const bursts = Array.from({length: 10}, (_, i) => ({
+      startMs: new Date(`2026-06-24T${(10 + i).toString().padStart(2, "0")}:00:00.000Z`).getTime(),
+      endMs: new Date(`2026-06-24T${(10 + i).toString().padStart(2, "0")}:05:00.000Z`).getTime(),
+      eventCount: 1,
+      chargedCents: 10,
+    }));
+    const humanInputs = [
+      ...Array.from({length: 15}, (_, i) => ({
+        category: "direction" as const,
+        content: `early passive ${i}`,
+        start_time: "2026-06-24T02:00:00.000Z",
+        end_time: "2026-06-24T02:00:00.000Z",
+        time_precision: "approximate" as const,
+        sequence_index: 10 + i,
+      })),
+      {
+        category: "correction" as const,
+        content: "late code change",
+        start_time: "2026-06-24T02:00:00.000Z",
+        end_time: "2026-06-24T02:00:00.000Z",
+        time_precision: "approximate" as const,
+        sequence_index: 81,
+        files_changed: 2,
+        lines_added: 100,
+      },
+      {
+        category: "direction" as const,
+        content: "late passive",
+        start_time: "2026-06-24T02:00:00.000Z",
+        end_time: "2026-06-24T02:00:00.000Z",
+        time_precision: "approximate" as const,
+        sequence_index: 89,
+      },
+      {
+        category: "decision" as const,
+        content: "late decision",
+        start_time: "2026-06-24T02:00:00.000Z",
+        end_time: "2026-06-24T02:00:00.000Z",
+        time_precision: "approximate" as const,
+        sequence_index: 91,
+        files_changed: 1,
+        lines_added: 10,
+      },
+    ];
+
+    const refined = refineSessionHumanInputsFromBillingBursts(humanInputs, bursts);
+    const lateCode = refined.find((h) => h.content === "late code change");
+    const latePassive = refined.find((h) => h.content === "late passive");
+    const lateDecision = refined.find((h) => h.content === "late decision");
+
+    expect(lateCode?.start_time).toBe("2026-06-24T18:00:00.000Z");
+    expect(lateDecision?.start_time).toBe("2026-06-24T19:00:00.000Z");
+    expect(latePassive?.start_time).toBe("2026-06-24T19:00:00.000Z");
+    expect(burstPosForSequenceOrder(81, 10, 81, 10)).toBe(8);
+    expect(burstPosForSequenceOrder(91, 10, 81, 10)).toBe(9);
+  });
+
+  test("refineCursorHumanInputsFromBillingEvents updates windows used for cost attribution", () => {
+    const sessions = [
+      {
+        session_id: "billing-session",
+        agent: "cursor-gui",
+        time_range: {start: "2026-06-24T06:00:00.000Z", display: "14:00 - 18:00"},
+        human_inputs: [
+          {
+            category: "direction" as const,
+            content: "early prompt",
+            start_time: "2026-06-24T01:00:00.000Z",
+            end_time: "2026-06-24T01:00:00.000Z",
+            time_precision: "approximate" as const,
+            sequence_index: 0,
+            files_changed: 1,
+          },
+          {
+            category: "correction" as const,
+            content: "later prompt",
+            start_time: "2026-06-24T02:00:00.000Z",
+            end_time: "2026-06-24T02:00:00.000Z",
+            time_precision: "approximate" as const,
+            sequence_index: 1,
+            files_changed: 1,
+            lines_added: 5,
+          },
+        ],
+      },
+    ];
+    const events = [
+      {
+        timestamp: "2026-06-24T06:05:00.000Z",
+        model: "composer-2.5",
+        tokenUsage: {inputTokens: 10, outputTokens: 5},
+        chargedCents: 10,
+      },
+      {
+        timestamp: "2026-06-24T06:25:00.000Z",
+        model: "composer-2.5",
+        tokenUsage: {inputTokens: 20, outputTokens: 10},
+        chargedCents: 20,
+      },
+    ];
+
+    refineCursorHumanInputsFromBillingEvents(sessions, events, "2026-06-24");
+    const windows = buildCursorAttributionWindows(sessions, "2026-06-24");
+    const bySession = aggregateCursorUsageBySession(events, "2026-06-24", windows);
+
+    expect(sessions[0]?.human_inputs?.[0]?.start_time).toBe("2026-06-24T06:05:00.000Z");
+    expect(sessions[0]?.human_inputs?.[1]?.start_time).toBe("2026-06-24T06:25:00.000Z");
+    expect(sessions[0]?.human_inputs?.[1]?.time_precision).toBe("inferred_from_billing");
+    expect(bySession["billing-session"]?.humanInputCosts).toEqual({0: 0.1, 1: 0.2});
+  });
+
+  test("refineHumanInputsFromAttributedEvents snaps to attributed event timestamps", () => {
+    const sessions = [
+      {
+        session_id: "attr-session",
+        agent: "cursor-gui",
+        human_inputs: [
+          {
+            category: "direction" as const,
+            content: "early",
+            start_time: "2026-06-24T10:00:00.000Z",
+            end_time: "2026-06-24T10:00:00.000Z",
+            time_precision: "inferred_from_billing" as const,
+            sequence_index: 1,
+            api_calls: 2,
+          },
+          {
+            category: "direction" as const,
+            content: "between",
+            start_time: "2026-06-24T11:00:00.000Z",
+            end_time: "2026-06-24T11:00:00.000Z",
+            time_precision: "inferred_from_billing" as const,
+            sequence_index: 3,
+          },
+          {
+            category: "correction" as const,
+            content: "late",
+            start_time: "2026-06-24T12:00:00.000Z",
+            end_time: "2026-06-24T12:00:00.000Z",
+            time_precision: "inferred_from_billing" as const,
+            sequence_index: 5,
+            api_calls: 1,
+          },
+        ],
+      },
+    ];
+    const windows = [
+      {
+        sessionId: "attr-session",
+        agent: "cursor-gui",
+        startMs: new Date("2026-06-24T10:00:00.000Z").getTime(),
+        endMs: new Date("2026-06-24T11:00:00.000Z").getTime(),
+        humanInputIndex: 0,
+      },
+      {
+        sessionId: "attr-session",
+        agent: "cursor-gui",
+        startMs: new Date("2026-06-24T12:00:00.000Z").getTime(),
+        endMs: new Date("2026-06-24T13:00:00.000Z").getTime(),
+        humanInputIndex: 2,
+      },
+    ];
+    const events = [
+      {
+        timestamp: "2026-06-24T10:05:00.000Z",
+        model: "composer-2.5",
+        chargedCents: 10,
+      },
+      {
+        timestamp: "2026-06-24T10:08:00.000Z",
+        model: "composer-2.5",
+        chargedCents: 5,
+      },
+      {
+        timestamp: "2026-06-24T12:30:00.000Z",
+        model: "composer-2.5",
+        chargedCents: 20,
+      },
+    ];
+
+    const mapped = mapAttributedEventTimesByHumanInput(events, "2026-06-24", windows);
+    expect(mapped.get("attr-session")?.get(0)).toEqual([
+      new Date("2026-06-24T10:05:00.000Z").getTime(),
+      new Date("2026-06-24T10:08:00.000Z").getTime(),
+    ]);
+
+    refineHumanInputsFromAttributedEvents(sessions, events, "2026-06-24", windows);
+
+    expect(sessions[0]?.human_inputs?.[0]?.start_time).toBe("2026-06-24T10:05:00.000Z");
+    expect(sessions[0]?.human_inputs?.[0]?.end_time).toBe("2026-06-24T10:08:00.000Z");
+    expect(sessions[0]?.human_inputs?.[0]?.time_precision).toBe("inferred_from_attributed_events");
+    expect(sessions[0]?.human_inputs?.[2]?.start_time).toBe("2026-06-24T12:30:00.000Z");
+    expect(sessions[0]?.human_inputs?.[1]?.start_time).toBe("2026-06-24T11:17:30.000Z");
+  });
+
+  test("refineHumanInputsFromAttributedEvents keeps exact composer times when events are nearby", () => {
+    const sessions = [
+      {
+        session_id: "exact-session",
+        agent: "cursor-gui",
+        human_inputs: [
+          {
+            category: "direction" as const,
+            content: "live prompt",
+            start_time: "2026-06-26T12:26:00.000Z",
+            end_time: "2026-06-26T12:26:00.000Z",
+            time_precision: "exact" as const,
+            sequence_index: 12,
+            api_calls: 1,
+          },
+        ],
+      },
+    ];
+    const windows = [
+      {
+        sessionId: "exact-session",
+        agent: "cursor-gui",
+        startMs: new Date("2026-06-26T12:26:00.000Z").getTime(),
+        endMs: new Date("2026-06-26T12:27:00.000Z").getTime(),
+        humanInputIndex: 0,
+      },
+    ];
+    const events = [{timestamp: "2026-06-26T12:26:22.000Z", chargedCents: 10}];
+
+    expect(
+      shouldPreserveExactHumanInputTime(sessions[0]!.human_inputs![0]!, [
+        new Date("2026-06-26T12:26:22.000Z").getTime(),
+      ])
+    ).toBe(true);
+
+    refineHumanInputsFromAttributedEvents(sessions, events, "2026-06-26", windows);
+
+    expect(sessions[0]?.human_inputs?.[0]?.start_time).toBe("2026-06-26T12:26:00.000Z");
+    expect(sessions[0]?.human_inputs?.[0]?.end_time).toBe("2026-06-26T12:26:22.000Z");
+    expect(sessions[0]?.human_inputs?.[0]?.time_precision).toBe("exact");
   });
 
   test("aggregates only billable Claude usage with usage dimensions", () => {

@@ -10,6 +10,7 @@ import {
   matchUserBubble,
   normalizeBubbleMatchText,
   parseGuiSessionTranscript,
+  refineBackdateStartsFromAssistantTimes,
   resolveUserBubbleTimes,
 } from "../src/lib/collect/agents/cursor-gui.js";
 import { enrichCursorGuiFallbackContext } from "../src/lib/collect/index.js";
@@ -568,6 +569,100 @@ describe("cursor-gui mtime fallback", () => {
     const backdatedInputs = [...june23.humanInputs, ...june24.humanInputs];
     expect(backdatedInputs.length).toBeGreaterThan(0);
     expect(backdatedInputs.every((h) => h.time_precision === "approximate")).toBe(true);
+
+    db.close();
+  });
+
+  test("refineBackdateStartsFromAssistantTimes uses first assistant bubble after backdated user", () => {
+    const sessionCreatedAtMs = new Date("2026-06-23T10:12:16.177Z").getTime();
+    const userBubbles = [
+      {
+        createdAt: new Date("2026-06-25T01:58:08.204Z"),
+        text: "合并代码后有冲突， 帮修正",
+        normalized: normalizeBubbleMatchText("合并代码后有冲突， 帮修正"),
+      },
+    ];
+    const backdate = new Set([0]);
+    const pairs = [{ bubbleIndex: 0, transcriptIndex: 0 }];
+    const assistantTimes = [
+      new Date("2026-06-24T06:27:12.322Z"),
+      new Date("2026-06-24T06:27:55.930Z"),
+    ];
+    const resolved = resolveUserBubbleTimes(userBubbles, pairs, backdate, sessionCreatedAtMs);
+    const interpolated = resolved.get(0)!.toISOString();
+    expect(interpolated).not.toBe("2026-06-24T06:27:12.322Z");
+
+    const lines = [
+      '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\\n合并代码后有冲突， 帮修正\\n</user_query>"}]}}',
+      '{"role":"assistant","message":{"content":[{"type":"text","text":"checking conflicts"}]}}',
+      '{"role":"assistant","message":{"content":[{"type":"text","text":"done"}]}}',
+    ];
+    refineBackdateStartsFromAssistantTimes(
+      lines,
+      userBubbles,
+      pairs,
+      backdate,
+      resolved,
+      assistantTimes,
+      sessionCreatedAtMs
+    );
+
+    expect(resolved.get(0)?.toISOString()).toBe("2026-06-24T06:27:12.322Z");
+  });
+
+  test("parseGuiSessionTranscript prefers assistant bubble time for backdated user prompts", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
+
+    const sessionId = "assistant-infer-sess";
+    const sessionCreatedAtMs = new Date("2026-06-23T10:12:16.177Z").getTime();
+    const userLine =
+      '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\\n合并代码后有冲突， 帮修正\\n</user_query>"}]}}';
+    const assistantLine =
+      '{"role":"assistant","message":{"content":[{"type":"text","text":"fixing conflicts"}]}}';
+    const assistantDoneLine =
+      '{"role":"assistant","message":{"content":[{"type":"text","text":"conflicts resolved"}]}}';
+
+    writeTranscript(
+      "proj-a",
+      sessionId,
+      [userLine, assistantLine, assistantDoneLine],
+      new Date("2026-06-25T15:00:00")
+    );
+
+    const insert = db.prepare("INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)");
+    for (let i = 0; i < 6; i++) {
+      insert.run(
+        `bubbleId:${sessionId}:cluster-${i}`,
+        JSON.stringify({
+          type: 1,
+          text: i === 0 ? "合并代码后有冲突， 帮修正" : `cluster filler ${i}`,
+          createdAt: `2026-06-25T01:58:08.${200 + i}Z`,
+        })
+      );
+    }
+    insert.run(
+      `bubbleId:${sessionId}:a1`,
+      JSON.stringify({
+        type: 2,
+        text: "fixing conflicts",
+        createdAt: "2026-06-24T06:27:12.322Z",
+      })
+    );
+    insert.run(
+      `bubbleId:${sessionId}:a2`,
+      JSON.stringify({
+        type: 2,
+        text: "conflicts resolved",
+        createdAt: "2026-06-24T06:27:55.930Z",
+      })
+    );
+
+    const parsed = parseGuiSessionTranscript(sessionId, "2026-06-24", { db, sessionCreatedAtMs });
+    const conflict = parsed.humanInputs.find((h) => h.content.includes("合并代码后有冲突"));
+    expect(conflict?.start_time).toBe("2026-06-24T06:27:12.322Z");
+    expect(conflict?.time_precision).toBe("approximate");
+    expect(conflict?.end_time).not.toBe(conflict?.start_time);
 
     db.close();
   });

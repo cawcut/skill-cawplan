@@ -124,11 +124,16 @@ export interface HumanInput {
   end_time?: string | null;
   /**
    * Whether start_time/end_time are real recorded timestamps ("exact") or
-   * reconstructed by interpolation ("approximate"). Cursor restamps historical
-   * bubbles when a session resumes; those backdated inputs get an approximate
-   * time and are flagged here so downstream consumers don't treat them as precise.
+   * reconstructed. Approximate times may come from transcript-order interpolation
+   * or assistant-bubble inference after a resume restamp; inferred_from_billing
+   * means the window was aligned to a Cursor Dashboard API usage burst;
+   * inferred_from_attributed_events means start/end were tightened to dashboard
+   * event timestamps after cost attribution (exact composer times are kept when
+   * attributed events fall within a few minutes of the bubble timestamp).
    */
-  time_precision?: "exact" | "approximate";
+  time_precision?: "exact" | "approximate" | "inferred_from_billing" | "inferred_from_attributed_events";
+  /** Composer bubble order within the session (for billing burst alignment). */
+  sequence_index?: number;
   usage_cost?: number;
   api_calls?: number;
 }

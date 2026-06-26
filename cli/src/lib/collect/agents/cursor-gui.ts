@@ -174,6 +174,7 @@ interface UserBubble {
     createdAt: Date;
     text: string;
     normalized: string;
+    composerIndex: number;
 }
 
 interface SessionBubbleTimeline {
@@ -206,6 +207,7 @@ function loadSessionBubbleTimeline(
                         createdAt,
                         text,
                         normalized: normalizeBubbleMatchText(text),
+                        composerIndex: 0,
                     });
                 } else {
                     assistantTimes.push(createdAt);
@@ -217,6 +219,9 @@ function loadSessionBubbleTimeline(
 
         if (!userBubbles.length) return null;
         userBubbles.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        userBubbles.forEach((bubble, index) => {
+            bubble.composerIndex = index;
+        });
         assistantTimes.sort((a, b) => a.getTime() - b.getTime());
         return {userBubbles, assistantTimes};
     } catch {
@@ -421,6 +426,57 @@ export function resolveUserBubbleTimes(
     return resolved;
 }
 
+/**
+ * For backdated user bubbles, replace interpolated start times with the first
+ * subsequent assistant bubble timestamp (usually still accurate after resume restamps).
+ */
+export function refineBackdateStartsFromAssistantTimes(
+    lines: string[],
+    userBubbles: UserBubble[],
+    pairs: Array<{ bubbleIndex: number; transcriptIndex: number }>,
+    backdateIndices: Set<number>,
+    resolvedTimes: Map<number, Date>,
+    assistantTimes: Date[],
+    sessionCreatedAtMs: number
+): void {
+    void lines;
+    void userBubbles;
+    void pairs;
+    void sessionCreatedAtMs;
+    if (backdateIndices.size === 0 || assistantTimes.length === 0) return;
+
+    const lookbackMs = 2 * 60 * 60 * 1000;
+    const lookaheadMs = 24 * 60 * 60 * 1000;
+    let assistantScanIdx = 0;
+
+    for (const bubbleIdx of [...backdateIndices].sort(
+        (a, b) => (resolvedTimes.get(a)?.getTime() ?? 0) - (resolvedTimes.get(b)?.getTime() ?? 0)
+    )) {
+        const interpolated = resolvedTimes.get(bubbleIdx);
+        if (!interpolated) continue;
+
+        const lowerBoundMs = interpolated.getTime() - lookbackMs;
+        const upperBoundMs = interpolated.getTime() + lookaheadMs;
+
+        while (
+            assistantScanIdx < assistantTimes.length &&
+            assistantTimes[assistantScanIdx].getTime() < lowerBoundMs
+        ) {
+            assistantScanIdx++;
+        }
+
+        for (let i = assistantScanIdx; i < assistantTimes.length; i++) {
+            const candidateMs = assistantTimes[i].getTime();
+            if (candidateMs > upperBoundMs) break;
+            if (candidateMs >= lowerBoundMs) {
+                resolvedTimes.set(bubbleIdx, assistantTimes[i]);
+                assistantScanIdx = i;
+                break;
+            }
+        }
+    }
+}
+
 function filterBubbleTimelineToDate(
     timeline: SessionBubbleTimeline,
     filterDate: string,
@@ -487,6 +543,7 @@ function buildHumanInputsFromDayBubbles(
             start_time: formatIsoTime(start),
             end_time: formatIsoTime(end),
             time_precision: approxBubbles.has(bubble) ? "approximate" : "exact",
+            sequence_index: bubble.composerIndex,
             files_changed: stats?.files_changed ?? 0,
             lines_added: stats?.lines_added ?? 0,
             lines_deleted: stats?.lines_deleted ?? 0,
@@ -664,6 +721,15 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
                     fullBubbleTimeline.userBubbles,
                     pairs,
                     backdate,
+                    opts.sessionCreatedAtMs
+                );
+                refineBackdateStartsFromAssistantTimes(
+                    lines,
+                    fullBubbleTimeline.userBubbles,
+                    pairs,
+                    backdate,
+                    resolvedTimes,
+                    fullBubbleTimeline.assistantTimes,
                     opts.sessionCreatedAtMs
                 );
                 for (const idx of backdate) {

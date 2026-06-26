@@ -19,13 +19,17 @@
 import {request} from "node:https";
 import {existsSync} from "node:fs";
 import {DatabaseSync} from "node:sqlite";
-import {ModelUsageEntry, UsageBucket} from "../types.js";
+import {HumanInput, ModelUsageEntry, UsageBucket} from "../types.js";
 import {cursorStateDbCandidates} from "../paths.js";
 import {isTimestampOnLocalDate, dayBoundsMs} from "../date-utils.js";
 import {calculateCost} from "../pricing.js";
 
 const PAGE_SIZE = 500;
 const MAX_ASSIGN_DISTANCE_MS = 2 * 60 * 60 * 1000; // 2h
+/** Gap between dashboard usage events that starts a new billing burst. */
+export const BILLING_BURST_GAP_MS = 5 * 60 * 1000;
+/** Keep composer exact times when attributed billing events are within this span. */
+export const EXACT_ATTRIBUTED_EVENT_TOLERANCE_MS = 2 * 60 * 1000;
 
 function parseEventTimestampMs(event: Record<string, unknown>): number | null {
     const raw = event["timestamp"] ?? event["createdAt"] ?? event["time"];
@@ -560,4 +564,523 @@ export function aggregateCursorUsageBySession(
         };
     }
     return out;
+}
+
+export interface BillingBurst {
+    startMs: number;
+    endMs: number;
+    eventCount: number;
+    chargedCents: number;
+}
+
+/** Exported for unit tests. */
+export function clusterUsageEventsIntoBursts(
+    events: Record<string, unknown>[],
+    gapMs = BILLING_BURST_GAP_MS
+): BillingBurst[] {
+    const sorted = events
+        .map((event) => ({event, tsMs: parseEventTimestampMs(event)}))
+        .filter((row): row is { event: Record<string, unknown>; tsMs: number } => row.tsMs != null)
+        .sort((a, b) => a.tsMs - b.tsMs);
+
+    const bursts: BillingBurst[] = [];
+    let current: Array<{ event: Record<string, unknown>; tsMs: number }> = [];
+
+    const flush = (): void => {
+        if (!current.length) return;
+        const chargedCents = current.reduce((sum, row) => sum + Number(row.event["chargedCents"] ?? 0), 0);
+        bursts.push({
+            startMs: current[0].tsMs,
+            endMs: current[current.length - 1].tsMs,
+            eventCount: current.length,
+            chargedCents,
+        });
+        current = [];
+    };
+
+    for (const row of sorted) {
+        if (current.length && row.tsMs - current[current.length - 1].tsMs > gapMs) {
+            flush();
+        }
+        current.push(row);
+    }
+    flush();
+    return bursts;
+}
+
+function sessionActivityBoundsMs(session: {
+    time_range: { start?: string; display: string };
+}): { startMs: number; endMs: number } | null {
+    const startMs = parseIsoMs(session.time_range.start);
+    if (startMs == null) return null;
+    const end = parseDisplayEndFromStart(new Date(startMs), session.time_range.display);
+    return {startMs, endMs: Math.max(end.getTime(), startMs + 1)};
+}
+
+/** Exported for unit tests. */
+export function partitionUsageEventsBySession(
+    events: Record<string, unknown>[],
+    sessions: Array<{
+        session_id: string;
+        time_range: { start?: string; display: string };
+    }>,
+    date: string
+): Map<string, Record<string, unknown>[]> {
+    const perSession = new Map<string, Record<string, unknown>[]>();
+
+    for (const event of events) {
+        const tsMs = parseEventTimestampMs(event);
+        if (tsMs == null || !isTimestampOnLocalDate(tsMs, date)) continue;
+
+        let best: { sessionId: string; span: number } | null = null;
+        for (const session of sessions) {
+            const bounds = sessionActivityBoundsMs(session);
+            if (!bounds || tsMs < bounds.startMs || tsMs > bounds.endMs) continue;
+            const span = bounds.endMs - bounds.startMs;
+            if (!best || span < best.span) {
+                best = {sessionId: session.session_id, span};
+            }
+        }
+        if (!best) continue;
+
+        const list = perSession.get(best.sessionId) ?? [];
+        list.push(event);
+        perSession.set(best.sessionId, list);
+    }
+
+    return perSession;
+}
+
+/** File/line edits from transcript tool stats (available before billing attribution). */
+export function humanInputFileActivityWeight(h: HumanInput): number {
+    return (h.files_changed ?? 0) + (h.lines_added ?? 0) + (h.lines_deleted ?? 0);
+}
+
+/** Includes api_calls after attribution; used for reporting only, not burst placement. */
+export function humanInputBillingActivityWeight(h: HumanInput): number {
+    return humanInputFileActivityWeight(h) + (h.api_calls ?? 0);
+}
+
+function hasFileActivity(h: HumanInput): boolean {
+    return humanInputFileActivityWeight(h) > 0;
+}
+
+function chargedBurstIndices(bursts: BillingBurst[]): number[] {
+    const charged = bursts
+        .map((burst, index) => ({burst, index}))
+        .filter(({burst}) => burst.chargedCents > 0 || burst.eventCount > 0)
+        .map(({index}) => index);
+    return charged.length > 0 ? charged : bursts.map((_, index) => index);
+}
+
+function assignBurstToInput(
+    next: HumanInput[],
+    index: number,
+    burst: BillingBurst
+): void {
+    const startIso = new Date(burst.startMs).toISOString();
+    const endIso = new Date(burst.endMs).toISOString();
+    next[index] = {
+        ...next[index],
+        start_time: startIso,
+        end_time: endIso,
+        session_time: startIso,
+        time_precision: "inferred_from_billing",
+    };
+}
+
+function inputSequenceOrder(h: HumanInput, fallbackIndex: number): number {
+    return h.sequence_index ?? fallbackIndex;
+}
+
+function isBillingRefinable(h: HumanInput, rematchInferred: boolean): boolean {
+    if (h.time_precision === "exact") return false;
+    if (h.time_precision === "inferred_from_billing" && !rematchInferred) return false;
+    return true;
+}
+
+function sequenceSpanFromRefinable(refinable: Array<{ order: number }>): {
+    minOrder: number;
+    span: number;
+} {
+    const orders = refinable.map((row) => row.order);
+    const minOrder = Math.min(...orders);
+    const maxOrder = Math.max(...orders);
+    return {minOrder, span: Math.max(maxOrder - minOrder, 1)};
+}
+
+/** Map composer sequence_index position to a billable burst index (monotonic). */
+export function burstPosForSequenceOrder(
+    order: number,
+    minOrder: number,
+    span: number,
+    billableBurstCount: number,
+    lastBurstPos = 0
+): number {
+    if (billableBurstCount <= 1) return 0;
+    const ratio = (order - minOrder) / span;
+    const targetPos = Math.min(Math.round(ratio * (billableBurstCount - 1)), billableBurstCount - 1);
+    return Math.max(lastBurstPos, targetPos);
+}
+
+/** Exported for unit tests. */
+export function refineSessionHumanInputsFromBillingBursts(
+    humanInputs: HumanInput[],
+    bursts: BillingBurst[],
+    rematchInferred = false
+): HumanInput[] {
+    if (!humanInputs.length || !bursts.length) return humanInputs;
+
+    const refinable = humanInputs
+        .map((h, index) => ({
+            h,
+            index,
+            weight: humanInputFileActivityWeight(h),
+            order: inputSequenceOrder(h, index),
+        }))
+        .filter(({h}) => isBillingRefinable(h, rematchInferred));
+
+    if (!refinable.length) return humanInputs;
+
+    const next = humanInputs.map((h) => ({...h}));
+    const billableBurstIdx = chargedBurstIndices(bursts);
+    const {minOrder, span} = sequenceSpanFromRefinable(refinable);
+
+    const active = refinable
+        .filter(({weight}) => weight > 0)
+        .sort((a, b) => a.order - b.order);
+    const passive = refinable
+        .filter(({weight}) => weight === 0)
+        .sort((a, b) => a.order - b.order);
+
+    const activeBurstPosByInput = new Map<number, number>();
+    if (active.length > 0) {
+        let lastBurstPos = 0;
+
+        for (const row of active) {
+            const burstPos = burstPosForSequenceOrder(
+                row.order,
+                minOrder,
+                span,
+                billableBurstIdx.length,
+                lastBurstPos
+            );
+            lastBurstPos = burstPos;
+            activeBurstPosByInput.set(row.index, billableBurstIdx[burstPos]);
+            assignBurstToInput(next, row.index, bursts[billableBurstIdx[burstPos]]);
+        }
+    }
+
+    const anchored = refinable
+        .filter(({index}) => activeBurstPosByInput.has(index))
+        .sort((a, b) => a.order - b.order);
+
+    let lastPassiveBurstPos = 0;
+    for (const row of passive) {
+        let prev: { burstIndex: number; order: number } | null = null;
+        let nextAnchor: { burstIndex: number; order: number } | null = null;
+
+        for (const candidate of anchored) {
+            const burstIndex = activeBurstPosByInput.get(candidate.index);
+            if (burstIndex == null) continue;
+            if (candidate.order < row.order && (!prev || candidate.order > prev.order)) {
+                prev = {burstIndex, order: candidate.order};
+            }
+        }
+        for (const candidate of anchored) {
+            const burstIndex = activeBurstPosByInput.get(candidate.index);
+            if (burstIndex == null) continue;
+            if (candidate.order > row.order && (!nextAnchor || candidate.order < nextAnchor.order)) {
+                nextAnchor = {burstIndex, order: candidate.order};
+            }
+        }
+
+        let burstIndex: number;
+        if (prev && nextAnchor && nextAnchor.order > prev.order) {
+            const t = (row.order - prev.order) / (nextAnchor.order - prev.order);
+            burstIndex = Math.round(prev.burstIndex + t * (nextAnchor.burstIndex - prev.burstIndex));
+            burstIndex = Math.max(prev.burstIndex, Math.min(burstIndex, nextAnchor.burstIndex));
+        } else if (prev && !nextAnchor) {
+            burstIndex = Math.min(bursts.length - 1, prev.burstIndex + 1);
+        } else if (!prev && nextAnchor) {
+            burstIndex = Math.max(0, nextAnchor.burstIndex - 1);
+        } else {
+            const posInBillable = burstPosForSequenceOrder(
+                row.order,
+                minOrder,
+                span,
+                billableBurstIdx.length,
+                lastPassiveBurstPos
+            );
+            lastPassiveBurstPos = posInBillable;
+            burstIndex = billableBurstIdx[posInBillable];
+        }
+
+        assignBurstToInput(next, row.index, bursts[burstIndex]);
+    }
+
+    return next;
+}
+
+/** Exported for unit tests. */
+export function mapAttributedEventTimesByHumanInput(
+    events: Record<string, unknown>[],
+    date: string,
+    windows: AttributionWindow[]
+): Map<string, Map<number, number[]>> {
+    const out = new Map<string, Map<number, number[]>>();
+
+    for (const event of events) {
+        const tsMs = parseEventTimestampMs(event);
+        if (tsMs == null || !isTimestampOnLocalDate(tsMs, date)) continue;
+
+        const window = assignEventToAttributionWindow(tsMs, windows);
+        if (window?.humanInputIndex == null) continue;
+
+        let perSession = out.get(window.sessionId);
+        if (!perSession) {
+            perSession = new Map();
+            out.set(window.sessionId, perSession);
+        }
+        const list = perSession.get(window.humanInputIndex) ?? [];
+        list.push(tsMs);
+        perSession.set(window.humanInputIndex, list);
+    }
+
+    return out;
+}
+
+function findSequenceNeighbors(
+    order: number,
+    anchored: Array<{ order: number; startMs: number; endMs: number }>
+): { prev: { order: number; startMs: number; endMs: number } | null; next: { order: number; startMs: number; endMs: number } | null } {
+    let prev: { order: number; startMs: number; endMs: number } | null = null;
+    let next: { order: number; startMs: number; endMs: number } | null = null;
+
+    for (const row of anchored) {
+        if (row.order < order && (!prev || row.order > prev.order)) prev = row;
+    }
+    for (const row of anchored) {
+        if (row.order > order && (!next || row.order < next.order)) next = row;
+    }
+
+    return {prev, next};
+}
+
+/** Exported for unit tests. */
+export function shouldPreserveExactHumanInputTime(
+    h: HumanInput,
+    eventTimesMs: number[],
+    toleranceMs = EXACT_ATTRIBUTED_EVENT_TOLERANCE_MS
+): boolean {
+    if (h.time_precision !== "exact" || !eventTimesMs.length) return false;
+    const bubbleStart = parseIsoMs(h.start_time ?? h.session_time);
+    if (bubbleStart == null) return false;
+    return eventTimesMs.some((ts) => Math.abs(ts - bubbleStart) <= toleranceMs);
+}
+
+/**
+ * Second pass: snap human-input times to dashboard events that were attributed
+ * to each prompt, then interpolate passive prompts between event-anchored neighbors.
+ */
+export function refineHumanInputsFromAttributedEvents(
+    sessions: Array<{
+        session_id: string;
+        agent: string;
+        human_inputs?: HumanInput[];
+    }>,
+    events: Record<string, unknown>[],
+    date: string,
+    windows: AttributionWindow[]
+): void {
+    const cursorSessions = sessions.filter((s) => s.agent === "cursor-gui" || s.agent === "cursor-cli");
+    if (!cursorSessions.length || !events.length || !windows.length) return;
+
+    const eventTimes = mapAttributedEventTimesByHumanInput(events, date, windows);
+
+    for (const session of cursorSessions) {
+        if (!session.human_inputs?.length) continue;
+        const perInput = eventTimes.get(session.session_id);
+        if (!perInput) continue;
+
+        const next = session.human_inputs.map((h) => ({...h}));
+        const anchored: Array<{ index: number; order: number; startMs: number; endMs: number }> = [];
+
+        for (let i = 0; i < next.length; i++) {
+            const times = perInput.get(i);
+            if (!times?.length) continue;
+
+            const min = Math.min(...times);
+            const max = Math.max(...times);
+            const row = next[i];
+
+            if (shouldPreserveExactHumanInputTime(row, times)) {
+                const bubbleStart = parseIsoMs(row.start_time ?? row.session_time) ?? min;
+                const bubbleEnd = parseIsoMs(row.end_time) ?? bubbleStart;
+                const endMs = Math.max(bubbleEnd, max);
+                next[i] = {
+                    ...row,
+                    start_time: new Date(bubbleStart).toISOString(),
+                    end_time: new Date(endMs).toISOString(),
+                    session_time: new Date(bubbleStart).toISOString(),
+                    time_precision: "exact",
+                };
+                anchored.push({
+                    index: i,
+                    order: inputSequenceOrder(next[i], i),
+                    startMs: bubbleStart,
+                    endMs: endMs,
+                });
+                continue;
+            }
+
+            const startIso = new Date(min).toISOString();
+            const endIso = new Date(max).toISOString();
+            next[i] = {
+                ...row,
+                start_time: startIso,
+                end_time: endIso,
+                session_time: startIso,
+                time_precision: "inferred_from_attributed_events",
+            };
+            anchored.push({
+                index: i,
+                order: inputSequenceOrder(next[i], i),
+                startMs: min,
+                endMs: max,
+            });
+        }
+
+        anchored.sort((a, b) => a.order - b.order);
+
+        for (let i = 0; i < next.length; i++) {
+            const h = next[i];
+            if (perInput.get(i)?.length || h.time_precision === "exact") continue;
+            if (h.time_precision !== "approximate" && h.time_precision !== "inferred_from_billing") continue;
+
+            const order = inputSequenceOrder(h, i);
+            const {prev, next: nextAnchor} = findSequenceNeighbors(order, anchored);
+            let startMs: number | null = null;
+            let endMs: number | null = null;
+
+            if (prev && nextAnchor && nextAnchor.order > prev.order) {
+                const t = (order - prev.order) / (nextAnchor.order - prev.order);
+                startMs = Math.round(prev.startMs + t * (nextAnchor.startMs - prev.startMs));
+                endMs = Math.round(prev.endMs + t * (nextAnchor.endMs - prev.endMs));
+            } else if (prev) {
+                startMs = prev.startMs;
+                endMs = prev.endMs;
+            } else if (nextAnchor) {
+                startMs = nextAnchor.startMs;
+                endMs = nextAnchor.endMs;
+            }
+
+            if (startMs == null || endMs == null) continue;
+
+            const startIso = new Date(startMs).toISOString();
+            const endIso = new Date(Math.max(endMs, startMs)).toISOString();
+            next[i] = {
+                ...h,
+                start_time: startIso,
+                end_time: endIso,
+                session_time: startIso,
+                time_precision: "inferred_from_billing",
+            };
+        }
+
+        session.human_inputs = next;
+    }
+}
+
+/** @deprecated Use refineHumanInputsFromAttributedEvents */
+export function snapHumanInputsToAttributedBillingEvents(
+    sessions: Array<{
+        session_id: string;
+        agent: string;
+        time_range: { start?: string; display: string };
+        human_inputs?: HumanInput[];
+    }>,
+    events: Record<string, unknown>[],
+    date: string
+): void {
+    const cursorSessions = sessions.filter((s) => s.agent === "cursor-gui" || s.agent === "cursor-cli");
+    if (!cursorSessions.length || !events.length) return;
+
+    const partitioned = partitionUsageEventsBySession(events, cursorSessions, date);
+    for (const session of cursorSessions) {
+        if (!session.human_inputs?.length) continue;
+        const sessionEvents = partitioned.get(session.session_id) ?? [];
+        if (!sessionEvents.length) continue;
+
+        session.human_inputs = session.human_inputs.map((h) => {
+            if ((h.api_calls ?? 0) <= 0) return h;
+
+            const startMs = parseIsoMs(h.start_time ?? h.session_time);
+            if (startMs == null) return h;
+            let endMs = parseIsoMs(h.end_time) ?? startMs;
+            if (endMs < startMs) endMs = startMs;
+
+            const matchedTimes = sessionEvents
+                .map((event) => parseEventTimestampMs(event))
+                .filter((ts): ts is number => ts != null && ts >= startMs && ts <= endMs);
+            if (!matchedTimes.length) return h;
+
+            const min = Math.min(...matchedTimes);
+            const max = Math.max(...matchedTimes);
+            const startIso = new Date(min).toISOString();
+            const endIso = new Date(max).toISOString();
+            return {
+                ...h,
+                start_time: startIso,
+                end_time: endIso,
+                session_time: startIso,
+                time_precision: "inferred_from_billing" as const,
+            };
+        });
+    }
+}
+
+/**
+ * Align approximate human-input times to Cursor Dashboard billing bursts before
+ * cost attribution windows are built.
+ */
+export function refineCursorHumanInputsFromBillingEvents(
+    sessions: Array<{
+        session_id: string;
+        agent: string;
+        time_range: { start?: string; display: string };
+        human_inputs?: HumanInput[];
+    }>,
+    events: Record<string, unknown>[],
+    date: string,
+    rematchInferred = false
+): void {
+    const cursorSessions = sessions.filter((s) => s.agent === "cursor-gui" || s.agent === "cursor-cli");
+    if (!cursorSessions.length || !events.length) return;
+
+    const dayEvents = events.filter((event) => {
+        const tsMs = parseEventTimestampMs(event);
+        return tsMs != null && isTimestampOnLocalDate(tsMs, date);
+    });
+    if (!dayEvents.length) return;
+
+    const allBursts = clusterUsageEventsIntoBursts(dayEvents);
+    if (!allBursts.length) return;
+
+    for (const session of cursorSessions) {
+        if (!session.human_inputs?.length) continue;
+        const bounds = sessionActivityBoundsMs(session);
+        const bursts =
+            bounds == null
+                ? allBursts
+                : allBursts.filter(
+                      (burst) => burst.startMs >= bounds.startMs && burst.startMs <= bounds.endMs
+                  );
+        if (!bursts.length) continue;
+        session.human_inputs = refineSessionHumanInputsFromBillingBursts(
+            session.human_inputs,
+            bursts,
+            rematchInferred
+        );
+    }
 }

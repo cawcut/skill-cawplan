@@ -12,6 +12,8 @@ import {
     aggregateCursorUsage,
     aggregateCursorUsageBySession,
     buildCursorAttributionWindows,
+    refineCursorHumanInputsFromBillingEvents,
+    refineHumanInputsFromAttributedEvents,
 } from "./agents/cursor-api.js";
 import {buildDailyApiJson} from "./aggregators/daily.js";
 import {SessionData} from "./types.js";
@@ -203,22 +205,35 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
 
             // First try session-level attribution (uid-team style)
             const cursorSessions = sessions.filter((s) => s.agent === "cursor-gui" || s.agent === "cursor-cli");
-            const windows = buildCursorAttributionWindows(cursorSessions, date);
-            const bySession = aggregateCursorUsageBySession(events, date, windows);
+            refineCursorHumanInputsFromBillingEvents(cursorSessions, events, date, false);
+            let windows = buildCursorAttributionWindows(cursorSessions, date);
+            let bySession = aggregateCursorUsageBySession(events, date, windows);
             let attributedSessions = 0;
-            for (const s of sessions) {
-                const assigned = bySession[s.session_id];
-                if (!assigned) continue;
-                s.model_usage = assigned.modelUsage;
-                s.usage_breakdown = assigned.usageBreakdown;
-                if (assigned.humanInputCosts && s.human_inputs?.length) {
-                    s.human_inputs = s.human_inputs.map((h, i) => ({
-                        ...h,
-                        usage_cost: assigned.humanInputCosts?.[i],
-                        api_calls: assigned.humanInputApiCalls?.[i],
-                    }));
+            const applyCursorAttribution = (): number => {
+                let count = 0;
+                for (const s of sessions) {
+                    const assigned = bySession[s.session_id];
+                    if (!assigned) continue;
+                    s.model_usage = assigned.modelUsage;
+                    s.usage_breakdown = assigned.usageBreakdown;
+                    if (assigned.humanInputCosts && s.human_inputs?.length) {
+                        s.human_inputs = s.human_inputs.map((h, i) => ({
+                            ...h,
+                            usage_cost: assigned.humanInputCosts?.[i],
+                            api_calls: assigned.humanInputApiCalls?.[i],
+                        }));
+                    }
+                    count++;
                 }
-                attributedSessions++;
+                return count;
+            };
+            attributedSessions = applyCursorAttribution();
+
+            if (attributedSessions > 0) {
+                refineHumanInputsFromAttributedEvents(cursorSessions, events, date, windows);
+                windows = buildCursorAttributionWindows(cursorSessions, date);
+                bySession = aggregateCursorUsageBySession(events, date, windows);
+                attributedSessions = applyCursorAttribution();
             }
 
             // Fallback: if no session got attribution, keep global model rollup behavior.
