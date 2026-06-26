@@ -18,6 +18,7 @@ import {registerAnalyticsCommand} from "./commands/analytics.js";
 import {registerQAReportsCommand} from "./commands/qa-reports.js";
 import {registerCommunityCommand} from "./commands/community.js";
 import {registerAiSessionCommand} from "./commands/ai-session.js";
+import {registerInitCommand} from "./commands/init.js";
 
 const require = createRequire(import.meta.url);
 const {version} = require("../package.json") as { version: string };
@@ -46,6 +47,7 @@ registerAnalyticsCommand(program);
 registerQAReportsCommand(program);
 registerCommunityCommand(program);
 registerAiSessionCommand(program);
+registerInitCommand(program);
 
 // Raw API passthrough
 program

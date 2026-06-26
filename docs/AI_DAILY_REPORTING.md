@@ -39,13 +39,13 @@
     cawplan auth status
     ```
 
-首次在某个仓库上报前，建议在该仓库中的 agent 执行一次：
+首次在某个仓库上报前，建议在该仓库根目录的终端执行一次：
 
 ```bash
-/cawplan-coding-init
+cawplan init
 ```
 
-它会帮助配置当前 GitHub 仓库和 CawPlan Product 的默认映射。
+它会在终端中让你选择 CawPlan Product，并配置当前 GitHub 仓库和 Product 的默认映射。
 
 ## 每日上报
 

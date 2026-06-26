@@ -42,11 +42,6 @@
           "invoke": "/cawplan-coding-commit"
         },
         {
-          "name": "coding-init",
-          "path": "skills/cawplan-coding-init",
-          "invoke": "/cawplan-coding-init"
-        },
-        {
           "name": "coding-insights",
           "path": "skills/cawplan-coding-insights",
           "invoke": "/cawplan-coding-insights"

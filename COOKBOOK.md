@@ -106,7 +106,7 @@ cawplan ai-session assign --file /absolute/path/ai-daily-2026-06-24.json --tty
 cawplan ai-session assign --file /absolute/path/ai-daily-2026-06-24.json --web
 ```
 
-Run `/cawplan-coding-init` once per repo so auto-matching works for future collects.
+Run `cawplan init` once per repo in your terminal so auto-matching works for future collects.
 
 ### Data sources
 
@@ -128,17 +128,17 @@ cawplan ai-session backfill --from 2026-06-01 --to 2026-06-24 --dry-run
 cawplan ai-session backfill --from 2026-06-01 --to 2026-06-24
 ```
 
-## 7. cawplan-coding-init
+## 7. cawplan init
 
 Link the **current git repository** to a CawPlan product (and optional GitHub repo mapping) so `/cawplan-coding-commit` can auto-fill `product_id` during collection.
 
-Run once per repo, from the repository root, before your first daily report from that codebase:
+Run once per repo, from the repository root in a real terminal, before your first daily report from that codebase:
 
-```text
-/cawplan-coding-init
+```bash
+cawplan init
 ```
 
-The skill resolves `git remote get-url origin`, lets you pick a CawPlan product, and creates a cloud `product-repo` mapping when needed. Details: `skills/cawplan-coding-init/SKILL.md`.
+The CLI resolves `git remote get-url origin`, lets you pick a CawPlan product in the terminal, and creates a cloud `product-repo` mapping when needed.
 
 ## 8. cawplan-coding-insights
 
