@@ -19,11 +19,11 @@
  *   - Files changed: file_path / path from tool_use input blocks (Edit, Write, Bash, etc.)
  */
 import { readFileSync, readdirSync, statSync, openSync, readSync, closeSync } from "node:fs";
-import { join, basename } from "node:path";
+import { join, basename, dirname } from "node:path";
 import { homedir } from "node:os";
 import { claudeProjectsDir } from "../paths.js";
 import { SessionData, FileChange, RepoTouched, HumanInput } from "../types.js";
-import { aggregateUsageBuckets, foldBucketsToModel } from "../aggregators/tokens.js";
+import { aggregateUsageBuckets, foldBucketsToModel, mergeUsageBuckets } from "../aggregators/tokens.js";
 import { gitRemoteRepo } from "../git.js";
 import { ChunkMessage } from "../aggregators/chunks.js";
 import {isTimestampOnLocalDate, localDateString, formatLocalTime, getLocalTimezone} from "../date-utils.js";
@@ -327,9 +327,7 @@ export function collectClaudeCodeSession(
   }
 
   // Aggregate usage buckets from assistant events
-  const buckets = aggregateUsageBuckets(events, "claude-code");
-  const modelUsage = foldBucketsToModel(buckets);
-  const usageBreakdown = Object.values(buckets);
+  let buckets = aggregateUsageBuckets(events, "claude-code");
 
   // Message stats
   let userCount = 0;
@@ -418,6 +416,58 @@ export function collectClaudeCodeSession(
       }
     }
   }
+
+  // Merge sub-agent sessions (stored at <projectDir>/<sessionId>/subagents/agent-*.jsonl).
+  // Sub-agent user turns are agent-generated prompts, not human inputs — only merge
+  // token usage, file changes, and tool call counts into the parent session.
+  const subagentsDir = join(dirname(jsonlPath), sessionId, "subagents");
+  let subAgentFiles: string[] = [];
+  try {
+    subAgentFiles = readdirSync(subagentsDir)
+      .filter((f) => f.startsWith("agent-") && f.endsWith(".jsonl"));
+  } catch {
+    // No subagents directory — normal session without sub-agents
+  }
+  for (const subFile of subAgentFiles) {
+    const subEvents = parseEvents(join(subagentsDir, subFile), date);
+    if (!subEvents.length) continue;
+    buckets = mergeUsageBuckets(buckets, aggregateUsageBuckets(subEvents, "claude-code"));
+    for (const ev of subEvents) {
+      if (ev["type"] !== "assistant") continue;
+      const msg = ev["message"] as Record<string, unknown> | undefined;
+      if (!msg) continue;
+      const content = msg["content"] as unknown[] | undefined;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        const b = block as Record<string, unknown>;
+        if (b["type"] !== "tool_use") continue;
+        toolCallCount++;
+        const toolName = b["name"] as string | undefined;
+        const input = b["input"] as Record<string, unknown> | undefined;
+        if (!input) continue;
+        const filePath = extractPathFromInput(input);
+        if (!filePath) continue;
+        let added = 0;
+        let deleted = 0;
+        if (toolName === "Edit") {
+          added = countLines(input["new_string"]);
+          deleted = countLines(input["old_string"]);
+        } else if (toolName === "Write") {
+          added = countLines(input["content"]);
+        }
+        if (!filesSet.has(filePath)) {
+          filesSet.add(filePath);
+          filesChanged.push({ path: filePath, added, deleted, repo: repoRemote, change_type: toolName });
+        } else {
+          const existing = filesChanged.find((f) => f.path === filePath);
+          if (existing) { existing.added += added; existing.deleted += deleted; }
+        }
+      }
+    }
+  }
+
+  const modelUsage = foldBucketsToModel(buckets);
+  const usageBreakdown = Object.values(buckets);
 
   // Repos touched — group by git remote, summing line counts
   const reposTouched: RepoTouched[] = repoRemote
