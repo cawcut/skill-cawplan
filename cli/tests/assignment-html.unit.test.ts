@@ -46,16 +46,19 @@ describe("assignmentHtml - needs review filter", () => {
         expect(assignmentHtml()).toContain('id="filter-unassigned"');
     });
 
-    test("contains filterUnassigned state variable", () => {
-        expect(assignmentHtml()).toContain("filterUnassigned");
+    test("contains showAssignedSessions state variable", () => {
+        expect(assignmentHtml()).toContain("showAssignedSessions");
     });
 
     test("contains filter-bar CSS", () => {
         expect(assignmentHtml()).toContain(".filter-bar {");
     });
 
-    test("rowEntries respects filterUnassigned in JS source", () => {
-        expect(assignmentHtml()).toContain("!filterUnassigned || !session.product_id");
+    test("rowEntries hides assigned sessions by default", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("function shouldShowSession(session)");
+        expect(html).toContain("function sessionHasProduct(session)");
+        expect(html).toContain("!showAssignedSessions && sessionHasProduct(session)");
     });
 });
 

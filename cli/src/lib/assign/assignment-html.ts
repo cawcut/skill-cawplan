@@ -63,7 +63,7 @@ export function assignmentHtml(): string {
   <p class="muted">Assign each session to a product and optional repository, then save the updated daily report.</p>
   <div id="stats-bar"></div>
   <div class="filter-bar">
-    <button id="filter-unassigned" class="filter-btn" type="button">Show unassigned only</button>
+    <button id="filter-unassigned" class="filter-btn active" type="button">Show assigned sessions</button>
     <span class="filter-hint" id="filter-hint"></span>
   </div>
   <datalist id="product-list"></datalist>
@@ -118,7 +118,31 @@ export function assignmentHtml(): string {
     let reports = [];
     let products = [];
     let mappings = [];
-    let filterUnassigned = false;
+    let showAssignedSessions = false;
+
+    function isMultiReport() {
+      return batch || reports.length > 1;
+    }
+
+    function sessionHasProduct(session) {
+      return Boolean(String(session && session.product_id != null ? session.product_id : '').trim());
+    }
+
+    function shouldShowSession(session) {
+      if (!showAssignedSessions && sessionHasProduct(session)) return false;
+      return true;
+    }
+
+    function updateFilterUi() {
+      const btn = document.getElementById('filter-unassigned');
+      const hint = document.getElementById('filter-hint');
+      if (!btn || !hint) return;
+      btn.textContent = showAssignedSessions ? 'Hide assigned sessions' : 'Show assigned sessions';
+      btn.classList.toggle('active', !showAssignedSessions);
+      hint.textContent = showAssignedSessions
+        ? 'Showing all sessions, including those already assigned.'
+        : 'Showing only sessions without a product.';
+    }
 
     function productLabel(product) {
       return product.product_name || product.name || product.product_id || product.unique_id || '';
@@ -288,13 +312,7 @@ export function assignmentHtml(): string {
       if (inputs.length === 0) return '<span class="muted">No human inputs</span>';
       return '<ol class="human-inputs">' + inputs.map((input) => {
         const text = escapeHtml(truncateHumanInput(humanInputContent(input)));
-        const catBadge = input.category
-          ? '<span class="badge badge-cat-' + escapeHtml(input.category) + '">' + escapeHtml(input.category) + '</span>'
-          : '';
-        const topicBadge = input.topic
-          ? '<span class="badge badge-topic-' + escapeHtml(input.topic) + '">' + escapeHtml(input.topic) + '</span>'
-          : '';
-        return '<li>' + catBadge + topicBadge + text + '</li>';
+        return '<li>' + text + '</li>';
       }).join('') + '</ol>';
     }
 
@@ -319,8 +337,7 @@ export function assignmentHtml(): string {
       return reports.flatMap((entry) => {
         const sessions = [...entry.report.sessions].sort((a, b) => sessionStartMs(a) - sessionStartMs(b));
         return sessions
-          .filter((session) => !batch || !session.product_id)
-          .filter((session) => !filterUnassigned || !session.product_id)
+          .filter((session) => shouldShowSession(session))
           .map((session) => ({...entry, session}));
       });
     }
@@ -334,7 +351,7 @@ export function assignmentHtml(): string {
       if (!el) return;
       const allSessions = reports.flatMap((r) => Array.isArray(r.report.sessions) ? r.report.sessions : []);
       const total = allSessions.length;
-      const assigned = allSessions.filter((s) => s.product_id).length;
+      const assigned = allSessions.filter((s) => sessionHasProduct(s)).length;
       const unassigned = total - assigned;
       let cost = 0;
       for (const r of reports) {
@@ -381,7 +398,7 @@ export function assignmentHtml(): string {
         const selectedRepo = selectedRepoForSession(s);
         return '<tr data-file="' + escapeHtml(file) + '" data-session-id="' + escapeHtml(s.session_id) + '">' +
           '<td><div class="session-title">' + escapeHtml(title) + '</div>' +
-          '<div class="session-meta">' + escapeHtml([batch ? date : '', s.agent, s.time_range && s.time_range.display, sessionCostText(s), s.project].filter(Boolean).join(' | ')) + '</div></td>' +
+          '<div class="session-meta">' + escapeHtml([date, s.agent, s.time_range && s.time_range.display, sessionCostText(s), s.project].filter(Boolean).join(' | ')) + '</div></td>' +
           '<td>' + humanInputsHtml(s) + '</td>' +
           '<td><input class="product" list="product-list" value="' + escapeHtml(productValue) + '" placeholder="Search product" required />' +
           '<div class="product-error field-error"></div></td>' +
@@ -420,13 +437,13 @@ export function assignmentHtml(): string {
         : [{file: reportData.file || '', date: reportData.report.date, report: reportData.report}];
       products = normalizeProducts(productData.products || []);
       mappings = mappingData.mappings || [];
+      showAssignedSessions = false;
+      updateFilterUi();
       render();
-      document.getElementById('status').textContent = batch ? 'Ready: ' + reports.length + ' report(s)' : 'Ready';
+      document.getElementById('status').textContent = isMultiReport() ? 'Ready: ' + reports.length + ' report(s)' : 'Ready';
       document.getElementById('filter-unassigned').addEventListener('click', () => {
-        filterUnassigned = !filterUnassigned;
-        document.getElementById('filter-unassigned').classList.toggle('active', filterUnassigned);
-        const hint = document.getElementById('filter-hint');
-        hint.textContent = filterUnassigned ? 'Showing only sessions without a product.' : '';
+        showAssignedSessions = !showAssignedSessions;
+        updateFilterUi();
         render();
       });
     }
