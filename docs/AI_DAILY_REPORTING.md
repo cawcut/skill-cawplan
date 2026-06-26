@@ -36,9 +36,9 @@
     cawplan auth status
     ```
 
-首次在某个仓库上报前，建议在该仓库中执行一次：
+首次在某个仓库上报前，建议在该仓库中的 agent 执行一次：
 
-```text
+```bash
 /cawplan-coding-init
 ```
 
@@ -46,9 +46,9 @@
 
 ## 每日上报
 
-每天在 agent 中执行：
+在 agent 中执行：
 
-```text
+```bash
 # 默认：收集并上传今天，并检查当月缺失日期
 /cawplan-coding-commit
 
