@@ -121,6 +121,13 @@ export interface HumanInput {
   lines_deleted?: number;
   start_time?: string | null;
   end_time?: string | null;
+  /**
+   * Whether start_time/end_time are real recorded timestamps ("exact") or
+   * reconstructed by interpolation ("approximate"). Cursor restamps historical
+   * bubbles when a session resumes; those backdated inputs get an approximate
+   * time and are flagged here so downstream consumers don't treat them as precise.
+   */
+  time_precision?: "exact" | "approximate";
   usage_cost?: number;
   api_calls?: number;
 }
