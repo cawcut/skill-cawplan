@@ -5,36 +5,36 @@
 
 ## 首次准备
 
-1. 安装 Skill：
-```bash
-# 方式 1: https clone
-npx skills add Ubiquiti-UID/flow-cawplan-skill \
-  --skill "*" \
-  --agent cursor claude-code codex \
-  -g -y
+1. 安装/更新 Skill：
+    ```bash
+    # 方式 1: https clone
+    npx skills add Ubiquiti-UID/flow-cawplan-skill \
+      --skill "*" \
+      --agent cursor claude-code codex \
+      -g -y
+    
+    # 方式 2: ssh clone
+    npx skills add git@github.com:Ubiquiti-UID/flow-cawplan-skill.git \
+      --skill "*" \
+      --agent cursor claude-code codex \
+      -g -y
+    ```
 
-# 方式 2: ssh clone
-npx skills add git@github.com:Ubiquiti-UID/flow-cawplan-skill.git \
-  --skill "*" \
-  --agent cursor claude-code codex \
-  -g -y
-```
+    安装完成后重启 agent，让 skill 生效。
 
-安装完成后重启 agent，让 skill 生效。
+2. 安装/更新 `cawplan` CLI：
 
-2. 安装 `cawplan` CLI：
-
-```bash
-npm install -g cawplan@0.0.5
-cawplan --version
-```
+    ```bash
+    npm install -g cawplan@0.0.5
+    cawplan --version
+    ```
 
 3. 登录 CawPlan：
 
-```bash
-cawplan auth login
-cawplan auth status
-```
+    ```bash
+    cawplan auth login
+    cawplan auth status
+    ```
 
 首次在某个仓库上报前，建议在该仓库中执行一次：
 
@@ -49,7 +49,15 @@ cawplan auth status
 每天在 agent 中执行：
 
 ```text
+# 默认：收集并上传今天，并检查当月缺失日期
 /cawplan-coding-commit
+
+# 指定某一天（昨天 / 具体日期）
+/cawplan-coding-commit 上传昨天的日报
+/cawplan-coding-commit 上传 2026-06-20 的日报
+
+# 补某一整月云端缺失的日报（仅缺失日期，不覆盖已上传）
+/cawplan-coding-commit 上传 2026 年 6 月的缺失日报
 ```
 
 不需要额外提示词，也不需要二次确认上传。Agent 会自动收集当天 AI session，展示摘要后上传日报。
