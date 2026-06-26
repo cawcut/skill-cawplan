@@ -48,7 +48,7 @@ When running this command from Cursor agent tools, request full network access (
 
 During collection, `cawplan ai-session collect` may ask the user to assign each session to a CawPlan product and repository using existing product-repo mappings. If no mapping exists, the user can link a GitHub repository URL in the required format `https://github.com/owner/repo`.
 
-In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, or if any `sessions[]` entry lacks `product_id` after collection, complete missing assignments using **Product/repo assignment options** below before reviewing/uploading.
+In Cursor, agent-run shell commands may not have an interactive TTY. If product/repo assignment is skipped because prompts cannot be shown, complete missing assignments in Step 3.
 
 **Step 2 — Classify human inputs (LLM):**
 
@@ -87,29 +87,52 @@ After receiving the JSON array, write back to `./ai-daily-<date>.json`: for each
 - `human_inputs[N].topic_reason` = classified `topic_reason`
 - `human_inputs[N].topic_source` = `"llm"`
 
-If the classification response is malformed or an error occurs, leave the existing values unchanged and continue to Step 3.
+If the classification response is malformed or an error occurs, leave the existing values unchanged and continue.
 
-**Step 3 — Review the report with the user:**
+**Step 3 — Product/repo assignment:**
+
+Read `./ai-daily-<date>.json`. If any `sessions[]` entry lacks `product_id`, ask the user to choose **Option A** or **Option B** from **Product/repo assignment options** and complete all missing assignments before continuing.
+
+**Step 4 — Review the report with the user:**
 
 Present the full review described in **Review content contract**. Do not show only a stats table.
 
-**Step 4 — Upload:**
+**Step 5 — Upload:**
 ```bash
 cawplan ai-session report --file ./ai-daily-<date>.json
 ```
 
-**Step 5 — Query and backfill missing current-month reports:**
+**Step 6 — Query missing current-month reports:**
 ```bash
 cawplan ai-session backfill --from <YYYY-MM-01> --to <YYYY-MM-DD> --dry-run
 ```
 
-After the single-day upload succeeds, first query the uploaded report's current month using `cawplan ai-session backfill --dry-run`: use the first day of the report's month as `--from` and the report date as `--to`. Show the returned `missing_dates` to the agent/user before starting backfill. If there are no missing dates, say so and skip backfill.
+Use the first day of the report's month as `--from` and the report date as `--to`. Show the returned `missing_dates` to the user. If there are no missing dates, say so and stop.
 
+**Step 7 — Collect each missing date:**
+
+For each date in `missing_dates`, collect its report:
 ```bash
-cawplan ai-session backfill --from <YYYY-MM-01> --to <YYYY-MM-DD>
+cawplan ai-session collect --date <YYYY-MM-DD>
+# output defaults to ./ai-daily-<date>.json
 ```
 
-Run `cawplan ai-session backfill` only after the missing dates have been displayed. Backfill must stay within the uploaded report's current month and must not cross month boundaries. Missing dates in that range are collected into `ai-daily-YYYY-MM-DD.json` when no local file exists, then uploaded automatically when product assignment is complete. If any generated report has sessions without `product_id`, complete **Product/repo assignment options** for those files before rerunning backfill.
+**Step 8 — Classify missing reports' human inputs (LLM):**
+
+For each newly collected `./ai-daily-<date>.json`, classify human inputs using the same batch prompt as Step 2 and write results back.
+
+**Step 9 — Product/repo assignment for missing reports:**
+
+Inspect all newly collected files. If any session across these files lacks `product_id`, ask the user to choose **Option A** or **Option B**. For multiple files, prefer the `--files` form to batch-assign all at once before continuing.
+
+**Step 10 — Upload missing reports:**
+
+Upload each file individually in date order:
+```bash
+cawplan ai-session report --file ./ai-daily-<YYYY-MM-DD>.json
+```
+
+Backfill must stay within the uploaded report's current month and must not cross month boundaries.
 
 ---
 
@@ -231,7 +254,7 @@ There are two supported ways to complete missing assignment. First ask the user 
 - GitHub repository URLs used to create mappings must be in the format `https://github.com/owner/repo`.
 - Never create a new product-repo mapping unless the user explicitly selects or confirms the exact product and GitHub repository URL.
 - If `--file` is used, the file must contain `author` (git username) and `date` (YYYY-MM-DD) fields.
-- After `cawplan ai-session report --file <path>` succeeds in Mode 1, first run `cawplan ai-session backfill --from <YYYY-MM-01> --to <YYYY-MM-DD> --dry-run`, display `missing_dates`, then run `cawplan ai-session backfill --from <YYYY-MM-01> --to <YYYY-MM-DD>` as a separate command only if missing dates exist.
+- After upload succeeds in Mode 1, follow Steps 6–10: query missing dates with `--dry-run`, then for each missing date collect → classify → assign → upload individually. Do not use `cawplan ai-session backfill` without `--dry-run` in Mode 1.
 - Do not automatically backfill previous months or cross-month ranges during daily Mode 1. Only use a previous-month or custom range when the user explicitly asks to collect/upload that historical range.
 - Preserve raw fields in `human_inputs` (for example `start_time`, `end_time`, `files_changed`, `lines_added`, `lines_deleted`).
 - Never replace raw `human_inputs` with summarized content.
