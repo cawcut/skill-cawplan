@@ -25,7 +25,7 @@
 2. 安装/更新 `cawplan` CLI：
 
     ```bash
-    npm install -g cawplan@0.0.5
+    npm install -g cawplan@latest
     cawplan --version
     ```
 

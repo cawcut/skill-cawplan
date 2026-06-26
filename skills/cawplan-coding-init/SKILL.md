@@ -13,8 +13,9 @@ allowed-tools: Bash
 ## Bootstrap
 
 ```bash
-command -v cawplan >/dev/null || { echo "cawplan is not installed. Run: npm install -g cawplan@0.0.5"; exit 1; }
-[ "$(cawplan --version)" = "0.0.5" ] || { echo "cawplan 0.0.5 is required. Run: npm install -g cawplan@0.0.5"; exit 1; }
+command -v cawplan >/dev/null || { echo "cawplan is not installed. Run: npm install -g cawplan@latest"; exit 1; }
+cawplan_version="$(cawplan --version)"
+node -e 'const [current, required] = process.argv.slice(1); const parse = (v) => v.split(".").map(Number); const [a, b, c] = parse(current); const [x, y, z] = parse(required); process.exit(a > x || (a === x && (b > y || (b === y && c >= z))) ? 0 : 1);' "$cawplan_version" "0.0.6" || { echo "cawplan >= 0.0.6 is required. Run: npm install -g cawplan@latest"; exit 1; }
 cawplan auth status >/dev/null || { echo "Not authenticated. Run: cawplan auth login"; exit 1; }
 git rev-parse --show-toplevel >/dev/null || { echo "Run /cawplan-coding-init inside a git repository."; exit 1; }
 ```
