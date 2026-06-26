@@ -24,7 +24,10 @@
 
 2. 安装/更新 `cawplan` CLI：
 
+    `cawplan` 需要 Node.js `>=22.13.0`。如果版本过低，请先升级 Node.js 再安装。
+
     ```bash
+    node -v
     npm install -g cawplan@latest
     cawplan --version
     ```
