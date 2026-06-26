@@ -6,10 +6,12 @@
  *     <timestamp>Thursday, Jun 11, 2026, 7:14 PM (UTC+8)</timestamp>
  *   Assistant turns inherit the most recent user timestamp until the next tagged user turn.
  *
- * Subagent transcripts under .../subagents/*.jsonl are skipped (parent session covers the work).
+ * Subagent transcripts under .../subagents/*.jsonl are merged into the parent session: file
+ * deltas and tool call counts are included; sub-agent user turns (agent-generated prompts) are
+ * excluded from human_inputs.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { cursorProjectsDir } from "../paths.js";
 import { HumanInput, SessionData } from "../types.js";
@@ -331,6 +333,23 @@ export function collectCursorAgentTranscripts(filterDate: string): SessionData[]
     const projectPath = decodeCursorProjectPath(projectEncoded);
     if (!cwd) cwd = projectPath;
 
+    // Merge sub-agent sessions (stored at <sessionDir>/subagents/*.jsonl).
+    // Sub-agent user turns are agent-generated prompts — merge file deltas and
+    // tool call counts only; exclude from human_inputs.
+    const subagentsDir = join(dirname(jsonlPath), "subagents");
+    const subAgentTurns: ParsedTurn[] = [];
+    let subAgentFiles: string[] = [];
+    try {
+      subAgentFiles = readdirSync(subagentsDir).filter((f) => f.endsWith(".jsonl"));
+    } catch {
+      // No subagents directory
+    }
+    for (const subFile of subAgentFiles) {
+      const parsed = parseTranscriptFile(join(subagentsDir, subFile));
+      rawToolCallCount += parsed.reduce((s, t) => s + t.toolCallCount, 0);
+      subAgentTurns.push(...parsed);
+    }
+
     const timestamps = dayTurns
       .map((t) => t.timestamp)
       .filter((t): t is Date => t !== null);
@@ -352,10 +371,12 @@ export function collectCursorAgentTranscripts(filterDate: string): SessionData[]
 
     const sessionTitle = deriveSessionTitle(projectPath, sessionId);
     const humanInputs = extractHumanInputs(dayTurns, sessionTitle);
-    const sessionDeltaSummary = summarizeFileDeltas(dayTurns.flatMap((turn) => turn.fileDeltas));
+    const sessionDeltaSummary = summarizeFileDeltas(
+      [...dayTurns, ...subAgentTurns].flatMap((turn) => turn.fileDeltas)
+    );
     const agent = rawToolCallCount > 0 ? "cursor-gui" : "cursor-cli";
     const estimate = agent === "cursor-cli"
-      ? estimateTokensFromTurns(statsTurns)
+      ? estimateTokensFromTurns([...statsTurns, ...subAgentTurns])
       : { inputTokens: 0, outputTokens: 0 };
 
     sessions.push({
