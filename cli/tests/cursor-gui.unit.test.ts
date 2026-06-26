@@ -483,4 +483,104 @@ describe("cursor-gui mtime fallback", () => {
     expect(midDay).toBe("2026-06-24");
     expect(afternoonDay).toBe("2026-06-25");
   });
+
+  test("resolveUserBubbleTimes resolves backdated bubbles with no transcript match off the resume day", () => {
+    const sessionCreatedAtMs = new Date("2026-06-23T10:12:16.177Z").getTime();
+    const userBubbles = [
+      {
+        createdAt: new Date("2026-06-25T01:58:08.197Z"),
+        text: "matched early prompt",
+        normalized: normalizeBubbleMatchText("matched early prompt"),
+      },
+      {
+        // restamped to the resume day, but never matched to a transcript prompt
+        createdAt: new Date("2026-06-25T01:58:08.203Z"),
+        text: "unmatched filler",
+        normalized: normalizeBubbleMatchText("unmatched filler"),
+      },
+      {
+        createdAt: new Date("2026-06-25T12:14:35.171Z"),
+        text: "afternoon prompt",
+        normalized: normalizeBubbleMatchText("afternoon prompt"),
+      },
+    ];
+    const backdate = new Set([0, 1]);
+    // only bubble 0 matched a transcript prompt; bubble 1 has no pair
+    const pairs = [
+      { bubbleIndex: 0, transcriptIndex: 0 },
+      { bubbleIndex: 2, transcriptIndex: 90 },
+    ];
+
+    const resolved = resolveUserBubbleTimes(userBubbles, pairs, backdate, sessionCreatedAtMs);
+
+    // the unmatched backdated bubble must still be resolved (not left on the resume day)
+    expect(resolved.has(1)).toBe(true);
+    expect(localDateString(resolved.get(1)!) < "2026-06-25").toBe(true);
+    // non-backdated bubble keeps its exact recorded timestamp
+    expect(resolved.get(2)!.getTime()).toBe(userBubbles[2].createdAt.getTime());
+  });
+
+  test("parseGuiSessionTranscript flags backdated inputs approximate and keeps unmatched fillers off the resume day", () => {
+    const require = createRequire(import.meta.url);
+    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
+
+    const sessionId = "resume-precision-sess";
+    const sessionCreatedAtMs = new Date("2026-06-23T10:12:16.177Z").getTime();
+    const earlyUser =
+      '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\\nYR2 wifi prompt from earlier day\\n</user_query>"}]}}';
+    const laterUser =
+      '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\\nafternoon prompt today\\n</user_query>"}]}}';
+    const assistant =
+      '{"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}';
+
+    writeTranscript(
+      "proj-a",
+      sessionId,
+      [earlyUser, assistant, laterUser, assistant],
+      new Date("2026-06-25T15:00:00")
+    );
+
+    const insert = db.prepare("INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)");
+    // dense 6-bubble cluster restamped to the resume day; only bubble 0 matches a transcript prompt,
+    // fillers 1..5 have no transcript counterpart
+    for (let i = 0; i < 6; i++) {
+      insert.run(
+        `bubbleId:${sessionId}:cluster-${i}`,
+        JSON.stringify({
+          type: 1,
+          text: i === 0 ? "YR2 wifi prompt from earlier day" : `cluster filler ${i}`,
+          createdAt: `2026-06-25T01:58:08.${200 + i}Z`,
+        })
+      );
+    }
+    insert.run(
+      `bubbleId:${sessionId}:afternoon`,
+      JSON.stringify({
+        type: 1,
+        text: "afternoon prompt today",
+        createdAt: "2026-06-25T12:14:35.171Z",
+      })
+    );
+
+    const june25 = parseGuiSessionTranscript(sessionId, "2026-06-25", { db, sessionCreatedAtMs });
+
+    // unmatched fillers must not leak onto the resume day anymore
+    expect(june25.humanInputs.some((h) => h.content.includes("cluster filler"))).toBe(false);
+    expect(june25.humanInputs.some((h) => h.content.includes("YR2 wifi prompt"))).toBe(false);
+
+    // the afternoon prompt genuinely happened on the resume day and is exact
+    const afternoon = june25.humanInputs.find((h) => h.content.includes("afternoon prompt today"));
+    expect(afternoon?.time_precision).toBe("exact");
+
+    // backdated inputs are flagged approximate on their reconstructed day
+    const june24 = parseGuiSessionTranscript(sessionId, "2026-06-24", { db, sessionCreatedAtMs });
+    const june23 = parseGuiSessionTranscript(sessionId, "2026-06-23", { db, sessionCreatedAtMs });
+    const backdatedInputs = [...june23.humanInputs, ...june24.humanInputs];
+    expect(backdatedInputs.length).toBeGreaterThan(0);
+    expect(backdatedInputs.every((h) => h.time_precision === "approximate")).toBe(true);
+
+    db.close();
+  });
 });

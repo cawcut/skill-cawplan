@@ -378,11 +378,7 @@ export function resolveUserBubbleTimes(
             resolved.set(i, userBubbles[i].createdAt);
         }
     }
-
-    const backdatePairs = pairs
-        .filter((p) => backdateIndices.has(p.bubbleIndex))
-        .sort((a, b) => a.transcriptIndex - b.transcriptIndex);
-    if (backdatePairs.length === 0) return resolved;
+    if (backdateIndices.size === 0) return resolved;
 
     const resumeDay = clusterResumeLocalDate(userBubbles, backdateIndices);
     let endMs: number;
@@ -397,16 +393,32 @@ export function resolveUserBubbleTimes(
         endMs = trustedTimes.find((t) => t > sessionCreatedAtMs) ?? sessionCreatedAtMs + 86_400_000;
     }
     const span = Math.max(endMs - sessionCreatedAtMs, 60_000);
-    const maxTranscriptIndex = backdatePairs.reduce(
-        (max, p) => Math.max(max, p.transcriptIndex),
-        0
-    );
-    const m = backdatePairs.length;
 
-    for (let k = 0; k < m; k++) {
-        const pair = backdatePairs[k];
-        const positionRatio = pair.transcriptIndex / (maxTranscriptIndex + 1);
-        resolved.set(pair.bubbleIndex, new Date(sessionCreatedAtMs + positionRatio * span));
+    // Every backdated bubble gets an approximate time inside the span, ordered by
+    // its restamped chronological rank. This guarantees that backdated bubbles with
+    // no transcript match are still pulled off the resume day instead of falling
+    // back to their (restamped) createdAt.
+    const sortedBackdate = [...backdateIndices].sort((a, b) => a - b);
+    const n = sortedBackdate.length;
+    sortedBackdate.forEach((idx, rank) => {
+        const ratio = (rank + 1) / (n + 1);
+        resolved.set(idx, new Date(sessionCreatedAtMs + ratio * span));
+    });
+
+    // Refine bubbles that matched a transcript prompt using transcript order, which
+    // is more reliable than chronological rank because restamping can reorder them.
+    const backdatePairs = pairs
+        .filter((p) => backdateIndices.has(p.bubbleIndex))
+        .sort((a, b) => a.transcriptIndex - b.transcriptIndex);
+    if (backdatePairs.length > 0) {
+        const maxTranscriptIndex = backdatePairs.reduce(
+            (max, p) => Math.max(max, p.transcriptIndex),
+            0
+        );
+        for (const pair of backdatePairs) {
+            const positionRatio = pair.transcriptIndex / (maxTranscriptIndex + 1);
+            resolved.set(pair.bubbleIndex, new Date(sessionCreatedAtMs + positionRatio * span));
+        }
     }
     return resolved;
 }
@@ -440,7 +452,8 @@ function buildResolvedAtByBubble(
 function buildHumanInputsFromDayBubbles(
     bubbleTimeline: SessionBubbleTimeline,
     statsByContent: Map<string, Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time">>,
-    resolvedAtByBubble: Map<UserBubble, Date>
+    resolvedAtByBubble: Map<UserBubble, Date>,
+    approxBubbles: Set<UserBubble>
 ): HumanInput[] {
     const sortedBubbles = [...bubbleTimeline.userBubbles].sort((a, b) => {
         const ta = resolvedAtByBubble.get(a)?.getTime() ?? a.createdAt.getTime();
@@ -475,6 +488,7 @@ function buildHumanInputsFromDayBubbles(
             session_time: formatIsoTime(start),
             start_time: formatIsoTime(start),
             end_time: formatIsoTime(end),
+            time_precision: approxBubbles.has(bubble) ? "approximate" : "exact",
             files_changed: stats?.files_changed ?? 0,
             lines_added: stats?.lines_added ?? 0,
             lines_deleted: stats?.lines_deleted ?? 0,
@@ -638,6 +652,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         : null;
     let resolvedTimes = new Map<number, Date>();
     let resolvedAtByBubble = new Map<UserBubble, Date>();
+    const approxBubbles = new Set<UserBubble>();
     if (fullBubbleTimeline) {
         if (opts?.sessionCreatedAtMs != null) {
             const backdate = suspectBackdateBubbleIndices(
@@ -655,6 +670,10 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
                     backdate,
                     opts.sessionCreatedAtMs
                 );
+                for (const idx of backdate) {
+                    const bubble = fullBubbleTimeline.userBubbles[idx];
+                    if (bubble) approxBubbles.add(bubble);
+                }
             }
         }
         if (resolvedTimes.size === 0) {
@@ -786,6 +805,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
                         session_time: formatIsoTime(promptTs),
                         start_time: formatIsoTime(promptTs),
                         end_time: formatIsoTime(promptTs),
+                        time_precision: "exact",
                         files_changed: 0,
                         lines_added: 0,
                         lines_deleted: 0,
@@ -918,7 +938,8 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         finalHumanInputs = buildHumanInputsFromDayBubbles(
             bubbleTimeline,
             statsByContent,
-            resolvedAtByBubble
+            resolvedAtByBubble,
+            approxBubbles
         );
         userCount = finalHumanInputs.length;
     }
