@@ -91,6 +91,8 @@ If the classification response is malformed or an error occurs, leave the existi
 
 **Step 3 — Product/repo assignment:**
 
+> **Order is fixed: always complete Step 2 (LLM classification) before this step.** Classification does not depend on product assignment and must not be deferred until after assignment.
+
 Read `./ai-daily-<date>.json`. If any `sessions[]` entry lacks `product_id`, ask the user to choose **Option A** or **Option B** from **Product/repo assignment options** and complete all missing assignments before continuing.
 
 **Step 4 — Review the report with the user:**
@@ -109,13 +111,16 @@ cawplan ai-session backfill --from <YYYY-MM-01> --to <YYYY-MM-DD> --dry-run
 
 Use the first day of the report's month as `--from` and the report date as `--to`. Show the returned `missing_dates` to the user. If there are no missing dates, say so and stop.
 
-**Step 7 — Collect each missing date:**
+**Step 7 — Collect each missing date (parallel):**
 
-For each date in `missing_dates`, collect its report:
+Launch all missing dates in parallel — do NOT collect sequentially:
 ```bash
-cawplan ai-session collect --date <YYYY-MM-DD>
-# output defaults to ./ai-daily-<date>.json
+for date in <date1> <date2> ...; do
+  cawplan ai-session collect --date $date &
+done
+wait
 ```
+Each date is independent; parallel collection cuts total time to the slowest single date instead of the sum of all dates.
 
 **Step 8 — Classify missing reports' human inputs (LLM):**
 
