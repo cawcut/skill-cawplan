@@ -58,14 +58,34 @@ export interface ProductRepoMappingCore {
     repo_url?: string;
 }
 
+/** Stable repo short name for matching and session.project; prefers repo_url over repo_name. */
+export function canonicalRepoNameFromMapping(mapping: ProductRepoMappingCore): string {
+    const url = (mapping.repo_url ?? "").trim();
+    if (url) {
+        try {
+            return repoNameFromGitHubUrl(url);
+        } catch {
+            return shortRepoName(url);
+        }
+    }
+    const name = (mapping.repo_name ?? "").trim();
+    return name ? shortRepoName(name) || name : "";
+}
+
 export interface FindMappingOptions {
     warn?: (message: string) => void;
 }
 
 function mappingRepoKeys(mapping: ProductRepoMappingCore): Set<string> {
     const keys = new Set<string>();
-    for (const key of repoKeys(mapping.repo_name)) keys.add(key);
+    const canonical = canonicalRepoNameFromMapping(mapping);
+    if (canonical) {
+        for (const key of repoKeys(canonical)) keys.add(key);
+    }
     for (const key of repoKeys(mapping.repo_url)) keys.add(key);
+    if (!mapping.repo_url) {
+        for (const key of repoKeys(mapping.repo_name)) keys.add(key);
+    }
     return keys;
 }
 

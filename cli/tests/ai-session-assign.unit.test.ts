@@ -1,6 +1,7 @@
 import {describe, expect, test} from "vitest";
 import {readMatchingBrowserModule} from "../src/lib/assign/matching-browser";
 import {
+    canonicalRepoNameFromMapping,
     findMappingForSession,
     repoKeys,
     repoNameFromGitHubUrl,
@@ -88,6 +89,30 @@ describe("assignment repo matching", () => {
                 {
                     product_id: "prod-cawplan",
                     product_name: "CawPlan",
+                    repo_url: "https://github.com/Ubiquiti-UID/flow-cawplan-skill",
+                },
+            ]
+        );
+        expect(mapping?.product_id).toBe("prod-cawplan");
+    });
+
+    test("canonicalRepoNameFromMapping prefers repo_url over customized repo_name", () => {
+        expect(
+            canonicalRepoNameFromMapping({
+                repo_name: "Custom Display Label",
+                repo_url: "https://github.com/Ubiquiti-UID/flow-cawplan-skill",
+            })
+        ).toBe("flow-cawplan-skill");
+    });
+
+    test("findMappingForSession matches session.project against customized repo_name via repo_url", () => {
+        const mapping = findMappingForSession(
+            {project: "flow-cawplan-skill", repos_touched: []},
+            [
+                {
+                    product_id: "prod-cawplan",
+                    product_name: "CawPlan",
+                    repo_name: "Custom Display Label",
                     repo_url: "https://github.com/Ubiquiti-UID/flow-cawplan-skill",
                 },
             ]

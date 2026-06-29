@@ -1,21 +1,22 @@
-import {repoKeys} from "./matching.js";
+import {canonicalRepoNameFromMapping, repoKeys} from "./matching.js";
 import type {DailyApiJson} from "../collect/types.js";
 import type {DailySession, ProductRepoMapping} from "./types.js";
 
 function updateReposForSelectedMapping(
     repos: DailyApiJson["repos"] | undefined,
     originalProject: string,
-    mapping: ProductRepoMapping
+    mapping: ProductRepoMapping,
+    canonicalRepo: string
 ): number {
     if (!Array.isArray(repos)) return 0;
     const originalKeys = new Set(repoKeys(originalProject));
-    const selectedKeys = new Set(repoKeys(mapping.repo_name));
+    const selectedKeys = new Set(repoKeys(canonicalRepo));
     let updated = 0;
     for (const repo of repos) {
         const keys = repoKeys(repo.repo_name ?? repo.repo);
         const matched = keys.some((key) => originalKeys.has(key) || selectedKeys.has(key));
         if (!matched) continue;
-        repo.repo_name = mapping.repo_name;
+        repo.repo_name = canonicalRepo;
         repo.repo_url = mapping.repo_url;
         repo.product_id = mapping.product_id;
         repo.product_name = mapping.product_name;
@@ -32,12 +33,18 @@ export function applyProductRepoMapping(
     if (!mapping.product_id) throw new Error("product_id is required");
 
     const originalProject = (session.project ?? "").trim();
-    if (mapping.repo_name) {
-        session.project = mapping.repo_name;
-        updateReposForSelectedMapping(daily.repos, originalProject, mapping);
-        const updatedSessionRepos = updateReposForSelectedMapping(session.repos_touched, originalProject, mapping);
+    const canonicalRepo = canonicalRepoNameFromMapping(mapping);
+    if (canonicalRepo) {
+        session.project = canonicalRepo;
+        updateReposForSelectedMapping(daily.repos, originalProject, mapping, canonicalRepo);
+        const updatedSessionRepos = updateReposForSelectedMapping(
+            session.repos_touched,
+            originalProject,
+            mapping,
+            canonicalRepo
+        );
         if (updatedSessionRepos === 0 && session.repos_touched.length === 1) {
-            session.repos_touched[0].repo_name = mapping.repo_name;
+            session.repos_touched[0].repo_name = canonicalRepo;
             session.repos_touched[0].repo_url = mapping.repo_url;
             session.repos_touched[0].product_id = mapping.product_id;
             session.repos_touched[0].product_name = mapping.product_name;

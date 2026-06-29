@@ -20,6 +20,7 @@ export {
     shortRepoName,
     repoKeys,
     repoNameFromGitHubUrl,
+    canonicalRepoNameFromMapping,
     sessionRepoCandidateKeys,
     findMappingForSession,
 } from "./matching-core.js";

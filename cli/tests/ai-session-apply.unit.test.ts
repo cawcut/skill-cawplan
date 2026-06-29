@@ -71,6 +71,41 @@ describe("applyProductRepoMappingToProject", () => {
         expect(updated).toBe(2);
         expect(daily.sessions[0].product_id).toBe("prod-cawplan");
         expect(daily.sessions[1].product_id).toBe("prod-cawplan");
+        expect(daily.sessions[0].project).toBe("flow-cawplan-skill");
+        expect(daily.sessions[1].project).toBe("flow-cawplan-skill");
+    });
+
+    test("uses repo_url short name for session.project when repo_name was customized", () => {
+        const daily = dailyWithSessions([
+            {
+                schema: "2.0",
+                date: "2026-06-24",
+                agent: "cursor-gui",
+                source: "gui",
+                session_id: "s1",
+                session_name: "One",
+                session_title: "One",
+                project: "flow-cawplan-skill",
+                cwd: "/tmp",
+                time_range: {display: "", timezone: "UTC", start: "2026-06-24T09:00:00.000Z"},
+                model_usage: {},
+                usage_breakdown: [],
+                files_changed: 0,
+                files_added: 0,
+                files_deleted: 0,
+                repos_touched: [],
+                message_stats: {user: 1, assistant: 1, tool_calls: 0},
+            },
+        ]);
+
+        applyProductRepoMappingToProject(daily, daily.sessions[0], {
+            product_id: "prod-cawplan",
+            product_name: "CawPlan",
+            repo_name: "CawPlan Skill Display Name",
+            repo_url: "https://github.com/Ubiquiti-UID/flow-cawplan-skill",
+        });
+
+        expect(daily.sessions[0].project).toBe("flow-cawplan-skill");
     });
 
     test("applies product-only mapping without repo fields", () => {
