@@ -1,11 +1,16 @@
 import {execFileSync} from "node:child_process";
 import {Command} from "commander";
 import {confirm} from "@inquirer/prompts";
+import {openBrowser} from "../lib/oauth.js";
+import {getPortalBase} from "../lib/products.js";
 import {
     createProductRepoMapping,
+    listProductLinesForSelector,
     listProductRepoMappings,
     listProductsForSelector,
-    searchProduct,
+    selectProduct,
+    selectProductLine,
+    withProductLineCounts,
 } from "../lib/assign/products-api.js";
 import {repoNameFromGitHubUrl} from "../lib/assign/matching.js";
 
@@ -34,6 +39,31 @@ function assertInteractiveTerminal(): void {
     }
 }
 
+function productCreateUrl(productLineId: string): string {
+    const portalBase = getPortalBase().replace(/\/$/, "");
+    const params = new URLSearchParams({productLine: productLineId});
+    return `${portalBase}/product/add?${params.toString()}`;
+}
+
+async function promptCreateProduct(productLineName: string, productLineId: string): Promise<void> {
+    const url = productCreateUrl(productLineId);
+    const shouldOpen = await confirm({
+        message: `No product exists under "${productLineName}". Create one now?`,
+        default: true,
+    });
+    if (!shouldOpen) {
+        console.log("Cancelled.");
+        return;
+    }
+
+    console.error(`Opening product creation page:\n  ${url}`);
+    try {
+        await openBrowser(url);
+    } catch {
+        console.error("Could not open the browser automatically; please open the URL manually.");
+    }
+}
+
 export function registerInitCommand(program: Command): void {
     program
         .command("init")
@@ -58,10 +88,27 @@ export function registerInitCommand(program: Command): void {
                     return;
                 }
 
-                const products = await listProductsForSelector();
-                const product = await searchProduct(
+                const [productLinesWithoutCounts, allProducts] = await Promise.all([
+                    listProductLinesForSelector(),
+                    listProductsForSelector(),
+                ]);
+                const productLines = withProductLineCounts(productLinesWithoutCounts, allProducts);
+                if (productLines.length === 0) {
+                    throw new Error("No CawPlan Teams returned.");
+                }
+                const productLine = await selectProductLine(
+                    productLines,
+                    `Select CawPlan Team for ${repoName}`
+                );
+
+                const products = allProducts.filter((product) => product.product_line_id === productLine.product_line_id);
+                if (products.length === 0) {
+                    await promptCreateProduct(productLine.product_line_name, productLine.product_line_id);
+                    return;
+                }
+                const product = await selectProduct(
                     products,
-                    `Select CawPlan product for ${repoName}`
+                    `Select CawPlan product under ${productLine.product_line_name} for ${repoName}`
                 );
 
                 const ok = await confirm({
