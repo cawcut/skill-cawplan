@@ -526,7 +526,7 @@ export function aggregateCursorUsageBySession(
         entry.output_tokens += Number(tokenUsage["outputTokens"] ?? 0);
         entry.cache_read_input_tokens += Number(tokenUsage["cacheReadTokens"] ?? 0);
         entry.cache_creation_input_tokens += Number(tokenUsage["cacheWriteTokens"] ?? 0);
-        entry.cost += costUsd;
+        (entry as { cost: number }).cost += costUsd;
 
         if (window.humanInputIndex != null) {
             const idx = window.humanInputIndex;

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { cawplanRequest, ApiError } from "../src/lib/http";
 import {
   deleteCredentials,
@@ -27,6 +28,7 @@ import {
 } from "../src/lib/products";
 import { getConfigPath, readUserConfig, writeUserConfig } from "../src/lib/user-config";
 import { buildDailyApiJson } from "../src/lib/collect/aggregators/daily";
+import { collectCodexSessions } from "../src/lib/collect/agents/codex";
 import { aggregateUsageBuckets } from "../src/lib/collect/aggregators/tokens";
 import {
   aggregateCursorUsageBySession,
@@ -53,6 +55,7 @@ let originalEnv: string | undefined;
 let originalCredentialsPath: string | undefined;
 let originalConfigPath: string | undefined;
 let originalCachePath: string | undefined;
+let originalCodexHome: string | undefined;
 
 function unsignedJwt(payload: Record<string, unknown>): string {
   return [
@@ -71,6 +74,7 @@ beforeEach(async () => {
   originalCredentialsPath = process.env.CAWPLAN_CREDENTIALS_PATH;
   originalConfigPath = process.env.CAWPLAN_CONFIG_PATH;
   originalCachePath = process.env.CAWPLAN_CACHE_PATH;
+  originalCodexHome = process.env.CODEX_HOME;
 
   tmpDir = await mkdtemp(join(tmpdir(), "cawplan-tests-"));
   process.env.CAWPLAN_CREDENTIALS_PATH = join(tmpDir, "credentials.json");
@@ -80,6 +84,7 @@ beforeEach(async () => {
   delete process.env.CAWPLAN_PORTAL_URL;
   delete process.env.CAWPLAN_ENV;
   delete process.env.CAWPLAN_API_KEY;
+  delete process.env.CODEX_HOME;
 });
 
 afterEach(async () => {
@@ -106,8 +111,78 @@ afterEach(async () => {
   if (originalCachePath === undefined) delete process.env.CAWPLAN_CACHE_PATH;
   else process.env.CAWPLAN_CACHE_PATH = originalCachePath;
 
+  if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
+  else process.env.CODEX_HOME = originalCodexHome;
+
   await rm(tmpDir, { recursive: true, force: true });
 });
+
+function createCodexStateDb(codexHome: string): DatabaseSync {
+  const db = new DatabaseSync(join(codexHome, "state_5.sqlite"));
+  db.exec(`
+    CREATE TABLE threads (
+      id TEXT PRIMARY KEY,
+      rollout_path TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      model TEXT,
+      tokens_used INTEGER NOT NULL DEFAULT 0,
+      title TEXT NOT NULL,
+      cwd TEXT NOT NULL,
+      has_user_event INTEGER NOT NULL DEFAULT 0,
+      created_at_ms INTEGER,
+      updated_at_ms INTEGER,
+      recency_at_ms INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+  return db;
+}
+
+function insertCodexThread(
+  db: DatabaseSync,
+  values: {
+    id: string;
+    rolloutPath?: string;
+    createdAt: number;
+    updatedAt?: number;
+    model?: string;
+    tokensUsed?: number;
+    title?: string;
+    cwd?: string;
+    hasUserEvent?: number;
+  }
+): void {
+  const updatedAt = values.updatedAt ?? values.createdAt;
+  db.prepare(`
+    INSERT INTO threads (
+      id,
+      rollout_path,
+      created_at,
+      updated_at,
+      model,
+      tokens_used,
+      title,
+      cwd,
+      has_user_event,
+      created_at_ms,
+      updated_at_ms,
+      recency_at_ms
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    values.id,
+    values.rolloutPath ?? "",
+    values.createdAt,
+    updatedAt,
+    values.model ?? "gpt-5-codex",
+    values.tokensUsed ?? 0,
+    values.title ?? values.id,
+    values.cwd ?? "/repo/flow-cawplan-skill",
+    values.hasUserEvent ?? 1,
+    values.createdAt * 1000,
+    updatedAt * 1000,
+    updatedAt * 1000,
+  );
+}
 
 describe("src lib products", () => {
   test("resolveApiPath keeps gateway-relative paths unchanged", () => {
@@ -499,6 +574,313 @@ describe("src lib http", () => {
       expect(err).toBeInstanceOf(ApiError);
       expect((err as ApiError).status).toBe(401);
     }
+  });
+});
+
+describe("src lib collect codex", () => {
+  test("keeps total-only Codex tokens out of output_tokens", async () => {
+    const codexHome = join(tmpDir, "codex");
+    await mkdir(codexHome, { recursive: true });
+    process.env.CODEX_HOME = codexHome;
+
+    const db = createCodexStateDb(codexHome);
+    try {
+      insertCodexThread(db, {
+        id: "codex-total-only",
+        createdAt: Math.floor(new Date("2026-06-17T02:00:00.000Z").getTime() / 1000),
+        tokensUsed: 1234,
+      });
+    } finally {
+      db.close();
+    }
+
+    const [session] = collectCodexSessions("2026-06-17");
+
+    expect(session?.total_tokens).toBe(1234);
+    expect(session?.usage_breakdown[0]).toMatchObject({
+      input_tokens: 0,
+      output_tokens: 0,
+      cost: 0,
+      token_source: "total_only",
+    });
+
+    const daily = buildDailyApiJson([session!], "2026-06-17", "xin.li");
+    expect(daily.sessions[0]?.total_tokens).toBe(1234);
+    expect(daily.sessions[0]?.cost_basis).toBe("unknown");
+    expect(daily.totals.cost).toEqual({ "$": 0 });
+    expect(daily.usage_breakdown[0]?.output_tokens).toBe(0);
+    expect(daily.usage_breakdown[0]?.cost).toBe(0);
+  });
+
+  test("skips Codex threads with no user activity or rollout activity", async () => {
+    const codexHome = join(tmpDir, "codex");
+    await mkdir(codexHome, { recursive: true });
+    process.env.CODEX_HOME = codexHome;
+
+    const db = createCodexStateDb(codexHome);
+    try {
+      insertCodexThread(db, {
+        id: "empty-thread",
+        createdAt: Math.floor(new Date("2026-06-17T02:00:00.000Z").getTime() / 1000),
+        hasUserEvent: 0,
+      });
+    } finally {
+      db.close();
+    }
+
+    expect(collectCodexSessions("2026-06-17")).toEqual([]);
+  });
+
+  test("does not collapse distinct Codex prompts with the same prefix", async () => {
+    const codexHome = join(tmpDir, "codex");
+    const sessionsDir = join(codexHome, "sessions", "codex-human-inputs");
+    await mkdir(sessionsDir, { recursive: true });
+    process.env.CODEX_HOME = codexHome;
+
+    const commonPrefix = "请根据当前代码实现日报收集逻辑，并保持现有接口兼容。".repeat(4);
+    const rolloutPath = join(sessionsDir, "rollout.jsonl");
+    const events = [
+      {
+        type: "response_item",
+        timestamp: "2026-06-17T02:00:00.000Z",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: `${commonPrefix}第一项：修复 token 统计。` }],
+        },
+      },
+      {
+        type: "response_item",
+        timestamp: "2026-06-17T02:01:00.000Z",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "好的。" }],
+        },
+      },
+      {
+        type: "response_item",
+        timestamp: "2026-06-17T02:05:00.000Z",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: `${commonPrefix}第二项：修复 prompt 去重。` }],
+        },
+      },
+      {
+        type: "response_item",
+        timestamp: "2026-06-17T02:06:00.000Z",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "收到。" }],
+        },
+      },
+    ];
+    await writeFile(rolloutPath, events.map((event) => JSON.stringify(event)).join("\n"), "utf-8");
+
+    const db = createCodexStateDb(codexHome);
+    try {
+      insertCodexThread(db, {
+        id: "codex-human-inputs",
+        rolloutPath,
+        createdAt: Math.floor(new Date("2026-06-17T01:59:00.000Z").getTime() / 1000),
+      });
+    } finally {
+      db.close();
+    }
+
+    const [session] = collectCodexSessions("2026-06-17");
+
+    expect(session?.human_inputs).toHaveLength(2);
+    expect(session?.human_inputs?.map((input) => input.content)).toEqual([
+      `${commonPrefix}第一项：修复 token 统计。`,
+      `${commonPrefix}第二项：修复 prompt 去重。`,
+    ]);
+  });
+
+  test("resolves Codex rollout paths copied from another sessions root", async () => {
+    const codexHome = join(tmpDir, "codex");
+    const rolloutDir = join(codexHome, "sessions", "2026", "06", "17");
+    await mkdir(rolloutDir, { recursive: true });
+    process.env.CODEX_HOME = codexHome;
+
+    const rolloutPath = join(rolloutDir, "rollout.jsonl");
+    await writeFile(
+      rolloutPath,
+      JSON.stringify({
+        type: "response_item",
+        timestamp: "2026-06-17T02:00:00.000Z",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "请修复 Codex 日报成本统计。" }],
+        },
+      }),
+      "utf-8",
+    );
+
+    const db = createCodexStateDb(codexHome);
+    try {
+      insertCodexThread(db, {
+        id: "codex-relocated-rollout",
+        rolloutPath: "/old-home/.codex/sessions/2026/06/17/rollout.jsonl",
+        createdAt: Math.floor(new Date("2026-06-17T01:59:00.000Z").getTime() / 1000),
+      });
+    } finally {
+      db.close();
+    }
+
+    const [session] = collectCodexSessions("2026-06-17");
+    expect(session?.human_inputs?.[0]?.content).toBe("请修复 Codex 日报成本统计。");
+  });
+
+  test("keeps Codex threads with ISO timestamps in date filtering", async () => {
+    const codexHome = join(tmpDir, "codex");
+    await mkdir(codexHome, { recursive: true });
+    process.env.CODEX_HOME = codexHome;
+
+    const db = new DatabaseSync(join(codexHome, "state_5.sqlite"));
+    try {
+      db.exec(`
+        CREATE TABLE threads (
+          id TEXT PRIMARY KEY,
+          rollout_path TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          model TEXT,
+          tokens_used INTEGER NOT NULL DEFAULT 0,
+          title TEXT NOT NULL,
+          cwd TEXT NOT NULL,
+          has_user_event INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+      db.prepare(`
+        INSERT INTO threads (
+          id, rollout_path, created_at, updated_at, model, tokens_used, title, cwd, has_user_event
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        "codex-iso-time",
+        "",
+        "2026-06-17T02:00:00.000Z",
+        "2026-06-17T02:10:00.000Z",
+        "gpt-5-codex",
+        99,
+        "ISO Time",
+        "/repo/flow-cawplan-skill",
+        1,
+      );
+    } finally {
+      db.close();
+    }
+
+    const [session] = collectCodexSessions("2026-06-17");
+    expect(session?.session_id).toBe("codex-iso-time");
+    expect(session?.total_tokens).toBe(99);
+  });
+
+  test("marks detailed Codex usage as unknown cost when model pricing is unavailable", async () => {
+    const codexHome = join(tmpDir, "codex");
+    const sessionsDir = join(codexHome, "sessions", "codex-unpriced");
+    await mkdir(sessionsDir, { recursive: true });
+    process.env.CODEX_HOME = codexHome;
+
+    const rolloutPath = join(sessionsDir, "rollout.jsonl");
+    await writeFile(
+      rolloutPath,
+      JSON.stringify({
+        type: "event_msg",
+        timestamp: "2026-06-17T02:00:00.000Z",
+        payload: {
+          type: "token_count",
+          info: {
+            last_token_usage: {
+              input_tokens: 100,
+              cached_input_tokens: 40,
+              output_tokens: 20,
+            },
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    const db = createCodexStateDb(codexHome);
+    try {
+      insertCodexThread(db, {
+        id: "codex-unpriced",
+        rolloutPath,
+        createdAt: Math.floor(new Date("2026-06-17T01:59:00.000Z").getTime() / 1000),
+        model: "unpriced-codex-model",
+      });
+    } finally {
+      db.close();
+    }
+
+    const [session] = collectCodexSessions("2026-06-17");
+    expect(session?.usage_breakdown[0]).toMatchObject({
+      input_tokens: 60,
+      cache_read_input_tokens: 40,
+      output_tokens: 20,
+      cost: 0,
+      token_source: "codex_token_count_estimate",
+    });
+
+    const daily = buildDailyApiJson([session!], "2026-06-17", "xin.li");
+    expect(daily.totals.cost).toEqual({ "$": 0 });
+    expect(daily.sessions[0]?.cost_basis).toBe("unknown");
+  });
+
+  test("collects today's Codex rollout files even when they are not indexed by state db", async () => {
+    const codexHome = join(tmpDir, "codex");
+    const rolloutDir = join(codexHome, "sessions", "2026", "06", "17");
+    await mkdir(rolloutDir, { recursive: true });
+    process.env.CODEX_HOME = codexHome;
+
+    const db = createCodexStateDb(codexHome);
+    db.close();
+
+    await writeFile(
+      join(rolloutDir, "rollout-orphan.jsonl"),
+      [
+        JSON.stringify({
+          type: "event_msg",
+          timestamp: "2026-06-17T02:00:00.000Z",
+          payload: {
+            type: "token_count",
+            info: {
+              model: "gpt-5.5",
+              last_token_usage: {
+                input_tokens: 200,
+                cached_input_tokens: 50,
+                output_tokens: 25,
+              },
+            },
+          },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          timestamp: "2026-06-17T02:01:00.000Z",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "统计今天遗漏的 Codex rollout。" }],
+          },
+        }),
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const [session] = collectCodexSessions("2026-06-17");
+    expect(session?.session_id).toBe("rollout-orphan");
+    expect(session?.usage_breakdown[0]).toMatchObject({
+      model: "gpt-5.5",
+      input_tokens: 150,
+      cache_read_input_tokens: 50,
+      output_tokens: 25,
+      token_source: "codex_token_count_estimate",
+    });
+    expect(session?.usage_breakdown[0]?.cost).toBeGreaterThan(0);
   });
 });
 
