@@ -33,7 +33,7 @@ export async function collectOrReadDailyReport(date: string): Promise<{
 export async function backfillMissingReports(
     dateFrom: string,
     dateTo: string,
-    options: {dryRun?: boolean} = {}
+    options: { dryRun?: boolean } = {}
 ): Promise<{
     checked_dates: string[];
     missing_dates: string[];

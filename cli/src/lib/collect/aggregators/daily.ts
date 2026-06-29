@@ -77,11 +77,7 @@ function bucketsToMap(buckets: UsageBucket[]): Record<string, UsageBucket> {
             existing.output_tokens += bucket.output_tokens;
             existing.cache_read_input_tokens += bucket.cache_read_input_tokens;
             existing.cache_creation_input_tokens += bucket.cache_creation_input_tokens;
-            if (bucket.cost === "unknown") {
-                existing.cost = "unknown";
-            } else if (existing.cost !== "unknown") {
-                (existing as { cost: number }).cost += bucket.cost as number;
-            }
+            existing.cost += bucket.cost;
             existing.agents = unionAgents(existing.agents, bucket.agents);
         }
     }
@@ -132,10 +128,7 @@ function totalTokens(buckets: UsageBucket[]): number {
 }
 
 function sessionCost(buckets: UsageBucket[], round2: (value: number) => number): number {
-    const total = buckets.reduce((sum, bucket) => {
-        if (typeof bucket.cost !== "number") return sum;
-        return sum + bucket.cost;
-    }, 0);
+    const total = buckets.reduce((sum, bucket) => sum + bucket.cost, 0);
     return round2(total);
 }
 
@@ -267,14 +260,12 @@ export function buildDailyApiJson(
 
     // 2. If cursorApiUsage provided: remove cursor char-estimate entries, add exact API data
     if (cursorApiUsage) {
-        // Remove existing cursor-related buckets (those with cost=unknown from cursor-cli/cursor-gui)
+        // Remove existing cursor-related buckets before adding authoritative API data.
         const filteredBuckets: Record<string, UsageBucket> = {};
         for (const [key, bucket] of Object.entries(allBuckets)) {
             // Keep non-cursor entries (claude-code, codex, etc.)
-            // Cursor entries are identified by having cost="unknown" and agent mismatch
-            // or we can use the model name heuristic
             const isComposerModel = bucket.model.startsWith("composer-");
-            if (!isComposerModel || bucket.cost !== "unknown") {
+            if (!isComposerModel) {
                 filteredBuckets[key] = bucket;
             }
         }
@@ -299,11 +290,7 @@ export function buildDailyApiJson(
                 existing.output_tokens += entry.output_tokens;
                 existing.cache_read_input_tokens += entry.cache_read_input_tokens;
                 existing.cache_creation_input_tokens += entry.cache_creation_input_tokens;
-                if (entry.cost === "unknown") {
-                    existing.cost = "unknown";
-                } else if (existing.cost !== "unknown") {
-                    (existing as { cost: number }).cost += entry.cost as number;
-                }
+                existing.cost += entry.cost;
                 existing.agents = unionAgents(existing.agents, ["cursor"]);
             }
         }
@@ -317,9 +304,7 @@ export function buildDailyApiJson(
 
     // 5. Build usage_breakdown array (sorted by cost desc)
     const usageBreakdown = Object.values(allBuckets).sort((a, b) => {
-        const costA = typeof a.cost === "number" ? a.cost : 0;
-        const costB = typeof b.cost === "number" ? b.cost : 0;
-        return costB - costA;
+        return b.cost - a.cost;
     });
 
     const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -341,12 +326,12 @@ export function buildDailyApiJson(
         usage_breakdown: usageBreakdown.map((b) => ({
             ...b,
             agent: primaryBucketAgent(b),
-            cost: typeof b.cost === "number" ? r2(b.cost) : b.cost,
+            cost: r2(b.cost),
         })),
         model_usage: Object.fromEntries(
             Object.entries(modelUsage).map(([k, v]) => [
                 k,
-                { ...v, cost: typeof v.cost === "number" ? r2(v.cost) : v.cost },
+                { ...v, cost: r2(v.cost) },
             ])
         ),
         sessions: sessions.map((session) => {

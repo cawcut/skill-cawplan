@@ -122,9 +122,7 @@ export function aggregateUsageBuckets(
 
     const callCost = calculateCost(model, { input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite }, { speed });
     if (callCost !== null) {
-      bucket.cost = (bucket.cost as number) + callCost;
-    } else if (bucket.cost === 0) {
-      bucket.cost = "unknown";
+      bucket.cost += callCost;
     }
   }
 
@@ -159,11 +157,7 @@ export function foldBucketsToModel(
     entry.cache_read_input_tokens += bucket.cache_read_input_tokens;
     entry.cache_creation_input_tokens += bucket.cache_creation_input_tokens;
 
-    if (bucket.cost === "unknown") {
-      entry.cost = "unknown";
-    } else if (entry.cost !== "unknown") {
-      (entry as { cost: number }).cost += bucket.cost as number;
-    }
+    entry.cost += bucket.cost;
     entry.agents = unionAgents(entry.agents, bucket.agents);
   }
 
@@ -194,11 +188,7 @@ export function mergeUsageBuckets(
       existing.cache_read_input_tokens += bucket.cache_read_input_tokens;
       existing.cache_creation_input_tokens += bucket.cache_creation_input_tokens;
 
-      if (bucket.cost === "unknown") {
-        existing.cost = "unknown";
-      } else if (existing.cost !== "unknown") {
-        (existing as { cost: number }).cost += bucket.cost as number;
-      }
+      existing.cost += bucket.cost;
       existing.agents = unionAgents(existing.agents, bucket.agents);
     }
   }
@@ -215,9 +205,8 @@ export function sumCostByCurrency(
   const totals: Record<string, number> = {};
 
   for (const bucket of Object.values(buckets)) {
-    if (bucket.cost === "unknown") continue;
     const currency = bucket.currency;
-    totals[currency] = (totals[currency] ?? 0) + (bucket.cost as number);
+    totals[currency] = (totals[currency] ?? 0) + bucket.cost;
   }
 
   return totals;

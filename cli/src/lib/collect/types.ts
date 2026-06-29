@@ -4,7 +4,7 @@ export interface ModelUsageEntry {
     output_tokens: number;
     cache_read_input_tokens: number;
     cache_creation_input_tokens: number;
-    cost: number | "unknown";
+    cost: number;
     currency: string;
     token_source?: string;
     note?: string;

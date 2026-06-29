@@ -119,7 +119,7 @@ cawplan ai-session collect --date <YYYY-MM-DD>
 
 **Step 8 — Classify missing reports' human inputs (LLM):**
 
-For each newly collected `./ai-daily-<date>.json`, classify human inputs using the same batch prompt as Step 2 and write results back.
+Classify human inputs from **all** newly collected files in a single batch operation using the same prompt as Step 2. For files with empty `human_inputs`, skip silently. Write results back to all files before moving to Step 9.
 
 **Step 9 — Product/repo assignment for missing reports:**
 

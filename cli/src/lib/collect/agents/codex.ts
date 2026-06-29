@@ -347,7 +347,7 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
           output_tokens: usage.output_tokens,
           cache_read_input_tokens: usage.cache_read_input_tokens,
           cache_creation_input_tokens: usage.cache_creation_input_tokens,
-          cost: calculatedCost ?? "unknown",
+          cost: calculatedCost ?? 0,
           currency,
           token_source: hasDetailedUsage ? "codex_token_count_estimate" : "total_only",
           note: hasDetailedUsage
