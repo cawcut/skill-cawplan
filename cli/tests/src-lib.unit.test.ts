@@ -434,6 +434,51 @@ describe("src lib http", () => {
     expect((await readCredentials())?.accessToken).toBe("new-access");
   });
 
+  test("surfaces refresh failure when no API key fallback is configured", async () => {
+    await writeCredentials({
+      accessToken: "old-access",
+      refreshToken: "expired-refresh-token",
+      expire: 1,
+    });
+
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ code: "INVALID_REFRESH_TOKEN" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
+
+    await expect(
+      cawplanRequest({ method: "GET", path: "/api/v1/public/openapi/products" }),
+    ).rejects.toThrow("Token expired, run: cawplan auth login");
+  });
+
+  test("surfaces refresh business error returned with HTTP 200", async () => {
+    await writeCredentials({
+      accessToken: "old-access",
+      refreshToken: "expired-refresh-token",
+      expire: 1,
+    });
+
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          code: "INVALID_OR_EXPIRED",
+          data: null,
+          msg: "invalid or expired refresh token",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+
+    await expect(
+      cawplanRequest({ method: "GET", path: "/api/v1/public/openapi/products" }),
+    ).rejects.toThrow(
+      "Token refresh failed: invalid or expired refresh token. Run: cawplan auth login",
+    );
+  });
+
   test("reports API key invalid on API-key 401", async () => {
     process.env.CAWPLAN_API_KEY = "bad-key";
     await deleteCredentials();

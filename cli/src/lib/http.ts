@@ -70,6 +70,10 @@ async function refreshAccessToken(
   // refresh_token is slid server-side; the same token remains valid.
   const payload = (data.data ?? data) as Record<string, unknown>;
   if (!payload.access_token || typeof payload.expire !== "number") {
+    const message = responseMessage(data);
+    if (message !== "unknown") {
+      throw new ApiError(`Token refresh failed: ${message}. Run: cawplan auth login`, res.status, data);
+    }
     throw new ApiError("Token refresh failed: unexpected response", res.status, data);
   }
 
@@ -103,6 +107,7 @@ async function refreshStoredAccessToken(
 
 async function resolveAuthContext(): Promise<AuthContext | null> {
   const creds = await readCredentials();
+  let refreshError: unknown;
 
   // Priority 1: valid access token
   if (creds?.accessToken && !isAccessTokenExpired(creds)) {
@@ -122,8 +127,9 @@ async function resolveAuthContext(): Promise<AuthContext | null> {
         kind: "oauth",
         credentials: refreshed.credentials,
       };
-    } catch {
-      // Fall through to API key
+    } catch (err) {
+      refreshError = err;
+      // Fall through to API key if configured.
     }
   }
 
@@ -135,6 +141,14 @@ async function resolveAuthContext(): Promise<AuthContext | null> {
       kind: "apiKey",
       credentials: creds,
     };
+  }
+
+  if (refreshError) {
+    if (refreshError instanceof ApiError) {
+      throw refreshError;
+    }
+    const message = refreshError instanceof Error ? refreshError.message : String(refreshError);
+    throw new ApiError(`Token refresh failed: ${message}. Run: cawplan auth login`, 401, refreshError);
   }
 
   return null;

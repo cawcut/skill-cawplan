@@ -195,7 +195,7 @@ After receiving the JSON array, write back to `./ai-daily-<date>.json`: for each
 - `human_inputs[N].topic_reason` = classified `topic_reason`
 - `human_inputs[N].topic_source` = `"llm"`
 
-If the classification response is malformed or an error occurs, leave the existing values unchanged and continue to Step 3.
+If the classification response is malformed or an error occurs, leave the existing values unchanged and continue.
 
 **Step 3 — Review the report with the user:**
 
