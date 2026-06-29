@@ -478,15 +478,15 @@ export function assignmentHtml(): string {
       const value = String(agent || '');
       const lower = value.toLowerCase();
       if (lower.includes('claude')) {
-        return '<span class="agent-chip agent-claude" title="' + escapeHtml(value || 'Claude') + '"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 1.5l1.4 3.1L11.5 6 8.4 7.4 7 10.5 5.6 7.4 2.5 6l3.1-1.4L7 1.5z"/></svg></span>';
+        return '<span class="agent-chip agent-claude" title="' + escapeHtml(value || 'Claude') + '"><svg viewBox="0 0 14 14" fill="currentColor"><path d="M7 1.5L2.5 12.5H5l1-2.8h2.1l1 2.8h2.4L7 1.5zm0 3.8l.7 2.4H6.3L7 5.3z"/></svg></span>';
       }
       if (lower.includes('cursor')) {
-        return '<span class="agent-chip agent-cursor" title="' + escapeHtml(value || 'Cursor') + '"><svg viewBox="0 0 14 14" fill="currentColor"><path d="M2.2 1.6l9.7 5.1-4.1 1.1-1.9 3.8L2.2 1.6z"/></svg></span>';
+        return '<span class="agent-chip agent-cursor" title="' + escapeHtml(value || 'Cursor') + '"><svg viewBox="0 0 14 14" fill="currentColor"><path d="M2.5 1.5l9 5.5-4.5.8L5.2 12.5 2.5 1.5z"/></svg></span>';
       }
-      if (lower.includes('gpt') || lower.includes('codex')) {
-        return '<span class="agent-chip agent-gpt" title="' + escapeHtml(value || 'GPT') + '"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="4" width="10" height="7" rx="1.5"/><path d="M5 4V3a2 2 0 014 0v1"/></svg></span>';
+      if (lower.includes('gpt') || lower.includes('codex') || lower.includes('openai')) {
+        return '<span class="agent-chip agent-gpt" title="' + escapeHtml(value || 'GPT') + '"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 2.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9zm0 0V1m0 12v-1.5M11.5 7H13M1 7h1.5M10.2 3.8l1-1M2.8 10.2l1-1M10.2 10.2l1 1M2.8 3.8l1 1"/></svg></span>';
       }
-      return '<span class="agent-chip agent-other" title="' + escapeHtml(value || 'Agent') + '"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M5.5 7h3"/></svg></span>';
+      return '<span class="agent-chip agent-other" title="' + escapeHtml(value || 'Agent') + '"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="M7 9V7M7 5h.01"/></svg></span>';
     }
 
     function sessionLinesText(session) {
