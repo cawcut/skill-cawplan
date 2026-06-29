@@ -10,9 +10,13 @@ export function assignmentHtml(): string {
       --uBlue-01: hsl(214,100%,95%);
       --uBlue-06: #006EFF;
       --uBlue-07: hsl(214,100%,40%);
+      --n-00: #fff;
       --n-02: rgb(246,246,248);
       --n-03: rgb(237,237,240);
+      --n-04: rgb(219,220,225);
+      --n-09: rgb(107,109,118);
       --n-10: rgb(82,83,90);
+      --n-12: rgb(33,33,36);
       --green-01: rgb(235,250,239);
       --green-07: rgb(46,163,80);
       --red-01: rgb(253,235,236);
@@ -25,10 +29,12 @@ export function assignmentHtml(): string {
       --text-03: rgba(0,0,0,0.45);
       --text-04: rgba(0,0,0,0.20);
       --bg: #fff;
+      --bg-shell: rgb(241,242,244);
       --bg-subtle: rgb(246,246,248);
       --bg-hover: rgb(246,246,248);
       --border-sub: rgb(238,239,241);
       --border: rgb(219,220,225);
+      --shadow-superlow: 0 4px 12px 0 rgba(33,33,36,.04), 0 0 1px 0 rgba(33,33,36,.04);
       --r4: 4px;
       --r8: 8px;
       --font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -63,14 +69,14 @@ export function assignmentHtml(): string {
     .badge-topic-improvement { background: #EEF4FF; color: #1E4BD1; }
     .badge-topic-other { background: var(--n-02); color: var(--text-02); }
     .storage-wrap { padding: 4px 0 8px 20px; display: flex; flex-direction: row; align-items: flex-start; gap: 32px; flex-wrap: wrap; }
-    .storage-row { display: flex; flex-direction: column; gap: 4px; min-width: 360px; }
+    .storage-row { display: flex; flex-direction: column; gap: 4px; }
     .storage-ttl { font-size: 10px; color: var(--text-03); text-transform: uppercase; letter-spacing: .08em; }
-    .storage-track { display: flex; height: 6px; border-radius: 99px; overflow: hidden; gap: 1px; width: 360px; max-width: 100%; background: var(--n-03); }
-    .storage-seg { height: 100%; min-width: 4px; }
+    .storage-track { display: flex; height: 6px; border-radius: 99px; overflow: hidden; gap: 1px; width: 360px; max-width: 100%; }
+    .storage-seg { height: 100%; transition: flex var(--fast) var(--ease); }
     .storage-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 3px; }
-    .storage-leg-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-02); white-space: nowrap; }
+    .storage-leg-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-02); }
     .storage-leg-dot { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
-    .sc-decision { background: #6B28D3; }
+    .sc-decision { background: #1E4BD1; }
     .sc-direction { background: #6B28D3; }
     .sc-correction { background: #C02E32; }
     .sc-planning { background: #2EA350; }
@@ -125,7 +131,7 @@ export function assignmentHtml(): string {
     input.tsearch-input:focus { background: var(--bg); }
     input.tsearch-input::placeholder { color: var(--text-03); }
     .filter-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-    select.filter-select { height: 30px; padding: 0 26px 0 8px; font-size: 13px; width: auto; cursor: pointer; }
+    select.filter-select { height: 30px; padding: 0 26px 0 8px; font-size: 13px; width: auto; border: 1px solid var(--border); border-radius: var(--r4); background: var(--bg); cursor: pointer; color: var(--text-01); transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
     select.filter-select.has-value { border-color: var(--uBlue-06); color: var(--uBlue-06); background: var(--uBlue-01); }
     .unassigned-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: var(--text-01); user-select: none; }
     input.unassigned-cb { width: 14px; height: 14px; flex-shrink: 0; accent-color: var(--uBlue-06); cursor: pointer; border: none; padding: 0; }
