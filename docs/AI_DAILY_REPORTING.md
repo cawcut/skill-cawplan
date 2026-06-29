@@ -7,17 +7,7 @@
 
 1. 安装/更新 Skill：
     ```bash
-    # 方式 1: https clone
-    npx skills add Ubiquiti-UID/flow-cawplan-skill \
-      --skill "*" \
-      --agent cursor claude-code codex \
-      -g -y
-    
-    # 方式 2: ssh clone
-    npx skills add git@github.com:Ubiquiti-UID/flow-cawplan-skill.git \
-      --skill "*" \
-      --agent cursor claude-code codex \
-      -g -y
+    npx skills add Ubiquiti-UID/flow-cawplan-skill -a cursor claude-code codex -g -y
     ```
 
     安装完成后重启 agent，让 skill 生效。
@@ -27,9 +17,11 @@
     `cawplan` 需要 Node.js `>=22.13.0`。如果版本过低，请先升级 Node.js 再安装。
 
     ```bash
-    node -v
+    # 安装
     npm install -g cawplan@latest
-    cawplan --version
+   
+    # 更新
+    cawplan upgrade
     ```
 
 3. 登录 CawPlan：
