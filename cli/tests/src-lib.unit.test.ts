@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -9,7 +9,14 @@ import {
   readCredentials,
   writeCredentials,
 } from "../src/lib/credentials";
-import { browserOpenCommand, buildConsentUrl, pollOAuthExchange, startOAuthLogin } from "../src/lib/oauth";
+import {
+  browserOpenCommand,
+  buildConsentUrl,
+  formatOAuthValidity,
+  pollOAuthExchange,
+  runOAuthLogin,
+  startOAuthLogin,
+} from "../src/lib/oauth";
 import { getAuthState } from "../src/lib/auth-state";
 import { buildScopedCacheKey, getCacheScope } from "../src/lib/cache";
 import {
@@ -261,6 +268,53 @@ describe("src lib oauth", () => {
 
     expect(command.command).toBe("rundll32.exe");
     expect(command.args).toEqual(["url.dll,FileProtocolHandler", url]);
+  });
+
+  test("formats OAuth verification validity for terminal prompt", () => {
+    expect(formatOAuthValidity(300)).toBe("5 minutes");
+  });
+
+  test("prints OAuth verification validity in login prompt", async () => {
+    process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let callCount = 0;
+    globalThis.fetch = async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({
+            code: "SUCCESS",
+            data: {
+              code: "browser-code",
+              token: "private-token",
+              expires_in: 300,
+              interval: 1,
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          code: "SUCCESS",
+          data: {
+            access_token: "access",
+            refresh_token: "refresh",
+            expire: 1770000000,
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    await runOAuthLogin({
+      openBrowser: async () => undefined,
+      pollIntervalMs: 1,
+      pollingTimeoutMs: 1000,
+    });
+
+    expect(consoleError).toHaveBeenCalledWith("This verification is valid for 5 minutes.");
+    consoleError.mockRestore();
   });
 
   test("starts OAuth login and returns code with private polling token", async () => {

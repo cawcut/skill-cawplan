@@ -161,6 +161,15 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export function formatOAuthValidity(seconds: number): string {
+    const roundedSeconds = Math.max(1, Math.ceil(seconds));
+    if (roundedSeconds % 60 === 0) {
+        const minutes = roundedSeconds / 60;
+        return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+    }
+    return `${roundedSeconds} second${roundedSeconds === 1 ? "" : "s"}`;
+}
+
 export async function pollOAuthExchange(
     token: string,
     timeoutMs = OAUTH_TIMEOUT_MS,
@@ -186,6 +195,7 @@ export async function runOAuthLogin(options?: OAuthLoginOptions): Promise<Creden
     const open = options?.openBrowser ?? openBrowser;
 
     console.error(`Opening browser for authentication...`);
+    console.error(`This verification is valid for ${formatOAuthValidity(login.expiresIn)}.`);
     console.error(`If the browser does not open, visit:\n  ${consentUrl}`);
     console.error(`Waiting for browser authorization...`);
 
