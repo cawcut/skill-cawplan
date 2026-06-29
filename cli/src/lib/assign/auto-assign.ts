@@ -90,6 +90,7 @@ export async function assignProjectsFromCloudMappings(daily: DailyApiJson, outpu
     const sessions = daily.sessions;
     if (!Array.isArray(sessions) || sessions.length === 0) {
         console.error("No sessions found in the collected report; skipping product assignment.");
+        if (outputPath) writeDailyReport(outputPath, daily);
         return 0;
     }
 

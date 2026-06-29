@@ -52,7 +52,6 @@ export function registerAiSessionCommand(program: Command): void {
             console.error(`Collecting AI session data for ${date}...`);
             try {
                 const daily = await collect({date, agents});
-                writeDailyReport(outputPath, daily);
                 console.error(
                     `Collected ${
                         (daily.totals as {sessions?: number})?.sessions ?? 0
