@@ -92,9 +92,9 @@ done
 wait
 ```
 
-**Step M4 — Classify all newly collected reports:**
+**Step M4 — Classify all newly collected reports and rewrite session titles:**
 
-Classify human inputs from all newly collected `$report_dir/ai-daily-<date>.json` files in a single batch using the same prompt as Step 2 below. Write classifications back before assignment or upload.
+Classify human inputs from all newly collected `$report_dir/ai-daily-<date>.json` files in a single batch using the same prompt as Step 2 below. Then rewrite `sessions[].session_title` for all newly collected files using the session title rewrite prompt from Step 2. Write both classifications and rewritten titles back before assignment or upload.
 
 **Step M5 — Product/repo assignment:**
 
@@ -123,7 +123,7 @@ During collection, `cawplan ai-session collect` may ask the user to assign each 
 
 In Cursor, if product/repo assignment is skipped during collection because prompts cannot be shown, complete missing assignments through the Web assignment flow in Step 3.
 
-**Step 2 — Classify human inputs (LLM):**
+**Step 2 — Classify human inputs and rewrite session titles (LLM):**
 
 Read `$report_file`. If `human_inputs` is non-empty, classify every entry in a single batch using the prompt below. Write the results back into the JSON file by updating each `human_input`'s `category`, `topic`, `topic_confidence`, `topic_reason`, and `topic_source` fields. If `human_inputs` is empty or absent, skip this step and continue.
 
@@ -162,6 +162,34 @@ After receiving the JSON array, write back to `$report_file`: for each entry at 
 
 If the classification response is malformed or an error occurs, leave the existing values unchanged and continue.
 
+After classification, rewrite every session's `session_title` from the human inputs that belong to that session. Group `human_inputs` by `session_id`; if a session has no human inputs, leave its existing title unchanged.
+
+Session title rewrite prompt to use:
+
+> Rewrite AI coding session titles from the session-specific human inputs below. Return a JSON array — one object per session — with these exact fields:
+> `{ "session_id": "...", "session_title": "...", "title_reason": "one sentence" }`
+>
+> Rules:
+> - Use only the human inputs listed for that session.
+> - Create a concise, human-readable title, ideally 4-10 words.
+> - Prefer the actual product area, feature, bug, workflow, or document being changed.
+> - Avoid generic titles such as "coding session", "daily report", "git commit", or the raw command name unless that is truly the work.
+> - Preserve a user's explicit task name when it is already clear and specific.
+> - If the inputs are mostly in a non-English language, the title may use that language; otherwise prefer English.
+>
+> Sessions:
+> session_id:"<session_id>" current_title:"<existing_session_title>"
+> inputs:
+> - category:"<category>" topic:"<topic>" content:"<human_input_content>"
+> - ...
+
+After receiving the JSON array, write back to `$report_file`: for each returned `session_id`, find the matching `sessions[]` entry and set:
+- `sessions[].session_title` = rewritten `session_title`
+- `sessions[].session_title_source` = `"llm"`
+- `sessions[].session_title_reason` = returned `title_reason`
+
+If the title rewrite response is malformed or an error occurs, leave existing session titles unchanged and continue.
+
 **Step 3 — Product/repo assignment:**
 
 > **Order is fixed: always complete Step 2 (LLM classification) before this step.** Classification does not depend on product assignment and must not be deferred until after assignment.
@@ -195,9 +223,9 @@ wait
 ```
 Each date is independent; parallel collection cuts total time to the slowest single date instead of the sum of all dates.
 
-**Step 8 — Classify missing reports' human inputs (LLM):**
+**Step 8 — Classify missing reports' human inputs and rewrite session titles (LLM):**
 
-Classify human inputs from **all** newly collected files in `$report_dir` in a single batch operation using the same prompt as Step 2. For files with empty `human_inputs`, skip silently. Write results back to all files before moving to Step 9.
+Classify human inputs from **all** newly collected files in `$report_dir` in a single batch operation using the same prompt as Step 2. Then rewrite `sessions[].session_title` for those files using the same session title rewrite prompt from Step 2. For files with empty `human_inputs`, skip silently. Write results back to all files before moving to Step 9.
 
 **Step 9 — Product/repo assignment for missing reports:**
 
@@ -260,6 +288,7 @@ Run the command from the agent shell immediately so the local assignment page op
 - Do not automatically backfill previous months or cross-month ranges during the single-day workflow. Only use the month-missing workflow when the user explicitly provides a month argument or asks to upload/fill missing reports for that month.
 - Preserve raw fields in `human_inputs` (for example `start_time`, `end_time`, `files_changed`, `lines_added`, `lines_deleted`).
 - Never replace raw `human_inputs` with summarized content.
+- Rewrite `sessions[].session_title` from that session's own `human_inputs` before review and upload. Do not use human inputs from another session to title a session.
 
 ## Confirmation
 
