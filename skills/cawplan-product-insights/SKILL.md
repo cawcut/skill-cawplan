@@ -16,7 +16,8 @@ allowed-tools: Bash
 ```bash
 command -v cawplan >/dev/null || { echo "cawplan is not installed. Run: npm install -g cawplan@latest"; exit 1; }
 cawplan_version="$(cawplan --version)"
-node -e 'const [current, required] = process.argv.slice(1); const parse = (v) => v.split(".").map(Number); const [a, b, c] = parse(current); const [x, y, z] = parse(required); process.exit(a > x || (a === x && (b > y || (b === y && c >= z))) ? 0 : 1);' "$cawplan_version" "0.0.8" || { echo "cawplan >= 0.0.8 is required. Run: npm install -g cawplan@latest"; exit 1; }
+latest_cawplan_version="$(npm view cawplan version 2>/dev/null)" || { echo "Unable to check latest cawplan version. Run: cawplan upgrade"; exit 1; }
+node -e 'const [current, latest] = process.argv.slice(1); process.exit(current === latest ? 0 : 1);' "$cawplan_version" "$latest_cawplan_version" || { echo "cawplan $latest_cawplan_version is available (current: $cawplan_version). Run: cawplan upgrade"; exit 1; }
 cawplan auth status >/dev/null || { echo "Not authenticated. Run: cawplan auth login"; exit 1; }
 ```
 
