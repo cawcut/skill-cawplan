@@ -7,7 +7,7 @@ import {
     listProductsForSelector,
     promptGitHubRepoUrl,
     promptProductRepoSelection,
-    searchProduct,
+    selectProduct,
 } from "./products-api.js";
 import {writeDailyReport} from "./report-io.js";
 import type {ProductRepoMapping, ProductRepoSelection} from "./types.js";
@@ -57,7 +57,7 @@ async function assignRemainingProjectsInteractively(
         const originalProject = (session.project ?? "").trim();
         const sessionLabel = session.session_name ?? session.session_title ?? session.session_id ?? `session ${index + 1}`;
 
-        const product = await searchProduct(
+        const product = await selectProduct(
             products,
             `Select product for session "${sessionLabel}"${originalProject ? ` (project: ${originalProject})` : ""}`
         );
