@@ -96,10 +96,12 @@ export function registerInitCommand(program: Command): void {
                 if (productLines.length === 0) {
                     throw new Error("No CawPlan Teams returned.");
                 }
-                const productLine = await selectProductLine(
-                    productLines,
-                    `Select CawPlan Team for ${repoName}`
-                );
+                const productLine = productLines.length === 1
+                    ? productLines[0]
+                    : await selectProductLine(
+                        productLines,
+                        `Select CawPlan Team for ${repoName}`
+                    );
 
                 const products = allProducts.filter((product) => product.product_line_id === productLine.product_line_id);
                 if (products.length === 0) {
