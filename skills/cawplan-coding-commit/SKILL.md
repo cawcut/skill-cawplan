@@ -67,6 +67,10 @@ report_file="$report_dir/ai-daily-<YYYY-MM-DD>.json"
 
 Do not write generated daily report JSON files into the current working directory unless the user explicitly provides an output path.
 
+## Network Permission for Collection
+
+Every `cawplan ai-session collect` command may call the Cursor Dashboard API at `cursor.com`. When running collection from Cursor agent shell tools, request full network access on the shell tool call (`required_permissions: ["full_network"]`). Do not run collection commands in a sandboxed terminal without network access; that causes Cursor API calls to wait until timeout and makes historical collection much slower.
+
 ### Month-Missing Workflow
 
 Use this workflow when the user asks to upload/fill missing reports for a month, or provides a month argument such as `last month` or `YYYY-MM`.
@@ -84,13 +88,21 @@ cawplan ai-session backfill --from <YYYY-MM-01> --to <YYYY-MM-last-or-today> --d
 
 Only use `missing_dates` from this dry run. Do not collect or overwrite dates that are already uploaded. If `missing_dates` is empty, tell the user there are no missing reports for the requested month and stop.
 
-**Step M3 — Collect missing dates in parallel:**
+**Step M3 — Collect missing dates with bounded concurrency:**
 ```bash
+collect_concurrency="${CAWPLAN_COLLECT_CONCURRENCY:-5}"
+i=0
 for date in <date1> <date2> ...; do
   cawplan ai-session collect --date $date --output "$report_dir/ai-daily-$date.json" &
+  i=$((i + 1))
+  if [ $((i % collect_concurrency)) -eq 0 ]; then
+    wait
+  fi
 done
 wait
 ```
+
+Run this whole shell block with full network access when using Cursor agent tools. Use bounded concurrency because each collection may call the Cursor Dashboard API. The default concurrency is 5; reduce `CAWPLAN_COLLECT_CONCURRENCY` only when the network or Cursor API is unstable.
 
 **Step M4 — Classify all newly collected reports and rewrite session titles:**
 
@@ -117,7 +129,7 @@ report_file="$report_dir/ai-daily-<YYYY-MM-DD>.json"
 cawplan ai-session collect --date <YYYY-MM-DD> --output "$report_file"
 ```
 
-When running this command from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) because Cursor token/cost collection depends on the Cursor Dashboard API at `cursor.com`.
+When running this command from Cursor agent tools, request full network access on the shell tool call (`required_permissions: ["full_network"]`) because Cursor token/cost collection depends on the Cursor Dashboard API at `cursor.com`.
 
 During collection, `cawplan ai-session collect` may ask the user to assign each session to a CawPlan product and repository using existing product-repo mappings. If no mapping exists, the user can link a GitHub repository URL in the required format `https://github.com/owner/repo`.
 
@@ -212,16 +224,22 @@ cawplan ai-session backfill --from <YYYY-MM-01> --to <YYYY-MM-DD> --dry-run
 
 Use the first day of the report's month as `--from` and the report date as `--to`. Show the returned `missing_dates` to the user. If there are no missing dates, say so and stop.
 
-**Step 7 — Collect each missing date (parallel):**
+**Step 7 — Collect each missing date with bounded concurrency:**
 
-Launch all missing dates in parallel — do NOT collect sequentially:
+Launch missing dates with a small concurrency limit:
 ```bash
+collect_concurrency="${CAWPLAN_COLLECT_CONCURRENCY:-5}"
+i=0
 for date in <date1> <date2> ...; do
   cawplan ai-session collect --date $date --output "$report_dir/ai-daily-$date.json" &
+  i=$((i + 1))
+  if [ $((i % collect_concurrency)) -eq 0 ]; then
+    wait
+  fi
 done
 wait
 ```
-Each date is independent; parallel collection cuts total time to the slowest single date instead of the sum of all dates.
+Run this whole shell block with full network access when using Cursor agent tools. Each date is independent, but unbounded parallel collection can overload the Cursor Dashboard API and cause timeouts. The default concurrency is 5; reduce `CAWPLAN_COLLECT_CONCURRENCY` to 1 or 2 for unstable networks.
 
 **Step 8 — Classify missing reports' human inputs and rewrite session titles (LLM):**
 

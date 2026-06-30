@@ -25,6 +25,7 @@ import {isTimestampOnLocalDate, dayBoundsMs} from "../date-utils.js";
 import {calculateCost} from "../pricing.js";
 
 const PAGE_SIZE = 500;
+const DEFAULT_CURSOR_API_TIMEOUT_MS = 30_000;
 const MAX_ASSIGN_DISTANCE_MS = 2 * 60 * 60 * 1000; // 2h
 /** Gap between dashboard usage events that starts a new billing burst. */
 export const BILLING_BURST_GAP_MS = 5 * 60 * 1000;
@@ -150,10 +151,26 @@ export function buildSessionCookie(): { cookie: string; userId: string } {
     return {cookie, userId};
 }
 
-function httpsPost(url: string, body: Record<string, unknown>, headers: Record<string, string>): Promise<unknown> {
+function positiveIntEnv(name: string, fallback: number): number {
+    const raw = process.env[name];
+    if (!raw) return fallback;
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0 ? Math.trunc(value) : fallback;
+}
+
+function cursorApiTimeoutMs(): number {
+    return positiveIntEnv("CAWPLAN_CURSOR_API_TIMEOUT_MS", DEFAULT_CURSOR_API_TIMEOUT_MS);
+}
+
+function httpsPost(
+    url: string,
+    body: Record<string, unknown>,
+    headers: Record<string, string>
+): Promise<unknown> {
     return new Promise((resolve, reject) => {
         const parsed = new URL(url);
         const bodyStr = JSON.stringify(body);
+        const timeoutMs = cursorApiTimeoutMs();
         const options = {
             hostname: parsed.hostname,
             path: parsed.pathname + parsed.search,
@@ -169,8 +186,13 @@ function httpsPost(url: string, body: Record<string, unknown>, headers: Record<s
             const chunks: Buffer[] = [];
             res.on("data", (chunk: Buffer) => chunks.push(chunk));
             res.on("end", () => {
+                const raw = Buffer.concat(chunks).toString("utf-8");
+                if (res.statusCode && res.statusCode >= 400) {
+                    reject(new Error(`Cursor API HTTP ${res.statusCode}: ${raw.slice(0, 200)}`));
+                    return;
+                }
                 try {
-                    const data = JSON.parse(Buffer.concat(chunks).toString("utf-8")) as unknown;
+                    const data = JSON.parse(raw) as unknown;
                     resolve(data);
                 } catch (e) {
                     reject(new Error(`Failed to parse response: ${(e as Error).message}`));
@@ -178,8 +200,8 @@ function httpsPost(url: string, body: Record<string, unknown>, headers: Record<s
             });
         });
 
-        req.setTimeout(30000, () => {
-            req.destroy(new Error("Cursor API request timed out after 30s"));
+        req.setTimeout(timeoutMs, () => {
+            req.destroy(new Error(`Cursor API request timed out after ${Math.round(timeoutMs / 1000)}s`));
         });
         req.on("error", reject);
         req.write(bodyStr);

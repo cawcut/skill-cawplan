@@ -126,11 +126,18 @@ describe("assignmentHtml - date time column", () => {
 });
 
 describe("assignmentHtml - model column", () => {
-    test("renders model column as an agent icon chip", () => {
+    test("renders agent text and models from session.models", () => {
         const html = assignmentHtml();
-        expect(html).toContain("function agentChip(agent)");
-        expect(html).toContain(".agent-chip {");
-        expect(html).toContain("'<td>' + agentChip(s.agent) + '</td>'");
+        expect(html).toContain("function sessionModels(session)");
+        expect(html).toContain("function sessionModelsHtml(session)");
+        expect(html).toContain("const models = Array.isArray(session.models) ? session.models : [];");
+        expect(html).toContain("value.includes('claude')");
+        expect(html).toContain("value.includes('gpt')");
+        expect(html).toContain("'<td class=\"agent-cell\"");
+        expect(html).toContain("'<td class=\"models-cell\"");
+        expect(html).toContain("MODEL_ICON_PATHS");
+        expect(html).not.toContain("function agentChip(agent)");
+        expect(html).not.toContain(".agent-chip {");
         expect(html).not.toContain("escapeHtml(model || '—')");
     });
 });
