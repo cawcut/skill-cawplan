@@ -1,84 +1,86 @@
-# AI 日报上报说明
+# AI Daily Reporting Guide
 
-本文档面向开发人员，说明如何每天提交 AI Coding 日报。
-日报会上传到 CawPlan Cloud，用于统计 AI session、token、成本和 prompt 使用情况。
+This document is for developers and explains how to submit AI Coding daily reports.
+Reports are uploaded to CawPlan Cloud to track AI sessions, tokens, costs, and prompt usage.
 
-## 首次准备
+## First-Time Setup
 
-1. 安装 Skill：
+1. Install the skill:
     ```bash
     npx skills add Ubiquiti-UID/flow-cawplan-skill -a cursor claude-code codex -g -y
     ```
-   
-    重复执行则更新 Skill，安装完成后重启 agent，让 skill 生效。
 
-2. 安装 `cawplan` CLI：
+    Running the command again updates the skill. After installation, restart the agent so the skill takes effect.
 
-    `cawplan` 需要 Node.js `>=22.13.0`。如果版本过低，请先升级 Node.js 再安装。
+2. Install the `cawplan` CLI:
+
+    `cawplan` requires Node.js `>=22.13.0`. If your Node.js version is too old, upgrade Node.js before installing.
 
     ```bash
-    # 安装
+    # Install
     npm install -g cawplan@latest
-   
-    # 更新
+
+    # Upgrade
     cawplan upgrade
     ```
 
-3. 登录 CawPlan：
+3. Log in to CawPlan:
 
-    ```bash 
+    ```bash
     cawplan auth login
-   
-    # 查看登录状态
+
+    # Check login status
     cawplan auth status
     ```
 
-首次在某个仓库上报前，建议在该仓库根目录的终端执行一次：
+Before reporting from a repository for the first time, run this once from the repository root:
 
 ```bash
 cawplan init
 ```
 
-它会在终端中选择 CawPlan Team 和 Product，并配置当前 GitHub 仓库和 Product 的默认映射。若只有一个 Team 会直接进入 Product 选择；若该 Team 下没有 Product，会提示是否打开创建 Product 页面。
+This lets you select a CawPlan Team and Product in the terminal, then configures the default mapping between the current GitHub repository and the selected Product. If there is only one Team, it skips directly to Product selection. If the selected Team has no Products, it prompts whether to open the Product creation page.
 
-## 每日上报
+## Daily Reporting
 
-在 agent 中执行：
+Run this in the agent:
 
 ```bash
-# 默认：收集并上传今天，并检查当月缺失日期
+# Default: collect and upload today, then check missing dates in the current month
 /cawplan-coding-commit
 
-# 指定某一天（昨天 / 具体日期）
+# Specify one day (yesterday / exact date)
 /cawplan-coding-commit yesterday
 /cawplan-coding-commit 2026-06-20
 
-# 补某一整月云端缺失的日报（仅缺失日期，不覆盖已上传）
+# Fill missing cloud reports for an entire month (missing dates only; already-uploaded dates are not overwritten)
 /cawplan-coding-commit last month
 /cawplan-coding-commit 2026-06
 ```
 
-不需要额外提示词，也不需要二次确认上传。Agent 会自动收集当天 AI session，展示摘要后上传日报。
+No extra prompt is required, and no second upload confirmation is needed. The agent automatically collects the AI sessions, shows a summary, and uploads the daily report.
 
-上传成功后，CLI 会检查当月云端缺失的日报，并自动补齐可收集的历史日期。
+After a successful upload, the CLI checks for missing cloud reports in the current month and automatically fills collectible historical dates.
 
-## 常见问题
+## FAQ
 
-### 安装 skill 失败
-npx skills add Ubiquiti-UID/flow-cawplan-skill 默认使用的是 https clone，如果显示 clone 失败，尝试使用 ssh clone 方式
+### Skill Installation Fails
+
+`npx skills add Ubiquiti-UID/flow-cawplan-skill` uses HTTPS clone by default. If cloning fails, try SSH clone instead:
+
 ```bash
-# ssh clone
+# SSH clone
 npx skills add git@github.com:Ubiquiti-UID/flow-cawplan-skill.git -a cursor claude-code codex -g -y
 ```
 
-### 认证过期
+### Authentication Expires
 
-重新登录：
+Log in again:
 
 ```bash
 cawplan auth login
 ```
 
-### Cursor 成本缺失
+### Cursor Cost Is Missing
 
-Cursor token/cost 依赖 Cursor Dashboard API。缺少 token 或网络不可用时，日报仍可生成，但 Cursor 成本可能为空或不完整。
+Cursor token and cost data depend on the Cursor Dashboard API. If the token is missing or the network is unavailable, the report can still be generated, but Cursor costs may be empty or incomplete.
