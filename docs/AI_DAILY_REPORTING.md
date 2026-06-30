@@ -5,14 +5,14 @@
 
 ## 首次准备
 
-1. 安装/更新 Skill：
+1. 安装 Skill：
     ```bash
     npx skills add Ubiquiti-UID/flow-cawplan-skill -a cursor claude-code codex -g -y
     ```
+   
+    重复执行则更新 Skill，安装完成后重启 agent，让 skill 生效。
 
-    安装完成后重启 agent，让 skill 生效。
-
-2. 安装/更新 `cawplan` CLI：
+2. 安装 `cawplan` CLI：
 
     `cawplan` 需要 Node.js `>=22.13.0`。如果版本过低，请先升级 Node.js 再安装。
 
@@ -26,8 +26,10 @@
 
 3. 登录 CawPlan：
 
-    ```bash
+    ```bash 
     cawplan auth login
+   
+    # 查看登录状态
     cawplan auth status
     ```
 
@@ -37,7 +39,7 @@
 cawplan init
 ```
 
-它会在终端中让你选择 CawPlan Product，并配置当前 GitHub 仓库和 Product 的默认映射。
+它会在终端中选择 CawPlan Team 和 Product，并配置当前 GitHub 仓库和 Product 的默认映射。若只有一个 Team 会直接进入 Product 选择；若该 Team 下没有 Product，会提示是否打开创建 Product 页面。
 
 ## 每日上报
 
@@ -60,6 +62,13 @@ cawplan init
 上传成功后，CLI 会检查当月云端缺失的日报，并自动补齐可收集的历史日期。
 
 ## 常见问题
+
+### 安装 skill 失败
+npx skills add Ubiquiti-UID/flow-cawplan-skill 默认使用的是 https clone，如果显示 clone 失败，尝试使用 ssh clone 方式
+```bash
+# ssh clone
+npx skills add git@github.com:Ubiquiti-UID/flow-cawplan-skill.git -a cursor claude-code codex -g -y
+```
 
 ### 认证过期
 
