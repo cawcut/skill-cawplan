@@ -51,6 +51,22 @@ If the user provides a single-day argument, resolve it before Step 1 and use tha
 
 Always collect and present the AI-summarized review before uploading. Do not wait for a second confirmation after the review; proceed to upload immediately.
 
+## Report File Location
+
+Store every generated `ai-daily-*.json` report in a system temporary directory, not in the current repository.
+
+Before collecting reports, create one workflow-scoped temp directory with Node.js so the same command works on macOS, Linux, and Windows:
+```bash
+report_dir="$(node -e 'const {mkdtempSync} = require("node:fs"); const {join} = require("node:path"); const {tmpdir} = require("node:os"); console.log(mkdtempSync(join(tmpdir(), "cawplan-ai-daily-")));')"
+```
+
+Use absolute file paths under this directory for every subsequent collect, classify, assign, review, and upload step:
+```bash
+report_file="$report_dir/ai-daily-<YYYY-MM-DD>.json"
+```
+
+Do not write generated daily report JSON files into the current working directory unless the user explicitly provides an output path.
+
 ### Month-Missing Workflow
 
 Use this workflow when the user asks to upload/fill missing reports for a month, or provides a month argument such as `last month` or `YYYY-MM`.
@@ -71,14 +87,14 @@ Only use `missing_dates` from this dry run. Do not collect or overwrite dates th
 **Step M3 — Collect missing dates in parallel:**
 ```bash
 for date in <date1> <date2> ...; do
-  cawplan ai-session collect --date $date &
+  cawplan ai-session collect --date $date --output "$report_dir/ai-daily-$date.json" &
 done
 wait
 ```
 
 **Step M4 — Classify all newly collected reports:**
 
-Classify human inputs from all newly collected `./ai-daily-<date>.json` files in a single batch using the same prompt as Step 2 below. Write classifications back before assignment or upload.
+Classify human inputs from all newly collected `$report_dir/ai-daily-<date>.json` files in a single batch using the same prompt as Step 2 below. Write classifications back before assignment or upload.
 
 **Step M5 — Product/repo assignment:**
 
@@ -88,7 +104,7 @@ Inspect all newly collected files. If any session across these files lacks `prod
 
 Upload each newly collected missing-date file individually in date order:
 ```bash
-cawplan ai-session report --file ./ai-daily-<YYYY-MM-DD>.json
+cawplan ai-session report --file "$report_dir/ai-daily-<YYYY-MM-DD>.json"
 ```
 
 After upload, report the requested month, uploaded dates, number of sessions per uploaded report, and each server response code.
@@ -97,8 +113,8 @@ After upload, report the requested month, uploaded dates, number of sessions per
 
 **Step 1 — Collect:**
 ```bash
-cawplan ai-session collect --date <YYYY-MM-DD>
-# output defaults to ./ai-daily-<date>.json
+report_file="$report_dir/ai-daily-<YYYY-MM-DD>.json"
+cawplan ai-session collect --date <YYYY-MM-DD> --output "$report_file"
 ```
 
 When running this command from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) because Cursor token/cost collection depends on the Cursor Dashboard API at `cursor.com`.
@@ -109,7 +125,7 @@ In Cursor, if product/repo assignment is skipped during collection because promp
 
 **Step 2 — Classify human inputs (LLM):**
 
-Read `./ai-daily-<date>.json`. If `human_inputs` is non-empty, classify every entry in a single batch using the prompt below. Write the results back into the JSON file by updating each `human_input`'s `category`, `topic`, `topic_confidence`, `topic_reason`, and `topic_source` fields. If `human_inputs` is empty or absent, skip this step and continue.
+Read `$report_file`. If `human_inputs` is non-empty, classify every entry in a single batch using the prompt below. Write the results back into the JSON file by updating each `human_input`'s `category`, `topic`, `topic_confidence`, `topic_reason`, and `topic_source` fields. If `human_inputs` is empty or absent, skip this step and continue.
 
 Classification prompt to use:
 
@@ -137,7 +153,7 @@ Classification prompt to use:
 > [0] session:"<session_title>" content:"<human_input_content>"
 > [1] ...
 
-After receiving the JSON array, write back to `./ai-daily-<date>.json`: for each entry at `index` N, set:
+After receiving the JSON array, write back to `$report_file`: for each entry at `index` N, set:
 - `human_inputs[N].category` = classified `category`
 - `human_inputs[N].topic` = classified `topic`
 - `human_inputs[N].topic_confidence` = classified `topic_confidence`
@@ -150,7 +166,7 @@ If the classification response is malformed or an error occurs, leave the existi
 
 > **Order is fixed: always complete Step 2 (LLM classification) before this step.** Classification does not depend on product assignment and must not be deferred until after assignment.
 
-Read `./ai-daily-<date>.json`. If any `sessions[]` entry lacks `product_id`, immediately run the Web assignment command from **Product/repo assignment** and complete all missing assignments before continuing.
+Read `$report_file`. If any `sessions[]` entry lacks `product_id`, immediately run the Web assignment command from **Product/repo assignment** and complete all missing assignments before continuing.
 
 **Step 4 — Review the report with the user:**
 
@@ -158,7 +174,7 @@ Present the full review described in **Review content contract**. Do not show on
 
 **Step 5 — Upload:**
 ```bash
-cawplan ai-session report --file ./ai-daily-<date>.json
+cawplan ai-session report --file "$report_file"
 ```
 
 **Step 6 — Query missing current-month reports:**
@@ -173,7 +189,7 @@ Use the first day of the report's month as `--from` and the report date as `--to
 Launch all missing dates in parallel — do NOT collect sequentially:
 ```bash
 for date in <date1> <date2> ...; do
-  cawplan ai-session collect --date $date &
+  cawplan ai-session collect --date $date --output "$report_dir/ai-daily-$date.json" &
 done
 wait
 ```
@@ -181,7 +197,7 @@ Each date is independent; parallel collection cuts total time to the slowest sin
 
 **Step 8 — Classify missing reports' human inputs (LLM):**
 
-Classify human inputs from **all** newly collected files in a single batch operation using the same prompt as Step 2. For files with empty `human_inputs`, skip silently. Write results back to all files before moving to Step 9.
+Classify human inputs from **all** newly collected files in `$report_dir` in a single batch operation using the same prompt as Step 2. For files with empty `human_inputs`, skip silently. Write results back to all files before moving to Step 9.
 
 **Step 9 — Product/repo assignment for missing reports:**
 
@@ -191,7 +207,7 @@ Inspect all newly collected files. If any session across these files lacks `prod
 
 Upload each file individually in date order:
 ```bash
-cawplan ai-session report --file ./ai-daily-<YYYY-MM-DD>.json
+cawplan ai-session report --file "$report_dir/ai-daily-<YYYY-MM-DD>.json"
 ```
 
 Backfill must stay within the uploaded report's current month and must not cross month boundaries.
