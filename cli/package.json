@@ -29,7 +29,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "postbuild": "chmod +x dist/index.js",
+    "postbuild": "chmod +x dist/index.js && node scripts/copy-assets.mjs",
     "prepublishOnly": "npm run build",
     "prepack": "node scripts/pack-public-config.mjs prepack",
     "postpack": "node scripts/pack-public-config.mjs postpack",

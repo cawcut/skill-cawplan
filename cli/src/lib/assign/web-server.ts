@@ -1,5 +1,8 @@
+import {existsSync, readFileSync} from "node:fs";
 import {randomBytes} from "node:crypto";
 import {createServer, type IncomingMessage, type ServerResponse} from "node:http";
+import {dirname, join} from "node:path";
+import {fileURLToPath} from "node:url";
 import {openBrowser} from "../oauth.js";
 import {readMatchingBrowserModule} from "./matching-browser.js";
 import {assignmentHtml} from "./assignment-html.js";
@@ -16,6 +19,7 @@ import type {AssignmentReport, ProductRepoMapping, WebAssignment} from "./types.
 import type {DailyApiJson} from "../collect/types.js";
 
 const localAssignmentHost = "127.0.0.1";
+const assetNames = new Set(["model-gpt.png", "model-claude.png", "model-cursor.png"]);
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
     const payload = JSON.stringify(body);
@@ -34,6 +38,27 @@ function sendText(res: ServerResponse, status: number, body: string, contentType
         "cache-control": "no-store",
     });
     res.end(body);
+}
+
+function sendBinary(res: ServerResponse, status: number, body: Buffer, contentType: string): void {
+    res.writeHead(status, {
+        "content-type": contentType,
+        "content-length": body.length,
+        "cache-control": "no-store",
+    });
+    res.end(body);
+}
+
+function readAssignmentAsset(name: string): Buffer | null {
+    if (!assetNames.has(name)) return null;
+    const here = dirname(fileURLToPath(import.meta.url));
+    for (const path of [
+        join(here, "assets", name),
+        join(here, "..", "..", "..", "src", "lib", "assign", "assets", name),
+    ]) {
+        if (existsSync(path)) return readFileSync(path);
+    }
+    return null;
 }
 
 function readRequestBody(req: IncomingMessage): Promise<string> {
@@ -138,6 +163,16 @@ export async function startAssignmentWebServer(reports: AssignmentReport[], batc
 
                 if (req.method === "GET" && url.pathname === "/assign/matching.js") {
                     sendText(res, 200, readMatchingBrowserModule(), "text/javascript; charset=utf-8");
+                    return;
+                }
+
+                if (req.method === "GET" && url.pathname.startsWith("/assets/")) {
+                    const asset = readAssignmentAsset(url.pathname.slice("/assets/".length));
+                    if (!asset) {
+                        sendJson(res, 404, {error: "asset not found"});
+                        return;
+                    }
+                    sendBinary(res, 200, asset, "image/png");
                     return;
                 }
 

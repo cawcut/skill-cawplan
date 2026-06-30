@@ -118,12 +118,10 @@ export function assignmentHtml(): string {
     .lines-add { color: var(--green-07); font-size: 12px; font-weight: 700; }
     .lines-del { color: var(--red-07); font-size: 12px; font-weight: 700; }
     .num-cell { font-size: 13px; color: var(--text-01); vertical-align: middle; }
-    .agent-chip { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: var(--r4); }
-    .agent-claude { background: #F0E6DE; color: #C96442; }
-    .agent-cursor { background: rgb(24,24,27); color: #fff; }
-    .agent-gpt { background: #E8F5EE; color: #1A7F5A; }
-    .agent-other { background: var(--n-03); color: var(--text-02); }
-    .agent-chip svg { width: 14px; height: 14px; flex-shrink: 0; }
+    .models-cell { font-size: 12px; color: var(--text-02); vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .agent-cell { font-size: 12px; color: var(--text-02); vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .model-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; vertical-align: middle; }
+    .model-icon img { width: 24px; height: 24px; display: block; border-radius: 6px; }
     .tsearch { padding: 10px 16px; border-bottom: 1px solid var(--border-sub); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .tsearch-wrap { position: relative; display: flex; align-items: center; }
     .tsearch-ico { position: absolute; left: 9px; color: var(--text-03); pointer-events: none; display: flex; width: 14px; height: 14px; }
@@ -199,6 +197,7 @@ export function assignmentHtml(): string {
                 <col style="width:52px" />
                 <col style="width:76px" />
                 <col style="width:140px" />
+                <col style="width:140px" />
                 <col style="width:260px" />
                 <col style="width:120px" />
               </colgroup>
@@ -210,14 +209,15 @@ export function assignmentHtml(): string {
                   <th>Input</th>
                   <th>Lines</th>
                   <th>Files</th>
-                  <th>Model</th>
+                  <th>Agent</th>
+                  <th>Models</th>
                   <th>Product <span class="required">*</span></th>
                   <th>Repo</th>
                   <th>Date / Time</th>
                 </tr>
               </thead>
               <tbody id="rows">
-                <tr><td colspan="10" style="text-align:center;padding:40px 16px;color:rgba(0,0,0,.35);">Loading sessions...</td></tr>
+                <tr><td colspan="11" style="text-align:center;padding:40px 16px;color:rgba(0,0,0,.35);">Loading sessions...</td></tr>
               </tbody>
             </table>
           </div>
@@ -235,6 +235,11 @@ export function assignmentHtml(): string {
     const { findMappingForSession, repoNameFromGitHubUrl } = await import(
       '/assign/matching.js?token=' + encodeURIComponent(token)
     );
+    const MODEL_ICON_PATHS = {
+      gpt: '/assets/model-gpt.png',
+      claude: '/assets/model-claude.png',
+      cursor: '/assets/model-cursor.png',
+    };
 
     function parseRepoNameFromGitHubUrl(value) {
       try {
@@ -467,26 +472,37 @@ export function assignmentHtml(): string {
       return mostCommonHumanInputValue(report, session, 'topic');
     }
 
-    function sessionModelText(session) {
-      const models = Array.isArray(session.models) && session.models.length
-        ? session.models
-        : Object.keys(session.model_usage || {});
-      return models[0] || '';
+    function sessionModels(session) {
+      const models = Array.isArray(session.models) ? session.models : [];
+      return [...new Set(models.filter(Boolean).map(String))];
     }
 
-    function agentChip(agent) {
-      const value = String(agent || '');
-      const lower = value.toLowerCase();
-      if (lower.includes('claude')) {
-        return '<span class="agent-chip agent-claude" title="' + escapeHtml(value || 'Claude') + '"><svg viewBox="0 0 14 14" fill="currentColor"><path d="M7 1.5L2.5 12.5H5l1-2.8h2.1l1 2.8h2.4L7 1.5zm0 3.8l.7 2.4H6.3L7 5.3z"/></svg></span>';
+    function sessionModelsText(session) {
+      const models = sessionModels(session);
+      return [...new Set(models.filter(Boolean))].join(', ');
+    }
+
+    function modelIconKind(model) {
+      const value = String(model || '').toLowerCase();
+      if (value.includes('claude')) return 'claude';
+      if (value.includes('gpt')) return 'gpt';
+      return '';
+    }
+
+    function modelIcon(kind, title) {
+      if (MODEL_ICON_PATHS[kind]) {
+        return '<span class="model-icon" title="' + escapeHtml(title) + '"><img src="' + MODEL_ICON_PATHS[kind] + '?token=' + encodeURIComponent(token) + '" alt="' + escapeHtml(title) + '" /></span>';
       }
-      if (lower.includes('cursor')) {
-        return '<span class="agent-chip agent-cursor" title="' + escapeHtml(value || 'Cursor') + '"><svg viewBox="0 0 14 14" fill="currentColor"><path d="M2.5 1.5l9 5.5-4.5.8L5.2 12.5 2.5 1.5z"/></svg></span>';
-      }
-      if (lower.includes('gpt') || lower.includes('codex') || lower.includes('openai')) {
-        return '<span class="agent-chip agent-gpt" title="' + escapeHtml(value || 'GPT') + '"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 2.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9zm0 0V1m0 12v-1.5M11.5 7H13M1 7h1.5M10.2 3.8l1-1M2.8 10.2l1-1M10.2 10.2l1 1M2.8 3.8l1 1"/></svg></span>';
-      }
-      return '<span class="agent-chip agent-other" title="' + escapeHtml(value || 'Agent') + '"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="M7 9V7M7 5h.01"/></svg></span>';
+      return '';
+    }
+
+    function sessionModelsHtml(session) {
+      const models = sessionModels(session);
+      if (models.length === 0) return '<span class="muted">—</span>';
+      return models.map((model) => {
+        const kind = modelIconKind(model);
+        return kind ? modelIcon(kind, model) : '<span>' + escapeHtml(model) + '</span>';
+      }).join(' ');
     }
 
     function sessionLinesText(session) {
@@ -556,7 +572,7 @@ export function assignmentHtml(): string {
           productName,
           category,
           topic,
-          sessionModelText(session),
+          sessionModelsText(session),
           humanInputsForSession(entry.report, session).map(humanInputContent).join(' '),
         ].filter(Boolean).join(' ').toLowerCase();
         if (!haystack.includes(searchQuery)) return false;
@@ -660,7 +676,7 @@ export function assignmentHtml(): string {
       const tbody = document.getElementById('rows');
       const entries = rowEntries();
       if (entries.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px 16px;"><span class="muted">No sessions match the current filters.</span></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px 16px;"><span class="muted">No sessions match the current filters.</span></td></tr>';
       } else {
       tbody.innerHTML = entries.map(({file, date, report, session: s}) => {
         const title = s.session_title || s.session_name || s.session_id;
@@ -676,7 +692,8 @@ export function assignmentHtml(): string {
           '<td class="input-cell">' + humanInputsHtml(report, s) + '</td>' +
           '<td class="lines-cell">' + sessionLinesText(s) + '</td>' +
           '<td class="num-cell">' + escapeHtml(s.files_changed ?? 0) + '</td>' +
-          '<td>' + agentChip(s.agent) + '</td>' +
+          '<td class="agent-cell" title="' + escapeHtml(s.agent || '') + '">' + (s.agent ? escapeHtml(s.agent) : '<span class="muted">—</span>') + '</td>' +
+          '<td class="models-cell" title="' + escapeHtml(sessionModelsText(s)) + '">' + sessionModelsHtml(s) + '</td>' +
           '<td><input class="product" list="product-list" value="' + escapeHtml(productValue) + '" placeholder="Search product" required />' +
           '<div class="product-error field-error"></div></td>' +
           '<td><select class="repo">' + repoOptions(s.product_id, selectedRepo) + '</select>' +
