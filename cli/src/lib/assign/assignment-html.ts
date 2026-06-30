@@ -486,6 +486,7 @@ export function assignmentHtml(): string {
       const value = String(model || '').toLowerCase();
       if (value.includes('claude')) return 'claude';
       if (value.includes('gpt')) return 'gpt';
+      if (value.includes('default') || value.includes('composer')) return 'cursor';
       return '';
     }
 
