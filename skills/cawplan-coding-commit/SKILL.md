@@ -22,23 +22,78 @@ cawplan auth status >/dev/null || { echo "Not authenticated. Run: cawplan auth l
 
 ## Workflow
 
-This skill has one workflow only: **Collect → Review → Upload → Current-Month Backfill**.
+This skill supports two workflows:
+- **Single-day workflow:** Collect → Review → Upload → Current-Month Backfill
+- **Month-missing workflow:** Query cloud missing dates for a month → collect and upload only missing dates
 
-Use it when the user invokes `cawplan-coding-commit` or `/cawplan-coding-commit`, with or without a date argument. Do not use this skill for a plain `git commit` request unless the user explicitly mentions CawPlan, AI report upload, or an `ai-daily-*.json` file.
+Use it when the user invokes `cawplan-coding-commit` or `/cawplan-coding-commit`, with or without a date or month argument. Do not use this skill for a plain `git commit` request unless the user explicitly mentions CawPlan, AI report upload, or an `ai-daily-*.json` file.
 
-Supported date arguments:
+Supported single-day arguments:
 - no date, `today` → today's date
 - `yesterday`, `yestoday` → yesterday's date (`yestoday` is accepted as a common typo)
 - `YYYY-MM-DD` → the exact report date
+- natural-language requests that ask to upload yesterday's daily report → yesterday's date
+- natural-language requests that ask to upload the daily report for a specific `YYYY-MM-DD` date → that exact date
+
+Supported month-missing arguments:
+- `last month` → the previous calendar month
+- `YYYY-MM` → that exact calendar month
+- natural-language requests that ask to upload/fill missing daily reports for a specific month → that calendar month
 
 Examples:
-- `cawplan-coding-commit today`
-- `cawplan-coding-commit yestoday`
-- `cawplan-coding-commit 2026-06-20`
+- `/cawplan-coding-commit`
+- `/cawplan-coding-commit yesterday`
+- `/cawplan-coding-commit 2026-06-20`
+- `/cawplan-coding-commit last month`
+- `/cawplan-coding-commit 2026-06`
 
-If the user provides a date argument, resolve it before Step 1 and use that date in every command below. If the user provides an unsupported argument, ask for a valid date instead of guessing.
+If the user provides a single-day argument, resolve it before Step 1 and use that date in every command below. If the user provides a month-missing argument, skip the single-day workflow and follow **Month-missing workflow** below. If the user provides an unsupported argument, ask for a valid date or month instead of guessing.
 
 Always collect and present the AI-summarized review before uploading. Do not wait for a second confirmation after the review; proceed to upload immediately.
+
+### Month-Missing Workflow
+
+Use this workflow when the user asks to upload/fill missing reports for a month, or provides a month argument such as `last month` or `YYYY-MM`.
+
+**Step M1 — Resolve month range:**
+- For `last month`, use the first and last day of the previous calendar month.
+- For a past `YYYY-MM`, use the first and last day of that month.
+- For the current `YYYY-MM`, use the first day of the month through today.
+- Never include dates outside the requested month.
+
+**Step M2 — Query cloud missing dates:**
+```bash
+cawplan ai-session backfill --from <YYYY-MM-01> --to <YYYY-MM-last-or-today> --dry-run
+```
+
+Only use `missing_dates` from this dry run. Do not collect or overwrite dates that are already uploaded. If `missing_dates` is empty, tell the user there are no missing reports for the requested month and stop.
+
+**Step M3 — Collect missing dates in parallel:**
+```bash
+for date in <date1> <date2> ...; do
+  cawplan ai-session collect --date $date &
+done
+wait
+```
+
+**Step M4 — Classify all newly collected reports:**
+
+Classify human inputs from all newly collected `./ai-daily-<date>.json` files in a single batch using the same prompt as Step 2 below. Write classifications back before assignment or upload.
+
+**Step M5 — Product/repo assignment:**
+
+Inspect all newly collected files. If any session across these files lacks `product_id`, immediately run the Web assignment command from **Product/repo assignment**. For multiple files, prefer the `--files` form to batch-assign all at once before continuing.
+
+**Step M6 — Upload missing reports:**
+
+Upload each newly collected missing-date file individually in date order:
+```bash
+cawplan ai-session report --file ./ai-daily-<YYYY-MM-DD>.json
+```
+
+After upload, report the requested month, uploaded dates, number of sessions per uploaded report, and each server response code.
+
+### Single-Day Workflow
 
 **Step 1 — Collect:**
 ```bash
@@ -62,10 +117,10 @@ Classification prompt to use:
 > `{ "index": N, "category": "...", "topic": "...", "topic_confidence": 0.0–1.0, "topic_reason": "one sentence" }`
 >
 > **category** (pick one):
-> - `decision` — human chose between options ("定了", "agreed", "use X instead of Y")
+> - `decision` — human chose between options ("agreed", "use X instead of Y")
 > - `direction` — human instructed AI what to build (default when nothing else fits)
-> - `correction` — human corrected AI output or reported an error ("bug", "fix", "报错")
-> - `planning` — human planned or designed the approach ("计划", "roadmap", "下一步")
+> - `correction` — human corrected AI output or reported an error ("bug", "fix", "error")
+> - `planning` — human planned or designed the approach ("plan", "roadmap", "next step")
 >
 > **topic** (pick one):
 > - `bug` — fixing a defect or regression
@@ -185,8 +240,8 @@ Run the command from the agent shell immediately so the local assignment page op
 - GitHub repository URLs used to create mappings must be in the format `https://github.com/owner/repo`.
 - Never create a new product-repo mapping unless the user explicitly selects or confirms the exact product and GitHub repository URL.
 - If `--file` is used, the file must contain `author` (git username) and `date` (YYYY-MM-DD) fields.
-- After upload succeeds in Mode 1, follow Steps 6–10: query missing dates with `--dry-run`, then for each missing date collect → classify → assign → upload individually. Do not use `cawplan ai-session backfill` without `--dry-run` in Mode 1.
-- Do not automatically backfill previous months or cross-month ranges during daily Mode 1. Only use a previous-month or custom range when the user explicitly asks to collect/upload that historical range.
+- After a single-day upload succeeds, follow Steps 6–10: query missing dates in that report's current month with `--dry-run`, then for each missing date collect → classify → assign → upload individually. Do not use `cawplan ai-session backfill` without `--dry-run`.
+- Do not automatically backfill previous months or cross-month ranges during the single-day workflow. Only use the month-missing workflow when the user explicitly provides a month argument or asks to upload/fill missing reports for that month.
 - Preserve raw fields in `human_inputs` (for example `start_time`, `end_time`, `files_changed`, `lines_added`, `lines_deleted`).
 - Never replace raw `human_inputs` with summarized content.
 
