@@ -8,10 +8,15 @@ import {
   collectGuiSessions,
   decodeCursorProjectDirToCwd,
   matchUserBubble,
+  mergeSuspectBackdateIndices,
   normalizeBubbleMatchText,
   parseGuiSessionTranscript,
+  pruneActiveBackdateCandidates,
+  restrictBackdateToTranscriptEvidence,
+  accumulateTranscriptStatsByContent,
   refineBackdateStartsFromAssistantTimes,
   resolveUserBubbleTimes,
+  suspectResumeLeadingGapIndices,
 } from "../src/lib/collect/agents/cursor-gui.js";
 import { enrichCursorGuiFallbackContext } from "../src/lib/collect/index.js";
 import * as paths from "../src/lib/collect/paths.js";
@@ -665,5 +670,231 @@ describe("cursor-gui mtime fallback", () => {
     expect(conflict?.end_time).not.toBe(conflict?.start_time);
 
     db.close();
+  });
+
+  test("suspectResumeLeadingGapIndices flags small resume-open clusters before later activity", () => {
+    const sessionCreatedAtMs = new Date("2026-06-27T10:00:00.000Z").getTime();
+    const userBubbles = [
+      {
+        createdAt: new Date("2026-06-29T11:41:57.500Z"),
+        text: "我找出AgentCallRPC有打印日志的位置",
+        normalized: normalizeBubbleMatchText("我找出AgentCallRPC有打印日志的位置"),
+        composerIndex: 0,
+      },
+      {
+        createdAt: new Date("2026-06-29T11:41:57.506Z"),
+        text: "AgentCallRPC的调用链路是",
+        normalized: normalizeBubbleMatchText("AgentCallRPC的调用链路是"),
+        composerIndex: 1,
+      },
+      {
+        createdAt: new Date("2026-06-29T11:53:39.940Z"),
+        text: "我现在不方便查数据库，你帮我在关键位置加一些log吧",
+        normalized: normalizeBubbleMatchText("我现在不方便查数据库，你帮我在关键位置加一些log吧"),
+        composerIndex: 7,
+      },
+    ];
+
+    const suspects = suspectResumeLeadingGapIndices(userBubbles, sessionCreatedAtMs);
+    expect(suspects.has(0)).toBe(true);
+    expect(suspects.has(1)).toBe(true);
+    expect(suspects.has(2)).toBe(false);
+    expect(suspects.has(7)).toBe(false);
+  });
+
+  test("suspectResumeLeadingGapIndices does not flag same-day prompts before a later gap", () => {
+    const sessionCreatedAtMs = new Date("2026-06-15T06:29:32.752Z").getTime();
+    const userBubbles = [
+      {
+        createdAt: new Date("2026-06-29T11:41:57.500Z"),
+        text: "restamped old",
+        normalized: normalizeBubbleMatchText("restamped old"),
+        composerIndex: 0,
+      },
+      {
+        createdAt: new Date("2026-06-29T11:44:40.258Z"),
+        text: "first real input today",
+        normalized: normalizeBubbleMatchText("first real input today"),
+        composerIndex: 4,
+      },
+      {
+        createdAt: new Date("2026-06-29T11:53:39.940Z"),
+        text: "later real input",
+        normalized: normalizeBubbleMatchText("later real input"),
+        composerIndex: 7,
+      },
+    ];
+
+    const suspects = suspectResumeLeadingGapIndices(userBubbles, sessionCreatedAtMs);
+    expect(suspects.has(0)).toBe(true);
+    expect(suspects.has(4)).toBe(false);
+    expect(suspects.has(7)).toBe(false);
+  });
+
+  test("restrictBackdateToTranscriptEvidence only backdates transcript-proven historical prompts", () => {
+    const userBubbles = [
+      {
+        createdAt: new Date("2026-06-29T11:41:57.500Z"),
+        text: "我找出AgentCallRPC有打印日志的位置",
+        normalized: normalizeBubbleMatchText("我找出AgentCallRPC有打印日志的位置"),
+        composerIndex: 0,
+      },
+      {
+        createdAt: new Date("2026-06-29T11:41:57.506Z"),
+        text: "/location/api/v1/agent/device/service_status 返回的数据是空的",
+        normalized: normalizeBubbleMatchText(
+          "/location/api/v1/agent/device/service_status 返回的数据是空的"
+        ),
+        composerIndex: 2,
+      },
+    ];
+    const lines = [
+      JSON.stringify({
+        role: "user",
+        message: {
+          content: [
+            {
+              type: "text",
+              text: '<timestamp>Monday, Jun 15, 2026, 2:30 PM (UTC+8)</timestamp>\n<user_query>\n我找出AgentCallRPC有打印日志的位置\n</user_query>',
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        role: "user",
+        message: {
+          content: [
+            {
+              type: "text",
+              text: "<user_query>\n/location/api/v1/agent/device/service_status 返回的数据是空的\n</user_query>",
+            },
+          ],
+        },
+      }),
+    ];
+
+    const restricted = restrictBackdateToTranscriptEvidence(
+      lines,
+      userBubbles,
+      new Set([0, 2])
+    );
+    expect(restricted.has(0)).toBe(true);
+    expect(restricted.has(2)).toBe(false);
+  });
+
+  test("parseGuiSessionTranscript backdates two-bubble resume-open restamps off the resume day", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
+
+    const sessionId = "small-resume-open-sess";
+    const sessionCreatedAtMs = new Date("2026-06-27T10:00:00.000Z").getTime();
+    const earlyUser1 =
+      '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\\n我找出AgentCallRPC有打印日志的位置\\n</user_query>"}]}}';
+    const earlyUser2 =
+      '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\\nAgentCallRPC的调用链路是\\n</user_query>"}]}}';
+    const laterUser =
+      '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\\n我现在不方便查数据库，你帮我在关键位置加一些log吧\\n</user_query>"}]}}';
+    const assistant =
+      '{"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}';
+    const editAssistant =
+      '{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"service.go","old_string":"a","new_string":"b"}}]}}';
+
+    writeTranscript(
+      "proj-a",
+      sessionId,
+      [earlyUser1, assistant, earlyUser2, assistant, laterUser, editAssistant],
+      new Date("2026-06-29T15:00:00")
+    );
+
+    const insert = db.prepare("INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)");
+    insert.run(
+      `bubbleId:${sessionId}:early-0`,
+      JSON.stringify({
+        type: 1,
+        text: "我找出AgentCallRPC有打印日志的位置",
+        createdAt: "2026-06-29T11:41:57.500Z",
+      })
+    );
+    insert.run(
+      `bubbleId:${sessionId}:early-1`,
+      JSON.stringify({
+        type: 1,
+        text: "AgentCallRPC的调用链路是",
+        createdAt: "2026-06-29T11:41:57.506Z",
+      })
+    );
+    insert.run(
+      `bubbleId:${sessionId}:later-7`,
+      JSON.stringify({
+        type: 1,
+        text: "我现在不方便查数据库，你帮我在关键位置加一些log吧",
+        createdAt: "2026-06-29T11:53:39.940Z",
+      })
+    );
+
+    const june29 = parseGuiSessionTranscript(sessionId, "2026-06-29", { db, sessionCreatedAtMs });
+    const june27 = parseGuiSessionTranscript(sessionId, "2026-06-27", { db, sessionCreatedAtMs });
+
+    expect(june29.humanInputs.some((h) => h.content.includes("AgentCallRPC有打印日志"))).toBe(false);
+    expect(june29.humanInputs.some((h) => h.content.includes("调用链路"))).toBe(false);
+    expect(june29.humanInputs.some((h) => h.content.includes("关键位置加一些log"))).toBe(true);
+
+    const backdated = june27.humanInputs.filter(
+      (h) => h.content.includes("AgentCallRPC") || h.content.includes("调用链路")
+    );
+    expect(backdated.length).toBeGreaterThan(0);
+    expect(backdated.every((h) => h.time_precision === "approximate")).toBe(true);
+
+    db.close();
+  });
+
+  test("pruneActiveBackdateCandidates keeps restamped prompts with historical transcript activity", () => {
+    const userBubbles = [
+      {
+        createdAt: new Date("2026-06-29T11:41:57.500Z"),
+        text: "我找出AgentCallRPC有打印日志的位置",
+        normalized: normalizeBubbleMatchText("我找出AgentCallRPC有打印日志的位置"),
+        composerIndex: 0,
+      },
+    ];
+    const stats = new Map([
+      [
+        userBubbles[0].normalized,
+        {
+          files_changed: 2,
+          lines_added: 10,
+          lines_deleted: 3,
+          end_time: "2026-06-16T11:43:13.410Z",
+        },
+      ],
+    ]);
+
+    const pruned = pruneActiveBackdateCandidates(userBubbles, new Set([0]), stats);
+    expect(pruned.has(0)).toBe(true);
+  });
+
+  test("pruneActiveBackdateCandidates keeps prompts with transcript tool activity", () => {
+    const userBubbles = [
+      {
+        createdAt: new Date("2026-06-29T11:41:57.506Z"),
+        text: "active prompt",
+        normalized: normalizeBubbleMatchText("active prompt"),
+        composerIndex: 2,
+      },
+    ];
+    const stats = new Map([
+      [
+        userBubbles[0].normalized,
+        {
+          files_changed: 1,
+          lines_added: 3,
+          lines_deleted: 1,
+          end_time: "2026-06-29T11:48:03.019Z",
+        },
+      ],
+    ]);
+
+    const pruned = pruneActiveBackdateCandidates(userBubbles, new Set([0]), stats);
+    expect(pruned.size).toBe(0);
   });
 });

@@ -30,7 +30,12 @@ import {parsePatchDeltas, extractPathFromInput, estimateToolDeltas} from "../agg
 const USER_QUERY_RE = /<user_query>\s*([\s\S]*?)\s*<\/user_query>/i;
 const TS_TAG_RE = /<timestamp>([^<]+)<\/timestamp>/i;
 const BUBBLE_CLUSTER_WINDOW_MS = 3_000;
-const BUBBLE_CLUSTER_MIN_SIZE = 5;
+const BUBBLE_CLUSTER_MIN_SIZE = 2;
+/** Min composerIndex gap between resume-open restamp cluster and later real activity. */
+const RESUME_LEADING_INDEX_GAP_MIN = 3;
+/** Min time between resume-open cluster and later prompt on the same day. */
+const RESUME_LEADING_TIME_SPREAD_MS = 5 * 60 * 1000;
+const ACTIVE_BACKDATE_END_SLACK_MS = 1_000;
 
 function encodedPathSegmentTokens(name: string): string[] {
     return name
@@ -285,6 +290,265 @@ export function findDenseBubbleClusterIndices(
         i = j;
     }
     return suspect;
+}
+
+/** Exported for unit tests. */
+export function suspectResumeLeadingGapIndices(
+    userBubbles: UserBubble[],
+    sessionCreatedAtMs: number,
+    windowMs = BUBBLE_CLUSTER_WINDOW_MS,
+    indexGapMin = RESUME_LEADING_INDEX_GAP_MIN,
+    timeSpreadMinMs = RESUME_LEADING_TIME_SPREAD_MS
+): Set<number> {
+    if (sessionCreatedAtMs == null || userBubbles.length === 0) return new Set();
+
+    const sessionDay = localDateString(new Date(sessionCreatedAtMs));
+    const backdate = new Set<number>();
+    const byDay = new Map<string, Array<{ index: number; bubble: UserBubble }>>();
+
+    for (let i = 0; i < userBubbles.length; i++) {
+        const day = localDateString(userBubbles[i].createdAt);
+        if (!day) continue;
+        const list = byDay.get(day) ?? [];
+        list.push({index: i, bubble: userBubbles[i]});
+        byDay.set(day, list);
+    }
+
+    for (const [day, entries] of byDay) {
+        if (day <= sessionDay) continue;
+        entries.sort((a, b) => a.bubble.composerIndex - b.bubble.composerIndex);
+
+        const dayLead = entries.reduce(
+            (earliest, entry) =>
+                entry.bubble.createdAt.getTime() < earliest.bubble.createdAt.getTime()
+                    ? entry
+                    : earliest,
+            entries[0]
+        );
+        const leadOrder = dayLead.bubble.composerIndex;
+        const leadTime = dayLead.bubble.createdAt.getTime();
+
+        const later = entries.find((entry) => {
+            const order = entry.bubble.composerIndex;
+            if (order - leadOrder < indexGapMin) return false;
+            return entry.bubble.createdAt.getTime() - leadTime >= timeSpreadMinMs;
+        });
+        if (!later) continue;
+
+        const laterOrder = later.bubble.composerIndex;
+        for (const entry of entries) {
+            const order = entry.bubble.composerIndex;
+            if (order >= laterOrder) continue;
+            const delta = Math.abs(entry.bubble.createdAt.getTime() - leadTime);
+            if (delta <= windowMs) backdate.add(entry.index);
+        }
+    }
+
+    return backdate;
+}
+
+/** Exported for unit tests. */
+export function restrictBackdateToTranscriptEvidence(
+    lines: string[],
+    userBubbles: UserBubble[],
+    candidates: Set<number>
+): Set<number> {
+    if (candidates.size === 0) return candidates;
+
+    const transcriptTexts = extractTranscriptUserTexts(lines);
+    let hasTranscriptTimestamp = false;
+    for (const text of transcriptTexts) {
+        if (parseTimestampFromText(text)) {
+            hasTranscriptTimestamp = true;
+            break;
+        }
+    }
+    if (!hasTranscriptTimestamp) return candidates;
+
+    const pairs = matchTranscriptToBubbleIndices(transcriptTexts, userBubbles);
+    const transcriptIndexByBubble = new Map(pairs.map((pair) => [pair.bubbleIndex, pair.transcriptIndex]));
+
+    const restricted = new Set<number>();
+    for (const idx of candidates) {
+        const bubble = userBubbles[idx];
+        if (!bubble) continue;
+        const transcriptIndex = transcriptIndexByBubble.get(idx);
+        if (transcriptIndex == null) continue;
+
+        const ts = parseTimestampFromText(transcriptTexts[transcriptIndex]);
+        if (!ts) continue;
+
+        const bubbleDay = localDateString(bubble.createdAt);
+        const tsDay = localDateString(ts);
+        if (tsDay < bubbleDay) restricted.add(idx);
+    }
+    return restricted;
+}
+
+/** Exported for unit tests. */
+export function mergeSuspectBackdateIndices(
+    userBubbles: UserBubble[],
+    sessionCreatedAtMs: number
+): Set<number> {
+    const merged = suspectBackdateBubbleIndices(userBubbles, sessionCreatedAtMs);
+    for (const idx of suspectResumeLeadingGapIndices(userBubbles, sessionCreatedAtMs)) {
+        merged.add(idx);
+    }
+    return merged;
+}
+
+/** Exported for unit tests. */
+export function pruneActiveBackdateCandidates(
+    userBubbles: UserBubble[],
+    candidates: Set<number>,
+    statsByContent: Map<
+        string,
+        Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time">
+    >
+): Set<number> {
+    const pruned = new Set(candidates);
+    for (const idx of candidates) {
+        const bubble = userBubbles[idx];
+        if (!bubble) continue;
+        const stats = statsByContent.get(bubble.normalized);
+        if (!stats) continue;
+
+        const startMs = bubble.createdAt.getTime();
+        const endMs = stats.end_time ? new Date(stats.end_time).getTime() : NaN;
+        // Transcript tool activity that ended before the restamped open cluster is historical,
+        // not evidence the prompt was entered on the resume day.
+        const toolActivityOnResumeDay =
+            Number.isFinite(endMs) && endMs >= startMs - ACTIVE_BACKDATE_END_SLACK_MS;
+        const hasFileActivity =
+            toolActivityOnResumeDay &&
+            ((stats.files_changed ?? 0) > 0 ||
+                (stats.lines_added ?? 0) > 0 ||
+                (stats.lines_deleted ?? 0) > 0);
+        const hasDuration =
+            toolActivityOnResumeDay &&
+            Number.isFinite(endMs) &&
+            endMs > startMs + ACTIVE_BACKDATE_END_SLACK_MS;
+
+        if (hasFileActivity || hasDuration) pruned.delete(idx);
+    }
+    return pruned;
+}
+
+/** Exported for unit tests. */
+export function accumulateTranscriptStatsByContent(
+    lines: string[],
+    userBubbles: UserBubble[],
+    assistantTimes: Date[]
+): Map<string, Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time">> {
+    const statsByContent = new Map<
+        string,
+        Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time">
+    >();
+    const usedBubbleIndices = new Set<number>();
+    let currentNorm: string | null = null;
+    let currentStart: Date | null = null;
+    let files = new Set<string>();
+    let linesAdded = 0;
+    let linesDeleted = 0;
+    let firstTool: Date | null = null;
+    let lastTool: Date | null = null;
+
+    const flush = (): void => {
+        if (!currentNorm) return;
+        const start = currentStart ?? firstTool;
+        // Only attribute duration from actual transcript tool timestamps. Assistant
+        // bubble DB times include resume restamps and must not extend historical prompts.
+        const end = lastTool ?? firstTool ?? start;
+        statsByContent.set(currentNorm, {
+            files_changed: files.size,
+            lines_added: linesAdded,
+            lines_deleted: linesDeleted,
+            end_time: start ? formatIsoTime(end ?? start) : undefined,
+        });
+        currentNorm = null;
+        currentStart = null;
+        files = new Set<string>();
+        linesAdded = 0;
+        linesDeleted = 0;
+        firstTool = null;
+        lastTool = null;
+    };
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let obj: Record<string, unknown>;
+        try {
+            obj = JSON.parse(trimmed) as Record<string, unknown>;
+        } catch {
+            continue;
+        }
+
+        const role = obj["role"];
+        const message = (obj["message"] as Record<string, unknown> | undefined) ?? obj;
+        const content = message["content"];
+
+        if (role === "user" && Array.isArray(content)) {
+            let textAcc = "";
+            for (const block of content) {
+                const b = block as Record<string, unknown>;
+                if (b["type"] !== "text") continue;
+                const text = String(b["text"] ?? "").trim();
+                if (!text) continue;
+                textAcc = textAcc ? `${textAcc}\n${text}` : text;
+            }
+            if (!textAcc) continue;
+
+            flush();
+            const extracted = extractHumanInputText(textAcc);
+            const matched = matchUserBubble(extracted, userBubbles, usedBubbleIndices);
+            if (!matched) continue;
+
+            currentNorm = matched.normalized;
+            currentStart = matched.createdAt;
+            continue;
+        }
+
+        if (role !== "assistant" || !Array.isArray(content) || !currentNorm) continue;
+
+        const eventTs = parseEventTimestamp(obj, message);
+        for (const block of content) {
+            const b = block as Record<string, unknown>;
+            if (b["type"] !== "tool_use") continue;
+            const rawInput = b["input"];
+            if (typeof rawInput === "string" && String(b["name"] ?? "") === "ApplyPatch") {
+                const patchFiles = parsePatchDeltas(rawInput);
+                for (const pf of patchFiles) {
+                    files.add(pf.path);
+                    linesAdded += Math.max(0, pf.added);
+                    linesDeleted += Math.max(0, pf.deleted);
+                    if (eventTs) {
+                        firstTool = firstTool ?? eventTs;
+                        lastTool = eventTs;
+                    }
+                }
+                continue;
+            }
+
+            const input = (rawInput as Record<string, unknown> | undefined) ?? {};
+            const toolName = typeof b["name"] === "string" ? b["name"] : "";
+            if (!isMutationTool(toolName)) continue;
+            const deltas = estimateToolDeltas(toolName, rawInput as Record<string, unknown>);
+            const delta = deltas[0];
+            const p = delta?.path ?? extractPathFromInput(input);
+            if (!p) continue;
+            files.add(p);
+            linesAdded += Math.max(0, delta?.added ?? 0);
+            linesDeleted += Math.max(0, delta?.deleted ?? 0);
+            if (eventTs) {
+                firstTool = firstTool ?? eventTs;
+                lastTool = eventTs;
+            }
+        }
+    }
+
+    flush();
+    return statsByContent;
 }
 
 /** Exported for unit tests. */
@@ -707,10 +971,25 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
     let resolvedAtByBubble = new Map<UserBubble, Date>();
     const approxBubbles = new Set<UserBubble>();
     if (fullBubbleTimeline) {
+        const preStats = accumulateTranscriptStatsByContent(
+            lines,
+            fullBubbleTimeline.userBubbles,
+            fullBubbleTimeline.assistantTimes
+        );
         if (opts?.sessionCreatedAtMs != null) {
-            const backdate = suspectBackdateBubbleIndices(
+            let backdate = mergeSuspectBackdateIndices(
                 fullBubbleTimeline.userBubbles,
                 opts.sessionCreatedAtMs
+            );
+            backdate = restrictBackdateToTranscriptEvidence(
+                lines,
+                fullBubbleTimeline.userBubbles,
+                backdate
+            );
+            backdate = pruneActiveBackdateCandidates(
+                fullBubbleTimeline.userBubbles,
+                backdate,
+                preStats
             );
             if (backdate.size > 0) {
                 const pairs = matchTranscriptToBubbleIndices(
