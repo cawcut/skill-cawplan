@@ -50,11 +50,12 @@ cawplan init
 /cawplan-coding-commit
 
 # 指定某一天（昨天 / 具体日期）
-/cawplan-coding-commit 上传昨天的日报
-/cawplan-coding-commit 上传 2026-06-20 的日报
+/cawplan-coding-commit yesterday
+/cawplan-coding-commit 2026-06-20
 
 # 补某一整月云端缺失的日报（仅缺失日期，不覆盖已上传）
-/cawplan-coding-commit 上传 2026 年 6 月的缺失日报
+/cawplan-coding-commit last month
+/cawplan-coding-commit 2026-06
 ```
 
 不需要额外提示词，也不需要二次确认上传。Agent 会自动收集当天 AI session，展示摘要后上传日报。
