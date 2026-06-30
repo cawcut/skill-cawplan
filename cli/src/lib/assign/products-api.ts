@@ -1,4 +1,4 @@
-import {input, search, select} from "@inquirer/prompts";
+import {confirm, input, search, select} from "@inquirer/prompts";
 import {listCawplanProducts} from "../product-catalog.js";
 import {cawplanRequest} from "../http.js";
 import {extractList} from "../ai-session/helpers.js";
@@ -209,6 +209,13 @@ export async function selectProduct(products: ProductChoice[], message: string):
             },
         },
     }, context), {navigationKeys: true});
+}
+
+export async function promptConfirm(message: string, defaultValue = true): Promise<boolean> {
+    return withTtyShortcuts((context) => confirm({
+        message,
+        default: defaultValue,
+    }, context));
 }
 
 export async function searchProduct(

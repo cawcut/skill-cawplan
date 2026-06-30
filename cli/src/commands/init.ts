@@ -1,6 +1,5 @@
 import {execFileSync} from "node:child_process";
 import {Command} from "commander";
-import {confirm} from "@inquirer/prompts";
 import {openBrowser} from "../lib/oauth.js";
 import {getPortalBase} from "../lib/products.js";
 import {
@@ -8,6 +7,7 @@ import {
     listProductLinesForSelector,
     listProductRepoMappings,
     listProductsForSelector,
+    promptConfirm,
     selectProduct,
     selectProductLine,
     withProductLineCounts,
@@ -47,10 +47,7 @@ function productCreateUrl(productLineId: string): string {
 
 async function promptCreateProduct(productLineName: string, productLineId: string): Promise<void> {
     const url = productCreateUrl(productLineId);
-    const shouldOpen = await confirm({
-        message: `No product exists under "${productLineName}". Create one now?`,
-        default: true,
-    });
+    const shouldOpen = await promptConfirm(`No product exists under "${productLineName}". Create one now?`);
     if (!shouldOpen) {
         console.log("Cancelled.");
         return;
@@ -113,10 +110,7 @@ export function registerInitCommand(program: Command): void {
                     `Select CawPlan product under ${productLine.product_line_name} for ${repoName}`
                 );
 
-                const ok = await confirm({
-                    message: `Create mapping: ${product.product_name} -> ${repoUrl}?`,
-                    default: true,
-                });
+                const ok = await promptConfirm(`Create mapping: ${product.product_name} -> ${repoUrl}?`);
                 if (!ok) {
                     console.log("Cancelled.");
                     return;
