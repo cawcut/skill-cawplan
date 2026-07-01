@@ -33,13 +33,13 @@ Reports are uploaded to CawPlan Cloud to track AI sessions, tokens, costs, and p
     cawplan auth status
     ```
 
-Before reporting from a repository for the first time, run this once from the repository root:
+Optionally, run this once from the repository root to preconfigure the default Product mapping:
 
 ```bash
 cawplan init
 ```
 
-This lets you select a CawPlan Team and Product in the terminal, then configures the default mapping between the current GitHub repository and the selected Product. If there is only one Team, it skips directly to Product selection. If the selected Team has no Products, it prompts whether to open the Product creation page.
+`cawplan init` is not required for daily reporting. It lets you select a CawPlan Team and Product in the terminal, then configures the default mapping between the current GitHub repository and the selected Product. If you skip it, reports can still be collected and uploaded; unmapped sessions can be assigned from the report assignment page. If there is only one Team, it skips directly to Product selection. If the selected Team has no Products, it prompts whether to open the Product creation page.
 
 ## Daily Reporting
 

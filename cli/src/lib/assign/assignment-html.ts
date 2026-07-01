@@ -681,6 +681,7 @@ export function assignmentHtml(): string {
       } else {
       tbody.innerHTML = entries.map(({file, date, report, session: s}) => {
         const title = s.session_title || s.session_name || s.session_id;
+        const cwdTitle = s.cwd ? ' title="' + escapeHtml(s.cwd) + '"' : '';
         const currentProduct = products.find((p) => p.product_id === s.product_id);
         const productValue = currentProduct ? currentProduct.product_name : (s.product_name || '');
         const selectedRepo = selectedRepoForSession(s);
@@ -689,7 +690,7 @@ export function assignmentHtml(): string {
         return '<tr data-file="' + escapeHtml(file) + '" data-session-id="' + escapeHtml(s.session_id) + '">' +
           '<td>' + (category ? '<span class="badge badge-cat-' + escapeHtml(category) + '">' + escapeHtml(category) + '</span>' : '<span class="muted">—</span>') + '</td>' +
           '<td>' + (topic ? '<span class="badge badge-topic-' + escapeHtml(topic) + '">' + escapeHtml(topic) + '</span>' : '<span class="muted">—</span>') + '</td>' +
-          '<td><div class="session-title">' + escapeHtml(title) + '</div></td>' +
+          '<td><div class="session-title"' + cwdTitle + '>' + escapeHtml(title) + '</div></td>' +
           '<td class="input-cell">' + humanInputsHtml(report, s) + '</td>' +
           '<td class="lines-cell">' + sessionLinesText(s) + '</td>' +
           '<td class="num-cell">' + escapeHtml(s.files_changed ?? 0) + '</td>' +
