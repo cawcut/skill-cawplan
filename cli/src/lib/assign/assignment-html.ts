@@ -681,7 +681,7 @@ export function assignmentHtml(): string {
       } else {
       tbody.innerHTML = entries.map(({file, date, report, session: s}) => {
         const title = s.session_title || s.session_name || s.session_id;
-        const cwdTitle = s.cwd ? ' title="' + escapeHtml(s.cwd) + '"' : '';
+        const cwdTitle = ' title="cwd: &quot;' + escapeHtml(s.cwd || '') + '&quot;"';
         const currentProduct = products.find((p) => p.product_id === s.product_id);
         const productValue = currentProduct ? currentProduct.product_name : (s.product_name || '');
         const selectedRepo = selectedRepoForSession(s);

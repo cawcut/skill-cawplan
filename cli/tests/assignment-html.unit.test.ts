@@ -100,7 +100,7 @@ describe("assignmentHtml - needs review filter", () => {
 describe("assignmentHtml - session column", () => {
     test("renders session title with cwd hover tooltip", () => {
         const html = assignmentHtml();
-        expect(html).toContain("const cwdTitle = s.cwd ? ' title=\"' + escapeHtml(s.cwd) + '\"' : '';");
+        expect(html).toContain("const cwdTitle = ' title=\"cwd: &quot;' + escapeHtml(s.cwd || '') + '&quot;\"';");
         expect(html).toContain("'<td><div class=\"session-title\"' + cwdTitle + '>' + escapeHtml(title) + '</div></td>'");
         expect(html).not.toContain("[s.agent, s.project].filter(Boolean).join(' | ')");
     });
