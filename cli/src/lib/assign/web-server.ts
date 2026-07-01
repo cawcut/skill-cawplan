@@ -19,6 +19,7 @@ import type {AssignmentReport, ProductRepoMapping, WebAssignment} from "./types.
 import type {DailyApiJson} from "../collect/types.js";
 
 const localAssignmentHost = "127.0.0.1";
+const ASSIGNMENT_SERVER_TIMEOUT_MS = 10 * 60 * 1000;
 const assetNames = new Set(["model-gpt.png", "model-claude.png", "model-cursor.png"]);
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -148,7 +149,22 @@ export async function startAssignmentWebServer(reports: AssignmentReport[], batc
     let closed = false;
 
     await new Promise<void>((resolve, reject) => {
-        const server = createServer(async (req, res) => {
+        let timeout: NodeJS.Timeout | undefined;
+        let server: ReturnType<typeof createServer>;
+        const closeServer = () => {
+            if (closed) return;
+            closed = true;
+            if (timeout) clearTimeout(timeout);
+            server.close(() => resolve());
+        };
+        const closeServerSoon = () => {
+            if (closed) return;
+            closed = true;
+            if (timeout) clearTimeout(timeout);
+            setTimeout(() => server.close(() => resolve()), 50);
+        };
+
+        server = createServer(async (req, res) => {
             try {
                 const url = new URL(req.url ?? "/", `http://${localAssignmentHost}`);
                 if (!requestHasToken(req, token)) {
@@ -236,13 +252,13 @@ export async function startAssignmentWebServer(reports: AssignmentReport[], batc
                         files: result.files,
                         assigned_sessions: result.assignedSessions,
                     });
+                    closeServerSoon();
                     return;
                 }
 
                 if (req.method === "POST" && url.pathname === "/api/close") {
                     sendJson(res, 200, {closed: true});
-                    closed = true;
-                    setTimeout(() => server.close(() => resolve()), 50);
+                    closeServerSoon();
                     return;
                 }
 
@@ -264,13 +280,17 @@ export async function startAssignmentWebServer(reports: AssignmentReport[], batc
             void openBrowser(assignmentUrl).catch(() => {
                 console.error("Could not open the browser automatically; please open the URL manually.");
             });
-            console.error("Press Ctrl+C or click Close in the page when done.");
+            console.error("Waiting for browser assignment. Click Save assignments or Close in the page to exit.");
+            console.error("This assignment server will automatically close after 10 minutes.");
+            console.error("Do not start another assign --web command while this one is waiting.");
+            timeout = setTimeout(() => {
+                console.error("Assignment page timed out after 10 minutes; closing local server.");
+                closeServer();
+            }, ASSIGNMENT_SERVER_TIMEOUT_MS);
         });
 
         process.once("SIGINT", () => {
-            if (closed) return;
-            closed = true;
-            server.close(() => resolve());
+            closeServer();
         });
     });
 }

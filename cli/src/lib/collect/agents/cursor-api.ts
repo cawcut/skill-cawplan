@@ -22,7 +22,7 @@ import {DatabaseSync} from "node:sqlite";
 import {HumanInput, ModelUsageEntry, UsageBucket} from "../types.js";
 import {cursorStateDbCandidates} from "../paths.js";
 import {isTimestampOnLocalDate, dayBoundsMs} from "../date-utils.js";
-import {calculateCost} from "../pricing.js";
+import {calculateCost, COST_CURRENCY} from "../pricing.js";
 
 const PAGE_SIZE = 500;
 const DEFAULT_CURSOR_API_TIMEOUT_MS = 30_000;
@@ -297,7 +297,7 @@ export function aggregateCursorUsage(
                 cache_read_input_tokens: 0,
                 cache_creation_input_tokens: 0,
                 cost: 0,
-                currency: "$",
+                currency: COST_CURRENCY,
             };
         }
 
@@ -328,7 +328,7 @@ export function aggregateCursorUsage(
         }
     }
 
-    return { totalCost, currency: "$", byModel };
+    return { totalCost, currency: COST_CURRENCY, byModel };
 }
 
 
@@ -536,7 +536,7 @@ export function aggregateCursorUsageBySession(
                 cache_read_input_tokens: 0,
                 cache_creation_input_tokens: 0,
                 cost: 0,
-                currency: "$",
+                currency: COST_CURRENCY,
                 note: "dashboard API human-input window attribution",
                 token_source: "dashboard_api",
             });

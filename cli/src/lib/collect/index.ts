@@ -1,7 +1,7 @@
 import {writeFileSync, mkdirSync} from "node:fs";
 import {dirname} from "node:path";
 import {CollectOptions, DailyApiJson} from "./types.js";
-import {gitAuthor} from "./git.js";
+import {gitAuthor, gitRemoteRepo} from "./git.js";
 import {collectClaudeCodeSession, findSessionsByDate} from "./agents/claude-code.js";
 import {collectGuiSessions} from "./agents/cursor-gui.js";
 import {collectCursorCliSessions} from "./agents/cursor-cli.js";
@@ -56,6 +56,31 @@ function inferCursorProject(gs: {
     }
 
     return gs.id.slice(0, 8);
+}
+
+export function normalizeSessionRepoContext(sessions: SessionData[], resolveRepo = gitRemoteRepo): void {
+    for (const session of sessions) {
+        const cwd = (session.cwd ?? "").trim();
+        if (cwd) {
+            const resolvedRepo = (resolveRepo(cwd) ?? "").trim();
+            const repoName = toRepoName(resolvedRepo);
+            // gitRemoteRepo() returns the original cwd as a fallback when it cannot
+            // read a git remote. Treat only a different value as a real repo match.
+            if (repoName && resolvedRepo !== cwd) {
+                session.project = repoName;
+                continue;
+            }
+        }
+
+        const topRepo = [...(session.repos_touched ?? [])]
+            .sort((a, b) => (b.files ?? 0) - (a.files ?? 0))
+            .find((r) => !!r.repo);
+        const topRepoName = toRepoName(topRepo?.repo_name ?? topRepo?.repo_url ?? topRepo?.repo);
+        if (topRepoName) {
+            session.project = topRepoName;
+            continue;
+        }
+    }
 }
 
 function inferCursorTitle(gs: {
@@ -172,8 +197,6 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
         }
     }
 
-    enrichCursorGuiFallbackContext(sessions);
-
     // Collect Cursor CLI sessions
     if (targetAgents.includes("cursor")) {
         try {
@@ -191,6 +214,9 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
             console.warn(`Warning: codex: ${(e as Error).message}`);
         }
     }
+
+    enrichCursorGuiFallbackContext(sessions);
+    normalizeSessionRepoContext(sessions);
 
     // Fetch Cursor API exact usage data
     let cursorApiUsage:

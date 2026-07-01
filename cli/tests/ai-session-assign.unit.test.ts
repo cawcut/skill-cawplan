@@ -1,5 +1,6 @@
 import {describe, expect, test} from "vitest";
 import {readMatchingBrowserModule} from "../src/lib/assign/matching-browser";
+import {autoAssignAllFromMappings} from "../src/lib/assign/auto-assign";
 import {
     canonicalRepoNameFromMapping,
     findMappingForSession,
@@ -139,5 +140,49 @@ describe("assignment repo matching", () => {
         expect(source).toContain("export function findMappingForSession");
         expect(source).toContain("export function repoNameFromGitHubUrl");
         expect(source).toContain("repo.repo_url");
+    });
+
+    test("auto assignment fills product when folder name differs from git repo name", () => {
+        const daily = {
+            schema: "2.0" as const,
+            date: "2026-06-24",
+            author: "tester",
+            generated_at: "2026-06-24T00:00:00.000Z",
+            include_conversation: false,
+            totals: {
+                sessions: 1,
+                agents: ["cursor-cli"],
+                messages: {user: 1, assistant: 1, tool_calls: 0},
+                files_changed: 0,
+                cost: {"$": 0},
+            },
+            usage_breakdown: [],
+            model_usage: {},
+            sessions: [{
+                schema: "2.0" as const,
+                date: "2026-06-24",
+                agent: "cursor-cli",
+                session_id: "s1",
+                session_name: "One",
+                project: "local-folder-name",
+                cwd: process.cwd(),
+                time_range: {display: "", timezone: "UTC", start: "2026-06-24T09:00:00.000Z"},
+                model_usage: {},
+                usage_breakdown: [],
+                files_changed: 0,
+                files_added: 0,
+                files_deleted: 0,
+                repos_touched: [],
+                message_stats: {user: 1, assistant: 1, tool_calls: 0},
+            }],
+            repos: [],
+            human_inputs: [],
+        };
+
+        const updated = autoAssignAllFromMappings(daily, mappings);
+
+        expect(updated).toBe(1);
+        expect(daily.sessions[0]?.project).toBe("flow-cawplan-skill");
+        expect(daily.sessions[0]?.product_id).toBe("prod-cawplan");
     });
 });

@@ -605,7 +605,7 @@ export function assignmentHtml(): string {
       for (const r of reports) {
         const costMap = r.report && r.report.totals && r.report.totals.cost;
         if (costMap && typeof costMap === 'object') {
-          const val = typeof costMap['USD'] === 'number' ? costMap['USD'] : Object.values(costMap).find((v) => typeof v === 'number');
+          const val = typeof costMap['$'] === 'number' ? costMap['$'] : Object.values(costMap).find((v) => typeof v === 'number');
           if (typeof val === 'number') cost += val;
         }
       }
@@ -649,7 +649,7 @@ export function assignmentHtml(): string {
           '<div class="kpi"><div class="kpi-lbl">Sessions</div><div class="kpi-val">' + total + '</div></div>' +
           '<div class="kpi"><div class="kpi-lbl">Assigned</div><div class="kpi-val">' + assigned + '</div></div>' +
           '<div class="kpi"><div class="kpi-lbl">Unassigned</div><div class="kpi-val">' + unassigned + '</div></div>' +
-          '<div class="kpi"><div class="kpi-lbl">Total Cost (USD)</div><div class="kpi-val">$' + cost.toFixed(2) + '</div></div>' +
+          '<div class="kpi"><div class="kpi-lbl">Total Cost ($)</div><div class="kpi-val">$' + cost.toFixed(2) + '</div></div>' +
         '</div>' +
         (storageRows.length ? '<div class="storage-wrap">' + storageRows.join('') + '</div>' : '');
     }

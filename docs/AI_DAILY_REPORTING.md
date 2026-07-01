@@ -1,75 +1,74 @@
 # AI Daily Reporting Guide
 
-This document is for developers and explains how to submit AI Coding daily reports.
-Reports are uploaded to CawPlan Cloud to track AI sessions, tokens, costs, and prompt usage.
+This guide explains how developers submit AI Coding daily reports to CawPlan Cloud.
+Reports include local AI coding sessions, token usage, estimated or actual costs, human prompts, changed files, and Product assignments.
 
 ## First-Time Setup
 
-1. Install the skill:
-    ```bash
-    npx skills add Ubiquiti-UID/flow-cawplan-skill -a cursor claude-code codex -g -y
-    ```
+### 1. Install Or Update The Skill
 
-    Running the command again updates the skill. After installation, restart the agent so the skill takes effect.
+```bash
+npx skills add Ubiquiti-UID/flow-cawplan-skill -a cursor claude-code codex -g -y
+```
 
-2. Install the `cawplan` CLI:
+Run the same command again to update the skill. Restart the agent after installation or upgrade so the new instructions take effect.
 
-    `cawplan` requires Node.js `>=22.13.0`. If your Node.js version is too old, upgrade Node.js before installing.
+### 2. Install Or Upgrade The CLI
 
-    ```bash
-    # Install
-    npm install -g cawplan@latest
+`cawplan` requires Node.js `>=22.13.0`.
 
-    # Upgrade
-    cawplan upgrade
-    ```
+```bash
+# Install
+npm install -g cawplan@latest
 
-3. Log in to CawPlan:
+# Upgrade an existing install
+cawplan upgrade
+```
 
-    ```bash
-    cawplan auth login
+### 3. Log In
 
-    # Check login status
-    cawplan auth status
-    ```
+```bash
+cawplan auth login
+cawplan auth status
+```
 
-Optionally, run this once from the repository root to preconfigure the default Product mapping:
+`cawplan auth login` opens a browser-based verification flow.
+
+### 4. Preconfigure Repository Mapping
+
+This step is optional. From the GitHub repository root, run:
 
 ```bash
 cawplan init
 ```
 
-`cawplan init` is not required for daily reporting. It lets you select a CawPlan Team and Product in the terminal, then configures the default mapping between the current GitHub repository and the selected Product. If you skip it, reports can still be collected and uploaded; unmapped sessions can be assigned from the report assignment page. If there is only one Team, it skips directly to Product selection. If the selected Team has no Products, it prompts whether to open the Product creation page.
+This command will preconfigure the default mapping from the current GitHub repository to a CawPlan Product, which can reduce the need for manual assignment later.
+If you skip it, daily reports can still be collected and uploaded;  unmapped sessions can be assigned on the local Web assignment page.
 
 ## Daily Reporting
 
-Run this in the agent:
+Run these commands in the agent chat, not directly in your shell:
 
 ```bash
 # Default: collect and upload today, then check missing dates in the current month
 /cawplan-coding-commit
 
-# Specify one day (yesterday / exact date)
+# Specify one day
 /cawplan-coding-commit yesterday
 /cawplan-coding-commit 2026-06-20
 
-# Fill missing cloud reports for an entire month (missing dates only; already-uploaded dates are not overwritten)
+# Fill missing cloud reports for a month
 /cawplan-coding-commit last month
 /cawplan-coding-commit 2026-06
 ```
-
-No extra prompt is required, and no second upload confirmation is needed. The agent automatically collects the AI sessions, shows a summary, and uploads the daily report.
-
-After a successful upload, the CLI checks for missing cloud reports in the current month and automatically fills collectible historical dates.
 
 ## FAQ
 
 ### Skill Installation Fails
 
-`npx skills add Ubiquiti-UID/flow-cawplan-skill` uses HTTPS clone by default. If cloning fails, try SSH clone instead:
+The `npx skills add` uses HTTPS by default. If cloning fails, try SSH:
 
 ```bash
-# SSH clone
 npx skills add git@github.com:Ubiquiti-UID/flow-cawplan-skill.git -a cursor claude-code codex -g -y
 ```
 

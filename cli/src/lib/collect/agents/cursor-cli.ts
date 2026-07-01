@@ -8,7 +8,7 @@ import {
   localDateString,
 } from "../date-utils.js";
 import { SessionData, FileChange, RepoTouched, UsageBucket, ModelUsageEntry } from "../types.js";
-import { calculateCost, getCurrency } from "../pricing.js";
+import { calculateCost, COST_CURRENCY } from "../pricing.js";
 
 const CHARS_PER_TOKEN = 4;
 
@@ -418,7 +418,6 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
       // Build model usage — cursor CLI doesn't expose per-request tokens
       // Use model from metadata
       const model = meta.model || "unknown";
-      const currency = getCurrency(model);
       const estimate = estimateTokensFromMessages(messages);
 
       const modelEntry: ModelUsageEntry = {
@@ -433,7 +432,7 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
           cache_read_input_tokens: 0,
           cache_creation_input_tokens: 0,
         }) ?? 0,
-        currency,
+        currency: COST_CURRENCY,
         token_source: "char-based estimate (API unavailable)",
         note: `chars/${CHARS_PER_TOKEN} estimate (user->input, assistant->output)`,
       };

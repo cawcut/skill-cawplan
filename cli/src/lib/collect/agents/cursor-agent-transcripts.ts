@@ -23,6 +23,7 @@ import {
   parseTimestampTag,
 } from "../date-utils.js";
 import { FileDelta, estimateToolDeltas } from "../aggregators/tool-utils.js";
+import { COST_CURRENCY } from "../pricing.js";
 
 const CHARS_PER_TOKEN = 4;
 
@@ -404,7 +405,7 @@ export function collectCursorAgentTranscripts(filterDate: string): SessionData[]
         cache_read_input_tokens: 0,
         cache_creation_input_tokens: 0,
         cost: 0,
-        currency: "$",
+        currency: COST_CURRENCY,
         token_source: "char-based estimate (API unavailable)",
         note: `chars/${CHARS_PER_TOKEN} estimate (user->input, assistant->output)`,
       }] : [],

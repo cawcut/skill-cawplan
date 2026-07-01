@@ -27,7 +27,9 @@ import {
   resolveApiPath,
 } from "../src/lib/products";
 import { getConfigPath, readUserConfig, writeUserConfig } from "../src/lib/user-config";
+import { normalizeSessionRepoContext } from "../src/lib/collect";
 import { buildDailyApiJson } from "../src/lib/collect/aggregators/daily";
+import { calculateCost } from "../src/lib/collect/pricing";
 import { collectCodexSessions } from "../src/lib/collect/agents/codex";
 import { aggregateUsageBuckets } from "../src/lib/collect/aggregators/tokens";
 import {
@@ -319,6 +321,207 @@ describe("src lib cache", () => {
     const scope = await getCacheScope();
 
     expect(scope).toContain(":api-key:");
+  });
+});
+
+describe("src lib collect repo context normalization", () => {
+  test("uses git remote repo name for all agents when cwd folder name differs", () => {
+    const sessions = ["claude-code", "cursor-cli", "codex"].map((agent) => ({
+      schema: "2.0" as const,
+      date: "2026-06-17",
+      agent,
+      session_id: `${agent}-session-id`,
+      session_name: `${agent} session`,
+      project: "local-folder-name",
+      cwd: `/work/${agent}/local-folder-name`,
+      time_range: { display: "10:00 - 10:05", timezone: "UTC" },
+      model_usage: {},
+      usage_breakdown: [],
+      files_changed: 0,
+      repos_touched: [],
+      message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+    }));
+
+    normalizeSessionRepoContext(sessions, () => "Ubiquiti-UID/real-repo-name");
+
+    expect(sessions.map((session) => session.project)).toEqual([
+      "real-repo-name",
+      "real-repo-name",
+      "real-repo-name",
+    ]);
+  });
+
+  test("prefers cwd git remote over repos_touched when normalizing project", () => {
+    const sessions = [{
+      schema: "2.0" as const,
+      date: "2026-06-17",
+      agent: "cursor-cli",
+      session_id: "cursor-cli-session-id",
+      session_name: "cursor-cli session",
+      project: "local-folder-name",
+      cwd: "/work/local-folder-name",
+      time_range: { display: "10:00 - 10:05", timezone: "UTC" },
+      model_usage: {},
+      usage_breakdown: [],
+      files_changed: 1,
+      repos_touched: [{ repo: "Ubiquiti-UID/repo-from-repos-touched", files: 1, added: 0, deleted: 0 }],
+      message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+    }];
+
+    normalizeSessionRepoContext(sessions, () => "Ubiquiti-UID/repo-from-cwd");
+
+    expect(sessions[0]?.project).toBe("repo-from-cwd");
+  });
+
+  test("falls back to repos_touched when cwd cannot resolve a repo", () => {
+    const sessions = [{
+      schema: "2.0" as const,
+      date: "2026-06-17",
+      agent: "cursor-gui",
+      session_id: "cursor-gui-session-id",
+      session_name: "cursor-gui session",
+      project: "local-folder-name",
+      cwd: "",
+      time_range: { display: "10:00 - 10:05", timezone: "UTC" },
+      model_usage: {},
+      usage_breakdown: [],
+      files_changed: 1,
+      repos_touched: [{ repo: "Ubiquiti-UID/repo-from-repos-touched", files: 1, added: 0, deleted: 0 }],
+      message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+    }];
+
+    normalizeSessionRepoContext(sessions, () => "");
+
+    expect(sessions[0]?.project).toBe("repo-from-repos-touched");
+  });
+
+  test("falls back to repos_touched when git remote resolver returns original cwd", () => {
+    const cwd = "/work/local-folder-name";
+    const sessions = [{
+      schema: "2.0" as const,
+      date: "2026-06-17",
+      agent: "codex",
+      session_id: "codex-session-id",
+      session_name: "codex session",
+      project: "local-folder-name",
+      cwd,
+      time_range: { display: "10:00 - 10:05", timezone: "UTC" },
+      model_usage: {},
+      usage_breakdown: [],
+      files_changed: 1,
+      repos_touched: [{ repo: "Ubiquiti-UID/repo-from-repos-touched", files: 1, added: 0, deleted: 0 }],
+      message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+    }];
+
+    normalizeSessionRepoContext(sessions, () => cwd);
+
+    expect(sessions[0]?.project).toBe("repo-from-repos-touched");
+  });
+});
+
+describe("src lib collect cost currency", () => {
+  test("dollar costs pass through unchanged in daily output", () => {
+    const session: SessionData = {
+      schema: "2.0",
+      date: "2026-06-17",
+      agent: "claude-code",
+      session_id: "session-usd-cost",
+      session_name: "Dollar cost session",
+      project: "flow-cawplan-skill",
+      cwd: "/repo/flow-cawplan-skill",
+      time_range: { display: "10:00 - 10:05", timezone: "UTC" },
+      model_usage: {
+        "deepseek-v4-pro": {
+          api_calls: 1,
+          input_tokens: 1,
+          output_tokens: 1,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cost: 1.0,
+          currency: "$",
+        },
+      },
+      usage_breakdown: [
+        {
+          model: "deepseek-v4-pro",
+          speed: "standard",
+          service_tier: "standard",
+          effort: "default",
+          api_calls: 1,
+          input_tokens: 1,
+          output_tokens: 1,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cost: 1.0,
+          currency: "$",
+        },
+      ],
+      files_changed: 0,
+      repos_touched: [],
+      message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+    };
+
+    const daily = buildDailyApiJson([session], "2026-06-17", "xin.li");
+
+    expect(daily.totals.cost).toEqual({ "$": 1 });
+    expect(daily.usage_breakdown[0]?.currency).toBe("$");
+    expect(daily.usage_breakdown[0]?.cost).toBe(1);
+    expect(daily.model_usage["deepseek-v4-pro"]?.currency).toBe("$");
+    expect(daily.model_usage["deepseek-v4-pro"]?.cost).toBe(1);
+    expect(daily.sessions[0]?.usage_breakdown[0]?.currency).toBe("$");
+    expect(daily.sessions[0]?.session_cost).toBe(1);
+  });
+
+  test("calculateCost does not double-count cache tokens", () => {
+    // 1M input tokens with 100K cache reads and 50K cache writes.
+    // Non-cache input = 1M - 100K - 50K = 850K
+    // Expected: 850K * 0.14 + 0 * 0.28 + 100K * 0.0028 + 50K * 0.14
+    // = 0.119 + 0 + 0.00028 + 0.007 = $0.12628
+    const cost = calculateCost("deepseek-v4-flash", {
+      input_tokens: 1_000_000,
+      output_tokens: 0,
+      cache_read_input_tokens: 100_000,
+      cache_creation_input_tokens: 50_000,
+    });
+    expect(cost).toBeCloseTo(0.12628, 4);
+
+    // If we had the old double-counting bug:
+    // 1M * 0.14 + 0 + 100K * 0.0028 + 50K * 0.14 = 0.14 + 0.00028 + 0.007 = 0.14728
+    // Our fixed cost (0.12628) < old bug cost (0.14728)
+  });
+
+  test("calculateCost handles input without cache tokens", () => {
+    // Pure input, no cache — billableInput = input
+    const cost = calculateCost("deepseek-v4-pro", {
+      input_tokens: 1_000_000,
+      output_tokens: 500_000,
+    });
+    // 1M * 0.435 + 500K * 0.87 = 0.435 + 0.435 = 0.87
+    expect(cost).toBeCloseTo(0.87, 4);
+  });
+
+  test("calculateCost uses current Claude dollar pricing", () => {
+    expect(calculateCost("claude-fable-5", {
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+    })).toBeCloseTo(60, 4);
+
+    expect(calculateCost("claude-mythos-5", {
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+    })).toBeCloseTo(60, 4);
+
+    // Sonnet 5 has temporary pricing through August 31, 2026.
+    expect(calculateCost("claude-sonnet-5", {
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+    })).toBeCloseTo(12, 4);
+
+    // Claude official pricing does not define a separate fast multiplier.
+    expect(calculateCost("claude-opus-4-7", {
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+    }, { speed: "fast" })).toBeCloseTo(30, 4);
   });
 });
 

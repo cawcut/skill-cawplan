@@ -14,7 +14,14 @@ function unionAgents(a?: string[], b?: string[]): string[] | undefined {
     return [...new Set(all)].sort();
 }
 
-import {mergeUsageBuckets, foldBucketsToModel, sumCostByCurrency} from "./tokens.js";
+import {
+    mergeUsageBuckets,
+    foldBucketsToModel,
+    normalizeModelUsageCurrency,
+    normalizeUsageBucketCurrency,
+    sumCostByCurrency,
+} from "./tokens.js";
+import {COST_CURRENCY} from "../pricing.js";
 
 /**
  * Merge two RepoTouched arrays, deduplicating by repo name and summing counters.
@@ -56,7 +63,7 @@ function buildTopLevelSummary(
         .map(([agent, count]) => `${agent} ${count}个`)
         .join("，");
     const costText = Object.entries(costByCurrency)
-        .map(([currency, cost]) => `${currency}${Math.round(cost * 100) / 100}`)
+        .map(([currency, cost]) => `${currency} ${Math.round(cost * 100) / 100}`)
         .join("，");
     return `${date} 共采集 ${sessions.length} 个会话（${agentText || "无"}），总成本 ${costText || "未知"}。`;
 }
@@ -66,7 +73,8 @@ function buildTopLevelSummary(
  */
 function bucketsToMap(buckets: UsageBucket[]): Record<string, UsageBucket> {
     const map: Record<string, UsageBucket> = {};
-    for (const bucket of buckets) {
+    for (const rawBucket of buckets) {
+        const bucket = normalizeUsageBucketCurrency(rawBucket);
         const key = `${bucket.model}|speed=${bucket.speed}|tier=${bucket.service_tier}|effort=${bucket.effort}`;
         if (!map[key]) {
             map[key] = {...bucket};
@@ -128,7 +136,7 @@ function totalTokens(buckets: UsageBucket[]): number {
 }
 
 function sessionCost(buckets: UsageBucket[], round2: (value: number) => number): number {
-    const total = buckets.reduce((sum, bucket) => sum + bucket.cost, 0);
+    const total = buckets.reduce((sum, bucket) => sum + normalizeUsageBucketCurrency(bucket).cost, 0);
     return round2(total);
 }
 
@@ -276,7 +284,7 @@ export function buildDailyApiJson(
             const key = `${model}|speed=standard|tier=api|effort=default`;
             if (!allBuckets[key]) {
                 allBuckets[key] = {
-                    ...entry,
+                    ...normalizeModelUsageCurrency(entry),
                     model,
                     speed: "standard",
                     service_tier: "api",
@@ -285,12 +293,14 @@ export function buildDailyApiJson(
                 };
             } else {
                 const existing = allBuckets[key];
+                const normalizedEntry = normalizeModelUsageCurrency(entry);
                 existing.api_calls += entry.api_calls;
                 existing.input_tokens += entry.input_tokens;
                 existing.output_tokens += entry.output_tokens;
                 existing.cache_read_input_tokens += entry.cache_read_input_tokens;
                 existing.cache_creation_input_tokens += entry.cache_creation_input_tokens;
-                existing.cost += entry.cost;
+                existing.cost += normalizedEntry.cost;
+                existing.currency = COST_CURRENCY;
                 existing.agents = unionAgents(existing.agents, ["cursor"]);
             }
         }
@@ -324,9 +334,9 @@ export function buildDailyApiJson(
             cost: Object.fromEntries(Object.entries(costByCurrency).map(([k, v]) => [k, r2(v)])),
         },
         usage_breakdown: usageBreakdown.map((b) => ({
-            ...b,
+            ...normalizeUsageBucketCurrency(b),
             agent: primaryBucketAgent(b),
-            cost: r2(b.cost),
+            cost: r2(normalizeUsageBucketCurrency(b).cost),
         })),
         model_usage: Object.fromEntries(
             Object.entries(modelUsage).map(([k, v]) => [
@@ -336,13 +346,22 @@ export function buildDailyApiJson(
         ),
         sessions: sessions.map((session) => {
             const { human_inputs: _humanInputs, title: _legacyTitle, ...sessionRest } = session;
+            const usageBreakdown = session.usage_breakdown.map((bucket) => normalizeUsageBucketCurrency(bucket));
+            const modelUsage = Object.fromEntries(
+                Object.entries(session.model_usage).map(([model, entry]) => {
+                    const normalizedEntry = normalizeModelUsageCurrency(entry);
+                    return [model, normalizedEntry];
+                })
+            );
             return {
                 ...sessionRest,
                 source: session.source ?? sessionSource(session),
                 session_title: session.session_title ?? _legacyTitle ?? session.session_name,
-                models: session.models ?? Object.keys(session.model_usage),
-                total_tokens: session.total_tokens ?? totalTokens(session.usage_breakdown),
-                session_cost: session.session_cost ?? sessionCost(session.usage_breakdown, r2),
+                model_usage: modelUsage,
+                usage_breakdown: usageBreakdown,
+                models: session.models ?? Object.keys(modelUsage),
+                total_tokens: session.total_tokens ?? totalTokens(usageBreakdown),
+                session_cost: session.session_cost ?? sessionCost(usageBreakdown, r2),
                 cost_basis: session.cost_basis ?? costBasis(session),
                 token_source: session.token_source ?? tokenSource(session),
             };

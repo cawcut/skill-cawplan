@@ -195,7 +195,7 @@ cawplan ai-session conversation --entry-id <entry_id>
 
 Structure the response based on what was requested:
 
-- **Summary**: total cost (USD), total tokens, active members in the period.
+- **Summary**: total cost ($), total tokens, active members in the period.
 - **Trend**: daily cost table if more than 2 days were requested.
 - **Top members**: top 5 by cost with token count.
 - **By model/agent**: rank by cost, show % of total.

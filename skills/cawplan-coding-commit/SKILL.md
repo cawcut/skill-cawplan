@@ -288,7 +288,11 @@ For multiple reports, prefer:
 cawplan ai-session assign --web --files <absolute-ai-daily-file-1> --files <absolute-ai-daily-file-2>
 ```
 
-Run the command from the agent shell immediately so the local assignment page opens automatically in the browser. Keep the command running until the user finishes and saves the assignments in the browser. The page shows `session / human inputs / product / repo`, requires product, supports product-only assignment, and can link a new GitHub repository URL in the format `https://github.com/owner/repo`.
+Run the command from the agent shell immediately so the local assignment page opens automatically in the browser. Keep exactly one `cawplan ai-session assign --web` command running until the user finishes in the browser. The command exits when the user clicks **Save assignments**, clicks **Close**, presses Ctrl+C in the terminal, or the local assignment server reaches its 10-minute timeout.
+
+Do not rerun `cawplan ai-session assign --web` while a previous assignment command is still running for the same report(s), even if it has been waiting for a long time. Long waits mean the page is waiting for user action, not that the command failed. If you need to report progress, tell the user to finish the already-open assignment page by saving or closing it, then wait for the existing command to exit or time out before continuing.
+
+The page shows `session / human inputs / product / repo`, requires product, supports product-only assignment, and can link a new GitHub repository URL in the format `https://github.com/owner/repo`.
 
 ## Rules
 

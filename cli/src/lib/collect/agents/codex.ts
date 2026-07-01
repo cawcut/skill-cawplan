@@ -22,7 +22,7 @@ import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { codexStateDb, codexSessionsDir } from "../paths.js";
 import { SessionData, ModelUsageEntry, UsageBucket, RepoTouched, HumanInput } from "../types.js";
-import { calculateCost, getCurrency } from "../pricing.js";
+import { calculateCost, COST_CURRENCY } from "../pricing.js";
 import { classifyHumanInput } from "../aggregators/human-category.js";
 import { formatLocalTime, getLocalTimezone, localDateString } from "../date-utils.js";
 import { countDiffLines } from "../aggregators/tool-utils.js";
@@ -425,7 +425,6 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
     const { id, title, createdAt, model, tokensUsed, cwd, rolloutData } = params;
     if (rolloutData.rolloutPath) seenRolloutPaths.add(rolloutData.rolloutPath);
 
-    const currency = getCurrency(model);
     const hasDetailedUsage =
       rolloutData.tokenCountEvents > 0 &&
       rolloutData.tokenUsage.input_tokens +
@@ -450,7 +449,7 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
       cache_read_input_tokens: usage.cache_read_input_tokens,
       cache_creation_input_tokens: usage.cache_creation_input_tokens,
       cost: calculatedCost ?? 0,
-      currency,
+      currency: COST_CURRENCY,
       token_source: hasDetailedUsage ? "codex_token_count_estimate" : "total_only",
       note: hasDetailedUsage
         ? "Estimated from Codex rollout token_count events"

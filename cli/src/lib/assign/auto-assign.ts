@@ -1,4 +1,5 @@
 import type {DailyApiJson} from "../collect/types.js";
+import {normalizeSessionRepoContext} from "../collect/index.js";
 import {applyProductRepoMappingToProject} from "./apply.js";
 import {findMappingForSession} from "./matching.js";
 import {
@@ -12,7 +13,9 @@ import {
 import {writeDailyReport} from "./report-io.js";
 import type {ProductRepoMapping, ProductRepoSelection} from "./types.js";
 
-function autoAssignAllFromMappings(daily: DailyApiJson, mappings: ProductRepoMapping[]): number {
+export function autoAssignAllFromMappings(daily: DailyApiJson, mappings: ProductRepoMapping[]): number {
+    normalizeSessionRepoContext(daily.sessions);
+
     let matched = 0;
     for (const [index, session] of daily.sessions.entries()) {
         if (session.product_id) continue;

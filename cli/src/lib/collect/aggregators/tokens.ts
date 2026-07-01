@@ -1,5 +1,5 @@
 import { ModelUsageEntry, UsageBucket } from "../types.js";
-import { calculateCost, getCurrency } from "../pricing.js";
+import { calculateCost, COST_CURRENCY } from "../pricing.js";
 
 const TOKEN_FIELDS = [
   "input_tokens",
@@ -57,6 +57,20 @@ function unionAgents(a?: string[], b?: string[]): string[] | undefined {
   return [...new Set(all)].sort();
 }
 
+export function normalizeUsageBucketCurrency(bucket: UsageBucket): UsageBucket {
+  return {
+    ...bucket,
+    currency: COST_CURRENCY,
+  };
+}
+
+export function normalizeModelUsageCurrency(entry: ModelUsageEntry): ModelUsageEntry {
+  return {
+    ...entry,
+    currency: COST_CURRENCY,
+  };
+}
+
 /**
  * Processes Claude Code assistant events and aggregates usage into buckets.
  * Deduplicates by message.id if present, otherwise by (timestamp, usageJSON).
@@ -101,10 +115,8 @@ export function aggregateUsageBuckets(
     const effort = (usage["effort"] as string | undefined) || (message["effort"] as string | undefined) || "default";
 
     const key = bucketKey({ model, speed, service_tier, effort });
-    const currency = getCurrency(model, { speed });
-
     if (!buckets[key]) {
-      buckets[key] = emptyBucket(model, speed, service_tier, effort, currency);
+      buckets[key] = emptyBucket(model, speed, service_tier, effort, COST_CURRENCY);
       if (agent) buckets[key].agents = [agent];
     }
 
@@ -138,7 +150,8 @@ export function foldBucketsToModel(
   const models: Record<string, ModelUsageEntry> = {};
 
   for (const bucket of Object.values(buckets)) {
-    const { model } = bucket;
+    const normalizedBucket = normalizeUsageBucketCurrency(bucket);
+    const { model } = normalizedBucket;
     if (!models[model]) {
       models[model] = {
         api_calls: 0,
@@ -147,18 +160,18 @@ export function foldBucketsToModel(
         cache_read_input_tokens: 0,
         cache_creation_input_tokens: 0,
         cost: 0,
-        currency: bucket.currency,
+        currency: COST_CURRENCY,
       };
     }
     const entry = models[model];
-    entry.api_calls += bucket.api_calls;
-    entry.input_tokens += bucket.input_tokens;
-    entry.output_tokens += bucket.output_tokens;
-    entry.cache_read_input_tokens += bucket.cache_read_input_tokens;
-    entry.cache_creation_input_tokens += bucket.cache_creation_input_tokens;
+    entry.api_calls += normalizedBucket.api_calls;
+    entry.input_tokens += normalizedBucket.input_tokens;
+    entry.output_tokens += normalizedBucket.output_tokens;
+    entry.cache_read_input_tokens += normalizedBucket.cache_read_input_tokens;
+    entry.cache_creation_input_tokens += normalizedBucket.cache_creation_input_tokens;
 
-    entry.cost += bucket.cost;
-    entry.agents = unionAgents(entry.agents, bucket.agents);
+    entry.cost += normalizedBucket.cost;
+    entry.agents = unionAgents(entry.agents, normalizedBucket.agents);
   }
 
   return models;
@@ -174,22 +187,23 @@ export function mergeUsageBuckets(
   const result: Record<string, UsageBucket> = {};
 
   for (const [key, bucket] of Object.entries(a)) {
-    result[key] = { ...bucket };
+    result[key] = normalizeUsageBucketCurrency(bucket);
   }
 
   for (const [key, bucket] of Object.entries(b)) {
+    const normalizedBucket = normalizeUsageBucketCurrency(bucket);
     if (!result[key]) {
-      result[key] = { ...bucket };
+      result[key] = normalizedBucket;
     } else {
       const existing = result[key];
-      existing.api_calls += bucket.api_calls;
-      existing.input_tokens += bucket.input_tokens;
-      existing.output_tokens += bucket.output_tokens;
-      existing.cache_read_input_tokens += bucket.cache_read_input_tokens;
-      existing.cache_creation_input_tokens += bucket.cache_creation_input_tokens;
+      existing.api_calls += normalizedBucket.api_calls;
+      existing.input_tokens += normalizedBucket.input_tokens;
+      existing.output_tokens += normalizedBucket.output_tokens;
+      existing.cache_read_input_tokens += normalizedBucket.cache_read_input_tokens;
+      existing.cache_creation_input_tokens += normalizedBucket.cache_creation_input_tokens;
 
-      existing.cost += bucket.cost;
-      existing.agents = unionAgents(existing.agents, bucket.agents);
+      existing.cost += normalizedBucket.cost;
+      existing.agents = unionAgents(existing.agents, normalizedBucket.agents);
     }
   }
 
@@ -205,8 +219,8 @@ export function sumCostByCurrency(
   const totals: Record<string, number> = {};
 
   for (const bucket of Object.values(buckets)) {
-    const currency = bucket.currency;
-    totals[currency] = (totals[currency] ?? 0) + bucket.cost;
+    const normalizedBucket = normalizeUsageBucketCurrency(bucket);
+    totals[COST_CURRENCY] = (totals[COST_CURRENCY] ?? 0) + normalizedBucket.cost;
   }
 
   return totals;
