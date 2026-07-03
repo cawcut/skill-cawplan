@@ -51,9 +51,15 @@ If the user provides a single-day argument, resolve it before Step 1 and use tha
 
 Always collect and present the AI-summarized review before uploading. Do not wait for a second confirmation after the review; proceed to upload immediately.
 
-## Report File Location
+## Permission Minimization
 
-Store every generated `ai-daily-*.json` report in a system temporary directory, not in the current repository.
+Minimize permission prompts during report collection:
+
+- Run each logical phase as one shell block instead of many tiny commands.
+- When using Cursor agent shell tools for any collection phase, request full network access once for the whole shell block (`required_permissions: ["full_network"]`), because collection may call the Cursor Dashboard API at `cursor.com`.
+- Store every generated `ai-daily-*.json` report in a system temporary directory, not in the current repository. This avoids repository write prompts and keeps generated report files out of the working tree.
+- Reuse the same workflow-scoped temp directory for collect, classify, assign, review, and upload.
+- For Web assignment, batch all files in a single `cawplan session assign --web --files ...` command. Do not start one assignment command per report.
 
 Before collecting reports, create one workflow-scoped temp directory with Node.js so the same command works on macOS, Linux, and Windows:
 ```bash
@@ -66,10 +72,6 @@ report_file="$report_dir/ai-daily-<YYYY-MM-DD>.json"
 ```
 
 Do not write generated daily report JSON files into the current working directory unless the user explicitly provides an output path.
-
-## Network Permission for Collection
-
-Every `cawplan session collect` command may call the Cursor Dashboard API at `cursor.com`. When running collection from Cursor agent shell tools, request full network access on the shell tool call (`required_permissions: ["full_network"]`). Do not run collection commands in a sandboxed terminal without network access; that causes Cursor API calls to wait until timeout and makes historical collection much slower.
 
 ### Month-Missing Workflow
 
@@ -125,11 +127,12 @@ After upload, report the requested month, uploaded dates, number of sessions per
 
 **Step 1 — Collect:**
 ```bash
+report_dir="$(node -e 'const {mkdtempSync} = require("node:fs"); const {join} = require("node:path"); const {tmpdir} = require("node:os"); console.log(mkdtempSync(join(tmpdir(), "cawplan-ai-daily-")));')"
 report_file="$report_dir/ai-daily-<YYYY-MM-DD>.json"
 cawplan session collect --date <YYYY-MM-DD> --output "$report_file"
 ```
 
-When running this command from Cursor agent tools, request full network access on the shell tool call (`required_permissions: ["full_network"]`) because Cursor token/cost collection depends on the Cursor Dashboard API at `cursor.com`.
+When running this shell block from Cursor agent tools, request full network access once on the shell tool call (`required_permissions: ["full_network"]`) because Cursor token/cost collection depends on the Cursor Dashboard API at `cursor.com`.
 
 During collection, `cawplan session collect` may ask the user to assign each session to a CawPlan product and repository using existing product-repo mappings. If no mapping exists, the user can link a GitHub repository URL in the required format `https://github.com/owner/repo`.
 
@@ -288,7 +291,7 @@ For multiple reports, prefer:
 cawplan session assign --web --files <absolute-ai-daily-file-1> --files <absolute-ai-daily-file-2>
 ```
 
-Run the command from the agent shell immediately so the local assignment page opens automatically in the browser. Keep exactly one `cawplan session assign --web` command running until the user finishes in the browser. The command exits when the user clicks **Save assignments**, clicks **Close**, presses Ctrl+C in the terminal, or the local assignment server reaches its 10-minute timeout.
+Run one command from the agent shell with every report file that needs assignment, so the local assignment page opens automatically in the browser and all reports are handled together. Keep exactly one `cawplan session assign --web` command running until the user finishes in the browser. The command exits when the user clicks **Save assignments**, clicks **Close**, presses Ctrl+C in the terminal, or the local assignment server reaches its 10-minute timeout.
 
 Do not rerun `cawplan session assign --web` while a previous assignment command is still running for the same report(s), even if it has been waiting for a long time. Long waits mean the page is waiting for user action, not that the command failed. If you need to report progress, tell the user to finish the already-open assignment page by saving or closing it, then wait for the existing command to exit or time out before continuing.
 
