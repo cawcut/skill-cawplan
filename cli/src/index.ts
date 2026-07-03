@@ -17,7 +17,7 @@ import {registerKnowledgeCommand} from "./commands/knowledge.js";
 import {registerAnalyticsCommand} from "./commands/analytics.js";
 import {registerQAReportsCommand} from "./commands/qa-reports.js";
 import {registerCommunityCommand} from "./commands/community.js";
-import {registerAiSessionCommand} from "./commands/ai-session.js";
+import {registerSessionCommand} from "./commands/ai-session.js";
 import {registerInitCommand} from "./commands/init.js";
 import {registerUpgradeCommand} from "./commands/upgrade.js";
 
@@ -47,7 +47,7 @@ registerKnowledgeCommand(program);
 registerAnalyticsCommand(program);
 registerQAReportsCommand(program);
 registerCommunityCommand(program);
-registerAiSessionCommand(program);
+registerSessionCommand(program);
 registerInitCommand(program);
 registerUpgradeCommand(program);
 

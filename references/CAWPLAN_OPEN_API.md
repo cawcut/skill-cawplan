@@ -305,90 +305,90 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
     - Each `sessions[]` item should include `product_id` before upload.
     - `include_conversation` (bool, default `false`) — when `true`, non-empty `sessions[].conversation` is encrypted server-side.
 - Response: `report_id`, `upserted`, `report_date`, `reporter_key`
-- Maps to cawplan CLI: `cawplan ai-session report --file <path>`
+- Maps to cawplan CLI: `cawplan session report --file <path>`
 
 ### List Uploaded AI Session Usage Reports
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/reports`
 - Query params: `date`, `date_from`, `date_to`, `user_id`, `include_payload` (bool, default `false`), `limit` (default 20, max 100), `offset` (default 0)
 - Response: report metadata list for the workspace; `include_payload=true` returns decrypted `raw_payload`
-- Maps to cawplan CLI: `cawplan ai-session reports`
+- Maps to cawplan CLI: `cawplan session reports`
 
 ### Get AI Session Usage Overview
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/overview`
 - Query params: `date`, `date_from`, `date_to`, `compare_date`, `compare_date_from`, `compare_date_to`
 - Response: `member_count`, `total_cost`, `total_tokens`, `date_from`, `date_to`, plus optional `compare_*` change fields
-- Maps to cawplan CLI: `cawplan ai-session overview`
+- Maps to cawplan CLI: `cawplan session overview`
 
 ### Get AI Session Usage Trend
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/trend`
 - Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
 - Response: daily rows with `date`, `cost`, `cost_percentage`, `tokens`, `members`
-- Maps to cawplan CLI: `cawplan ai-session trend`
+- Maps to cawplan CLI: `cawplan session trend`
 
 ### Get AI Session Usage by Member
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/by-member`
 - Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
 - Response: per-member rows with `member`, `user_id`, `user_display_name`, `user_avatar`, `cost`, `cost_percentage`, `tokens`
-- Maps to cawplan CLI: `cawplan ai-session by-member`
+- Maps to cawplan CLI: `cawplan session by-member`
 
 ### Get AI Session Usage by Model
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/by-model`
 - Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
 - Response: per-model rows with `model`, `cost`, `cost_percentage`, `tokens`
-- Maps to cawplan CLI: `cawplan ai-session by-model`
+- Maps to cawplan CLI: `cawplan session by-model`
 
 ### Get AI Session Usage by Model Dimension
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/by-model-dimension`
 - Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
 - Response: cost breakdown by model plus billing dimension (input/output/cache)
-- Maps to cawplan CLI: `cawplan ai-session by-model-dimension`
+- Maps to cawplan CLI: `cawplan session by-model-dimension`
 
 ### Get AI Session Usage by Agent
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/by-agent`
 - Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
 - Response: cost breakdown by coding agent (e.g. Claude Code, Cursor)
-- Maps to cawplan CLI: `cawplan ai-session by-agent`
+- Maps to cawplan CLI: `cawplan session by-agent`
 
 ### Get AI Session Usage by Project
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/by-project`
 - Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
 - Response: cost breakdown by git project/repository name
-- Maps to cawplan CLI: `cawplan ai-session by-project`
+- Maps to cawplan CLI: `cawplan session by-project`
 
 ### Get AI Session Usage by Product
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/by-product`
 - Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`, `product_id`, `fuzzy_match` (bool, default `false`)
 - Notes: when `fuzzy_match=true`, product-repo `repo_name` glob patterns (`*`, `?`) match `sessions[].project`; unmatched sessions roll into `Other`
 - Response: cost breakdown by product
-- Maps to cawplan CLI: `cawplan ai-session by-product`
+- Maps to cawplan CLI: `cawplan session by-product`
 
 ### List AI Session Usage Report Dates
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/dates`
 - Response: array of `YYYY-MM-DD` strings, newest first
-- Maps to cawplan CLI: `cawplan ai-session dates`
+- Maps to cawplan CLI: `cawplan session dates`
 
 ### List AI Session Usage Members
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/members`
 - Response: members (`reporter_key`) who have uploaded reports in the workspace
-- Maps to cawplan CLI: `cawplan ai-session members`
+- Maps to cawplan CLI: `cawplan session members`
 
 ### Get AI Session Usage Member Detail
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/member-detail`
 - Query params: `member` (required, reporter key)
 - Response: full session/cost detail for one member
-- Maps to cawplan CLI: `cawplan ai-session member-detail --member <name>`
+- Maps to cawplan CLI: `cawplan session member-detail --member <name>`
 
 ### Get Human Input Summary
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/human-input-summary`
 - Query params: `date`, `date_from`, `date_to`
 - Response: `total`, `files_changed`, `lines_added`, `lines_deleted`, `categories[]`, `topics[]`, `low_classification_confidence`, `classification_confidence_threshold`, `members[]`
-- Maps to cawplan CLI: `cawplan ai-session human-input-summary`
+- Maps to cawplan CLI: `cawplan session human-input-summary`
 
 ### List Human Inputs
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/human-inputs`
 - Query params: `date`, `date_from`, `date_to`, `member`, `product`, `category`, `topic`, `model`, `needs_review` (bool), `q`, `page_num`, `page_size`
 - Response: `items[]`, `total`, `limit`, `offset`
-- Maps to cawplan CLI: `cawplan ai-session human-inputs`
+- Maps to cawplan CLI: `cawplan session human-inputs`
 
 ### List Human Input Logs
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/human-input-logs`
@@ -399,34 +399,34 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/human-input-quality`
 - Query params: `date`, `date_from`, `date_to`, `limit` (default 100, max 500)
 - Response: `low_classification_confidence`, `classification_confidence_threshold`, `items[]` (prompt rows flagged for review)
-- Maps to cawplan CLI: `cawplan ai-session human-input-quality`
+- Maps to cawplan CLI: `cawplan session human-input-quality`
 
 ### Get Human Input by Product
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/human-input-by-product`
 - Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
 - Response: prompt counts and quality breakdown grouped by product/project
-- Maps to cawplan CLI: `cawplan ai-session human-input-by-product`
+- Maps to cawplan CLI: `cawplan session human-input-by-product`
 
 ### Get User AI Session Usage Overview
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/user/{user_id}/overview`
 - Path params: `user_id` (user `unique_id`)
 - Query params: `date`, `date_from`, `date_to`, `compare_date`, `compare_date_from`, `compare_date_to`
 - Response: user-scoped overview with optional comparison deltas
-- Maps to cawplan CLI: `cawplan ai-session my-sessions` (combined with sessions)
+- Maps to cawplan CLI: `cawplan session my-sessions` (combined with sessions)
 
 ### Get User AI Session Usage Sessions
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/user/{user_id}/sessions`
 - Path params: `user_id` (user `unique_id`)
 - Query params: `date`, `date_from`, `date_to`
 - Response: session list for the user in the date window
-- Maps to cawplan CLI: `cawplan ai-session my-sessions`
+- Maps to cawplan CLI: `cawplan session my-sessions`
 
 ### Get User Human Input Summary
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/user/{user_id}/human-input-summary`
 - Path params: `user_id` (user `unique_id`)
 - Query params: `date`, `date_from`, `date_to`
 - Response: same shape as workspace Human Input Summary, scoped to one user
-- Maps to cawplan CLI: `cawplan ai-session user-human-inputs --user-id <id>`
+- Maps to cawplan CLI: `cawplan session user-human-inputs --user-id <id>`
 
 ### List User Human Input Logs
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/user/{user_id}/human-input-logs`
@@ -439,35 +439,35 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
 - Path params: `product_id` (product `unique_id`)
 - Query params: `date`, `date_from`, `date_to`, `compare_date`, `compare_date_from`, `compare_date_to`
 - Response: product-scoped overview with optional comparison deltas
-- Maps to cawplan CLI: `cawplan ai-session product-overview --product-id <id>`
+- Maps to cawplan CLI: `cawplan session product-overview --product-id <id>`
 
 ### Get Product AI Session Usage Trend
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product/{product_id}/trend`
 - Path params: `product_id` (product `unique_id`)
 - Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
 - Response: daily trend rows for the product
-- Maps to cawplan CLI: `cawplan ai-session product-trend --product-id <id>`
+- Maps to cawplan CLI: `cawplan session product-trend --product-id <id>`
 
 ### Get Product AI Session Usage by Member
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product/{product_id}/by-member`
 - Path params: `product_id` (product `unique_id`)
 - Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
 - Response: per-member cost breakdown for the product
-- Maps to cawplan CLI: `cawplan ai-session product-by-member --product-id <id>`
+- Maps to cawplan CLI: `cawplan session product-by-member --product-id <id>`
 
 ### Get Product AI Session Usage by Model
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product/{product_id}/by-model`
 - Path params: `product_id` (product `unique_id`)
 - Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
 - Response: per-model cost breakdown for the product
-- Maps to cawplan CLI: `cawplan ai-session product-by-model --product-id <id>`
+- Maps to cawplan CLI: `cawplan session product-by-model --product-id <id>`
 
 ### Get Product Human Input Summary
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product/{product_id}/human-input-summary`
 - Path params: `product_id` (product `unique_id`)
 - Query params: `date`, `date_from`, `date_to`
 - Response: same shape as workspace Human Input Summary, scoped to one product
-- Maps to cawplan CLI: `cawplan ai-session product-human-inputs --product-id <id>`
+- Maps to cawplan CLI: `cawplan session product-human-inputs --product-id <id>`
 
 ### List Product Human Input Logs
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product/{product_id}/human-input-logs`
@@ -479,7 +479,7 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product-repo`
 - Query params: `product_id` (optional filter)
 - Response: `mappings[]` with `unique_id`, `product_id`, `product_name`, `repo_name`, `repo_url`, `added_by`, `added_date`, `contributors[]`, `last_update`
-- Maps to cawplan CLI: `cawplan ai-session product-repos`
+- Maps to cawplan CLI: `cawplan session product-repos`
 
 ### Create Product-Repo Mapping
 - Endpoint: `POST /api/v1/public/openapi/ai-session-usage/product-repo`
@@ -487,7 +487,7 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
 - Body (optional): `repo_url`, `contributors[]` (user `unique_id` list), `last_update` (ISO 8601)
 - Notes: `repo_name` may be a glob when queries use `fuzzy_match=true` (e.g. `uid.core-*`)
 - Response: created mapping item
-- Maps to cawplan CLI: `cawplan ai-session product-repos create --product-id --repo-url [--repo-name]`
+- Maps to cawplan CLI: `cawplan session product-repos create --product-id --repo-url [--repo-name]`
 
 ### Get Product-Repo Mapping
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product-repo/{unique_id}`
@@ -509,7 +509,7 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/conversation`
 - Query params: `entry_id` (required, `ai_session_entry.unique_id`)
 - Response: decrypted conversation JSON for one session entry
-- Maps to cawplan CLI: `cawplan ai-session conversation --entry-id <id>`
+- Maps to cawplan CLI: `cawplan session conversation --entry-id <id>`
 
 ### Download AI Session Usage PDF Report
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/report.pdf`

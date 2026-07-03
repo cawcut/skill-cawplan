@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Command } from "commander";
-import { registerAiSessionCommand } from "../src/commands/ai-session";
+import { registerSessionCommand } from "../src/commands/ai-session";
 import { writeCredentials } from "../src/lib/credentials";
 
 let originalFetch: typeof fetch;
@@ -68,18 +68,18 @@ function dailyReport(date: string) {
   };
 }
 
-async function runAiSessionReport(file: string) {
+async function runSessionReport(file: string) {
   const program = new Command();
   program.exitOverride();
-  registerAiSessionCommand(program);
-  await program.parseAsync(["node", "cawplan", "ai-session", "report", "--file", file], { from: "node" });
+  registerSessionCommand(program);
+  await program.parseAsync(["node", "cawplan", "session", "report", "--file", file], { from: "node" });
 }
 
-async function runAiSessionBackfill(dateFrom: string, dateTo: string, args: string[] = []) {
+async function runSessionBackfill(dateFrom: string, dateTo: string, args: string[] = []) {
   const program = new Command();
   program.exitOverride();
-  registerAiSessionCommand(program);
-  await program.parseAsync(["node", "cawplan", "ai-session", "backfill", "--from", dateFrom, "--to", dateTo, ...args], { from: "node" });
+  registerSessionCommand(program);
+  await program.parseAsync(["node", "cawplan", "session", "backfill", "--from", dateFrom, "--to", dateTo, ...args], { from: "node" });
 }
 
 beforeEach(async () => {
@@ -116,7 +116,7 @@ afterEach(async () => {
   await rm(tmpDir, { recursive: true, force: true });
 });
 
-describe("ai-session report and backfill", () => {
+describe("session report and backfill", () => {
   test("report only uploads the specified daily report", async () => {
     await writeFile("ai-daily-2026-06-01.json", JSON.stringify(dailyReport("2026-06-01"), null, 2));
     await writeFile("ai-daily-2026-06-02.json", JSON.stringify(dailyReport("2026-06-02"), null, 2));
@@ -169,7 +169,7 @@ describe("ai-session report and backfill", () => {
       });
     };
 
-    await runAiSessionReport("ai-daily-2026-06-02.json");
+    await runSessionReport("ai-daily-2026-06-02.json");
 
     expect(reportQueryResponses).toHaveLength(0);
     expect(uploadedDates).toEqual(["2026-06-02"]);
@@ -227,7 +227,7 @@ describe("ai-session report and backfill", () => {
       });
     };
 
-    await runAiSessionBackfill("2026-06-01", "2026-06-02");
+    await runSessionBackfill("2026-06-01", "2026-06-02");
 
     expect(reportQueryResponses).toHaveLength(1);
     expect(uploadedDates).toEqual(["2026-06-01"]);
@@ -278,7 +278,7 @@ describe("ai-session report and backfill", () => {
       });
     };
 
-    await runAiSessionBackfill("2026-06-01", "2026-06-02", ["--dry-run"]);
+    await runSessionBackfill("2026-06-01", "2026-06-02", ["--dry-run"]);
 
     expect(reportQueryResponses).toHaveLength(1);
     expect(uploadedDates).toEqual([]);

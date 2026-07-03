@@ -31,17 +31,17 @@ Fetch the relevant views in parallel based on what the user is asking for. Use `
 
 **Total cost, tokens, active members:**
 ```bash
-cawplan ai-session overview --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session overview --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **Daily trend (cost and tokens over time):**
 ```bash
-cawplan ai-session trend --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session trend --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **Available report dates (for date picker):**
 ```bash
-cawplan ai-session dates
+cawplan session dates
 ```
 
 ---
@@ -50,32 +50,32 @@ cawplan ai-session dates
 
 **By member:**
 ```bash
-cawplan ai-session by-member --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session by-member --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **By AI model (Claude Opus, Sonnet, Haiku, etc.):**
 ```bash
-cawplan ai-session by-model --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session by-model --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **By model + token type (input / output / cache):**
 ```bash
-cawplan ai-session by-model-dimension --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session by-model-dimension --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **By AI coding agent (Claude Code, Cursor, Codex, etc.):**
 ```bash
-cawplan ai-session by-agent --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session by-agent --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **By git project/repository:**
 ```bash
-cawplan ai-session by-project --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session by-project --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **By CawPlan product (requires product-repo mapping):**
 ```bash
-cawplan ai-session by-product --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session by-product --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 All breakdown commands support `--page-num` and `--page-size` for pagination.
@@ -86,12 +86,12 @@ All breakdown commands support `--page-num` and `--page-size` for pagination.
 
 **List all members with data:**
 ```bash
-cawplan ai-session members
+cawplan session members
 ```
 
 **Full detail for one member:**
 ```bash
-cawplan ai-session member-detail --member <git-username>
+cawplan session member-detail --member <git-username>
 ```
 
 **Personal session drill-down (overview + session list):**
@@ -99,12 +99,12 @@ cawplan ai-session member-detail --member <git-username>
 # First resolve your user_id if needed
 cawplan users query --email <your-email>
 
-cawplan ai-session my-sessions --user-id <user_id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session my-sessions --user-id <user_id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **Personal prompt quality summary:**
 ```bash
-cawplan ai-session user-human-inputs --user-id <user_id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session user-human-inputs --user-id <user_id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 ---
@@ -118,27 +118,27 @@ cawplan products list --search "<product name>"
 
 **Product cost overview:**
 ```bash
-cawplan ai-session product-overview --product-id <id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session product-overview --product-id <id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **Product daily trend:**
 ```bash
-cawplan ai-session product-trend --product-id <id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session product-trend --product-id <id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **Product breakdown by member:**
 ```bash
-cawplan ai-session product-by-member --product-id <id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session product-by-member --product-id <id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **Product breakdown by model:**
 ```bash
-cawplan ai-session product-by-model --product-id <id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session product-by-model --product-id <id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **Product prompt quality summary:**
 ```bash
-cawplan ai-session product-human-inputs --product-id <id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session product-human-inputs --product-id <id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 ---
@@ -147,22 +147,22 @@ cawplan ai-session product-human-inputs --product-id <id> --from <YYYY-MM-DD> --
 
 **Workspace prompt summary (categories, topics, quality):**
 ```bash
-cawplan ai-session human-input-summary --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session human-input-summary --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **Prompt quality score distribution:**
 ```bash
-cawplan ai-session human-input-quality --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session human-input-quality --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **Prompt count and quality by product:**
 ```bash
-cawplan ai-session human-input-by-product --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+cawplan session human-input-by-product --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 ```
 
 **Paginated prompt list with filters:**
 ```bash
-cawplan ai-session human-inputs \
+cawplan session human-inputs \
   --from <YYYY-MM-DD> --to <YYYY-MM-DD> \
   [--member <name>] \
   [--product <name>] \
@@ -178,7 +178,7 @@ cawplan ai-session human-inputs \
 ### Session Conversation Drill-down
 
 ```bash
-cawplan ai-session conversation --entry-id <entry_id>
+cawplan session conversation --entry-id <entry_id>
 ```
 
 ---
@@ -189,7 +189,7 @@ cawplan ai-session conversation --entry-id <entry_id>
 - "this month" → `--from <first of month> --to <today>`
 - "today" / "yesterday" → use `--date <YYYY-MM-DD>`
 - If no date is specified, default to the last 7 days.
-- Use `cawplan ai-session dates` to discover which dates actually have data.
+- Use `cawplan session dates` to discover which dates actually have data.
 
 ## Output
 
@@ -206,7 +206,7 @@ Structure the response based on what was requested:
 ## Notes
 
 - All endpoints are **prd-only**. The proto environment returns 404.
-- `by-product` requires product-repo mappings to be configured (`cawplan ai-session product-repo`).
+- `by-product` requires product-repo mappings to be configured (`cawplan session product-repos`).
 - `product-*` commands require a product `unique_id`, not a name.
 
 ## References

@@ -28,11 +28,14 @@ import {
 import {listCawplanProducts} from "../lib/product-catalog.js";
 import {registerAiSessionInsightsCommands} from "./ai-session-insights.js";
 
-export function registerAiSessionCommand(program: Command): void {
-    const ai = program.command("ai-session").description("AI coding session usage");
+export function registerSessionCommand(program: Command): void {
+    registerSessionSubcommands(program.command("session").description("Coding session usage"));
+    registerSessionSubcommands(program.command("ai-session", {hidden: true}).description("Deprecated alias for session"));
+}
 
-    ai.command("collect")
-        .description("Collect AI coding session data from local agents and write ai-daily-<date>.json")
+function registerSessionSubcommands(session: Command): void {
+    session.command("collect")
+        .description("Collect coding session data from local agents and write ai-daily-<date>.json")
         .option("--date <YYYY-MM-DD>", "Date to collect (default: today)")
         .option(
             "--agent <name>",
@@ -49,7 +52,7 @@ export function registerAiSessionCommand(program: Command): void {
                     ? (opts.agent as AiSessionAgent[])
                     : undefined;
 
-            console.error(`Collecting AI session data for ${date}...`);
+            console.error(`Collecting session data for ${date}...`);
             try {
                 const daily = await collect({date, agents});
                 console.error(
@@ -71,7 +74,7 @@ export function registerAiSessionCommand(program: Command): void {
             }
         });
 
-    ai.command("products")
+    session.command("products")
         .description("List CawPlan products for report assignment")
         .option("--q <text>", "Filter products by name")
         .action(async (opts) => {
@@ -86,7 +89,7 @@ export function registerAiSessionCommand(program: Command): void {
             }
         });
 
-    const productRepos = ai.command("product-repos")
+    const productRepos = session.command("product-repos")
         .description("List product-repository mappings for report assignment")
         .option("--product-id <id>", "Filter mappings by product unique_id")
         .option("--q <text>", "Filter mappings by repo name or URL")
@@ -133,7 +136,7 @@ export function registerAiSessionCommand(program: Command): void {
             }
         });
 
-    ai.command("assign")
+    session.command("assign")
         .description("Assign report sessions to products and optional repositories")
         .option("--file <path>", "Path to ai-daily JSON file")
         .option("--files <path>", "Batch assign ai-daily JSON file paths with --web or --tty (repeatable)", (val: string, prev: string[]) => [...prev, val], [] as string[])
@@ -182,8 +185,8 @@ export function registerAiSessionCommand(program: Command): void {
             }
         });
 
-    ai.command("report")
-        .description("Upload a daily AI coding session report. Provide --file")
+    session.command("report")
+        .description("Upload a daily coding session report. Provide --file")
         .requiredOption("--file <path>", "Path to daily.json; must contain 'author' and 'date' fields")
         .action(async (opts) => {
             let payload: DailyApiJson;
@@ -202,8 +205,8 @@ export function registerAiSessionCommand(program: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    ai.command("backfill")
-        .description("Collect and upload missing AI daily reports in a date range")
+    session.command("backfill")
+        .description("Collect and upload missing daily session reports in a date range")
         .requiredOption("--from <YYYY-MM-DD>", "Start date")
         .requiredOption("--to <YYYY-MM-DD>", "End date")
         .option("--dry-run", "Only list missing report dates without collecting or uploading")
@@ -224,8 +227,8 @@ export function registerAiSessionCommand(program: Command): void {
             }
         });
 
-    addReportQueryOptions(ai.command("reports")
-        .description("List uploaded AI daily reports"))
+    addReportQueryOptions(session.command("reports")
+        .description("List uploaded daily session reports"))
         .action(async (opts) => {
             const query = buildQueryFromFlags({
                 ...dateParams(opts),
@@ -240,5 +243,5 @@ export function registerAiSessionCommand(program: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    registerAiSessionInsightsCommands(ai);
+    registerAiSessionInsightsCommands(session);
 }

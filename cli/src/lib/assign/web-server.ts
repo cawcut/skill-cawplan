@@ -276,7 +276,7 @@ export async function startAssignmentWebServer(reports: AssignmentReport[], batc
                 return;
             }
             const assignmentUrl = `http://${localAssignmentHost}:${address.port}/?token=${token}`;
-            console.error(`Open this URL to assign AI sessions: ${assignmentUrl}`);
+            console.error(`Open this URL to assign sessions: ${assignmentUrl}`);
             void openBrowser(assignmentUrl).catch(() => {
                 console.error("Could not open the browser automatically; please open the URL manually.");
             });

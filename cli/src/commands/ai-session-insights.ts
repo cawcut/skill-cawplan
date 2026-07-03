@@ -93,7 +93,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
         });
 
     addDatePageOptions(ai.command("by-model")
-        .description("Cost and token breakdown by AI model"))
+        .description("Cost and token breakdown by model"))
         .action(async (opts) => {
             const result = await cawplanRequest({
                 method: "GET",
@@ -115,7 +115,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
         });
 
     addDatePageOptions(ai.command("by-agent")
-        .description("Cost breakdown by AI coding agent (Claude Code, Cursor, etc.)"))
+        .description("Cost breakdown by coding agent (Claude Code, Cursor, etc.)"))
         .action(async (opts) => {
             const result = await cawplanRequest({
                 method: "GET",

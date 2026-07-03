@@ -44,7 +44,7 @@ export async function backfillMissingReports(
     const expectedDates = dateRangeInclusive(dateFrom, dateTo);
     if (expectedDates.length === 0) throw new Error("--from must be earlier than or equal to --to");
     const userId = await requireCurrentUserId();
-    console.error(`Checking missing AI daily reports for user_id ${userId} from ${dateFrom} to ${dateTo}...`);
+    console.error(`Checking missing daily session reports for user_id ${userId} from ${dateFrom} to ${dateTo}...`);
     const reports = await listMonthlyReportItems(dateFrom, dateTo, userId);
     const existingDates = new Set(
         reports
@@ -56,7 +56,7 @@ export async function backfillMissingReports(
     const missingDates = expectedDates.filter((date) => !existingDates.has(date));
     const uploadedDates: string[] = [];
     const skippedDates: string[] = [];
-    console.error(`Missing AI daily report dates: ${missingDates.length > 0 ? missingDates.join(", ") : "none"}`);
+    console.error(`Missing daily session report dates: ${missingDates.length > 0 ? missingDates.join(", ") : "none"}`);
 
     if (options.dryRun) {
         return {
@@ -70,7 +70,7 @@ export async function backfillMissingReports(
 
     for (const date of missingDates) {
         try {
-            console.error(`Backfilling missing AI daily report for ${date}...`);
+            console.error(`Backfilling missing daily session report for ${date}...`);
             const {daily, file, created} = await collectOrReadDailyReport(date);
             if (!daily.author || !daily.date) {
                 throw new Error(`${file} must contain author and date`);

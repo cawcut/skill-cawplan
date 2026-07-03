@@ -110,8 +110,8 @@ export async function assignProjectsFromCloudMappings(daily: DailyApiJson, outpu
             `Skipped product/repository selection for ${skipped} session(s) because collect is running without an interactive TTY.`
         );
         const fileHint = outputPath ?? `ai-daily-${daily.date}.json`;
-        console.error(`To complete assignment, run: cawplan ai-session assign --file ${fileHint} --web`);
-        console.error(`TTY alternative: cawplan ai-session assign --file ${fileHint} --tty`);
+        console.error(`To complete assignment, run: cawplan session assign --file ${fileHint} --web`);
+        console.error(`TTY alternative: cawplan session assign --file ${fileHint} --tty`);
     }
 
     return matched;

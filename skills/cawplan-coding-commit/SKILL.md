@@ -69,7 +69,7 @@ Do not write generated daily report JSON files into the current working director
 
 ## Network Permission for Collection
 
-Every `cawplan ai-session collect` command may call the Cursor Dashboard API at `cursor.com`. When running collection from Cursor agent shell tools, request full network access on the shell tool call (`required_permissions: ["full_network"]`). Do not run collection commands in a sandboxed terminal without network access; that causes Cursor API calls to wait until timeout and makes historical collection much slower.
+Every `cawplan session collect` command may call the Cursor Dashboard API at `cursor.com`. When running collection from Cursor agent shell tools, request full network access on the shell tool call (`required_permissions: ["full_network"]`). Do not run collection commands in a sandboxed terminal without network access; that causes Cursor API calls to wait until timeout and makes historical collection much slower.
 
 ### Month-Missing Workflow
 
@@ -83,7 +83,7 @@ Use this workflow when the user asks to upload/fill missing reports for a month,
 
 **Step M2 — Query cloud missing dates:**
 ```bash
-cawplan ai-session backfill --from <YYYY-MM-01> --to <YYYY-MM-last-or-today> --dry-run
+cawplan session backfill --from <YYYY-MM-01> --to <YYYY-MM-last-or-today> --dry-run
 ```
 
 Only use `missing_dates` from this dry run. Do not collect or overwrite dates that are already uploaded. If `missing_dates` is empty, tell the user there are no missing reports for the requested month and stop.
@@ -93,7 +93,7 @@ Only use `missing_dates` from this dry run. Do not collect or overwrite dates th
 collect_concurrency="${CAWPLAN_COLLECT_CONCURRENCY:-5}"
 i=0
 for date in <date1> <date2> ...; do
-  cawplan ai-session collect --date $date --output "$report_dir/ai-daily-$date.json" &
+  cawplan session collect --date $date --output "$report_dir/ai-daily-$date.json" &
   i=$((i + 1))
   if [ $((i % collect_concurrency)) -eq 0 ]; then
     wait
@@ -116,7 +116,7 @@ Inspect all newly collected files. If any session across these files lacks `prod
 
 Upload each newly collected missing-date file individually in date order:
 ```bash
-cawplan ai-session report --file "$report_dir/ai-daily-<YYYY-MM-DD>.json"
+cawplan session report --file "$report_dir/ai-daily-<YYYY-MM-DD>.json"
 ```
 
 After upload, report the requested month, uploaded dates, number of sessions per uploaded report, and each server response code.
@@ -126,12 +126,12 @@ After upload, report the requested month, uploaded dates, number of sessions per
 **Step 1 — Collect:**
 ```bash
 report_file="$report_dir/ai-daily-<YYYY-MM-DD>.json"
-cawplan ai-session collect --date <YYYY-MM-DD> --output "$report_file"
+cawplan session collect --date <YYYY-MM-DD> --output "$report_file"
 ```
 
 When running this command from Cursor agent tools, request full network access on the shell tool call (`required_permissions: ["full_network"]`) because Cursor token/cost collection depends on the Cursor Dashboard API at `cursor.com`.
 
-During collection, `cawplan ai-session collect` may ask the user to assign each session to a CawPlan product and repository using existing product-repo mappings. If no mapping exists, the user can link a GitHub repository URL in the required format `https://github.com/owner/repo`.
+During collection, `cawplan session collect` may ask the user to assign each session to a CawPlan product and repository using existing product-repo mappings. If no mapping exists, the user can link a GitHub repository URL in the required format `https://github.com/owner/repo`.
 
 In Cursor, if product/repo assignment is skipped during collection because prompts cannot be shown, complete missing assignments through the Web assignment flow in Step 3.
 
@@ -214,12 +214,12 @@ Present the full review described in **Review content contract**. Do not show on
 
 **Step 5 — Upload:**
 ```bash
-cawplan ai-session report --file "$report_file"
+cawplan session report --file "$report_file"
 ```
 
 **Step 6 — Query missing current-month reports:**
 ```bash
-cawplan ai-session backfill --from <YYYY-MM-01> --to <YYYY-MM-DD> --dry-run
+cawplan session backfill --from <YYYY-MM-01> --to <YYYY-MM-DD> --dry-run
 ```
 
 Use the first day of the report's month as `--from` and the report date as `--to`. Show the returned `missing_dates` to the user. If there are no missing dates, say so and stop.
@@ -231,7 +231,7 @@ Launch missing dates with a small concurrency limit:
 collect_concurrency="${CAWPLAN_COLLECT_CONCURRENCY:-5}"
 i=0
 for date in <date1> <date2> ...; do
-  cawplan ai-session collect --date $date --output "$report_dir/ai-daily-$date.json" &
+  cawplan session collect --date $date --output "$report_dir/ai-daily-$date.json" &
   i=$((i + 1))
   if [ $((i % collect_concurrency)) -eq 0 ]; then
     wait
@@ -253,7 +253,7 @@ Inspect all newly collected files. If any session across these files lacks `prod
 
 Upload each file individually in date order:
 ```bash
-cawplan ai-session report --file "$report_dir/ai-daily-<YYYY-MM-DD>.json"
+cawplan session report --file "$report_dir/ai-daily-<YYYY-MM-DD>.json"
 ```
 
 Backfill must stay within the uploaded report's current month and must not cross month boundaries.
@@ -280,17 +280,17 @@ Do not ask the user to choose an assignment mode. Always use the local Web assig
 
 For one report, run:
 ```bash
-cawplan ai-session assign --file <absolute-ai-daily-file> --web
+cawplan session assign --file <absolute-ai-daily-file> --web
 ```
 
 For multiple reports, prefer:
 ```bash
-cawplan ai-session assign --web --files <absolute-ai-daily-file-1> --files <absolute-ai-daily-file-2>
+cawplan session assign --web --files <absolute-ai-daily-file-1> --files <absolute-ai-daily-file-2>
 ```
 
-Run the command from the agent shell immediately so the local assignment page opens automatically in the browser. Keep exactly one `cawplan ai-session assign --web` command running until the user finishes in the browser. The command exits when the user clicks **Save assignments**, clicks **Close**, presses Ctrl+C in the terminal, or the local assignment server reaches its 10-minute timeout.
+Run the command from the agent shell immediately so the local assignment page opens automatically in the browser. Keep exactly one `cawplan session assign --web` command running until the user finishes in the browser. The command exits when the user clicks **Save assignments**, clicks **Close**, presses Ctrl+C in the terminal, or the local assignment server reaches its 10-minute timeout.
 
-Do not rerun `cawplan ai-session assign --web` while a previous assignment command is still running for the same report(s), even if it has been waiting for a long time. Long waits mean the page is waiting for user action, not that the command failed. If you need to report progress, tell the user to finish the already-open assignment page by saving or closing it, then wait for the existing command to exit or time out before continuing.
+Do not rerun `cawplan session assign --web` while a previous assignment command is still running for the same report(s), even if it has been waiting for a long time. Long waits mean the page is waiting for user action, not that the command failed. If you need to report progress, tell the user to finish the already-open assignment page by saving or closing it, then wait for the existing command to exit or time out before continuing.
 
 The page shows `session / human inputs / product / repo`, requires product, supports product-only assignment, and can link a new GitHub repository URL in the format `https://github.com/owner/repo`.
 
@@ -298,7 +298,7 @@ The page shows `session / human inputs / product / repo`, requires product, supp
 
 - If no `--date` is given, defaults to today.
 - Do not fabricate session data. Only report what the agents produce locally.
-- When running `cawplan ai-session collect` from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) so Cursor Dashboard token/cost data can be fetched from `cursor.com`.
+- When running `cawplan session collect` from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) so Cursor Dashboard token/cost data can be fetched from `cursor.com`.
 - If product/repo assignment prompts appear during collection, only use explicit user selections or existing mappings.
 - Before reviewing or uploading, inspect every `sessions[]` entry. If any session lacks `product_id`, immediately run the Web assignment flow. Do this even when the session has no file changes or repository data.
 - Product selection is required for every session in the Web assignment flow; repository selection is optional.
@@ -306,7 +306,7 @@ The page shows `session / human inputs / product / repo`, requires product, supp
 - GitHub repository URLs used to create mappings must be in the format `https://github.com/owner/repo`.
 - Never create a new product-repo mapping unless the user explicitly selects or confirms the exact product and GitHub repository URL.
 - If `--file` is used, the file must contain `author` (git username) and `date` (YYYY-MM-DD) fields.
-- After a single-day upload succeeds, follow Steps 6–10: query missing dates in that report's current month with `--dry-run`, then for each missing date collect → classify → assign → upload individually. Do not use `cawplan ai-session backfill` without `--dry-run`.
+- After a single-day upload succeeds, follow Steps 6–10: query missing dates in that report's current month with `--dry-run`, then for each missing date collect → classify → assign → upload individually. Do not use `cawplan session backfill` without `--dry-run`.
 - Do not automatically backfill previous months or cross-month ranges during the single-day workflow. Only use the month-missing workflow when the user explicitly provides a month argument or asks to upload/fill missing reports for that month.
 - Preserve raw fields in `human_inputs` (for example `start_time`, `end_time`, `files_changed`, `lines_added`, `lines_deleted`).
 - Never replace raw `human_inputs` with summarized content.

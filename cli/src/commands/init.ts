@@ -64,7 +64,7 @@ async function promptCreateProduct(productLineName: string, productLineId: strin
 export function registerInitCommand(program: Command): void {
     program
         .command("init")
-        .description("Initialize current git repository product mapping for AI daily reports")
+        .description("Initialize current git repository product mapping for daily session reports")
         .action(async () => {
             try {
                 assertInteractiveTerminal();

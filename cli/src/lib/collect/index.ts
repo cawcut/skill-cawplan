@@ -113,7 +113,7 @@ export function enrichCursorGuiFallbackContext(sessions: SessionData[]): void {
 }
 
 /**
- * Collect all AI coding session data for a given date and return a DailyApiJson.
+ * Collect all coding session data for a given date and return a DailyApiJson.
  */
 export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     const date = opts.date;
