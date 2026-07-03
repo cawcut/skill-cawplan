@@ -148,6 +148,12 @@ describe("assignmentHtml - submit effect", () => {
         expect(assignmentHtml()).toContain("Saved ✓");
     });
 
+    test("tells the user to return to the agent after saving", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("Saved ✓ Return to agent");
+        expect(html).toContain("Return to your agent to review and confirm upload.");
+    });
+
     test("does not use alert for save confirmation", () => {
         expect(assignmentHtml()).not.toContain("alert('Saved");
     });

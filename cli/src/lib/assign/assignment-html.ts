@@ -833,9 +833,9 @@ export function assignmentHtml(): string {
       try {
         const result = await api('/api/assignments', {method: 'POST', body: JSON.stringify({assignments})});
         const fileList = (result.files || [result.file]).join(', ');
-        saveBtn.textContent = 'Saved ✓';
+        saveBtn.textContent = 'Saved ✓ Return to agent';
         saveBtn.classList.add('btn-saved');
-        statusEl.textContent = 'Saved ' + result.assigned_sessions + ' session(s) to ' + fileList;
+        statusEl.textContent = 'Saved ' + result.assigned_sessions + ' session(s) to ' + fileList + '. Return to your agent to review and confirm upload.';
         statusEl.className = 'status';
         setTimeout(() => {
           saveBtn.textContent = 'Save assignments';
