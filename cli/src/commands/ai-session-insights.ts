@@ -11,8 +11,8 @@ import {
     requireCurrentUserId,
 } from "../lib/ai-session/helpers.js";
 
-export function registerAiSessionInsightsCommands(ai: Command): void {
-    ai.command("overview")
+export function registerAiSessionInsightsCommands(session: Command): void {
+    session.command("overview")
         .description("Workspace-level cost, token, and member overview")
         .option("--date <YYYY-MM-DD>", "Single date")
         .option("--from <YYYY-MM-DD>", "Start date")
@@ -26,7 +26,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    ai.command("trend")
+    session.command("trend")
         .description("Daily cost/token trend over a date range")
         .option("--date <YYYY-MM-DD>", "Single date")
         .option("--from <YYYY-MM-DD>", "Start date")
@@ -40,7 +40,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    ai.command("by-member")
+    session.command("by-member")
         .description("Cost and token breakdown by team member")
         .option("--date <YYYY-MM-DD>", "Single date")
         .option("--from <YYYY-MM-DD>", "Start date")
@@ -54,7 +54,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    ai.command("by-product")
+    session.command("by-product")
         .description("Cost and token breakdown by product (requires product-repo mapping)")
         .option("--date <YYYY-MM-DD>", "Single date")
         .option("--from <YYYY-MM-DD>", "Start date")
@@ -68,7 +68,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    ai.command("my-sessions")
+    session.command("my-sessions")
         .description("Your own session list and overview")
         .option("--user-id <id>", "User unique_id override; defaults to current credentials user_id")
         .option("--date <YYYY-MM-DD>", "Single date")
@@ -92,7 +92,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify({overview, sessions}, null, 2));
         });
 
-    addDatePageOptions(ai.command("by-model")
+    addDatePageOptions(session.command("by-model")
         .description("Cost and token breakdown by model"))
         .action(async (opts) => {
             const result = await cawplanRequest({
@@ -103,7 +103,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    addDatePageOptions(ai.command("by-model-dimension")
+    addDatePageOptions(session.command("by-model-dimension")
         .description("Cost breakdown by model + dimension (input/output/cache)"))
         .action(async (opts) => {
             const result = await cawplanRequest({
@@ -114,7 +114,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    addDatePageOptions(ai.command("by-agent")
+    addDatePageOptions(session.command("by-agent")
         .description("Cost breakdown by coding agent (Claude Code, Cursor, etc.)"))
         .action(async (opts) => {
             const result = await cawplanRequest({
@@ -125,7 +125,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    addDatePageOptions(ai.command("by-project")
+    addDatePageOptions(session.command("by-project")
         .description("Cost breakdown by git project/repository"))
         .action(async (opts) => {
             const result = await cawplanRequest({
@@ -136,14 +136,14 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    ai.command("dates")
+    session.command("dates")
         .description("List all dates that have session data")
         .action(async () => {
             const result = await cawplanRequest({method: "GET", path: `/api/v1/public/openapi/ai-session-usage/dates`});
             console.log(JSON.stringify(result, null, 2));
         });
 
-    ai.command("members")
+    session.command("members")
         .description("List all members who have session data")
         .action(async () => {
             const result = await cawplanRequest({
@@ -153,7 +153,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    ai.command("member-detail")
+    session.command("member-detail")
         .description("Full detail for a specific member")
         .requiredOption("--member <name>", "Member name (git username)")
         .action(async (opts) => {
@@ -165,7 +165,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    addDateOptions(ai.command("human-input-summary")
+    addDateOptions(session.command("human-input-summary")
         .description("Workspace prompt quality summary: categories, topics, quality distribution"))
         .action(async (opts) => {
             const result = await cawplanRequest({
@@ -176,7 +176,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    addDateOptions(ai.command("human-inputs")
+    addDateOptions(session.command("human-inputs")
         .description("Paginated list of individual prompts with filtering"))
         .option("--member <name>", "Filter by member")
         .option("--product <name>", "Filter by product")
@@ -204,7 +204,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    addDateOptions(ai.command("human-input-quality")
+    addDateOptions(session.command("human-input-quality")
         .description("Prompt quality score distribution across the workspace"))
         .option("--limit <n>", "Max samples (default 100)", parseInt)
         .action(async (opts) => {
@@ -218,7 +218,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    addDatePageOptions(ai.command("human-input-by-product")
+    addDatePageOptions(session.command("human-input-by-product")
         .description("Prompt count and quality breakdown by product"))
         .action(async (opts) => {
             const result = await cawplanRequest({
@@ -229,7 +229,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    addDateOptions(ai.command("product-overview")
+    addDateOptions(session.command("product-overview")
         .description("Cost and token overview scoped to a specific product"))
         .requiredOption("--product-id <id>", "Product unique_id")
         .action(async (opts) => {
@@ -241,7 +241,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    addDatePageOptions(ai.command("product-trend")
+    addDatePageOptions(session.command("product-trend")
         .description("Daily cost/token trend for a specific product"))
         .requiredOption("--product-id <id>", "Product unique_id")
         .action(async (opts) => {
@@ -253,7 +253,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    addDatePageOptions(ai.command("product-by-member")
+    addDatePageOptions(session.command("product-by-member")
         .description("Per-member cost breakdown for a specific product"))
         .requiredOption("--product-id <id>", "Product unique_id")
         .action(async (opts) => {
@@ -265,7 +265,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    addDatePageOptions(ai.command("product-by-model")
+    addDatePageOptions(session.command("product-by-model")
         .description("Per-model cost breakdown for a specific product"))
         .requiredOption("--product-id <id>", "Product unique_id")
         .action(async (opts) => {
@@ -277,7 +277,7 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    addDateOptions(ai.command("product-human-inputs")
+    addDateOptions(session.command("product-human-inputs")
         .description("Prompt quality summary for a specific product"))
         .requiredOption("--product-id <id>", "Product unique_id")
         .action(async (opts) => {
@@ -289,19 +289,20 @@ export function registerAiSessionInsightsCommands(ai: Command): void {
             console.log(JSON.stringify(result, null, 2));
         });
 
-    addDateOptions(ai.command("user-human-inputs")
+    addDateOptions(session.command("user-human-inputs")
         .description("Prompt quality summary for a specific user"))
-        .requiredOption("--user-id <id>", "User unique_id")
+        .option("--user-id <id>", "User unique_id override; defaults to current credentials user_id")
         .action(async (opts) => {
+            const userId = opts.userId ? String(opts.userId) : await requireCurrentUserId();
             const result = await cawplanRequest({
                 method: "GET",
-                path: `/api/v1/public/openapi/ai-session-usage/user/${opts.userId}/human-input-summary`,
+                path: `/api/v1/public/openapi/ai-session-usage/user/${userId}/human-input-summary`,
                 query: buildQueryFromFlags(dateParams(opts), [...DATE_KEYS]),
             });
             console.log(JSON.stringify(result, null, 2));
         });
 
-    ai.command("conversation")
+    session.command("conversation")
         .description("Retrieve a single session's full conversation by entry_id")
         .requiredOption("--entry-id <id>", "Session entry_id")
         .action(async (opts) => {

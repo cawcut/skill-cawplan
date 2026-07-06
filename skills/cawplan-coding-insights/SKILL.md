@@ -25,6 +25,16 @@ cawplan auth status >/dev/null || { echo "Not authenticated. Run: cawplan auth l
 
 Fetch the relevant views in parallel based on what the user is asking for. Use `--date` for a single day; use `--from`/`--to` for a range.
 
+If the user provides no prompt or only invokes `/cawplan-coding-insights`, default to the current user's report for today:
+
+```bash
+today="$(date +%F)"
+cawplan session my-sessions --date "$today"
+cawplan session user-human-inputs --date "$today"
+```
+
+Use this default output to summarize the user's own sessions, cost, tokens, files changed, and human input highlights for today.
+
 ---
 
 ### Workspace Overview
@@ -188,7 +198,8 @@ cawplan session conversation --entry-id <entry_id>
 - "last week" → `--from <last Monday> --to <last Sunday>`
 - "this month" → `--from <first of month> --to <today>`
 - "today" / "yesterday" → use `--date <YYYY-MM-DD>`
-- If no date is specified, default to the last 7 days.
+- If no prompt is specified, default to the current user's report for today.
+- If the prompt asks for a metric but omits a date, default to today unless the wording implies a broader period.
 - Use `cawplan session dates` to discover which dates actually have data.
 
 ## Output
