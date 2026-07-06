@@ -29,7 +29,10 @@ const PRICING: Record<string, PricingEntry> = {
     "claude-haiku-3-5": {input: 0.80, output: 4, cache_read: 0.08, cache_write: 1, currency: "$"},
 
     // OpenAI ($/MTok - official pricing from https://developers.openai.com/api/docs/pricing)
-    "gpt-5-5": {input: 5, output: 30, cache_read: 0.50, cache_write: 5, currency: "$"},
+    "gpt-5-5": {input: 5, output: 30, cache_read: 0.50, cache_write: 0, currency: "$"},
+    "gpt-5.5": {input: 5, output: 30, cache_read: 0.50, cache_write: 0, currency: "$"},
+    "gpt-5-4": {input: 2.5, output: 15, cache_read: 0.25, cache_write: 0, currency: "$"},
+    "gpt-5.4": {input: 2.5, output: 15, cache_read: 0.25, cache_write: 0, currency: "$"},
 
     // DeepSeek ($/MTok — official pricing from https://api-docs.deepseek.com/quick_start/pricing)
     "deepseek-v4-pro": {input: 0.435, output: 0.87, cache_read: 0.003625, cache_write: 0.435, currency: "$"},
