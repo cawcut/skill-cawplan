@@ -250,6 +250,12 @@ export function buildDailyApiJson(
     }
 ): DailyApiJson {
 
+    sessions = sessions.filter((session) => {
+        const hasHumanInput = (session.human_inputs ?? []).length > 0;
+        const hasTokens = (session.total_tokens ?? totalTokens(session.usage_breakdown)) > 0;
+        return hasHumanInput || hasTokens;
+    });
+
     // 1. Merge all session usage_breakdown buckets
     let allBuckets: Record<string, UsageBucket> = {};
     let allRepos: RepoTouched[] = [];
