@@ -43,7 +43,9 @@ async function assignRemainingProjectsInteractively(
     mappings: ProductRepoMapping[]
 ): Promise<{matched: number; skipped: number}> {
     let matched = 0;
-    const canPrompt = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    // The collection process no longer triggers tty
+    // const canPrompt = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    const canPrompt = Boolean(false);
     if (!canPrompt) {
         return {
             matched,
