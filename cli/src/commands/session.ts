@@ -1,4 +1,6 @@
 import {Command} from "commander";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import {buildQueryFromFlags} from "../lib/cache.js";
 import {cawplanRequest} from "../lib/http.js";
 import {collect} from "../lib/collect/index.js";
@@ -43,10 +45,10 @@ function registerSessionSubcommands(session: Command): void {
             (val: string, prev: string[]) => [...prev, val],
             [] as string[]
         )
-        .option("--output <path>", "Output file path (default: ./ai-daily-<date>.json)")
+        .option("--output <path>", "Output file path (default: <tmp>/cawplan-ai-daily/ai-daily-<date>.json)")
         .action(async (opts) => {
             const date = opts.date ?? new Date().toISOString().slice(0, 10);
-            const outputPath: string = opts.output ?? `ai-daily-${date}.json`;
+            const outputPath: string = opts.output ?? join(tmpdir(), "cawplan-ai-daily", `ai-daily-${date}.json`);
             const agents =
                 opts.agent && opts.agent.length > 0
                     ? (opts.agent as AiSessionAgent[])

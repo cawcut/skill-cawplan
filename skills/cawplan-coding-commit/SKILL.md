@@ -63,7 +63,7 @@ Minimize permission prompts during report collection:
 
 Before collecting reports, create one workflow-scoped temp directory with Node.js so the same command works on macOS, Linux, and Windows:
 ```bash
-report_dir="$(node -e 'const {mkdtempSync} = require("node:fs"); const {join} = require("node:path"); const {tmpdir} = require("node:os"); console.log(mkdtempSync(join(tmpdir(), "cawplan-ai-daily-")));')"
+report_dir="$(node -e 'const {mkdirSync} = require("node:fs"); const {join} = require("node:path"); const {tmpdir} = require("node:os"); const dir = join(tmpdir(), "cawplan-ai-daily"); mkdirSync(dir, {recursive: true}); console.log(dir);')"
 ```
 
 Use absolute file paths under this directory for every subsequent collect, classify, assign, review, and upload step:
@@ -127,7 +127,7 @@ After upload, report the requested month, uploaded dates, number of sessions per
 
 **Step 1 — Collect:**
 ```bash
-report_dir="$(node -e 'const {mkdtempSync} = require("node:fs"); const {join} = require("node:path"); const {tmpdir} = require("node:os"); console.log(mkdtempSync(join(tmpdir(), "cawplan-ai-daily-")));')"
+report_dir="$(node -e 'const {mkdirSync} = require("node:fs"); const {join} = require("node:path"); const {tmpdir} = require("node:os"); const dir = join(tmpdir(), "cawplan-ai-daily"); mkdirSync(dir, {recursive: true}); console.log(dir);')"
 report_file="$report_dir/ai-daily-<YYYY-MM-DD>.json"
 cawplan session collect --date <YYYY-MM-DD> --output "$report_file"
 ```
