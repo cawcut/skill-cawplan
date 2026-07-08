@@ -108,7 +108,14 @@ Run this whole shell block with full network access when using Cursor agent tool
 
 **Step M4 — Classify all newly collected reports and rewrite session titles:**
 
-Classify human inputs from all newly collected `$report_dir/ai-daily-<date>.json` files in a single batch using the same prompt as Step 2 below. Then rewrite `sessions[].session_title` for all newly collected files using the session title rewrite prompt from Step 2. Write both classifications and rewritten titles back before assignment or upload.
+First query cloud policy once:
+```bash
+cawplan api get /api/v1/public/openapi/ai-session-usage/policy
+```
+
+If `cloud_enrichment_enabled && (cloud_enrichment_enabled_for_all || cloud_enrichment_enabled_for_me)` is `true`, skip LLM classification and title rewrite for all newly collected files and keep collected values unchanged.
+
+Otherwise, classify human inputs from all newly collected `$report_dir/ai-daily-<date>.json` files in a single batch using the same prompt as Step 2 below. Then rewrite `sessions[].session_title` for all newly collected files using the session title rewrite prompt from Step 2. Write both classifications and rewritten titles back before assignment or upload.
 
 **Step M5 — Product/repo assignment:**
 
@@ -139,6 +146,21 @@ During collection, `cawplan session collect` may ask the user to assign each ses
 In Cursor, if product/repo assignment is skipped during collection because prompts cannot be shown, complete missing assignments through the Web assignment flow in Step 3.
 
 **Step 2 — Classify human inputs and rewrite session titles (LLM):**
+
+Before classifying, query cloud policy:
+```bash
+cawplan api get /api/v1/public/openapi/ai-session-usage/policy
+```
+
+Read `data` from the response and compute:
+- `skip_llm_fix = cloud_enrichment_enabled && (cloud_enrichment_enabled_for_all || cloud_enrichment_enabled_for_me)`
+
+If `skip_llm_fix` is `true`, **skip all LLM correction in this step**:
+- Do not reclassify `human_inputs[].category/topic/topic_confidence/topic_reason/topic_source`
+- Do not rewrite `sessions[].session_title/session_title_source/session_title_reason`
+- Keep collected values unchanged and continue to Step 3
+
+If `skip_llm_fix` is `false`, run the full classification and title rewrite flow below.
 
 Read `$report_file`. If `human_inputs` is non-empty, classify every entry in a single batch using the prompt below. Write the results back into the JSON file by updating each `human_input`'s `category`, `topic`, `topic_confidence`, `topic_reason`, and `topic_source` fields. If `human_inputs` is empty or absent, skip this step and continue.
 
@@ -246,7 +268,14 @@ Run this whole shell block with full network access when using Cursor agent tool
 
 **Step 8 — Classify missing reports' human inputs and rewrite session titles (LLM):**
 
-Classify human inputs from **all** newly collected files in `$report_dir` in a single batch operation using the same prompt as Step 2. Then rewrite `sessions[].session_title` for those files using the same session title rewrite prompt from Step 2. For files with empty `human_inputs`, skip silently. Write results back to all files before moving to Step 9.
+First query cloud policy once:
+```bash
+cawplan api get /api/v1/public/openapi/ai-session-usage/policy
+```
+
+If `cloud_enrichment_enabled && (cloud_enrichment_enabled_for_all || cloud_enrichment_enabled_for_me)` is `true`, skip LLM classification and title rewrite for all newly collected files and keep collected values unchanged.
+
+Otherwise, classify human inputs from **all** newly collected files in `$report_dir` in a single batch operation using the same prompt as Step 2. Then rewrite `sessions[].session_title` for those files using the same session title rewrite prompt from Step 2. For files with empty `human_inputs`, skip silently. Write results back to all files before moving to Step 9.
 
 **Step 9 — Product/repo assignment for missing reports:**
 
@@ -314,6 +343,8 @@ The page shows `session / human inputs / product / repo`, requires product, supp
 - Preserve raw fields in `human_inputs` (for example `start_time`, `end_time`, `files_changed`, `lines_added`, `lines_deleted`).
 - Never replace raw `human_inputs` with summarized content.
 - Rewrite `sessions[].session_title` from that session's own `human_inputs` before review and upload. Do not use human inputs from another session to title a session.
+- Before any LLM classification/title rewrite step (single-day Step 2, month-missing Step M4, and backfill Step 8), call `cawplan api get /api/v1/public/openapi/ai-session-usage/policy`. If `cloud_enrichment_enabled && (cloud_enrichment_enabled_for_all || cloud_enrichment_enabled_for_me)` is true, skip LLM correction and keep collected category/topic/session_title values unchanged.
+- When the policy condition above is true, skip writing all LLM-adjusted fields: `human_inputs[].category`, `human_inputs[].topic`, `human_inputs[].topic_confidence`, `human_inputs[].topic_reason`, `human_inputs[].topic_source`, `sessions[].session_title`, `sessions[].session_title_source`, and `sessions[].session_title_reason`.
 
 ## Confirmation
 
