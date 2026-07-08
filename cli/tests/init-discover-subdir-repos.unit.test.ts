@@ -72,6 +72,7 @@ describe("discoverSubdirRepos", () => {
         name: "repo-a",
         repoUrl: "https://github.com/acme/repo-a",
         repoName: "repo-a",
+        productId: "p1",
         productName: "Product X",
       },
     ]);

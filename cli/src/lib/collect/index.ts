@@ -17,6 +17,7 @@ import {
 } from "./agents/cursor-api.js";
 import {buildDailyApiJson} from "./aggregators/daily.js";
 import {SessionData} from "./types.js";
+import {findLocalProductMappingForDir} from "../user-config.js";
 
 /**
  * Get the start and end of a date in local time as Unix milliseconds.
@@ -60,6 +61,12 @@ function inferCursorProject(gs: {
 
 export function normalizeSessionRepoContext(sessions: SessionData[], resolveRepo = gitRemoteRepo): void {
     for (const session of sessions) {
+        const localMapping = session.cwd ? findLocalProductMappingForDir(session.cwd) : undefined;
+        if (localMapping) {
+            session.product_id = localMapping.product_id;
+            session.product_name = undefined;
+        }
+
         const cwd = (session.cwd ?? "").trim();
         if (cwd) {
             const resolvedRepo = (resolveRepo(cwd) ?? "").trim();

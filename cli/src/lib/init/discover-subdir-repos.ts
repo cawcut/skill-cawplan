@@ -34,6 +34,7 @@ export interface SubdirRepo {
 export interface MappedSubdirRepo extends SubdirRepo {
     repoUrl: string;
     repoName: string;
+    productId: string;
     productName: string;
 }
 
@@ -74,11 +75,15 @@ export function discoverSubdirRepos(
     existingMappings: ProductRepoMapping[],
     deps: DiscoverSubdirReposDeps = defaultDeps()
 ): DiscoverSubdirReposResult {
-    const mappingByUrl = new Map(
-        existingMappings
-            .filter((m): m is ProductRepoMapping & { repo_url: string } => Boolean(m.repo_url))
-            .map((m) => [m.repo_url, m])
-    );
+    const mappingByUrl = new Map<string, ProductRepoMapping>();
+    for (const mapping of existingMappings) {
+        if (!mapping.repo_url) continue;
+        try {
+            mappingByUrl.set(normalizeGitHubRemoteUrl(mapping.repo_url), mapping);
+        } catch {
+            mappingByUrl.set(mapping.repo_url, mapping);
+        }
+    }
 
     const result: DiscoverSubdirReposResult = { mapped: [], pending: [], skipped: [] };
 
@@ -104,7 +109,13 @@ export function discoverSubdirRepos(
         const repoName = repoNameFromGitHubUrl(repoUrl);
         const existing = mappingByUrl.get(repoUrl);
         if (existing) {
-            result.mapped.push({ ...candidate, repoUrl, repoName, productName: existing.product_name ?? "" });
+            result.mapped.push({
+                ...candidate,
+                repoUrl,
+                repoName,
+                productId: existing.product_id ?? "",
+                productName: existing.product_name ?? existing.product_id ?? "",
+            });
         } else {
             result.pending.push({ ...candidate, repoUrl, repoName });
         }

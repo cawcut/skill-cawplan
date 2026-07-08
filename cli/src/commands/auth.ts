@@ -98,7 +98,7 @@ export function registerAuthCommand(program: Command): void {
         process.exit(1);
       }
       const existing = await readCredentials();
-      await writeUserConfig({ env, baseUrl, portalUrl });
+      await writeUserConfig({ ...existingConfig, env, baseUrl, portalUrl });
       await writeCredentials({ ...existing, apiKey });
       success(`Configuration saved to ${getConfigPath()}.`);
       success("API Key saved.");
