@@ -100,6 +100,28 @@ export async function createProductRepoMapping(opts: {
     };
 }
 
+export async function batchCreateProductRepoMappings(opts: {
+    productId: string;
+    repoUrls: string[];
+}): Promise<{created: ProductRepoMapping[]; existing: ProductRepoMapping[]}> {
+    const result = await cawplanRequest({
+        method: "POST",
+        path: "/api/v1/public/openapi/ai-session-usage/product-repos",
+        body: {
+            product_id: opts.productId,
+            repo_urls: opts.repoUrls.map((url) => url.trim()),
+        },
+    });
+    const data = ((result as {data?: unknown}).data ?? result) as {
+        created?: ProductRepoMapping[];
+        existing?: ProductRepoMapping[];
+    };
+    return {
+        created: data.created ?? [],
+        existing: data.existing ?? [],
+    };
+}
+
 export function toProductChoices(result: unknown): ProductChoice[] {
     return extractList<ProductListItem>(result)
         .filter((p) => p.unique_id && p.name)

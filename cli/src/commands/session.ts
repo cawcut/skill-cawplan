@@ -26,7 +26,7 @@ import {
     startAssignmentWebServer,
 } from "../lib/assign/web-server.js";
 import {listCawplanProducts} from "../lib/product-catalog.js";
-import {registerAiSessionInsightsCommands} from "./ai-session-insights.js";
+import {registerAiSessionInsightsCommands} from "./session-insights.js";
 
 export function registerSessionCommand(program: Command): void {
     registerSessionSubcommands(program.command("session").description("Coding session usage"));

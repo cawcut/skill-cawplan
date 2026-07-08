@@ -1,8 +1,8 @@
-import {execFileSync} from "node:child_process";
 import {Command} from "commander";
 import {openBrowser} from "../lib/oauth.js";
 import {getPortalBase} from "../lib/products.js";
 import {
+    batchCreateProductRepoMappings,
     createProductRepoMapping,
     listProductLinesForSelector,
     listProductRepoMappings,
@@ -12,26 +12,10 @@ import {
     selectProductLine,
     withProductLineCounts,
 } from "../lib/assign/products-api.js";
+import type {ProductChoice} from "../lib/ai-session/types.js";
 import {repoNameFromGitHubUrl} from "../lib/assign/matching.js";
-
-function gitOutput(args: string[], cwd?: string): string {
-    return execFileSync("git", args, {
-        cwd,
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-}
-
-function normalizeGitHubRemoteUrl(remoteUrl: string): string {
-    const raw = remoteUrl.trim();
-    const ssh = raw.match(/^git@github\.com:([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?$/);
-    if (ssh) return `https://github.com/${ssh[1]}/${ssh[2]}`;
-
-    const https = raw.match(/^https:\/\/github\.com\/([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/);
-    if (https) return `https://github.com/${https[1]}/${https[2]}`;
-
-    throw new Error(`origin must be a GitHub repository URL, got: ${remoteUrl}`);
-}
+import {discoverSubdirRepos, gitOutput, normalizeGitHubRemoteUrl} from "../lib/init/discover-subdir-repos.js";
+import {formatColumnGrid} from "../lib/init/format-columns.js";
 
 function assertInteractiveTerminal(): void {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -61,6 +45,119 @@ async function promptCreateProduct(productLineName: string, productLineId: strin
     }
 }
 
+async function selectProductInteractively(contextLabel: string): Promise<ProductChoice | null> {
+    const [productLinesWithoutCounts, allProducts] = await Promise.all([
+        listProductLinesForSelector(),
+        listProductsForSelector(),
+    ]);
+    const productLines = withProductLineCounts(productLinesWithoutCounts, allProducts);
+    if (productLines.length === 0) {
+        throw new Error("No CawPlan Teams returned.");
+    }
+    const productLine = productLines.length === 1
+        ? productLines[0]
+        : await selectProductLine(productLines, `Select CawPlan Team for ${contextLabel}`);
+
+    const products = allProducts.filter((product) => product.product_line_id === productLine.product_line_id);
+    if (products.length === 0) {
+        await promptCreateProduct(productLine.product_line_name, productLine.product_line_id);
+        return null;
+    }
+
+    return selectProduct(products, `Select CawPlan product under ${productLine.product_line_name} for ${contextLabel}`);
+}
+
+async function runSingleRepoInit(repoRoot: string): Promise<void> {
+    const origin = gitOutput(["remote", "get-url", "origin"], repoRoot);
+    const repoUrl = normalizeGitHubRemoteUrl(origin);
+    const repoName = repoNameFromGitHubUrl(repoUrl);
+
+    console.log(`Repository: ${repoUrl}`);
+
+    const mappings = await listProductRepoMappings();
+    const existing = mappings.find((mapping) => mapping.repo_url === repoUrl);
+    if (existing) {
+        console.log(`Current repository is already mapped to product [${existing.product_name}].`);
+        return;
+    }
+
+    const product = await selectProductInteractively(repoName);
+    if (!product) return;
+
+    const ok = await promptConfirm(`Create mapping: ${product.product_name} -> ${repoUrl}?`);
+    if (!ok) {
+        console.log("Cancelled.");
+        return;
+    }
+
+    const mapping = await createProductRepoMapping({
+        productId: product.product_id,
+        repoUrl,
+        repoName,
+    });
+
+    console.log(`Created mapping: ${mapping.product_name} -> ${mapping.repo_url}`);
+}
+
+function printRepoList(header: string, lines: string[]): void {
+    console.log(header);
+    for (const line of lines) {
+        console.log(`    ${line}`);
+    }
+}
+
+async function runMultiRepoInit(cwd: string): Promise<void> {
+    const mappings = await listProductRepoMappings();
+    const {mapped, pending, skipped} = discoverSubdirRepos(cwd, mappings);
+    const total = mapped.length + pending.length + skipped.length;
+
+    if (total === 0) {
+        console.log(`No git repositories found in subdirectories of ${cwd}.`);
+        return;
+    }
+
+    console.log(`Scanned ${total} subdirectories:`);
+    if (mapped.length > 0) {
+        printRepoList(`  ✓ already mapped (${mapped.length}):`, mapped.map((r) => `${r.name} -> ${r.productName}`));
+    }
+    if (skipped.length > 0) {
+        printRepoList(`  ⚠ skipped (${skipped.length}):`, skipped.map((r) => `${r.name} (${r.reason})`));
+    }
+    if (pending.length === 0) {
+        return;
+    }
+    console.log(`  pending (${pending.length}):`);
+    const terminalWidth = process.stdout.columns || 80;
+    for (const line of formatColumnGrid(pending.map((r) => r.name), terminalWidth - 4)) {
+        console.log(`    ${line}`);
+    }
+
+    const product = await selectProductInteractively(`${pending.length} subdirectories`);
+    if (!product) return;
+
+    const ok = await promptConfirm(`Create ${pending.length} mappings under ${product.product_name}?`);
+    if (!ok) {
+        console.log("Cancelled.");
+        return;
+    }
+
+    try {
+        const {created, existing} = await batchCreateProductRepoMappings({
+            productId: product.product_id,
+            repoUrls: pending.map((r) => r.repoUrl),
+        });
+        if (created.length > 0) {
+            printRepoList(`  + created (${created.length}):`, created.map((m) => `${m.repo_name} -> ${m.product_name}`));
+        }
+        if (existing.length > 0) {
+            printRepoList(`  = already existing (${existing.length}):`, existing.map((m) => `${m.repo_name} -> ${m.product_name}`));
+        }
+    } catch (e) {
+        console.log(`  ✗ batch creation failed: ${(e as Error).message}`);
+        process.exitCode = 1;
+    }
+}
+
 export function registerInitCommand(program: Command): void {
     program
         .command("init")
@@ -69,60 +166,15 @@ export function registerInitCommand(program: Command): void {
             try {
                 assertInteractiveTerminal();
 
-                const repoRoot = gitOutput(["rev-parse", "--show-toplevel"]);
-                const origin = gitOutput(["remote", "get-url", "origin"], repoRoot);
-                const repoUrl = normalizeGitHubRemoteUrl(origin);
-                const repoName = repoNameFromGitHubUrl(repoUrl);
-
-                console.log(`Repository: ${repoUrl}`);
-
-                const mappings = await listProductRepoMappings();
-                const existing = mappings.find((mapping) => {
-                    return mapping.repo_url === repoUrl;
-                });
-                if (existing) {
-                    console.log(`Current repository is already mapped to product [${existing.product_name}].`);
+                let repoRoot: string;
+                try {
+                    repoRoot = gitOutput(["rev-parse", "--show-toplevel"]);
+                } catch {
+                    await runMultiRepoInit(process.cwd());
                     return;
                 }
 
-                const [productLinesWithoutCounts, allProducts] = await Promise.all([
-                    listProductLinesForSelector(),
-                    listProductsForSelector(),
-                ]);
-                const productLines = withProductLineCounts(productLinesWithoutCounts, allProducts);
-                if (productLines.length === 0) {
-                    throw new Error("No CawPlan Teams returned.");
-                }
-                const productLine = productLines.length === 1
-                    ? productLines[0]
-                    : await selectProductLine(
-                        productLines,
-                        `Select CawPlan Team for ${repoName}`
-                    );
-
-                const products = allProducts.filter((product) => product.product_line_id === productLine.product_line_id);
-                if (products.length === 0) {
-                    await promptCreateProduct(productLine.product_line_name, productLine.product_line_id);
-                    return;
-                }
-                const product = await selectProduct(
-                    products,
-                    `Select CawPlan product under ${productLine.product_line_name} for ${repoName}`
-                );
-
-                const ok = await promptConfirm(`Create mapping: ${product.product_name} -> ${repoUrl}?`);
-                if (!ok) {
-                    console.log("Cancelled.");
-                    return;
-                }
-
-                const mapping = await createProductRepoMapping({
-                    productId: product.product_id,
-                    repoUrl,
-                    repoName,
-                });
-
-                console.log(`Created mapping: ${mapping.product_name} -> ${mapping.repo_url}`);
+                await runSingleRepoInit(repoRoot);
             } catch (e) {
                 console.error(`Error: ${(e as Error).message}`);
                 process.exit(1);

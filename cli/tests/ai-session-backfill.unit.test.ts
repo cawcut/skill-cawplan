@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Command } from "commander";
-import { registerSessionCommand } from "../src/commands/ai-session";
+import { registerSessionCommand } from "../src/commands/session";
 import { writeCredentials } from "../src/lib/credentials";
 
 let originalFetch: typeof fetch;
