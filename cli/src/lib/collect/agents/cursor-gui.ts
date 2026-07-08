@@ -66,6 +66,29 @@ function formatDuration(ms: number): string {
     return `${seconds}s`;
 }
 
+/** Exported for unit tests. */
+export function keyPrefixUpperBound(prefix: string): string {
+    if (!prefix) return "\u{10ffff}";
+    const chars = Array.from(prefix);
+    for (let i = chars.length - 1; i >= 0; i--) {
+        const code = chars[i].codePointAt(0);
+        if (code == null || code >= 0x10ffff) continue;
+        chars[i] = String.fromCodePoint(code + 1);
+        return chars.slice(0, i + 1).join("");
+    }
+    return `${prefix}\u0000`;
+}
+
+/** Exported for unit tests. */
+export function selectCursorDiskKvByKeyPrefix(
+    db: DatabaseSync,
+    prefix: string
+): Array<{key: string; value: string}> {
+    return db
+        .prepare("SELECT key, value FROM cursorDiskKV WHERE key >= ? AND key < ? ORDER BY key")
+        .all(prefix, keyPrefixUpperBound(prefix)) as Array<{key: string; value: string}>;
+}
+
 function encodedPathSegmentTokens(name: string): string[] {
     return name
         .replace(/[^A-Za-z0-9]+/g, "-")
@@ -221,9 +244,7 @@ function loadSessionBubbleTimeline(
     composerId: string
 ): SessionBubbleTimeline | null {
     try {
-        const rows = db
-            .prepare("SELECT value FROM cursorDiskKV WHERE key LIKE ?")
-            .all(`bubbleId:${composerId}:%`) as Array<{ value: string }>;
+        const rows = selectCursorDiskKvByKeyPrefix(db, `bubbleId:${composerId}:`);
         if (!rows.length) return null;
 
         const userBubbles: UserBubble[] = [];
@@ -1463,9 +1484,7 @@ function parseBubbleSession(
 
     let rows: Array<{ key: string; value: string }> = [];
     try {
-        rows = db
-            .prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE ? ORDER BY key")
-            .all(`bubbleId:${sessionId}:%`) as Array<{ key: string; value: string }>;
+        rows = selectCursorDiskKvByKeyPrefix(db, `bubbleId:${sessionId}:`);
     } catch {
         rows = [];
     }
@@ -1630,9 +1649,7 @@ export function getGuiSessionBubbleTimestamps(
     composerId: string
 ): { start: Date | null; end: Date | null } {
     try {
-        const rows = db
-            .prepare("SELECT value FROM cursorDiskKV WHERE key LIKE ?")
-            .all(`bubbleId:${composerId}:%`) as Array<{ value: string }>;
+        const rows = selectCursorDiskKvByKeyPrefix(db, `bubbleId:${composerId}:`);
 
         let start: Date | null = null;
         let end: Date | null = null;
@@ -1690,9 +1707,7 @@ export function collectGuiSessions(filterDate: string, opts?: CursorGuiCollectOp
         let rows: Array<{ key: string; value: string }> = [];
         try {
             rows = timed(opts, "Query composerData rows from Cursor state DB", () =>
-                db
-                    .prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
-                    .all() as Array<{ key: string; value: string }>
+                selectCursorDiskKvByKeyPrefix(db, "composerData:")
             );
             logCursorGui(opts, `Cursor state DB returned ${rows.length} composerData row(s).`);
         } catch {
