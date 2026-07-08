@@ -19,6 +19,40 @@ import {buildDailyApiJson} from "./aggregators/daily.js";
 import {SessionData} from "./types.js";
 import {findLocalProductMappingForDir} from "../user-config.js";
 
+function formatElapsed(ms: number): string {
+    const totalSeconds = Math.max(0, Math.round(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+}
+
+function createCollectLogger(enabled: boolean): {
+    log: (message: string) => void;
+    step: <T>(label: string, run: () => T) => T;
+} {
+    const startedAt = Date.now();
+    const log = (message: string) => {
+        if (!enabled) return;
+        console.error(`[collect +${formatElapsed(Date.now() - startedAt)}] ${message}`);
+    };
+    return {
+        log,
+        step: <T>(label: string, run: () => T): T => {
+            log(`${label}...`);
+            const stepStartedAt = Date.now();
+            try {
+                const result = run();
+                log(`${label} done in ${formatElapsed(Date.now() - stepStartedAt)}.`);
+                return result;
+            } catch (e) {
+                log(`${label} failed after ${formatElapsed(Date.now() - stepStartedAt)}: ${(e as Error).message}`);
+                throw e;
+            }
+        },
+    };
+}
+
 /**
  * Get the start and end of a date in local time as Unix milliseconds.
  */
@@ -124,21 +158,29 @@ export function enrichCursorGuiFallbackContext(sessions: SessionData[]): void {
  */
 export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     const date = opts.date;
-    const author = gitAuthor();
+    const logger = createCollectLogger(Boolean(opts.verbose));
+    const author = logger.step("Resolve git author", () => gitAuthor());
     const sessions: SessionData[] = [];
 
     const defaultAgents: CollectOptions["agents"] = ["claude-code", "cursor", "codex"];
     const targetAgents = opts.agents ?? defaultAgents;
+    logger.log(`Target agents: ${targetAgents.join(", ")}`);
 
     // Collect Claude Code sessions
     if (targetAgents.includes("claude-code")) {
-        const claudeSessions = findSessionsByDate(date);
+        const claudeSessions = logger.step("Discover Claude Code sessions", () => findSessionsByDate(date));
+        logger.log(`Found ${claudeSessions.length} Claude Code candidate session(s).`);
         for (const {jsonlPath, projectName, sessionId} of claudeSessions) {
             try {
-                const s = collectClaudeCodeSession(jsonlPath, projectName, sessionId, date);
+                const s = logger.step(`Collect Claude Code session ${sessionId}`, () =>
+                    collectClaudeCodeSession(jsonlPath, projectName, sessionId, date)
+                );
                 // Skip sessions with no activity on this date (multi-day sessions overlap detected
                 // by file date range, but the session may have zero events on the target date)
-                if (s.message_stats.user === 0 && s.message_stats.assistant === 0) continue;
+                if (s.message_stats.user === 0 && s.message_stats.assistant === 0) {
+                    logger.log(`Skip Claude Code session ${sessionId}: no activity on ${date}.`);
+                    continue;
+                }
                 sessions.push(s);
             } catch (e) {
                 console.warn(`Warning: claude-code session ${sessionId}: ${(e as Error).message}`);
@@ -149,14 +191,20 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     // Collect Cursor GUI sessions
     if (targetAgents.includes("cursor")) {
         try {
-            const guiSessions = collectGuiSessions(date);
+            const guiSessions = logger.step("Collect Cursor GUI sessions", () => collectGuiSessions(date, {
+                log: logger.log,
+            }));
+            logger.log(`Found ${guiSessions.length} Cursor GUI candidate session(s).`);
             // Convert GuiSession to SessionData — skip sessions with no activity.
             for (const gs of guiSessions) {
                 if (
                     gs.message_stats.user === 0 &&
                     gs.message_stats.assistant === 0 &&
                     gs.files_changed.length === 0
-                ) continue;
+                ) {
+                    logger.log(`Skip Cursor GUI session ${gs.id}: no activity on ${date}.`);
+                    continue;
+                }
                 const actStart = gs.activity_start;
                 const actEnd = gs.activity_end ?? gs.activity_start;
 
@@ -207,7 +255,9 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     // Collect Cursor CLI sessions
     if (targetAgents.includes("cursor")) {
         try {
-            sessions.push(...collectCursorCliSessions(date));
+            const cliSessions = logger.step("Collect Cursor CLI sessions", () => collectCursorCliSessions(date));
+            logger.log(`Collected ${cliSessions.length} Cursor CLI session(s).`);
+            sessions.push(...cliSessions);
         } catch (e) {
             console.warn(`Warning: cursor-cli: ${(e as Error).message}`);
         }
@@ -216,14 +266,16 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     // Collect Codex sessions
     if (targetAgents.includes("codex")) {
         try {
-            sessions.push(...collectCodexSessions(date));
+            const codexSessions = logger.step("Collect Codex sessions", () => collectCodexSessions(date));
+            logger.log(`Collected ${codexSessions.length} Codex session(s).`);
+            sessions.push(...codexSessions);
         } catch (e) {
             console.warn(`Warning: codex: ${(e as Error).message}`);
         }
     }
 
-    enrichCursorGuiFallbackContext(sessions);
-    normalizeSessionRepoContext(sessions);
+    logger.step("Enrich Cursor GUI fallback context", () => enrichCursorGuiFallbackContext(sessions));
+    logger.step("Normalize session repository context", () => normalizeSessionRepoContext(sessions));
 
     // Fetch Cursor API exact usage data
     let cursorApiUsage:
@@ -232,15 +284,24 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
 
     if (targetAgents.includes("cursor")) {
         try {
-            const {cookie} = buildSessionCookie();
+            const {cookie} = logger.step("Build Cursor Dashboard session cookie", () => buildSessionCookie());
             const {startMs, endMs} = dayBoundsMs(date);
+            logger.log(`Fetch Cursor Dashboard usage events for ${new Date(startMs).toISOString()} - ${new Date(endMs).toISOString()}...`);
+            const cursorApiStartedAt = Date.now();
             const events = await fetchUsageEvents(startMs, endMs, cookie);
+            logger.log(`Fetched ${events.length} Cursor Dashboard usage event(s) in ${formatElapsed(Date.now() - cursorApiStartedAt)}.`);
 
             // First try session-level attribution (uid-team style)
             const cursorSessions = sessions.filter((s) => s.agent === "cursor-gui" || s.agent === "cursor-cli");
-            refineCursorHumanInputsFromBillingEvents(cursorSessions, events, date, false);
-            let windows = buildCursorAttributionWindows(cursorSessions, date);
-            let bySession = aggregateCursorUsageBySession(events, date, windows);
+            logger.step("Refine Cursor human input windows from billing events", () =>
+                refineCursorHumanInputsFromBillingEvents(cursorSessions, events, date, false)
+            );
+            let windows = logger.step("Build Cursor attribution windows", () =>
+                buildCursorAttributionWindows(cursorSessions, date)
+            );
+            let bySession = logger.step("Aggregate Cursor usage by session", () =>
+                aggregateCursorUsageBySession(events, date, windows)
+            );
             let attributedSessions = 0;
             const applyCursorAttribution = (): number => {
                 let count = 0;
@@ -260,30 +321,41 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
                 }
                 return count;
             };
-            attributedSessions = applyCursorAttribution();
+            attributedSessions = logger.step("Apply Cursor usage attribution", () => applyCursorAttribution());
+            logger.log(`Attributed Cursor usage to ${attributedSessions} session(s).`);
 
             if (attributedSessions > 0) {
-                refineHumanInputsFromAttributedEvents(cursorSessions, events, date, windows);
-                windows = buildCursorAttributionWindows(cursorSessions, date);
-                bySession = aggregateCursorUsageBySession(events, date, windows);
-                attributedSessions = applyCursorAttribution();
+                logger.step("Refine human inputs from attributed Cursor events", () =>
+                    refineHumanInputsFromAttributedEvents(cursorSessions, events, date, windows)
+                );
+                windows = logger.step("Rebuild Cursor attribution windows", () =>
+                    buildCursorAttributionWindows(cursorSessions, date)
+                );
+                bySession = logger.step("Re-aggregate Cursor usage by session", () =>
+                    aggregateCursorUsageBySession(events, date, windows)
+                );
+                attributedSessions = logger.step("Re-apply Cursor usage attribution", () => applyCursorAttribution());
+                logger.log(`Re-attributed Cursor usage to ${attributedSessions} session(s).`);
             }
 
             // Fallback: if no session got attribution, keep global model rollup behavior.
             if (attributedSessions === 0) {
-                cursorApiUsage = aggregateCursorUsage(events, date);
+                cursorApiUsage = logger.step("Aggregate Cursor usage globally", () => aggregateCursorUsage(events, date));
             }
         } catch (e) {
             console.warn(`Warning: cursor API: ${(e as Error).message}`);
         }
     }
 
-    const daily = buildDailyApiJson(sessions, date, author, cursorApiUsage);
+    const daily = logger.step("Build daily API JSON", () => buildDailyApiJson(sessions, date, author, cursorApiUsage));
 
     if (opts.outputPath) {
-        mkdirSync(dirname(opts.outputPath), {recursive: true});
-        writeFileSync(opts.outputPath, JSON.stringify(daily, null, 2), "utf-8");
+        logger.step(`Write report to ${opts.outputPath}`, () => {
+            mkdirSync(dirname(opts.outputPath!), {recursive: true});
+            writeFileSync(opts.outputPath!, JSON.stringify(daily, null, 2), "utf-8");
+        });
     }
 
+    logger.log(`Collect finished with ${daily.sessions.length} session(s).`);
     return daily;
 }

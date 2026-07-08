@@ -30,6 +30,15 @@ import {
 import {listCawplanProducts} from "../lib/product-catalog.js";
 import {registerAiSessionInsightsCommands} from "./session-insights.js";
 
+export function formatElapsedMs(ms: number): string {
+    const totalSeconds = Math.max(0, Math.round(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+}
+
 export function registerSessionCommand(program: Command): void {
     registerSessionSubcommands(program.command("session").description("Coding session usage"));
     registerSessionSubcommands(program.command("ai-session", {hidden: true}).description("Deprecated alias for session"));
@@ -46,6 +55,7 @@ function registerSessionSubcommands(session: Command): void {
             [] as string[]
         )
         .option("--output <path>", "Output file path (default: <tmp>/cawplan-ai-daily/ai-daily-<date>.json)")
+        .option("--verbose", "Print detailed collection progress and per-step timings")
         .action(async (opts) => {
             const date = opts.date ?? new Date().toISOString().slice(0, 10);
             const outputPath: string = opts.output ?? join(tmpdir(), "cawplan-ai-daily", `ai-daily-${date}.json`);
@@ -53,10 +63,16 @@ function registerSessionSubcommands(session: Command): void {
                 opts.agent && opts.agent.length > 0
                     ? (opts.agent as AiSessionAgent[])
                     : undefined;
+            const startedAt = Date.now();
+            const verbose = Boolean(opts.verbose);
+            const verboseLog = (message: string) => {
+                if (!verbose) return;
+                console.error(`[collect +${formatElapsedMs(Date.now() - startedAt)}] ${message}`);
+            };
 
             console.error(`Collecting session data for ${date}...`);
             try {
-                const daily = await collect({date, agents});
+                const daily = await collect({date, agents, verbose});
                 console.error(
                     `Collected ${
                         (daily.totals as {sessions?: number})?.sessions ?? 0
@@ -65,11 +81,15 @@ function registerSessionSubcommands(session: Command): void {
                     }`
                 );
 
+                verboseLog(`Assign product/project mappings to ${outputPath}...`);
+                const assignStartedAt = Date.now();
                 const matched = await assignProjectsFromCloudMappings(daily, outputPath);
+                verboseLog(`Assign product/project mappings done in ${formatElapsedMs(Date.now() - assignStartedAt)}.`);
                 console.error(`Product/project assignment written for ${matched} sessions.`);
                 warnMissingProductAssignment(outputPath, daily);
 
                 console.error(`Output written to ${outputPath}`);
+                console.error(`Collection completed in ${formatElapsedMs(Date.now() - startedAt)}.`);
             } catch (e) {
                 console.error(`Error: ${(e as Error).message}`);
                 process.exit(1);

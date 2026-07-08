@@ -142,4 +142,5 @@ export interface CollectOptions {
     date: string; // YYYY-MM-DD
     agents?: Array<"claude-code" | "cursor" | "codex">;
     outputPath?: string;
+    verbose?: boolean;
 }

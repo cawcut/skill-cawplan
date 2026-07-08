@@ -37,6 +37,35 @@ const RESUME_LEADING_INDEX_GAP_MIN = 3;
 const RESUME_LEADING_TIME_SPREAD_MS = 5 * 60 * 1000;
 const ACTIVE_BACKDATE_END_SLACK_MS = 1_000;
 
+interface CursorGuiCollectOptions {
+    log?: (message: string) => void;
+}
+
+function logCursorGui(opts: CursorGuiCollectOptions | undefined, message: string): void {
+    opts?.log?.(`[cursor-gui] ${message}`);
+}
+
+function timed<T>(opts: CursorGuiCollectOptions | undefined, label: string, run: () => T): T {
+    logCursorGui(opts, `${label}...`);
+    const startedAt = Date.now();
+    try {
+        const result = run();
+        logCursorGui(opts, `${label} done in ${formatDuration(Date.now() - startedAt)}.`);
+        return result;
+    } catch (e) {
+        logCursorGui(opts, `${label} failed after ${formatDuration(Date.now() - startedAt)}: ${(e as Error).message}`);
+        throw e;
+    }
+}
+
+function formatDuration(ms: number): string {
+    const totalSeconds = Math.max(0, Math.round(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+}
+
 function encodedPathSegmentTokens(name: string): string[] {
     return name
         .replace(/[^A-Za-z0-9]+/g, "-")
@@ -923,6 +952,7 @@ interface ParseTranscriptOptions {
     sessionCreatedAtMs?: number;
     initialCwd?: string;
     db?: DatabaseSync;
+    log?: (message: string) => void;
 }
 
 function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTranscriptOptions): {
@@ -934,24 +964,29 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
     activityStart: Date | null;
     activityEnd: Date | null;
 } {
+    const logOpts: CursorGuiCollectOptions = {log: opts?.log};
     const projectsRoot = cursorProjectsDir();
-    const transcriptCandidates = [
-        join(projectsRoot, "agent-transcripts", sessionId, `${sessionId}.jsonl`),
-    ];
+    const transcriptCandidates = timed(logOpts, `Build transcript candidates for ${sessionId}`, () => {
+        const candidates = [
+            join(projectsRoot, "agent-transcripts", sessionId, `${sessionId}.jsonl`),
+        ];
 
-    // Support per-project layout: ~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl
-    try {
-        const entries = readdirSync(projectsRoot, { withFileTypes: true });
-        for (const e of entries) {
-            if (!e.isDirectory()) continue;
-            transcriptCandidates.push(join(projectsRoot, e.name, "agent-transcripts", sessionId, `${sessionId}.jsonl`));
+        // Support per-project layout: ~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl
+        try {
+            const entries = readdirSync(projectsRoot, { withFileTypes: true });
+            for (const e of entries) {
+                if (!e.isDirectory()) continue;
+                candidates.push(join(projectsRoot, e.name, "agent-transcripts", sessionId, `${sessionId}.jsonl`));
+            }
+        } catch {
+            // ignore
         }
-    } catch {
-        // ignore
-    }
+        return candidates;
+    });
 
     const transcriptPath = transcriptCandidates.find((p) => existsSync(p));
     if (!transcriptPath) {
+        logCursorGui(logOpts, `No transcript found for ${sessionId}; checked ${transcriptCandidates.length} candidate path(s).`);
         return {
             cwd: "",
             files: [],
@@ -962,35 +997,54 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
             activityEnd: null,
         };
     }
+    logCursorGui(logOpts, `Using transcript for ${sessionId}: ${transcriptPath}`);
 
-    const lines = readFileSync(transcriptPath, "utf-8").split("\n");
+    const lines = timed(logOpts, `Read transcript ${sessionId}`, () =>
+        readFileSync(transcriptPath, "utf-8").split("\n")
+    );
+    logCursorGui(logOpts, `Transcript ${sessionId} has ${lines.length} line(s).`);
     const fullBubbleTimeline = opts?.db
-        ? loadSessionBubbleTimeline(opts.db, sessionId)
+        ? timed(logOpts, `Load bubble timeline for ${sessionId}`, () => loadSessionBubbleTimeline(opts.db!, sessionId))
         : null;
+    if (fullBubbleTimeline) {
+        logCursorGui(
+            logOpts,
+            `Bubble timeline ${sessionId}: ${fullBubbleTimeline.userBubbles.length} user bubble(s), ${fullBubbleTimeline.assistantTimes.length} assistant bubble(s).`
+        );
+    }
     let resolvedTimes = new Map<number, Date>();
     let resolvedAtByBubble = new Map<UserBubble, Date>();
     const approxBubbles = new Set<UserBubble>();
     if (fullBubbleTimeline) {
-        const preStats = accumulateTranscriptStatsByContent(
-            lines,
-            fullBubbleTimeline.userBubbles,
-            fullBubbleTimeline.assistantTimes
-        );
-        if (opts?.sessionCreatedAtMs != null) {
-            let backdate = mergeSuspectBackdateIndices(
-                fullBubbleTimeline.userBubbles,
-                opts.sessionCreatedAtMs
-            );
-            backdate = restrictBackdateToTranscriptEvidence(
+        const preStats = timed(logOpts, `Accumulate transcript stats for ${sessionId}`, () =>
+            accumulateTranscriptStatsByContent(
                 lines,
                 fullBubbleTimeline.userBubbles,
-                backdate
+                fullBubbleTimeline.assistantTimes
+            )
+        );
+        if (opts?.sessionCreatedAtMs != null) {
+            let backdate = timed(logOpts, `Detect backdated bubbles for ${sessionId}`, () =>
+                mergeSuspectBackdateIndices(
+                    fullBubbleTimeline.userBubbles,
+                    opts.sessionCreatedAtMs!
+                )
             );
-            backdate = pruneActiveBackdateCandidates(
-                fullBubbleTimeline.userBubbles,
-                backdate,
-                preStats
+            backdate = timed(logOpts, `Restrict backdated bubbles for ${sessionId}`, () =>
+                restrictBackdateToTranscriptEvidence(
+                    lines,
+                    fullBubbleTimeline.userBubbles,
+                    backdate
+                )
             );
+            backdate = timed(logOpts, `Prune active backdated bubbles for ${sessionId}`, () =>
+                pruneActiveBackdateCandidates(
+                    fullBubbleTimeline.userBubbles,
+                    backdate,
+                    preStats
+                )
+            );
+            logCursorGui(logOpts, `Backdated bubble candidates for ${sessionId}: ${backdate.size}.`);
             if (backdate.size > 0) {
                 const pairs = matchTranscriptToBubbleIndices(
                     extractTranscriptUserTexts(lines),
@@ -1083,6 +1137,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         if (!f.change_type && changeType) f.change_type = changeType;
     };
 
+    timed(logOpts, `Parse transcript lines for ${sessionId}`, () => {
     for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
@@ -1236,6 +1291,11 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
             }
         }
     }
+    });
+    logCursorGui(
+        logOpts,
+        `Parsed ${sessionId}: users=${userCount}, assistants=${assistantCount}, tool_calls=${toolCallCount}, files=${files.length}, human_inputs=${humanInputs.length}.`
+    );
 
     const statsByContent = new Map<
         string,
@@ -1285,23 +1345,31 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         userCount = finalHumanInputs.length;
     }
 
-    const repoStats = new Map<string, { files: number; added: number; deleted: number }>();
-    for (const f of files) {
-        const fileCwd = resolveCwdForFile(cwd, f.path);
-        const repo = gitRemoteRepo(fileCwd);
-        f.repo = repo;
-        const stat = gitFileNumstat(fileCwd, f.path);
-        if (stat.added !== 0 || stat.deleted !== 0) {
-            f.added = stat.added;
-            f.deleted = stat.deleted;
+    const repoStats = timed(logOpts, `Resolve repo stats for ${sessionId} (${files.length} file(s))`, () => {
+        const stats = new Map<string, { files: number; added: number; deleted: number }>();
+        for (const f of files) {
+            const fileStartedAt = Date.now();
+            const fileCwd = resolveCwdForFile(cwd, f.path);
+            const repo = gitRemoteRepo(fileCwd);
+            f.repo = repo;
+            const stat = gitFileNumstat(fileCwd, f.path);
+            const fileElapsedMs = Date.now() - fileStartedAt;
+            if (fileElapsedMs >= 1000) {
+                logCursorGui(logOpts, `Slow file stat ${sessionId}: ${f.path} took ${formatDuration(fileElapsedMs)}.`);
+            }
+            if (stat.added !== 0 || stat.deleted !== 0) {
+                f.added = stat.added;
+                f.deleted = stat.deleted;
+            }
+            if (!repo) continue;
+            const current = stats.get(repo) ?? {files: 0, added: 0, deleted: 0};
+            current.files += 1;
+            current.added += f.added ?? 0;
+            current.deleted += f.deleted ?? 0;
+            stats.set(repo, current);
         }
-        if (!repo) continue;
-        const current = repoStats.get(repo) ?? {files: 0, added: 0, deleted: 0};
-        current.files += 1;
-        current.added += f.added ?? 0;
-        current.deleted += f.deleted ?? 0;
-        repoStats.set(repo, current);
-    }
+        return stats;
+    });
     const repos: RepoTouched[] = Array.from(repoStats.entries()).map(([repo, stats]) => ({
         repo,
         files: stats.files,
@@ -1469,20 +1537,23 @@ function fallbackSessionName(projectDir: string, sid: string): string {
     return shortId;
 }
 
-function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
+function collectGuiSessionsFromTranscripts(filterDate: string, opts?: CursorGuiCollectOptions): GuiSession[] {
     const root = cursorProjectsDir();
+    logCursorGui(opts, `Fallback transcript scan root: ${root}`);
     let projectDirs: string[] = [];
     try {
-        projectDirs = readdirSync(root, { withFileTypes: true })
+        projectDirs = timed(opts, "Read Cursor project directories for fallback scan", () => readdirSync(root, { withFileTypes: true })
             .filter((e) => e.isDirectory())
-            .map((e) => e.name);
+            .map((e) => e.name));
     } catch {
+        logCursorGui(opts, "Fallback transcript scan skipped: cannot read Cursor projects root.");
         return [];
     }
+    logCursorGui(opts, `Fallback transcript scan found ${projectDirs.length} project directorie(s).`);
 
     const out: GuiSession[] = [];
     const seen = new Set<string>();
-    const db = tryOpenCursorStateDb();
+    const db = timed(opts, "Open Cursor state DB for fallback transcript scan", () => tryOpenCursorStateDb());
     try {
         for (const project of projectDirs) {
         const atRoot = join(root, project, "agent-transcripts");
@@ -1503,6 +1574,7 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
             const parsed = parseTranscript(sid, filterDate, {
                 db: db ?? undefined,
                 sessionCreatedAtMs: db ? lookupComposerCreatedAtMs(db, sid) : undefined,
+                log: opts?.log,
             });
             const hasActivity =
                 parsed.messageStats.user > 0 ||
@@ -1539,11 +1611,13 @@ function collectGuiSessionsFromTranscripts(filterDate: string): GuiSession[] {
                 message_stats: parsed.messageStats,
                 human_inputs: parsed.humanInputs.length > 0 ? parsed.humanInputs : undefined,
             });
+            logCursorGui(opts, `Fallback transcript session ${sid}: user=${parsed.messageStats.user}, assistant=${parsed.messageStats.assistant}, files=${parsed.files.length}.`);
         }
         }
     } finally {
         db?.close();
     }
+    logCursorGui(opts, `Fallback transcript scan collected ${out.length} active session(s).`);
     return out;
 }
 
@@ -1589,8 +1663,9 @@ export function getGuiSessionBubbleTimestamps(
  * Collect Cursor GUI (Composer) sessions from the state.vscdb for a given date.
  * A session is included when its [createdAt, lastUpdatedAt] range overlaps the target local day.
  */
-export function collectGuiSessions(filterDate: string): GuiSession[] {
+export function collectGuiSessions(filterDate: string, opts?: CursorGuiCollectOptions): GuiSession[] {
     const candidates = cursorStateDbCandidates();
+    logCursorGui(opts, `State DB candidates: ${candidates.join(", ") || "none"}`);
     let dbPath: string | null = null;
 
     for (const p of candidates) {
@@ -1601,26 +1676,34 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
     }
 
     if (!dbPath) {
-        return collectGuiSessionsFromTranscripts(filterDate);
+        logCursorGui(opts, "No Cursor state DB found; using transcript fallback.");
+        return collectGuiSessionsFromTranscripts(filterDate, opts);
     }
+    logCursorGui(opts, `Using Cursor state DB: ${dbPath}`);
 
-    const db = new DatabaseSync(dbPath, {readOnly: true});
+    const db = timed(opts, "Open Cursor state DB", () => new DatabaseSync(dbPath, {readOnly: true}));
 
     try {
         const {startMs, endMs} = dayBoundsMs(filterDate);
+        logCursorGui(opts, `Cursor GUI local day window: ${new Date(startMs).toISOString()} - ${new Date(endMs).toISOString()}.`);
 
         let rows: Array<{ key: string; value: string }> = [];
         try {
-            rows = db
-                .prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
-                .all() as Array<{ key: string; value: string }>;
+            rows = timed(opts, "Query composerData rows from Cursor state DB", () =>
+                db
+                    .prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
+                    .all() as Array<{ key: string; value: string }>
+            );
+            logCursorGui(opts, `Cursor state DB returned ${rows.length} composerData row(s).`);
         } catch {
             // Table might not exist in older versions
-            return collectGuiSessionsFromTranscripts(filterDate);
+            logCursorGui(opts, "cursorDiskKV composerData query failed; using transcript fallback.");
+            return collectGuiSessionsFromTranscripts(filterDate, opts);
         }
 
         const sessions: GuiSession[] = [];
 
+        timed(opts, `Parse and filter ${rows.length} composerData row(s)`, () => {
         for (const row of rows) {
             try {
                 const data = JSON.parse(row.value) as Record<string, unknown>;
@@ -1661,21 +1744,27 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
                 // skip malformed entries
             }
         }
+        });
+        logCursorGui(opts, `Composer rows overlapping ${filterDate}: ${sessions.length}.`);
 
         for (let i = 0; i < sessions.length; i++) {
-            const parsed = parseTranscript(sessions[i].id, filterDate, {
+            const session = sessions[i];
+            const parsed = timed(opts, `Parse Cursor GUI transcript ${i + 1}/${sessions.length} (${session.id})`, () => parseTranscript(session.id, filterDate, {
                 lastUpdatedAtMs: sessions[i].last_updated_at_ms,
                 sessionCreatedAtMs: sessions[i].created_at_ms,
                 initialCwd: sessions[i].cwd,
                 db,
-            });
+                log: opts?.log,
+            }));
             const dayParsed = (
                 parsed.messageStats.user > 0 ||
                 parsed.messageStats.assistant > 0 ||
                 parsed.files.length > 0
             )
                 ? parsed
-                : parseBubbleSession(db, sessions[i].id, filterDate, sessions[i].cwd);
+                : timed(opts, `Parse Cursor GUI bubble fallback ${session.id}`, () =>
+                    parseBubbleSession(db, sessions[i].id, filterDate, sessions[i].cwd)
+                );
             sessions[i] = {
                 ...sessions[i],
                 cwd: dayParsed.cwd || sessions[i].cwd,
@@ -1685,11 +1774,17 @@ export function collectGuiSessions(filterDate: string): GuiSession[] {
                 human_inputs: dayParsed.humanInputs.length > 0 ? dayParsed.humanInputs : undefined,
             };
             applyParsedDayActivity(sessions[i], dayParsed);
+            logCursorGui(
+                opts,
+                `Cursor GUI session ${session.id}: user=${dayParsed.messageStats.user}, assistant=${dayParsed.messageStats.assistant}, tool_calls=${dayParsed.messageStats.tool_calls}, files=${dayParsed.files.length}, human_inputs=${dayParsed.humanInputs.length}.`
+            );
         }
 
         const activeSessions = sessions.filter(sessionHasDayActivity);
-        return sessions.length > 0 ? activeSessions : collectGuiSessionsFromTranscripts(filterDate);
+        logCursorGui(opts, `Cursor GUI active sessions after day-activity filter: ${activeSessions.length}/${sessions.length}.`);
+        return activeSessions;
     } finally {
         db.close();
+        logCursorGui(opts, "Closed Cursor state DB.");
     }
 }
