@@ -1,5 +1,5 @@
 ---
-version: 0.2.2
+version: 0.2.3
 name: cawplan-ticket-create
 description: |
   Create a new CawPlan ticket (version-scoped or backlog) with details, assignee, and priority.
