@@ -325,6 +325,30 @@ export function buildDailyApiJson(
 
     const r2 = (v: number) => Math.round(v * 100) / 100;
 
+    const reportSessions = sessions.map((session) => {
+        const { human_inputs: _humanInputs, title: _legacyTitle, ...sessionRest } = session;
+        const usageBreakdown = session.usage_breakdown.map((bucket) => normalizeUsageBucketCurrency(bucket));
+        const modelUsage = Object.fromEntries(
+            Object.entries(session.model_usage).map(([model, entry]) => {
+                const normalizedEntry = normalizeModelUsageCurrency(entry);
+                return [model, normalizedEntry];
+            })
+        );
+        return {
+            ...sessionRest,
+            source: session.source ?? sessionSource(session),
+            session_title: session.session_title ?? _legacyTitle ?? session.session_name,
+            model_usage: modelUsage,
+            usage_breakdown: usageBreakdown,
+            models: session.models ?? Object.keys(modelUsage),
+            total_tokens: session.total_tokens ?? totalTokens(usageBreakdown),
+            session_cost: session.session_cost ?? sessionCost(usageBreakdown, r2),
+            cost_basis: session.cost_basis ?? costBasis(session),
+            token_source: session.token_source ?? tokenSource(session),
+        };
+    });
+    const reportHumanInputs = sessions.flatMap((s) => enrichSessionHumanInputs(s, date));
+
     return {
         schema: "2.0",
         date,
@@ -350,29 +374,8 @@ export function buildDailyApiJson(
                 { ...v, cost: r2(v.cost) },
             ])
         ),
-        sessions: sessions.map((session) => {
-            const { human_inputs: _humanInputs, title: _legacyTitle, ...sessionRest } = session;
-            const usageBreakdown = session.usage_breakdown.map((bucket) => normalizeUsageBucketCurrency(bucket));
-            const modelUsage = Object.fromEntries(
-                Object.entries(session.model_usage).map(([model, entry]) => {
-                    const normalizedEntry = normalizeModelUsageCurrency(entry);
-                    return [model, normalizedEntry];
-                })
-            );
-            return {
-                ...sessionRest,
-                source: session.source ?? sessionSource(session),
-                session_title: session.session_title ?? _legacyTitle ?? session.session_name,
-                model_usage: modelUsage,
-                usage_breakdown: usageBreakdown,
-                models: session.models ?? Object.keys(modelUsage),
-                total_tokens: session.total_tokens ?? totalTokens(usageBreakdown),
-                session_cost: session.session_cost ?? sessionCost(usageBreakdown, r2),
-                cost_basis: session.cost_basis ?? costBasis(session),
-                token_source: session.token_source ?? tokenSource(session),
-            };
-        }),
+        sessions: reportSessions,
         repos: allRepos,
-        human_inputs: sessions.flatMap((s) => enrichSessionHumanInputs(s, date)),
+        human_inputs: reportHumanInputs,
     };
 }

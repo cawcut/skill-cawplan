@@ -111,6 +111,7 @@ SKILLS=(
   cawplan-product-insights
   cawplan-plan-create
   cawplan-plan-track
+  cawplan-ticket-context
   cawplan-coding-commit
   cawplan-coding-insights
 )

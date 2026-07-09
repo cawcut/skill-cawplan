@@ -169,7 +169,18 @@
 - Endpoint: `DELETE /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/relations/{relation_id}`
 - Maps to cawplan CLI: `cawplan tickets relate delete`.
 
-## 5) Critical Issue APIs
+## 5) AI Session Ticket Links
+### Load Coding Session Ticket Context
+- During `cawplan session collect`, session `human_inputs` are parsed for `ticket_id`, `ticket_display_id`, issue URLs, and display IDs. Resolved tickets receive `sessions[].ticket_ids[]` only when their `product_id` matches the session `product_id`.
+- Ticket refs are resolved through `POST /api/v1/public/openapi/tickets/search`.
+
+### Upload AI Session Report With Ticket Context
+- Endpoint: `POST /api/v1/public/openapi/ai-session-usage/reports`
+- Body: existing daily report payload with optional session-level `sessions[].ticket_ids[]`.
+- Session-level `sessions[].ticket_ids[]` scopes the association to the exact coding session.
+- Maps to CawPlan CLI: `cawplan session collect`.
+
+## 6) Critical Issue APIs
 ### List Critical Issues
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/critical_issues`
 - Query params: `time_range` (e.g. `1w`, `2w`, `1m`, `3m`, `1y`), `start`, `end`, `status` (CSV), `search`
@@ -213,21 +224,21 @@
 - `https://ubnt.zendesk.com/`
 - `https://community.ui.com/`
 
-## 6) Metrics APIs
+## 7) Metrics APIs
 ### Get Product Metrics
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/metrics`
 - Query params: `time_range` OR (`start` + `end`) required
 - Response: `summary` (installations, crash_rate, offline_rate, update_success_rate),
   plus time series in `installations`, `crash_rate`, `offline_rate`
 
-## 7) Analytics APIs
+## 8) Analytics APIs
 ### Get Product AI Feedback Analytics
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/analytics`
 - Query params: `time_range` OR (`start` + `end`) required; `version` (major.minor filter, e.g. `3.4`)
 - Response: AI-categorized feedback buckets: `software_issues`, `hardware_issues`, `suggestions` — each with `counts`, `sorted_counts`, `stats` (time series), `tickets`, `versions`
 - Maps to cawplan CLI: `cawplan analytics get <product_id>`.
 
-## 8) Activity Report APIs
+## 9) Activity Report APIs
 ### Get Product Activity Report
 - Endpoint: `GET /api/v1/public/openapi/product-report`
 - Query params: `product_id` (required), `start` (YYYY-MM-DD, required), `end` (YYYY-MM-DD, required), `version_id` (optional)
@@ -240,7 +251,7 @@
 - Response: activity summary scoped to a single user across all products they contribute to
 - Maps to cawplan CLI: `cawplan user-activity get`.
 
-## 9) QA Report APIs
+## 10) QA Report APIs
 ### List QA Reports for a Product
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa_report`
 - Query params: `type` (`sqa`|`aqa`|`stress`|`performance`|`smoke`), `result` (`pass`|`pass_with_issues`|`failed`), `status`, `page_size` (max 100), `page_num`
@@ -256,21 +267,21 @@
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/qa_report/{qa_report_id}`
 - Maps to cawplan CLI: `cawplan qa-reports get <product_id> <version_id> <qa_report_id>`.
 
-## 10) Community APIs
+## 11) Community APIs
 ### Get Community Release Timeline
 - Endpoint: `GET /api/v1/public/openapi/community/timeline`
 - Query params: `time_range` OR (`start` + `end`); `channels` (CSV: `GA,EA,Alpha`)
 - Response: release timeline events across all products for the given window and channels
 - Maps to cawplan CLI: `cawplan community timeline`.
 
-## 11) Knowledge APIs
+## 12) Knowledge APIs
 ### Search Knowledge Base
 - Endpoint: `POST /api/v1/public/openapi/knowledge/search`
 - Body: `query` (required), `product_id` (optional, scopes search to a product's knowledge datasets), `limit` (default 10)
 - Response: ranked knowledge fragments with source metadata
 - Maps to cawplan CLI: `cawplan knowledge search`.
 
-## 12) Activity APIs
+## 13) Activity APIs
 ### Query Activities
 - Endpoint: `POST /api/v1/public/openapi/activities/query`
 - Query params:
@@ -291,7 +302,7 @@
     - `targets[]`: `id`, `type` (product, product.version, product.line, product.type, user, critical_issue), `display_name`
     - `status`: `COMPLETED`, `IN_PROGRESS`, `FAILED`, `CANCELLED`, `PENDING`
 
-## 13) AI Session Usage APIs
+## 14) AI Session Usage APIs
 AI coding daily reports (`ai-daily-<date>.json`, schema `2.0`), workspace analytics, human-input quality, and product-repo mappings.
 
 Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Paginated breakdowns also accept `page_num` (default 1) and `page_size` (default 20, max 200). Overview endpoints optionally accept `compare_date`, `compare_date_from`, `compare_date_to` for period-over-period deltas.

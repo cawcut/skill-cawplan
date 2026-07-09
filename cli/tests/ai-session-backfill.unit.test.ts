@@ -69,10 +69,14 @@ function dailyReport(date: string) {
 }
 
 async function runSessionReport(file: string) {
+  await runSessionReportArgs(["--file", file]);
+}
+
+async function runSessionReportArgs(args: string[]) {
   const program = new Command();
   program.exitOverride();
   registerSessionCommand(program);
-  await program.parseAsync(["node", "cawplan", "session", "report", "--file", file], { from: "node" });
+  await program.parseAsync(["node", "cawplan", "session", "report", ...args], { from: "node" });
 }
 
 async function runSessionBackfill(dateFrom: string, dateTo: string, args: string[] = []) {

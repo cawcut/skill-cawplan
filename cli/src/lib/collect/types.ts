@@ -44,6 +44,16 @@ export interface MessageStats {
     tool_calls: number;
 }
 
+export interface AiSessionTicketContext {
+    ticket_id: string;
+    ticket_display_id?: string;
+    product_id?: string;
+    version_id?: string;
+    title?: string;
+    content?: string;
+    url?: string;
+}
+
 export interface SessionData {
     schema: "2.0";
     date: string;
@@ -80,6 +90,8 @@ export interface SessionData {
     repos_touched: RepoTouched[];
     message_stats: MessageStats;
     human_inputs?: HumanInput[];
+    ticket_ids?: string[];
+    ticket_display_ids?: string[];
 }
 
 export interface DailyApiJson {
@@ -106,6 +118,10 @@ export interface DailyApiJson {
 export interface HumanInput {
   category: "decision" | "direction" | "correction" | "planning";
   content: string;
+  ticket_id?: string;
+  ticket_ids?: string[];
+  ticket_display_id?: string;
+  ticket_display_ids?: string[];
   topic?: string;
   topic_source?: string;
   topic_confidence?: number;

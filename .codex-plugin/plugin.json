@@ -44,6 +44,10 @@
       "path": "skills/cawplan-coding-commit"
     },
     {
+      "name": "cawplan-ticket-context",
+      "path": "skills/cawplan-ticket-context"
+    },
+    {
       "name": "cawplan-coding-insights",
       "path": "skills/cawplan-coding-insights"
     }

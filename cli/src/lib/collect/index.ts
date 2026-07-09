@@ -18,6 +18,10 @@ import {
 import {buildDailyApiJson} from "./aggregators/daily.js";
 import {SessionData} from "./types.js";
 import {findLocalProductMappingForDir} from "../user-config.js";
+import {
+    applyHumanInputTicketRefsToSessions,
+    normalizeSessionTicketIdsToUniqueIds,
+} from "../ai-session/ticket-context.js";
 
 function formatElapsed(ms: number): string {
     const totalSeconds = Math.max(0, Math.round(ms / 1000));
@@ -284,6 +288,20 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
 
     logger.step("Enrich Cursor GUI fallback context", () => enrichCursorGuiFallbackContext(sessions));
     logger.step("Normalize session repository context", () => normalizeSessionRepoContext(sessions));
+    logger.log("Apply human input ticket refs to sessions...");
+    let humanInputTicketLinks = 0;
+    try {
+        humanInputTicketLinks = await applyHumanInputTicketRefsToSessions(sessions);
+    } catch (e) {
+        console.warn(`Warning: ticket context linking: ${(e as Error).message}`);
+    }
+    try {
+        const normalized = await normalizeSessionTicketIdsToUniqueIds(sessions);
+        logger.log(`Applied ${humanInputTicketLinks} human input ticket link(s); normalized ${normalized} display ID(s).`);
+    } catch (e) {
+        console.warn(`Warning: ticket context normalization: ${(e as Error).message}`);
+        logger.log(`Applied ${humanInputTicketLinks} human input ticket link(s).`);
+    }
 
     // Fetch Cursor API exact usage data
     let cursorApiUsage:

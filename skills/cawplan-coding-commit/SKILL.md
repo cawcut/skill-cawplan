@@ -23,7 +23,7 @@ cawplan auth status >/dev/null || { echo "Not authenticated. Run: cawplan auth l
 ## Workflow
 
 This skill supports two workflows:
-- **Single-day workflow:** Collect → Review → Upload → Current-Month Backfill
+- **Single-day workflow:** Collect → Assign → Review → Upload → Current-Month Backfill
 - **Month-missing workflow:** Query cloud missing dates for a month → collect and upload only missing dates
 
 Use it when the user invokes `cawplan-coding-commit` or `/cawplan-coding-commit`, with or without a date or month argument. Do not use this skill for a plain `git commit` request unless the user explicitly mentions CawPlan, AI report upload, or an `ai-daily-*.json` file.
@@ -110,11 +110,15 @@ Run this whole shell block with full network access when using Cursor agent tool
 
 Classify human inputs from all newly collected `$report_dir/ai-daily-<date>.json` files in a single batch using the same prompt as Step 2 below. Then rewrite `sessions[].session_title` for all newly collected files using the session title rewrite prompt from Step 2. Write both classifications and rewritten titles back before assignment or upload.
 
-**Step M5 — Product/repo assignment:**
+**Step M5 — Product/repo/ticket assignment:**
 
-Inspect all newly collected files. If any session across these files lacks `product_id`, immediately run the Web assignment command from **Product/repo assignment**. For multiple files, prefer the `--files` form to batch-assign all at once before continuing.
+Always run the Web assignment command from **Product/repo/ticket assignment** for all newly collected files, even when every session already has `product_id`. For multiple files, prefer the `--files` form to batch-review all reports at once before continuing.
 
-**Step M6 — Upload missing reports:**
+**Step M6 — Ticket progress write-back:**
+
+Run **Ticket Progress Write-Back** below for every newly collected missing-date report that has `sessions[].ticket_ids`.
+
+**Step M7 — Upload missing reports:**
 
 Upload each newly collected missing-date file individually in date order:
 ```bash
@@ -136,7 +140,7 @@ When running this shell block from Cursor agent tools, request full network acce
 
 During collection, `cawplan session collect` may ask the user to assign each session to a CawPlan product and repository using existing product-repo mappings. If no mapping exists, the user can link a GitHub repository URL in the required format `https://github.com/owner/repo`.
 
-In Cursor, if product/repo assignment is skipped during collection because prompts cannot be shown, complete missing assignments through the Web assignment flow in Step 3.
+In Cursor, if product/repo assignment is skipped during collection because prompts cannot be shown, always open the Web assignment flow in Step 3 to review or edit product, repo, and ticket assignments.
 
 **Step 2 — Classify human inputs and rewrite session titles (LLM):**
 
@@ -205,29 +209,39 @@ After receiving the JSON array, write back to `$report_file`: for each returned 
 
 If the title rewrite response is malformed or an error occurs, leave existing session titles unchanged and continue.
 
-**Step 3 — Product/repo assignment:**
+**Step 3 — Product/repo/ticket assignment:**
 
 > **Order is fixed: always complete Step 2 (LLM classification) before this step.** Classification does not depend on product assignment and must not be deferred until after assignment.
 
-Read `$report_file`. If any `sessions[]` entry lacks `product_id`, immediately run the Web assignment command from **Product/repo assignment** and complete all missing assignments before continuing.
+Always run the Web assignment command from **Product/repo/ticket assignment** for `$report_file`, even when every `sessions[]` entry already has `product_id`. Complete assignment/review before continuing so product, repo, and ticket display IDs can be checked or edited.
 
 **Step 4 — Review the report with the user:**
 
 Present the full review described in **Review content contract**. Do not show only a stats table.
 
-**Step 5 — Upload:**
+**Step 5 — Ticket context check:**
+
+Do not ask the user to manually provide ticket IDs during reporting. `cawplan session collect` automatically parses explicit ticket refs from session `human_inputs`, including `ticket_id`, `ticket_display_id`, CawPlan issue URLs, and display IDs. Resolved tickets are only attached when their `product_id` matches the session's `product_id`.
+
+When reviewing `$report_file`, mention any `sessions[].ticket_ids` and `sessions[].ticket_display_ids` already present. Ticket context should come from explicit human-input refs or assignment-page edits; do not keyword-search or guess tickets.
+
+**Step 6 — Ticket progress write-back:**
+
+Run **Ticket Progress Write-Back** below if `$report_file` has any `sessions[].ticket_ids`. This step belongs to the skill workflow, not to `cawplan session assign --web`; assignment only saves product/repo/ticket links into the daily report.
+
+**Step 7 — Upload:**
 ```bash
 cawplan session report --file "$report_file"
 ```
 
-**Step 6 — Query missing current-month reports:**
+**Step 8 — Query missing current-month reports:**
 ```bash
 cawplan session backfill --from <YYYY-MM-01> --to <YYYY-MM-DD> --dry-run
 ```
 
 Use the first day of the report's month as `--from` and the report date as `--to`. Show the returned `missing_dates` to the user. If there are no missing dates, say so and stop.
 
-**Step 7 — Collect each missing date with bounded concurrency:**
+**Step 9 — Collect each missing date with bounded concurrency:**
 
 Launch missing dates with a small concurrency limit:
 ```bash
@@ -244,15 +258,19 @@ wait
 ```
 Run this whole shell block with full network access when using Cursor agent tools. Each date is independent, but unbounded parallel collection can overload the Cursor Dashboard API and cause timeouts. The default concurrency is 5; reduce `CAWPLAN_COLLECT_CONCURRENCY` to 1 or 2 for unstable networks.
 
-**Step 8 — Classify missing reports' human inputs and rewrite session titles (LLM):**
+**Step 10 — Classify missing reports' human inputs and rewrite session titles (LLM):**
 
 Classify human inputs from **all** newly collected files in `$report_dir` in a single batch operation using the same prompt as Step 2. Then rewrite `sessions[].session_title` for those files using the same session title rewrite prompt from Step 2. For files with empty `human_inputs`, skip silently. Write results back to all files before moving to Step 9.
 
-**Step 9 — Product/repo assignment for missing reports:**
+**Step 11 — Product/repo/ticket assignment for missing reports:**
 
-Inspect all newly collected files. If any session across these files lacks `product_id`, immediately run the Web assignment command from **Product/repo assignment**. For multiple files, prefer the `--files` form to batch-assign all at once before continuing.
+Always run the Web assignment command from **Product/repo/ticket assignment** for all newly collected files, even when every session already has `product_id`. For multiple files, prefer the `--files` form to batch-review all reports at once before continuing.
 
-**Step 10 — Upload missing reports:**
+**Step 12 — Ticket progress write-back for missing reports:**
+
+Run **Ticket Progress Write-Back** below for each newly collected file that has `sessions[].ticket_ids`.
+
+**Step 13 — Upload missing reports:**
 
 Upload each file individually in date order:
 ```bash
@@ -260,6 +278,43 @@ cawplan session report --file "$report_dir/ai-daily-<YYYY-MM-DD>.json"
 ```
 
 Backfill must stay within the uploaded report's current month and must not cross month boundaries.
+
+---
+
+## Ticket Progress Write-Back
+
+Use this step only after product/repo/ticket assignment has been reviewed and saved. Do not rely on `cawplan session assign --web` to update ticket details; the skill is responsible for this write-back.
+
+1. Read the report JSON file and scan `sessions[].ticket_ids`.
+2. Group sessions by `ticket_id`.
+3. Resolve all grouped tickets through Cloud:
+   ```bash
+   cawplan tickets search --unique_ids "<ticket_id_1>,<ticket_id_2>" --page_size 100 --refresh
+   ```
+4. For each group, only write back when the Cloud result has `unique_id`, `product_id`, and `version_id`, and every grouped session's `product_id` matches the returned ticket `product_id`. Skip unresolved tickets, tickets missing `product_id`/`version_id`, and product-mismatched tickets.
+5. Generate compact HTML `progress_comment` by summarizing the grouped sessions' `human_inputs`. Do not copy raw prompts or only list classified topics. For each ticket group:
+   - Collect human inputs from both report-level `human_inputs[]` matching the grouped `session_id` values and each grouped `session.human_inputs[]`.
+   - Summarize only the most important changed result, decision/direction, and unresolved follow-up in 1-3 short bullets.
+   - Keep each bullet compact, ideally one sentence and under 120 characters.
+   - Use session metadata such as title, agent, project, file counts, and line deltas only as supporting context.
+   - Do not include a separate "Updated from ..." paragraph; keep the comment visually dense.
+   - If no human inputs exist for the grouped sessions, skip the ticket write-back and mention that it had no human-input basis.
+
+   Use this shape:
+   ```html
+   <p><strong>AI session progress CWP-14471</strong> (2026-07-09)</p>
+   <ul>
+     <li><strong>Guardrails:</strong> only attach Cloud-resolved tickets that match the session product.</li>
+     <li><strong>Write-back:</strong> summarize human inputs in this skill before uploading the report.</li>
+   </ul>
+   ```
+   Use `sessions[].ticket_display_ids` when available for the display ID in the heading. Escape user/session text before placing it in HTML. The bullet text should be a human-readable summary derived from `human_inputs`, not the raw input text.
+6. Write the HTML back to `progress_comment` with the CLI, not by direct HTTP:
+   ```bash
+   cawplan tickets update "<product_id>" "<version_id>" "<ticket_id>" --progress_comment "$progress_comment"
+   ```
+
+After the write-back step, report which ticket display IDs were updated and which were skipped. Do not stop the upload workflow just because one ticket write-back was skipped or failed; mention the failure and continue with the report upload.
 
 ---
 
@@ -275,9 +330,9 @@ Before asking for upload confirmation, include these sections:
 
 Use a compact table for numbers if useful, but always include the narrative summary and session review text.
 
-## Product/repo assignment
+## Product/repo/ticket assignment
 
-Use this flow after collection or inspection when any `sessions[]` entry lacks `product_id`.
+Use this flow after collection or inspection for every report before review/upload, regardless of whether sessions already have `product_id`. The Web assignment page is also where ticket display IDs can be checked or edited.
 
 Do not ask the user to choose an assignment mode. Always use the local Web assignment flow.
 
@@ -291,11 +346,11 @@ For multiple reports, prefer:
 cawplan session assign --web --files <absolute-ai-daily-file-1> --files <absolute-ai-daily-file-2>
 ```
 
-Run one command from the agent shell with every report file that needs assignment, so the local assignment page opens automatically in the browser and all reports are handled together. Keep exactly one `cawplan session assign --web` command running until the user finishes in the browser. The command exits when the user clicks **Save assignments**, clicks **Close**, presses Ctrl+C in the terminal, or the local assignment server reaches its 10-minute timeout.
+Run one command from the agent shell with every report file being processed, so the local assignment page opens automatically in the browser and all reports are handled together. Keep exactly one `cawplan session assign --web` command running until the user finishes in the browser. The command exits when the user clicks **Save assignments**, clicks **Close**, presses Ctrl+C in the terminal, or the local assignment server reaches its 10-minute timeout.
 
 Do not rerun `cawplan session assign --web` while a previous assignment command is still running for the same report(s), even if it has been waiting for a long time. Long waits mean the page is waiting for user action, not that the command failed. If you need to report progress, tell the user to finish the already-open assignment page by saving or closing it, then wait for the existing command to exit or time out before continuing.
 
-The page shows `session / human inputs / product / repo`, requires product, supports product-only assignment, and can link a new GitHub repository URL in the format `https://github.com/owner/repo`.
+The page shows `session / human inputs / product / repo / tickets`, requires product, supports product-only assignment, can edit ticket display IDs, and can link a new GitHub repository URL in the format `https://github.com/owner/repo`.
 
 ## Rules
 
@@ -303,7 +358,7 @@ The page shows `session / human inputs / product / repo`, requires product, supp
 - Do not fabricate session data. Only report what the agents produce locally.
 - When running `cawplan session collect` from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) so Cursor Dashboard token/cost data can be fetched from `cursor.com`.
 - If product/repo assignment prompts appear during collection, only use explicit user selections or existing mappings.
-- Before reviewing or uploading, inspect every `sessions[]` entry. If any session lacks `product_id`, immediately run the Web assignment flow. Do this even when the session has no file changes or repository data.
+- Before reviewing or uploading, always run the Web assignment flow for every report. Do this even when all sessions already have `product_id`, no file changes, or no repository data.
 - Product selection is required for every session in the Web assignment flow; repository selection is optional.
 - If product/repo assignment is skipped in Cursor because the agent shell is non-interactive, immediately run the `--web` command from the agent shell and open the local assignment page automatically. For one report, use the single-file command with `--file <absolute-ai-daily-file>`. For multiple reports, prefer `--files <absolute-ai-daily-file>` repeated once per JSON file.
 - GitHub repository URLs used to create mappings must be in the format `https://github.com/owner/repo`.

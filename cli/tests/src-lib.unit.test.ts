@@ -529,6 +529,38 @@ describe("src lib collect cost currency", () => {
     expect(daily.sessions[0]?.session_cost).toBe(1);
   });
 
+  test("keeps ticket IDs on sessions only in daily output", () => {
+    const session: SessionData = {
+      schema: "2.0",
+      date: "2026-06-17",
+      agent: "claude-code",
+      session_id: "session-ticket-context",
+      session_name: "Ticket context session",
+      project: "flow-cawplan-skill",
+      cwd: "/repo/flow-cawplan-skill",
+      time_range: { display: "10:00 - 10:05", timezone: "UTC" },
+      model_usage: {},
+      usage_breakdown: [],
+      files_changed: 0,
+      repos_touched: [],
+      message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+      ticket_ids: ["ticket-14471", "CWP-14472"],
+      human_inputs: [{
+        category: "direction",
+        content: "Continue ticket context work for CWP-14472",
+      }],
+    };
+
+    const daily = buildDailyApiJson([session], "2026-06-17", "xin.li");
+
+    expect("ticket_ids" in daily).toBe(false);
+    expect("ticket_contexts" in daily).toBe(false);
+    expect(daily.sessions[0]?.ticket_ids).toEqual(["ticket-14471", "CWP-14472"]);
+    expect("ticket_contexts" in daily.sessions[0]!).toBe(false);
+    expect("ticket_ids" in daily.human_inputs[0]!).toBe(false);
+    expect("ticket_contexts" in daily.human_inputs[0]!).toBe(false);
+  });
+
   test("calculateCost does not double-count cache tokens", () => {
     // 1M input tokens with 100K cache reads and 50K cache writes.
     // Non-cache input = 1M - 100K - 50K = 850K

@@ -27,4 +27,5 @@ export interface WebAssignment {
     repo_name?: string;
     repo_url?: string;
     create_mapping?: boolean;
+    ticket_display_ids?: string[];
 }

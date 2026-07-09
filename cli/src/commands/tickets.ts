@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
-import { getCache, setCache, buildCacheKey, buildScopedCacheKey, buildQueryFromFlags, csvToArray, stableStringify } from "../lib/cache.js";
+import { getCache, setCache, buildScopedCacheKey, buildQueryFromFlags, csvToArray } from "../lib/cache.js";
 import { resolveApiPath } from "../lib/products.js";
 import { resolveProductId, resolveVersionId, resolveUserIds } from "../lib/resolve.js";
 
@@ -35,6 +35,17 @@ export function registerTicketsCommand(program: Command): void {
       const result = await cawplanRequest({
         method: "GET",
         path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}`,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  tickets
+    .command("history <product_id> <version_id> <ticket_id>")
+    .description("Get version ticket history")
+    .action(async (productId: string, versionId: string, ticketId: string) => {
+      const result = await cawplanRequest({
+        method: "GET",
+        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}/history`,
       });
       console.log(JSON.stringify(result, null, 2));
     });
@@ -91,7 +102,6 @@ export function registerTicketsCommand(program: Command): void {
     .option("--search <q>", "Search query")
     .option("--page_size <n>", "Page size")
     .option("--page_num <n>", "Page number")
-    .option("--refresh", "Bypass cache")
     .action(async (opts) => {
       const uniqueIds = csvToArray(opts.unique_ids);
       const displayIds = csvToArray(opts.display_ids);
@@ -103,7 +113,6 @@ export function registerTicketsCommand(program: Command): void {
         process.exit(1);
       }
 
-      const refresh = Boolean(opts.refresh);
       const flags: Record<string, string> = {};
       if (opts.time_range) flags.time_range = opts.time_range;
       if (opts.start_date) flags.start_date = opts.start_date;
@@ -134,23 +143,12 @@ export function registerTicketsCommand(program: Command): void {
       if (assignees) body.assignees = assignees;
       if (opts.search) body.search = opts.search;
 
-      const key = await buildScopedCacheKey(
-        `tickets:search:${buildCacheKey("query", query)}|body=${stableStringify(body)}`,
-        undefined,
-      );
-      const cached = getCache(key, refresh);
-      if (cached) {
-        console.log(JSON.stringify(cached, null, 2));
-        return;
-      }
-
       const result = await cawplanRequest({
         method: "POST",
         path: resolveApiPath("/api/v1/public/openapi/tickets/search"),
         query,
         body,
       });
-      setCache(key, result);
       console.log(JSON.stringify(result, null, 2));
     });
 

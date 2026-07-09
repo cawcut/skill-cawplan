@@ -1,7 +1,7 @@
 import {Command} from "commander";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {buildQueryFromFlags} from "../lib/cache.js";
+import {buildQueryFromFlags, csvToArray} from "../lib/cache.js";
 import {cawplanRequest} from "../lib/http.js";
 import {collect} from "../lib/collect/index.js";
 import type {DailyApiJson} from "../lib/collect/types.js";
@@ -20,7 +20,7 @@ import {
     listProductRepoMappings,
     toProductChoices,
 } from "../lib/assign/products-api.js";
-import {readDailyReport, writeDailyReport} from "../lib/assign/report-io.js";
+import {readDailyReport} from "../lib/assign/report-io.js";
 import {assertAllSessionsHaveProduct, warnMissingProductAssignment} from "../lib/assign/session-checks.js";
 import {
     assignReportsFromTty,
@@ -152,6 +152,96 @@ function registerSessionSubcommands(session: Command): void {
                     repoName: opts.repoName ? String(opts.repoName) : undefined,
                 });
                 console.log(JSON.stringify({mapping}, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    productRepos
+        .command("batch-create")
+        .description("Create multiple product-repository mappings for report assignment")
+        .requiredOption("--product-id <id>", "Product unique_id")
+        .requiredOption("--repo-urls <csv>", "GitHub repository URLs (CSV)")
+        .action(async (opts) => {
+            try {
+                const repoUrls = csvToArray(opts.repoUrls);
+                if (!repoUrls || repoUrls.length === 0) {
+                    throw new Error("--repo-urls must include at least one URL");
+                }
+                const result = await cawplanRequest({
+                    method: "POST",
+                    path: "/api/v1/public/openapi/ai-session-usage/product-repos",
+                    body: {
+                        product_id: String(opts.productId),
+                        repo_urls: repoUrls,
+                    },
+                });
+                console.log(JSON.stringify(result, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    productRepos
+        .command("get <unique_id>")
+        .description("Get a product-repository mapping")
+        .action(async (uniqueId: string) => {
+            try {
+                const result = await cawplanRequest({
+                    method: "GET",
+                    path: `/api/v1/public/openapi/ai-session-usage/product-repo/${uniqueId}`,
+                });
+                console.log(JSON.stringify(result, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    productRepos
+        .command("update <unique_id>")
+        .description("Update a product-repository mapping")
+        .option("--product-id <id>", "Product unique_id")
+        .option("--repo-name <name>", "Repository mapping name")
+        .option("--repo-url <url>", "Repository URL")
+        .option("--contributors <csv>", "Contributor user IDs (CSV)")
+        .option("--last-update <datetime>", "Last update time")
+        .action(async (uniqueId: string, opts) => {
+            try {
+                const body: Record<string, unknown> = {};
+                if (opts.productId) body.product_id = String(opts.productId);
+                if (opts.repoName) body.repo_name = String(opts.repoName);
+                if (opts.repoUrl) body.repo_url = String(opts.repoUrl);
+                if (opts.lastUpdate) body.last_update = String(opts.lastUpdate);
+                const contributors = csvToArray(opts.contributors);
+                if (contributors) body.contributors = contributors;
+                if (Object.keys(body).length === 0) {
+                    throw new Error("product-repos update requires at least one updatable flag");
+                }
+                const result = await cawplanRequest({
+                    method: "PATCH",
+                    path: `/api/v1/public/openapi/ai-session-usage/product-repo/${uniqueId}`,
+                    body,
+                });
+                console.log(JSON.stringify(result, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    productRepos
+        .command("delete <unique_id>")
+        .description("Delete a product-repository mapping")
+        .action(async (uniqueId: string) => {
+            try {
+                const result = await cawplanRequest({
+                    method: "DELETE",
+                    path: `/api/v1/public/openapi/ai-session-usage/product-repo/${uniqueId}`,
+                });
+                console.log(JSON.stringify(result, null, 2));
             } catch (e) {
                 console.error(`Error: ${(e as Error).message}`);
                 process.exit(1);

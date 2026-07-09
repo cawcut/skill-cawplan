@@ -62,6 +62,18 @@ Run these commands in the agent chat, not directly in your shell:
 /cawplan-coding-commit 2026-06
 ```
 
+### Associate A Coding Session With Tickets
+
+If the current coding session belongs to one or more CawPlan tickets, load them during the session:
+
+```bash
+/cawplan-ticket-context https://www.cawplan.com/issue/CWP-14471 https://www.cawplan.com/issue/CWP-14472
+```
+
+The skill fetches ticket details and keeps the refs visible in the coding conversation. Later, `/cawplan-coding-commit` parses the session's `human_inputs` and automatically attaches those ticket IDs to the matching `sessions[].ticket_ids` field.
+
+Collection scans each session's `human_inputs` for explicit `ticket_id`, `ticket_display_id`, CawPlan issue URLs, or display IDs such as `CWP-14471` and adds `ticket_ids` when the resolved ticket `product_id` matches the session `product_id`.
+
 ## FAQ
 
 ### Skill Installation Fails

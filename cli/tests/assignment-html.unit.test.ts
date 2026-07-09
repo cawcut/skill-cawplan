@@ -1,32 +1,6 @@
 import {describe, expect, test} from "vitest";
 import {assignmentHtml} from "../src/lib/assign/assignment-html";
 
-describe("assignmentHtml - badge CSS", () => {
-    test("contains base badge style", () => {
-        expect(assignmentHtml()).toContain(".badge {");
-    });
-
-    test("contains category badge styles", () => {
-        const html = assignmentHtml();
-        expect(html).toContain(".badge-cat-decision");
-        expect(html).toContain(".badge-cat-direction");
-        expect(html).toContain(".badge-cat-correction");
-        expect(html).toContain(".badge-cat-planning");
-    });
-
-    test("contains topic badge styles", () => {
-        const html = assignmentHtml();
-        expect(html).toContain(".badge-topic-bug");
-        expect(html).toContain(".badge-topic-other");
-    });
-
-    test("humanInputsHtml builds badge elements", () => {
-        const html = assignmentHtml();
-        expect(html).toContain("badge-cat-");
-        expect(html).toContain("badge-topic-");
-    });
-});
-
 describe("assignmentHtml - stats panel", () => {
     test("contains stats-bar element", () => {
         expect(assignmentHtml()).toContain('id="stats-bar"');
@@ -57,11 +31,12 @@ describe("assignmentHtml - human input source", () => {
         expect(html).not.toContain("input.session_title");
     });
 
-    test("shows most common category and topic for a session", () => {
+    test("does not render category and topic table filters", () => {
         const html = assignmentHtml();
-        expect(html).toContain("function mostCommonHumanInputValue(report, session, field)");
-        expect(html).toContain("return mostCommonHumanInputValue(report, session, 'category')");
-        expect(html).toContain("return mostCommonHumanInputValue(report, session, 'topic')");
+        expect(html).not.toContain('id="filter-category"');
+        expect(html).not.toContain('id="filter-topic"');
+        expect(html).not.toContain("<th>Category</th>");
+        expect(html).not.toContain("<th>Topic</th>");
     });
 
     test("input column shows first three rows without wrapping", () => {
@@ -89,11 +64,15 @@ describe("assignmentHtml - needs review filter", () => {
         expect(html).toContain("input.unassigned-cb");
     });
 
-    test("rowEntries hides assigned sessions by default", () => {
+    test("shows assigned sessions by default and filters only when enabled", () => {
         const html = assignmentHtml();
         expect(html).toContain("function shouldShowSession(session)");
         expect(html).toContain("function sessionHasProduct(session)");
         expect(html).toContain("!showAssignedSessions && sessionHasProduct(session)");
+        expect(html).toContain("let showAssignedSessions = false;");
+        expect(html).toContain("showAssignedSessions = true;");
+        expect(html).toContain('id="filter-unassigned" class="unassigned-cb" /> Unassigned product');
+        expect(html).not.toContain("Unassigned only");
     });
 });
 
@@ -140,6 +119,86 @@ describe("assignmentHtml - model column", () => {
         expect(html).not.toContain("function agentChip(agent)");
         expect(html).not.toContain(".agent-chip {");
         expect(html).not.toContain("escapeHtml(model || '—')");
+    });
+});
+
+describe("assignmentHtml - repo column", () => {
+    test("uses custom repo picker instead of native dropdown UI", () => {
+        const html = assignmentHtml();
+        expect(html).toContain(".repo-field {");
+        expect(html).toContain("select.repo { display: none;");
+        expect(html).toContain(".repo-picker {");
+        expect(html).toContain("function repoPickerHtml(productId, selectedRepo)");
+        expect(html).toContain("function syncRepoPicker(row)");
+        expect(html).toContain("function setRepoMenuOpen(picker, open)");
+        expect(html).toContain(".repo-trigger { width: 100%; height: 32px;");
+        expect(html).toContain(".repo-trigger:disabled { background: var(--bg);");
+        expect(html).toContain("repoPickerHtml(s.product_id, selectedRepo)");
+        expect(html).toContain("class=\"repo-option");
+    });
+});
+
+describe("assignmentHtml - tickets column", () => {
+    test("renders tickets column from session ticket display IDs", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("<th>Tickets</th>");
+        expect(html).toContain("function sessionTickets(session)");
+        expect(html).toContain("session.ticket_display_ids");
+        expect(html).not.toContain("session.ticket_ids");
+        expect(html).toContain("function allTicketDisplayIds()");
+        expect(html).toContain("function ticketDisplayIdFromInput(value)");
+        expect(html).toContain("urlMatch[1].toUpperCase()");
+        expect(html).toContain("ticketDisplayIdFromInput(value)");
+        expect(html).toContain("function ticketOptionRows(session)");
+        expect(html).toContain("function ticketPickerHtml(session)");
+        expect(html).toContain("function selectedTicketDisplayIds(picker)");
+        expect(html).toContain("function addTicketOption(picker, value)");
+        expect(html).toContain("function addTicketFromRow(row)");
+        expect(html).toContain("'<td class=\"tickets-cell\"");
+        expect(html).toContain("'<td class=\"tickets-cell\">' + ticketPickerHtml(s) + '</td>'");
+        expect(html).toContain("class=\"ticket-picker\"");
+        expect(html).toContain("class=\"ticket-option-cb\"");
+        expect(html).toContain("class=\"ticket-remove\"");
+        expect(html).toContain("'<input class=\"ticket-add\" placeholder=\"Add ticket ID\" />'");
+        expect(html).toContain("ticket_display_ids: selectedTicketDisplayIds");
+        expect(html).toContain("querySelectorAll('.ticket-option-cb:checked')");
+    });
+
+    test("supports adding tickets before saving", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("event.key !== 'Enter'");
+        expect(html).toContain("addTicketFromRow(el.closest('tr'))");
+        expect(html).toContain("addTicketFromRow(tr);");
+    });
+
+    test("requires product selection before tickets can be changed", () => {
+        const html = assignmentHtml();
+        expect(html).toContain(".ticket-picker.disabled .ticket-trigger");
+        expect(html).toContain("function updateTicketPickerState(row)");
+        expect(html).toContain("const productSelected = Boolean(findProduct(row.querySelector('.product').value));");
+        expect(html).toContain("picker.classList.toggle('disabled', !productSelected);");
+        expect(html).toContain("input.disabled = !productSelected;");
+        expect(html).toContain("if (!productSelected) setTicketMenuOpen(picker, false);");
+        expect(html).toContain("updateTicketPickerState(row);");
+        expect(html).toContain("if (picker.classList.contains('disabled')) return;");
+    });
+
+    test("places tickets column after repo column", () => {
+        const html = assignmentHtml();
+        expect(html.indexOf("<th>Repo</th>")).toBeLessThan(html.indexOf("<th>Tickets</th>"));
+        expect(html.indexOf("'<td><div class=\"repo-field\"><select class=\"repo\">")).toBeLessThan(html.indexOf("'<td class=\"tickets-cell\""));
+    });
+
+    test("uses ten-column empty states", () => {
+        const html = assignmentHtml();
+        expect(html).toContain('colspan="10"');
+        expect(html).not.toContain('colspan="11"');
+        expect(html).not.toContain('colspan="12"');
+    });
+
+    test("includes tickets in table search text", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("sessionTicketsText(session)");
     });
 });
 

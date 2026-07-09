@@ -49,7 +49,18 @@ Track release progress, dependencies, pending tasks, and target delivery dates
 /cawplan-plan-track what's blocking UniFi Access 4.1.10 release
 ```
 
-## 6. cawplan-coding-commit
+## 6. cawplan-ticket-context
+
+Load one or more CawPlan tickets into the current AI coding session so the next daily report links this session to those tickets.
+
+```text
+/cawplan-ticket-context https://www.cawplan.com/issue/CWP-14471 https://www.cawplan.com/issue/CWP-14472
+/cawplan-ticket-context CWP-14471 CWP-14472
+```
+
+Use this before or during implementation work for a ticket. The next `/cawplan-coding-commit` will attach the ticket IDs to the matching session item's `ticket_ids`. If no ticket context was loaded, collection only infers tickets from explicit CawPlan issue URLs or display IDs such as `CWP-14471`.
+
+## 7. cawplan-coding-commit
 
 Collect local agent session data (Claude Code, Cursor, Codex) and upload a daily AI coding report to CawPlan.
 
@@ -77,7 +88,7 @@ The skill can work with these local agent data sources:
 - **Cursor CLI** sessions
 - **Codex** sessions
 
-## 7. cawplan-coding-insights
+## 8. cawplan-coding-insights
 
 Track coding costs, token usage, session activity, and productivity across multiple dimensions.
 
