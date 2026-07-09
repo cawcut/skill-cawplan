@@ -27,6 +27,34 @@ import { classifyHumanInput } from "../aggregators/human-category.js";
 import { formatLocalTime, getLocalTimezone, localDateString } from "../date-utils.js";
 import { countDiffLines } from "../aggregators/tool-utils.js";
 
+interface CodexCollectOptions {
+  log?: (message: string) => void;
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+function logCodex(opts: CodexCollectOptions | undefined, message: string): void {
+  opts?.log?.(`[codex] ${message}`);
+}
+
+function timed<T>(opts: CodexCollectOptions | undefined, label: string, run: () => T): T {
+  logCodex(opts, `${label}...`);
+  const startedAt = Date.now();
+  try {
+    const result = run();
+    logCodex(opts, `${label} done in ${formatDuration(Date.now() - startedAt)}.`);
+    return result;
+  } catch (e) {
+    logCodex(opts, `${label} failed after ${formatDuration(Date.now() - startedAt)}: ${(e as Error).message}`);
+    throw e;
+  }
+}
+
 interface CodexThread {
   id: string;
   rollout_path: string | null;
@@ -218,7 +246,8 @@ function parseRollout(
   rolloutPath: string | null,
   fallbackSessionsDir: string,
   sessionId: string,
-  filterDate?: string
+  filterDate?: string,
+  opts?: CodexCollectOptions
 ): {
   userCount: number;
   assistantCount: number;
@@ -261,10 +290,14 @@ function parseRollout(
   };
 
   let content: string | null = null;
-  for (const p of rolloutPathCandidates(rolloutPath, fallbackSessionsDir, sessionId)) {
+  const candidates = timed(opts, `Build Codex rollout candidates ${sessionId}`, () =>
+    rolloutPathCandidates(rolloutPath, fallbackSessionsDir, sessionId)
+  );
+  logCodex(opts, `Codex session ${sessionId}: rollout candidates=${candidates.length}.`);
+  for (const p of candidates) {
     if (existsSync(p)) {
       try {
-        content = readFileSync(p, "utf-8");
+        content = timed(opts, `Read Codex rollout ${sessionId}`, () => readFileSync(p, "utf-8"));
         result.rolloutPath = p;
         break;
       } catch {
@@ -273,7 +306,10 @@ function parseRollout(
     }
   }
 
-  if (!content) return result;
+  if (!content) {
+    logCodex(opts, `Codex session ${sessionId}: no rollout file found.`);
+    return result;
+  }
 
   const seenHumanInputs = new Set<string>();
   const allChangedFiles = new Set<string>();
@@ -281,7 +317,9 @@ function parseRollout(
   let currentHumanInputIndex: number | null = null;
   const seenTokenCounts = new Set<string>();
 
-  for (const line of content.split("\n")) {
+  const lines = timed(opts, `Split Codex rollout lines ${sessionId}`, () => content.split("\n"));
+  timed(opts, `Parse Codex rollout events ${sessionId}`, () => {
+  for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
@@ -398,6 +436,8 @@ function parseRollout(
       // skip
     }
   }
+  });
+  logCodex(opts, `Codex session ${sessionId}: users=${result.userCount}, assistants=${result.assistantCount}, tool_calls=${result.toolCallCount}, token_events=${result.tokenCountEvents}, files=${result.filesChanged}.`);
 
   return result;
 }
@@ -405,9 +445,13 @@ function parseRollout(
 /**
  * Collect Codex sessions from ~/.codex/state_5.sqlite for a given date.
  */
-export function collectCodexSessions(filterDate: string): SessionData[] {
+export function collectCodexSessions(filterDate: string, opts?: CodexCollectOptions): SessionData[] {
   const dbPath = codexStateDb();
-  if (!existsSync(dbPath)) return [];
+  logCodex(opts, `State DB: ${dbPath}`);
+  if (!existsSync(dbPath)) {
+    logCodex(opts, "Codex state DB does not exist; no sessions collected.");
+    return [];
+  }
 
   const sessions: SessionData[] = [];
   const sessionsDir = codexSessionsDir();
@@ -440,7 +484,9 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
         cache_read_input_tokens: 0,
         cache_creation_input_tokens: 0,
       };
-    const calculatedCost = hasDetailedUsage ? calculateCost(model, usage) : null;
+    const calculatedCost = timed(opts, `Calculate Codex cost ${id}`, () =>
+      hasDetailedUsage ? calculateCost(model, usage) : null
+    );
 
     const modelEntry: ModelUsageEntry = {
       api_calls: rolloutData.tokenCountEvents || rolloutData.assistantCount || 1,
@@ -486,7 +532,7 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
     }
 
     const sessionName = title || id.slice(0, 8);
-    sessions.push({
+    timed(opts, `Build Codex session payload ${id}`, () => sessions.push({
       schema: "2.0",
       date: filterDate,
       agent: "codex",
@@ -513,17 +559,21 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
         tool_calls: rolloutData.toolCallCount,
       },
       human_inputs: rolloutData.humanInputs.length > 0 ? rolloutData.humanInputs : undefined,
-    });
+    }));
+    logCodex(opts, `Collected Codex session ${id}: model=${model}, users=${rolloutData.userCount}, assistants=${rolloutData.assistantCount}.`);
   }
 
   try {
-    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const db = timed(opts, "Open Codex state DB", () => new DatabaseSync(dbPath, { readOnly: true }));
 
     try {
-      const threads = selectThreadsForDate(db, filterDate);
+      const threads = timed(opts, `Select Codex threads for ${filterDate}`, () => selectThreadsForDate(db, filterDate));
+      logCodex(opts, `Found ${threads.length} Codex thread candidate(s).`);
 
       for (const thread of threads) {
-        const createdAt = dateFromCodexTimestamp(thread.created_at);
+        const createdAt = timed(opts, `Parse Codex created_at ${thread.id}`, () =>
+          dateFromCodexTimestamp(thread.created_at)
+        );
         const threadDate = createdAt ? localDateString(createdAt) : "";
 
         const model = thread.model || "unknown";
@@ -531,7 +581,7 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
         const cwd = thread.cwd ?? "";
 
         // Parse rollout for message counts and timestamps scoped to the target day.
-        const rolloutData = parseRollout(thread.rollout_path, sessionsDir, thread.id, filterDate);
+        const rolloutData = parseRollout(thread.rollout_path, sessionsDir, thread.id, filterDate, opts);
         const hasRolloutActivityOnDate =
           rolloutData.firstTs !== null ||
           rolloutData.userCount > 0 ||
@@ -539,7 +589,10 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
           rolloutData.tokenCountEvents > 0 ||
           rolloutData.filesChanged > 0;
         const hasThreadActivityOnDate = threadDate === filterDate && thread.has_user_event !== 0;
-        if (!hasRolloutActivityOnDate && !hasThreadActivityOnDate) continue;
+        if (!hasRolloutActivityOnDate && !hasThreadActivityOnDate) {
+          logCodex(opts, `Skip Codex thread ${thread.id}: no activity on ${filterDate}.`);
+          continue;
+        }
 
         pushSession({
           id: thread.id,
@@ -552,9 +605,13 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
         });
       }
 
-      for (const rolloutFile of rolloutFilesForDate(sessionsDir, filterDate)) {
+      const fallbackRolloutFiles = timed(opts, `Find Codex fallback rollouts for ${filterDate}`, () =>
+        rolloutFilesForDate(sessionsDir, filterDate)
+      );
+      logCodex(opts, `Found ${fallbackRolloutFiles.length} Codex fallback rollout file(s).`);
+      for (const rolloutFile of fallbackRolloutFiles) {
         if (seenRolloutPaths.has(rolloutFile)) continue;
-        const rolloutData = parseRollout(rolloutFile, sessionsDir, basename(rolloutFile, ".jsonl"), filterDate);
+        const rolloutData = parseRollout(rolloutFile, sessionsDir, basename(rolloutFile, ".jsonl"), filterDate, opts);
         if (!rolloutData.rolloutPath || seenRolloutPaths.has(rolloutData.rolloutPath)) continue;
         const hasActivity =
           rolloutData.firstTs !== null ||
@@ -562,7 +619,10 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
           rolloutData.assistantCount > 0 ||
           rolloutData.tokenCountEvents > 0 ||
           rolloutData.filesChanged > 0;
-        if (!hasActivity) continue;
+        if (!hasActivity) {
+          logCodex(opts, `Skip Codex fallback rollout ${rolloutFile}: no activity on ${filterDate}.`);
+          continue;
+        }
         pushSession({
           id: basename(rolloutFile, ".jsonl"),
           title: basename(rolloutFile, ".jsonl"),
@@ -574,11 +634,12 @@ export function collectCodexSessions(filterDate: string): SessionData[] {
         });
       }
     } finally {
-      db.close();
+      timed(opts, "Close Codex state DB", () => db.close());
     }
   } catch (e) {
     console.warn(`Warning: codex reader: ${(e as Error).message}`);
   }
 
+  logCodex(opts, `Collected ${sessions.length} Codex session(s).`);
   return sessions;
 }

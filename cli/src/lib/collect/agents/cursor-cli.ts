@@ -12,6 +12,34 @@ import { calculateCost, COST_CURRENCY } from "../pricing.js";
 
 const CHARS_PER_TOKEN = 4;
 
+interface CursorCliCollectOptions {
+  log?: (message: string) => void;
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+function logCursorCli(opts: CursorCliCollectOptions | undefined, message: string): void {
+  opts?.log?.(`[cursor-cli] ${message}`);
+}
+
+function timed<T>(opts: CursorCliCollectOptions | undefined, label: string, run: () => T): T {
+  logCursorCli(opts, `${label}...`);
+  const startedAt = Date.now();
+  try {
+    const result = run();
+    logCursorCli(opts, `${label} done in ${formatDuration(Date.now() - startedAt)}.`);
+    return result;
+  } catch (e) {
+    logCursorCli(opts, `${label} failed after ${formatDuration(Date.now() - startedAt)}: ${(e as Error).message}`);
+    throw e;
+  }
+}
+
 /**
  * Extract JSON from a protobuf blob by scanning for {"role" bytes.
  * Returns parsed message objects found in the blob.
@@ -283,18 +311,24 @@ function readTranscriptJsonl(transcriptPath: string): Record<string, unknown>[] 
 /**
  * Collect Cursor CLI sessions from ~/.cursor/chats/ for a given date.
  */
-export function collectCursorCliSessions(filterDate: string): SessionData[] {
+export function collectCursorCliSessions(filterDate: string, opts?: CursorCliCollectOptions): SessionData[] {
   const chatsDir = cursorChatsDir();
-  if (!existsSync(chatsDir)) return [];
+  logCursorCli(opts, `Chats directory: ${chatsDir}`);
+  if (!existsSync(chatsDir)) {
+    logCursorCli(opts, "Cursor CLI chats directory does not exist; no sessions collected.");
+    return [];
+  }
 
   const sessions: SessionData[] = [];
 
   let sessionDirs: string[] = [];
   try {
-    sessionDirs = readdirSync(chatsDir);
+    sessionDirs = timed(opts, "Read Cursor CLI session directories", () => readdirSync(chatsDir));
   } catch {
+    logCursorCli(opts, "Cursor CLI chats directory is not readable; no sessions collected.");
     return sessions;
   }
+  logCursorCli(opts, `Found ${sessionDirs.length} Cursor CLI session directorie(s).`);
 
   for (const sessionId of sessionDirs) {
     const sessionPath = join(chatsDir, sessionId);
@@ -308,10 +342,11 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
     // Each session may have multiple conversations
     let convDirs: string[] = [];
     try {
-      convDirs = readdirSync(sessionPath);
+      convDirs = timed(opts, `Read Cursor CLI conversations for project ${sessionId}`, () => readdirSync(sessionPath));
     } catch {
       continue;
     }
+    logCursorCli(opts, `Project ${sessionId}: ${convDirs.length} conversation directorie(s).`);
 
     for (const convId of convDirs) {
       const convPath = join(sessionPath, convId);
@@ -326,7 +361,10 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
 
       // Check for agent-transcript JSONL
       const transcriptPath = join(convPath, "agent-transcript.jsonl");
-      const transcriptEvents = readTranscriptJsonl(transcriptPath);
+      const transcriptEvents = timed(opts, `Read Cursor CLI transcript ${convId}`, () =>
+        readTranscriptJsonl(transcriptPath)
+      );
+      logCursorCli(opts, `Conversation ${convId}: transcript events=${transcriptEvents.length}.`);
 
       // Filter by date — check transcript timestamps
       let hasActivityOnDate = false;
@@ -334,6 +372,7 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
       let lastTs: Date | null = null;
       const dayTranscriptEvents: Record<string, unknown>[] = [];
 
+      timed(opts, `Filter Cursor CLI transcript by date ${convId}`, () => {
       for (const event of transcriptEvents) {
         const ts = (event["timestamp"] ?? event["ts"]) as string | number | undefined;
         if (!ts) continue;
@@ -348,6 +387,8 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
           if (!lastTs || d > lastTs) lastTs = d;
         }
       }
+      });
+      logCursorCli(opts, `Conversation ${convId}: day transcript events=${dayTranscriptEvents.length}.`);
 
       // If no transcript, check store.db creation/modification time
       if (!hasActivityOnDate && transcriptEvents.length === 0) {
@@ -363,24 +404,29 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
       }
 
       if (!hasActivityOnDate) continue;
+      logCursorCli(opts, `Conversation ${convId}: activity found on ${filterDate}.`);
 
       // Read session metadata
-      const meta = readStoreMeta(storeDbPath);
-      const allMessages = readStoreMessages(storeDbPath);
-      const hasMessageTimestamps = allMessages.some((msg) => msg.timestamp != null);
-      const messages = hasMessageTimestamps
-        ? allMessages.filter((msg) => {
+      const meta = timed(opts, `Read Cursor CLI store metadata ${convId}`, () => readStoreMeta(storeDbPath));
+      const allMessages = timed(opts, `Read Cursor CLI store messages ${convId}`, () => readStoreMessages(storeDbPath));
+      const messages = timed(opts, `Filter Cursor CLI store messages ${convId}`, () => {
+        const hasMessageTimestamps = allMessages.some((msg) => msg.timestamp != null);
+        return hasMessageTimestamps
+          ? allMessages.filter((msg) => {
           if (msg.timestamp == null) return false;
           const d = new Date(msg.timestamp > 1_000_000_000_000 ? msg.timestamp : msg.timestamp * 1000);
           return !Number.isNaN(d.getTime()) && localDateString(d) === filterDate;
         })
-        : allMessages;
+          : allMessages;
+      });
+      logCursorCli(opts, `Conversation ${convId}: store messages=${allMessages.length}, day messages=${messages.length}.`);
 
       // Count message stats
       let userCount = 0;
       let assistantCount = 0;
       let toolCallCount = 0;
 
+      timed(opts, `Count Cursor CLI messages ${convId}`, () => {
       for (const msg of messages) {
         if (msg.role === "user") userCount++;
         else if (msg.role === "assistant") {
@@ -390,6 +436,7 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
           }
         }
       }
+      });
 
       // Extract file changes from transcript tool calls
       const filesChanged: FileChange[] = [];
@@ -397,6 +444,7 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
       let cwd = "";
 
       const fileEvents = dayTranscriptEvents.length > 0 ? dayTranscriptEvents : transcriptEvents;
+      timed(opts, `Extract Cursor CLI file changes ${convId}`, () => {
       for (const event of fileEvents) {
         const cwdVal = event["cwd"] as string | undefined;
         if (cwdVal && !cwd) cwd = cwdVal;
@@ -414,11 +462,15 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
           });
         }
       }
+      });
+      logCursorCli(opts, `Conversation ${convId}: changed files=${filesChanged.length}, cwd=${cwd || "(none)"}.`);
 
       // Build model usage — cursor CLI doesn't expose per-request tokens
       // Use model from metadata
       const model = meta.model || "unknown";
-      const estimate = estimateTokensFromMessages(messages);
+      const estimate = timed(opts, `Estimate Cursor CLI token usage ${convId}`, () =>
+        estimateTokensFromMessages(messages)
+      );
 
       const modelEntry: ModelUsageEntry = {
         api_calls: 0,
@@ -460,9 +512,11 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
       // Time range
       let timeDisplay = "unknown";
       let startLocal: string | undefined;
-      if (firstTs && lastTs) {
-        timeDisplay = `${formatLocalTime(firstTs)} - ${formatLocalTime(lastTs)}`;
-        startLocal = firstTs.toISOString();
+      const firstEventTs = firstTs as Date | null;
+      const lastEventTs = lastTs as Date | null;
+      if (firstEventTs && lastEventTs) {
+        timeDisplay = `${formatLocalTime(firstEventTs)} - ${formatLocalTime(lastEventTs)}`;
+        startLocal = firstEventTs.toISOString();
       } else if (meta.createdAt) {
         const created = new Date(meta.createdAt);
         timeDisplay = formatLocalTime(created);
@@ -471,7 +525,7 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
 
       const sessionName = meta.sessionName || convId.slice(0, 8);
 
-      sessions.push({
+      timed(opts, `Build Cursor CLI session payload ${convId}`, () => sessions.push({
         schema: "2.0",
         date: filterDate,
         agent: "cursor-cli",
@@ -495,9 +549,11 @@ export function collectCursorCliSessions(filterDate: string): SessionData[] {
           assistant: assistantCount,
           tool_calls: toolCallCount,
         },
-      });
+      }));
+      logCursorCli(opts, `Collected Cursor CLI conversation ${convId}: users=${userCount}, assistants=${assistantCount}, tool_calls=${toolCallCount}.`);
     }
   }
 
+  logCursorCli(opts, `Collected ${sessions.length} Cursor CLI session(s).`);
   return sessions;
 }

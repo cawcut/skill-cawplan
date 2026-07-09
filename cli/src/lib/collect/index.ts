@@ -168,12 +168,16 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
 
     // Collect Claude Code sessions
     if (targetAgents.includes("claude-code")) {
-        const claudeSessions = logger.step("Discover Claude Code sessions", () => findSessionsByDate(date));
+        const claudeSessions = logger.step("Discover Claude Code sessions", () => findSessionsByDate(date, undefined, {
+            log: logger.log,
+        }));
         logger.log(`Found ${claudeSessions.length} Claude Code candidate session(s).`);
         for (const {jsonlPath, projectName, sessionId} of claudeSessions) {
             try {
                 const s = logger.step(`Collect Claude Code session ${sessionId}`, () =>
-                    collectClaudeCodeSession(jsonlPath, projectName, sessionId, date)
+                    collectClaudeCodeSession(jsonlPath, projectName, sessionId, date, {
+                        log: logger.log,
+                    })
                 );
                 // Skip sessions with no activity on this date (multi-day sessions overlap detected
                 // by file date range, but the session may have zero events on the target date)
@@ -255,7 +259,9 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     // Collect Cursor CLI sessions
     if (targetAgents.includes("cursor")) {
         try {
-            const cliSessions = logger.step("Collect Cursor CLI sessions", () => collectCursorCliSessions(date));
+            const cliSessions = logger.step("Collect Cursor CLI sessions", () => collectCursorCliSessions(date, {
+                log: logger.log,
+            }));
             logger.log(`Collected ${cliSessions.length} Cursor CLI session(s).`);
             sessions.push(...cliSessions);
         } catch (e) {
@@ -266,7 +272,9 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     // Collect Codex sessions
     if (targetAgents.includes("codex")) {
         try {
-            const codexSessions = logger.step("Collect Codex sessions", () => collectCodexSessions(date));
+            const codexSessions = logger.step("Collect Codex sessions", () => collectCodexSessions(date, {
+                log: logger.log,
+            }));
             logger.log(`Collected ${codexSessions.length} Codex session(s).`);
             sessions.push(...codexSessions);
         } catch (e) {

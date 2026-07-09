@@ -30,6 +30,34 @@ import {isTimestampOnLocalDate, localDateString, formatLocalTime, getLocalTimezo
 import {classifyHumanInput} from "../aggregators/human-category.js";
 import {countLines, extractPathFromInput} from "../aggregators/tool-utils.js";
 
+interface ClaudeCollectOptions {
+  log?: (message: string) => void;
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+function logClaude(opts: ClaudeCollectOptions | undefined, message: string): void {
+  opts?.log?.(`[claude-code] ${message}`);
+}
+
+function timed<T>(opts: ClaudeCollectOptions | undefined, label: string, run: () => T): T {
+  logClaude(opts, `${label}...`);
+  const startedAt = Date.now();
+  try {
+    const result = run();
+    logClaude(opts, `${label} done in ${formatDuration(Date.now() - startedAt)}.`);
+    return result;
+  } catch (e) {
+    logClaude(opts, `${label} failed after ${formatDuration(Date.now() - startedAt)}: ${(e as Error).message}`);
+    throw e;
+  }
+}
+
 /**
  * Decode a Claude project directory name (URL-encoded path with dashes).
  * The encoded name replaces "/" with "-" and URL-encodes special chars.
@@ -124,16 +152,19 @@ function getFileDateBounds(filePath: string): { firstDate: string | null; lastDa
 /**
  * Find all Claude Code sessions that have activity on targetDate.
  */
-export function findSessionsByDate(targetDate: string, endDate?: string): SessionRef[] {
+export function findSessionsByDate(targetDate: string, endDate?: string, opts?: ClaudeCollectOptions): SessionRef[] {
   const projectsDir = claudeProjectsDir();
+  logClaude(opts, `Projects directory: ${projectsDir}`);
   const results: SessionRef[] = [];
 
   let projectDirs: string[] = [];
   try {
-    projectDirs = readdirSync(projectsDir);
+    projectDirs = timed(opts, "Read Claude project directories", () => readdirSync(projectsDir));
   } catch {
+    logClaude(opts, "Claude projects directory is not readable; no sessions collected.");
     return results;
   }
+  logClaude(opts, `Found ${projectDirs.length} Claude project directorie(s).`);
 
   for (const projectEncoded of projectDirs) {
     const projectPath = join(projectsDir, projectEncoded);
@@ -150,13 +181,18 @@ export function findSessionsByDate(targetDate: string, endDate?: string): Sessio
     } catch {
       continue;
     }
+    if (sessionFiles.length > 0) {
+      logClaude(opts, `Project ${projectEncoded}: ${sessionFiles.length} session file(s).`);
+    }
 
     for (const sessionFile of sessionFiles) {
       const jsonlPath = join(projectPath, sessionFile);
       const sessionId = basename(sessionFile, ".jsonl");
       const projectName = decodeProjectName(projectEncoded);
 
-      const { firstDate, lastDate } = getFileDateBounds(jsonlPath);
+      const { firstDate, lastDate } = timed(opts, `Read date bounds for Claude session ${sessionId}`, () =>
+        getFileDateBounds(jsonlPath)
+      );
       if (!firstDate && !lastDate) continue;
 
       const start = firstDate ?? lastDate!;
@@ -166,10 +202,12 @@ export function findSessionsByDate(targetDate: string, endDate?: string): Sessio
       // Overlap check: [start, end] overlaps [targetDate, checkEnd]
       if (end >= targetDate && start <= checkEnd) {
         results.push({ jsonlPath, projectName, sessionId });
+        logClaude(opts, `Matched Claude session ${sessionId}: ${start} - ${end}.`);
       }
     }
   }
 
+  logClaude(opts, `Matched ${results.length} Claude session(s) for ${targetDate}${endDate ? `..${endDate}` : ""}.`);
   return results;
 }
 
@@ -284,15 +322,17 @@ export function collectClaudeCodeSession(
   jsonlPath: string,
   projectName: string,
   sessionId: string,
-  date: string
+  date: string,
+  opts?: ClaudeCollectOptions
 ): SessionData {
-  const events = parseEvents(jsonlPath, date);
+  const events = timed(opts, `Parse Claude events for ${sessionId} on ${date}`, () => parseEvents(jsonlPath, date));
+  logClaude(opts, `Claude session ${sessionId}: ${events.length} event(s) on ${date}.`);
 
   // Session title: prefer user-set customTitle, fall back to AI-generated aiTitle.
   // custom-title events have no timestamp so may not appear in date-filtered events;
   // scan the full file for them separately.
   let sessionName = sessionId.slice(0, 8);
-  const allEvents = parseEvents(jsonlPath); // no date filter
+  const allEvents = timed(opts, `Parse all Claude events for title ${sessionId}`, () => parseEvents(jsonlPath)); // no date filter
   for (const event of allEvents) {
     if (event["type"] === "custom-title") {
       const title = event["customTitle"];
@@ -327,7 +367,9 @@ export function collectClaudeCodeSession(
   }
 
   // Aggregate usage buckets from assistant events
-  let buckets = aggregateUsageBuckets(events, "claude-code");
+  let buckets = timed(opts, `Aggregate Claude token usage ${sessionId}`, () =>
+    aggregateUsageBuckets(events, "claude-code")
+  );
 
   // Message stats
   let userCount = 0;
@@ -378,11 +420,12 @@ export function collectClaudeCodeSession(
   }
 
   // Resolve git remote for the session's working directory
-  const repoRemote = gitRemoteRepo(cwd);
+  const repoRemote = timed(opts, `Resolve Claude git remote ${sessionId}`, () => gitRemoteRepo(cwd));
 
   // Files changed — parse from tool_use events (Edit, Write, Read tool calls)
   const filesChanged: FileChange[] = [];
   const filesSet = new Set<string>();
+  timed(opts, `Extract Claude file changes ${sessionId}`, () => {
   for (const event of events) {
     if (event["type"] === "assistant") {
       const message = event["message"] as Record<string, unknown> | undefined;
@@ -416,6 +459,8 @@ export function collectClaudeCodeSession(
       }
     }
   }
+  });
+  logClaude(opts, `Claude session ${sessionId}: ${filesChanged.length} changed file(s).`);
 
   // Merge sub-agent sessions (stored at <projectDir>/<sessionId>/subagents/agent-*.jsonl).
   // Sub-agent user turns are agent-generated prompts, not human inputs — only merge
@@ -423,15 +468,22 @@ export function collectClaudeCodeSession(
   const subagentsDir = join(dirname(jsonlPath), sessionId, "subagents");
   let subAgentFiles: string[] = [];
   try {
-    subAgentFiles = readdirSync(subagentsDir)
-      .filter((f) => f.startsWith("agent-") && f.endsWith(".jsonl"));
+    subAgentFiles = timed(opts, `Read Claude subagent directory ${sessionId}`, () =>
+      readdirSync(subagentsDir)
+        .filter((f) => f.startsWith("agent-") && f.endsWith(".jsonl"))
+    );
   } catch {
     // No subagents directory — normal session without sub-agents
   }
+  logClaude(opts, `Claude session ${sessionId}: ${subAgentFiles.length} subagent file(s).`);
   for (const subFile of subAgentFiles) {
-    const subEvents = parseEvents(join(subagentsDir, subFile), date);
+    const subEvents = timed(opts, `Parse Claude subagent ${subFile}`, () =>
+      parseEvents(join(subagentsDir, subFile), date)
+    );
     if (!subEvents.length) continue;
-    buckets = mergeUsageBuckets(buckets, aggregateUsageBuckets(subEvents, "claude-code"));
+    buckets = mergeUsageBuckets(buckets, timed(opts, `Aggregate Claude subagent usage ${subFile}`, () =>
+      aggregateUsageBuckets(subEvents, "claude-code")
+    ));
     for (const ev of subEvents) {
       if (ev["type"] !== "assistant") continue;
       const msg = ev["message"] as Record<string, unknown> | undefined;
@@ -466,7 +518,7 @@ export function collectClaudeCodeSession(
     }
   }
 
-  const modelUsage = foldBucketsToModel(buckets);
+  const modelUsage = timed(opts, `Fold Claude model usage ${sessionId}`, () => foldBucketsToModel(buckets));
   const usageBreakdown = Object.values(buckets);
 
   // Repos touched — group by git remote, summing line counts
@@ -491,6 +543,7 @@ export function collectClaudeCodeSession(
   }
   const qualifiedTurns: QualifiedTurn[] = [];
   const seen = new Set<string>();
+  timed(opts, `Extract Claude human inputs ${sessionId}`, () => {
   for (let i = 0; i < events.length; i++) {
     const event = events[i];
     if (event["type"] !== "user") continue;
@@ -526,10 +579,12 @@ export function collectClaudeCodeSession(
       category,
     });
   }
+  });
 
   // end_time = last assistant event's timestamp before the next qualifying human turn.
   // files_changed = unique file paths touched by tool_use in the same range.
   const humanInputs: HumanInput[] = [];
+  timed(opts, `Build Claude human input windows ${sessionId}`, () => {
   for (let qi = 0; qi < qualifiedTurns.length; qi++) {
     const turn = qualifiedTurns[qi];
     const nextIdx = qi + 1 < qualifiedTurns.length ? qualifiedTurns[qi + 1].index : events.length;
@@ -573,6 +628,8 @@ export function collectClaudeCodeSession(
       lines_deleted: turnLinesDeleted > 0 ? turnLinesDeleted : undefined,
     });
   }
+  });
+  logClaude(opts, `Claude session ${sessionId}: human_inputs=${humanInputs.length}, users=${userCount}, assistants=${assistantCount}, tool_calls=${toolCallCount}.`);
 
   const project = cwd ? basename(cwd) : projectName;
 
