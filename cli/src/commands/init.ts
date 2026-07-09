@@ -19,6 +19,8 @@ import {discoverSubdirRepos, gitOutput, normalizeGitHubRemoteUrl} from "../lib/i
 import {formatColumnGrid} from "../lib/init/format-columns.js";
 import {upsertLocalProductMapping} from "../lib/user-config.js";
 
+const ENABLE_SUBDIR_REPO_MAPPING = false;
+
 function assertInteractiveTerminal(): void {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
         throw new Error("cawplan init requires an interactive terminal");
@@ -125,6 +127,13 @@ function printRepoList(header: string, lines: string[]): void {
 
 async function runMultiRepoInit(cwd: string): Promise<void> {
     const absCwd = resolve(cwd);
+    if (!ENABLE_SUBDIR_REPO_MAPPING) {
+        const product = await selectProductInteractively(absCwd);
+        if (!product) return;
+        await saveLocalProductMapping(absCwd, product);
+        return;
+    }
+
     const mappings = await listProductRepoMappings();
     const {mapped, pending, skipped} = discoverSubdirRepos(absCwd, mappings);
     const total = mapped.length + pending.length + skipped.length;
