@@ -295,7 +295,9 @@ Use this step only after product/repo/ticket assignment has been reviewed and sa
 4. For each group, only write back when the Cloud result has `unique_id`, `product_id`, and `version_id`, and every grouped session's `product_id` matches the returned ticket `product_id`. Skip unresolved tickets, tickets missing `product_id`/`version_id`, and product-mismatched tickets.
 5. Generate compact HTML `progress_comment` by summarizing the grouped sessions' `human_inputs`. Do not copy raw prompts or only list classified topics. For each ticket group:
    - Collect human inputs from both report-level `human_inputs[]` matching the grouped `session_id` values and each grouped `session.human_inputs[]`.
+   - For every collected human input, read both `content` and `assistant_message`; use `content` for user intent and `assistant_message` for the assistant's actual work/result.
    - Summarize only the most important changed result, decision/direction, and unresolved follow-up in 1-3 short bullets.
+   - Prefer concrete outcomes from `assistant_message` when they clarify or supersede the raw user prompt.
    - Keep each bullet compact, ideally one sentence and under 120 characters.
    - Use session metadata such as title, agent, project, file counts, and line deltas only as supporting context.
    - Do not include a separate "Updated from ..." paragraph; keep the comment visually dense.
@@ -309,7 +311,7 @@ Use this step only after product/repo/ticket assignment has been reviewed and sa
      <li><strong>Write-back:</strong> summarize human inputs in this skill before uploading the report.</li>
    </ul>
    ```
-   Use `sessions[].ticket_display_ids` when available for the display ID in the heading. Escape user/session text before placing it in HTML. The bullet text should be a human-readable summary derived from `human_inputs`, not the raw input text.
+   Use `sessions[].ticket_display_ids` when available for the display ID in the heading. Escape user/session text before placing it in HTML. The bullet text should be a human-readable summary derived from `human_inputs[].content` and `human_inputs[].assistant_message`, not the raw input text.
 6. Write the HTML back to `progress_comment` with the CLI, not by direct HTTP:
    ```bash
    cawplan tickets update "<product_id>" "<version_id>" "<ticket_id>" --progress_comment "$progress_comment"
