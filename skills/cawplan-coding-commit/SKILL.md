@@ -290,7 +290,7 @@ Use this step only after product/repo/ticket assignment has been reviewed and sa
 2. Group sessions by `ticket_id`.
 3. Resolve all grouped tickets through Cloud:
    ```bash
-   cawplan tickets search --unique_ids "<ticket_id_1>,<ticket_id_2>" --page_size 100 --refresh
+   cawplan tickets search --unique_ids "<ticket_id_1>,<ticket_id_2>" --page_size 100
    ```
 4. For each group, only write back when the Cloud result has `unique_id`, `product_id`, and `version_id`, and every grouped session's `product_id` matches the returned ticket `product_id`. Skip unresolved tickets, tickets missing `product_id`/`version_id`, and product-mismatched tickets.
 5. Generate compact HTML `progress_comment` by summarizing the grouped sessions' `human_inputs`. Do not copy raw prompts or only list classified topics. For each ticket group:
