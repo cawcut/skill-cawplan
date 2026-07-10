@@ -126,7 +126,9 @@ export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
     .ticket-option { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: var(--r4); color: var(--text-01); cursor: pointer; }
     .ticket-option:hover { background: var(--bg-subtle); }
     .ticket-option input { width: 14px; height: 14px; padding: 0; flex-shrink: 0; }
-    .ticket-option .ticket-link { color: var(--uBlue-07); font-weight: 600; }
+    .ticket-option-choice { min-width: 0; display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer; }
+    .ticket-option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ticket-open-link { margin-left: auto; color: var(--uBlue-07); font-weight: 600; font-size: 11px; }
     .ticket-empty { color: var(--text-03); font-size: 12px; padding: 4px 6px; }
     input.ticket-add { height: 28px; font-size: 12px; }
     .model-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; vertical-align: middle; }
@@ -596,15 +598,22 @@ export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
       return '<a class="ticket-link" href="' + escapeHtml(ticketDetailUrl(ticket)) + '" target="_blank" rel="noopener noreferrer" title="Open ' + escapeHtml(ticket) + '">' + escapeHtml(ticket) + '</a>';
     }
 
+    function ticketOpenLinkHtml(ticket) {
+      return '<a class="ticket-link ticket-open-link" href="' + escapeHtml(ticketDetailUrl(ticket)) + '" target="_blank" rel="noopener noreferrer" title="Open ' + escapeHtml(ticket) + '">Open</a>';
+    }
+
     function ticketOptionRows(session) {
       const selected = new Set(sessionTickets(session).map((item) => String(item).trim().toUpperCase()).filter(Boolean));
       const options = [...new Set([...allTicketDisplayIds(), ...selected])].sort();
       if (options.length === 0) return '<div class="ticket-empty">No tickets yet</div>';
       return options.map((ticket) =>
-        '<label class="ticket-option">' +
-          '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '"' + (selected.has(ticket) ? ' checked' : '') + ' />' +
-          ticketLinkHtml(ticket) +
-        '</label>'
+        '<div class="ticket-option">' +
+          '<label class="ticket-option-choice">' +
+            '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '"' + (selected.has(ticket) ? ' checked' : '') + ' />' +
+            '<span class="ticket-option-label">' + escapeHtml(ticket) + '</span>' +
+          '</label>' +
+          ticketOpenLinkHtml(ticket) +
+        '</div>'
       ).join('');
     }
 
@@ -661,10 +670,13 @@ export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
       const options = picker.querySelector('.ticket-options');
       const empty = options.querySelector('.ticket-empty');
       if (empty) empty.remove();
-      const label = document.createElement('label');
+      const label = document.createElement('div');
       label.className = 'ticket-option';
-      label.innerHTML = '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '" checked />' +
-        ticketLinkHtml(ticket);
+      label.innerHTML = '<label class="ticket-option-choice">' +
+        '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '" checked />' +
+        '<span class="ticket-option-label">' + escapeHtml(ticket) + '</span>' +
+        '</label>' +
+        ticketOpenLinkHtml(ticket);
       options.appendChild(label);
       renderTicketTags(picker);
       return true;

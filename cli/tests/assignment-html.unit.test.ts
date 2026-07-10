@@ -151,6 +151,7 @@ describe("assignmentHtml - tickets column", () => {
         expect(html).toContain("ticketDisplayIdFromInput(value)");
         expect(html).toContain("function ticketDetailUrl(ticket)");
         expect(html).toContain("function ticketLinkHtml(ticket)");
+        expect(html).toContain("function ticketOpenLinkHtml(ticket)");
         expect(html).toContain("target=\"_blank\"");
         expect(html).toContain("rel=\"noopener noreferrer\"");
         expect(html).toContain("function ticketOptionRows(session)");
@@ -166,7 +167,13 @@ describe("assignmentHtml - tickets column", () => {
         expect(html).toContain("'<input class=\"ticket-add\" placeholder=\"Add ticket ID\" />'");
         expect(html).toContain("ticket_display_ids: selectedTicketDisplayIds");
         expect(html).toContain("querySelectorAll('.ticket-option-cb:checked')");
-        expect(html).toContain(".ticket-option .ticket-link");
+        expect(html).toContain(".ticket-option-choice");
+        expect(html).toContain(".ticket-option-label");
+        expect(html).toContain(".ticket-open-link");
+        expect(html).toContain(">Open</a>");
+        expect(html).toContain("'<label class=\"ticket-option-choice\">' +");
+        expect(html).toContain("'<span class=\"ticket-option-label\">' + escapeHtml(ticket) + '</span>'");
+        expect(html).not.toContain("'<input class=\"ticket-option-cb\" type=\"checkbox\" value=\"' + escapeHtml(ticket) + '\"' + (selected.has(ticket) ? ' checked' : '') + ' />' +\n          ticketLinkHtml(ticket)");
     });
 
     test("uses configured portal base for ticket detail links", () => {
