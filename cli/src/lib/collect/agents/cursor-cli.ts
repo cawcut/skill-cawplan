@@ -1,11 +1,17 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { cursorChatsDir } from "../paths.js";
+import {
+  cwdFromProjectTranscriptPath,
+  findProjectAgentTranscriptPath,
+  resolveChatProjectHashToCwd,
+} from "../cursor-chat-project.js";
+import * as paths from "../paths.js";
 import {
   formatLocalTime,
   getLocalTimezone,
   localDateString,
+  parseTimestampTag,
 } from "../date-utils.js";
 import { SessionData, FileChange, RepoTouched, UsageBucket, ModelUsageEntry } from "../types.js";
 import { calculateCost, COST_CURRENCY } from "../pricing.js";
@@ -286,6 +292,49 @@ function estimateTokensFromMessages(messages: CursorMessage[]): { inputTokens: n
   };
 }
 
+function extractTranscriptEventTime(event: Record<string, unknown>): Date | null {
+  const ts = (event["timestamp"] ?? event["ts"]) as string | number | undefined;
+  if (ts != null) {
+    const d = new Date(typeof ts === "number" ? ts : ts);
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  const message = event["message"] as Record<string, unknown> | undefined;
+  const content = message?.["content"];
+  if (!Array.isArray(content)) return null;
+
+  for (const block of content) {
+    if (typeof block !== "object" || block === null) continue;
+    const item = block as Record<string, unknown>;
+    if (item["type"] !== "text") continue;
+    const tagged = parseTimestampTag(String(item["text"] ?? ""));
+    if (tagged) return tagged;
+  }
+  return null;
+}
+
+function extractCwdFromTranscriptEvent(event: Record<string, unknown>): string {
+  const direct = event["cwd"];
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+
+  const message = event["message"] as Record<string, unknown> | undefined;
+  const content = message?.["content"];
+  if (!Array.isArray(content)) return "";
+
+  for (const block of content) {
+    if (typeof block !== "object" || block === null) continue;
+    const item = block as Record<string, unknown>;
+    if (item["type"] !== "tool_use") continue;
+    const input = item["input"];
+    if (!input || typeof input !== "object") continue;
+    const workingDirectory = (input as Record<string, unknown>)["working_directory"];
+    if (typeof workingDirectory === "string" && workingDirectory.trim()) {
+      return workingDirectory.trim();
+    }
+  }
+  return "";
+}
+
 /**
  * Read transcript JSONL from agent-transcript.jsonl file.
  */
@@ -312,7 +361,7 @@ function readTranscriptJsonl(transcriptPath: string): Record<string, unknown>[] 
  * Collect Cursor CLI sessions from ~/.cursor/chats/ for a given date.
  */
 export function collectCursorCliSessions(filterDate: string, opts?: CursorCliCollectOptions): SessionData[] {
-  const chatsDir = cursorChatsDir();
+  const chatsDir = paths.cursorChatsDir();
   logCursorCli(opts, `Chats directory: ${chatsDir}`);
   if (!existsSync(chatsDir)) {
     logCursorCli(opts, "Cursor CLI chats directory does not exist; no sessions collected.");
@@ -359,25 +408,36 @@ export function collectCursorCliSessions(filterDate: string, opts?: CursorCliCol
       const storeDbPath = join(convPath, "store.db");
       if (!existsSync(storeDbPath)) continue;
 
-      // Check for agent-transcript JSONL
-      const transcriptPath = join(convPath, "agent-transcript.jsonl");
-      const transcriptEvents = timed(opts, `Read Cursor CLI transcript ${convId}`, () =>
-        readTranscriptJsonl(transcriptPath)
+      // Check for agent-transcript JSONL (chats copy, then projects layout).
+      const chatsTranscriptPath = join(convPath, "agent-transcript.jsonl");
+      let transcriptSourcePath = chatsTranscriptPath;
+      let transcriptEvents = timed(opts, `Read Cursor CLI transcript ${convId}`, () =>
+        readTranscriptJsonl(chatsTranscriptPath)
       );
+      if (transcriptEvents.length === 0) {
+        const projectTranscriptPath = findProjectAgentTranscriptPath(convId);
+        if (projectTranscriptPath) {
+          transcriptSourcePath = projectTranscriptPath;
+          transcriptEvents = timed(opts, `Read Cursor CLI project transcript ${convId}`, () =>
+            readTranscriptJsonl(projectTranscriptPath)
+          );
+          logCursorCli(opts, `Conversation ${convId}: using project transcript ${projectTranscriptPath}.`);
+        }
+      }
       logCursorCli(opts, `Conversation ${convId}: transcript events=${transcriptEvents.length}.`);
 
       // Filter by date — check transcript timestamps
       let hasActivityOnDate = false;
+      let hasParseableTranscriptTime = false;
       let firstTs: Date | null = null;
       let lastTs: Date | null = null;
       const dayTranscriptEvents: Record<string, unknown>[] = [];
 
       timed(opts, `Filter Cursor CLI transcript by date ${convId}`, () => {
       for (const event of transcriptEvents) {
-        const ts = (event["timestamp"] ?? event["ts"]) as string | number | undefined;
-        if (!ts) continue;
-        const d = new Date(typeof ts === "number" ? ts : ts);
-        if (isNaN(d.getTime())) continue;
+        const d = extractTranscriptEventTime(event);
+        if (!d) continue;
+        hasParseableTranscriptTime = true;
 
         const eventDate = localDateString(d);
         if (eventDate === filterDate) {
@@ -390,12 +450,21 @@ export function collectCursorCliSessions(filterDate: string, opts?: CursorCliCol
       });
       logCursorCli(opts, `Conversation ${convId}: day transcript events=${dayTranscriptEvents.length}.`);
 
-      // If no transcript, check store.db creation/modification time
-      if (!hasActivityOnDate && transcriptEvents.length === 0) {
+      // Fall back to local file mtimes when transcript lines lack parseable timestamps.
+      if (!hasActivityOnDate && !hasParseableTranscriptTime) {
         try {
           const stat = statSync(storeDbPath);
-          const mtime = localDateString(stat.mtime);
-          if (mtime === filterDate) {
+          if (localDateString(stat.mtime) === filterDate) {
+            hasActivityOnDate = true;
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (!hasActivityOnDate && !hasParseableTranscriptTime && existsSync(transcriptSourcePath)) {
+        try {
+          const stat = statSync(transcriptSourcePath);
+          if (localDateString(stat.mtime) === filterDate) {
             hasActivityOnDate = true;
           }
         } catch {
@@ -446,7 +515,7 @@ export function collectCursorCliSessions(filterDate: string, opts?: CursorCliCol
       const fileEvents = dayTranscriptEvents.length > 0 ? dayTranscriptEvents : transcriptEvents;
       timed(opts, `Extract Cursor CLI file changes ${convId}`, () => {
       for (const event of fileEvents) {
-        const cwdVal = event["cwd"] as string | undefined;
+        const cwdVal = extractCwdFromTranscriptEvent(event);
         if (cwdVal && !cwd) cwd = cwdVal;
 
         const toolName = event["tool"] as string | undefined;
@@ -463,6 +532,12 @@ export function collectCursorCliSessions(filterDate: string, opts?: CursorCliCol
         }
       }
       });
+      if (!cwd) {
+        cwd = cwdFromProjectTranscriptPath(transcriptSourcePath);
+      }
+      if (!cwd) {
+        cwd = resolveChatProjectHashToCwd(sessionId);
+      }
       logCursorCli(opts, `Conversation ${convId}: changed files=${filesChanged.length}, cwd=${cwd || "(none)"}.`);
 
       // Build model usage — cursor CLI doesn't expose per-request tokens
