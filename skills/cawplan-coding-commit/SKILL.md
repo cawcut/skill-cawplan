@@ -181,7 +181,7 @@ After receiving the JSON array, write back to `$report_file`: for each entry at 
 
 If the classification response is malformed or an error occurs, leave the existing values unchanged and continue.
 
-After classification, rewrite every session's `session_title` from the human inputs that belong to that session. Group `human_inputs` by `session_id`; include both each input's `content` and its `assistant_message` when building the title prompt. If a session has no human inputs, leave its existing title unchanged.
+After classification, rewrite every session's `session_title` from the human inputs that belong to that session. Group `human_inputs` by `session_id`; include only each input's `content` when building the title prompt. If a session has no human inputs, leave its existing title unchanged.
 
 Session title rewrite prompt to use:
 
@@ -189,8 +189,8 @@ Session title rewrite prompt to use:
 > `{ "session_id": "...", "session_title": "...", "title_reason": "one sentence" }`
 >
 > Rules:
-> - Use only the human inputs listed for that session, including both `content` and `assistant_message`.
-> - Summarize the session from the user's intent (`content`) and the assistant's actual work/result (`assistant_message`); prefer the concrete delivered outcome when they differ.
+> - Use only the human input `content` values listed for that session.
+> - Do not read or summarize `assistant_message` for title generation; it is intentionally excluded to keep this step fast and token-efficient.
 > - Create a concise, human-readable title, ideally 4-10 words.
 > - Prefer the actual product area, feature, bug, workflow, or document being changed.
 > - Avoid generic titles such as "coding session", "daily report", "git commit", or the raw command name unless that is truly the work.
@@ -200,7 +200,7 @@ Session title rewrite prompt to use:
 > Sessions:
 > session_id:"<session_id>" current_title:"<existing_session_title>"
 > inputs:
-> - category:"<category>" topic:"<topic>" content:"<human_input_content>" assistant_message:"<assistant_message_summary_or_excerpt>"
+> - category:"<category>" topic:"<topic>" content:"<human_input_content>"
 > - ...
 
 After receiving the JSON array, write back to `$report_file`: for each returned `session_id`, find the matching `sessions[]` entry and set:
@@ -295,9 +295,8 @@ Use this step only after product/repo/ticket assignment has been reviewed and sa
 4. For each group, only write back when the Cloud result has `unique_id`, `product_id`, and `version_id`, and every grouped session's `product_id` matches the returned ticket `product_id`. Skip unresolved tickets, tickets missing `product_id`/`version_id`, and product-mismatched tickets.
 5. Generate compact HTML `progress_comment` by summarizing the grouped sessions' `human_inputs`. Do not copy raw prompts or only list classified topics. For each ticket group:
    - Collect human inputs from both report-level `human_inputs[]` matching the grouped `session_id` values and each grouped `session.human_inputs[]`.
-   - For every collected human input, read both `content` and `assistant_message`; use `content` for user intent and `assistant_message` for the assistant's actual work/result.
+   - For every collected human input, read only `content`; do not read or summarize `assistant_message` for ticket progress write-back.
    - Summarize only the most important changed result, decision/direction, and unresolved follow-up in 1-3 short bullets.
-   - Prefer concrete outcomes from `assistant_message` when they clarify or supersede the raw user prompt.
    - Keep each bullet compact, ideally one sentence and under 120 characters.
    - Use session metadata such as title, agent, project, file counts, and line deltas only as supporting context.
    - Do not include a separate "Updated from ..." paragraph; keep the comment visually dense.
@@ -311,7 +310,7 @@ Use this step only after product/repo/ticket assignment has been reviewed and sa
      <li><strong>Write-back:</strong> summarize human inputs in this skill before uploading the report.</li>
    </ul>
    ```
-   Use `sessions[].ticket_display_ids` when available for the display ID in the heading. Escape user/session text before placing it in HTML. The bullet text should be a human-readable summary derived from `human_inputs[].content` and `human_inputs[].assistant_message`, not the raw input text.
+   Use `sessions[].ticket_display_ids` when available for the display ID in the heading. Escape user/session text before placing it in HTML. The bullet text should be a human-readable summary derived from `human_inputs[].content`, not the raw input text.
 6. Write the HTML back to `progress_comment` with the CLI, not by direct HTTP:
    ```bash
    cawplan tickets update "<product_id>" "<version_id>" "<ticket_id>" --progress_comment "$progress_comment"
