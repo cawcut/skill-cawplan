@@ -181,7 +181,7 @@ After receiving the JSON array, write back to `$report_file`: for each entry at 
 
 If the classification response is malformed or an error occurs, leave the existing values unchanged and continue.
 
-After classification, rewrite every session's `session_title` from the human inputs that belong to that session. Group `human_inputs` by `session_id`; if a session has no human inputs, leave its existing title unchanged.
+After classification, rewrite every session's `session_title` from the human inputs that belong to that session. Group `human_inputs` by `session_id`; include both each input's `content` and its `assistant_message` when building the title prompt. If a session has no human inputs, leave its existing title unchanged.
 
 Session title rewrite prompt to use:
 
@@ -189,7 +189,8 @@ Session title rewrite prompt to use:
 > `{ "session_id": "...", "session_title": "...", "title_reason": "one sentence" }`
 >
 > Rules:
-> - Use only the human inputs listed for that session.
+> - Use only the human inputs listed for that session, including both `content` and `assistant_message`.
+> - Summarize the session from the user's intent (`content`) and the assistant's actual work/result (`assistant_message`); prefer the concrete delivered outcome when they differ.
 > - Create a concise, human-readable title, ideally 4-10 words.
 > - Prefer the actual product area, feature, bug, workflow, or document being changed.
 > - Avoid generic titles such as "coding session", "daily report", "git commit", or the raw command name unless that is truly the work.
@@ -199,7 +200,7 @@ Session title rewrite prompt to use:
 > Sessions:
 > session_id:"<session_id>" current_title:"<existing_session_title>"
 > inputs:
-> - category:"<category>" topic:"<topic>" content:"<human_input_content>"
+> - category:"<category>" topic:"<topic>" content:"<human_input_content>" assistant_message:"<assistant_message_summary_or_excerpt>"
 > - ...
 
 After receiving the JSON array, write back to `$report_file`: for each returned `session_id`, find the matching `sessions[]` entry and set:
