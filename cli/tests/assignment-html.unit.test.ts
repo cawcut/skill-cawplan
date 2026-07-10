@@ -149,6 +149,10 @@ describe("assignmentHtml - tickets column", () => {
         expect(html).toContain("function ticketDisplayIdFromInput(value)");
         expect(html).toContain("urlMatch[1].toUpperCase()");
         expect(html).toContain("ticketDisplayIdFromInput(value)");
+        expect(html).toContain("function ticketDetailUrl(ticket)");
+        expect(html).toContain("function ticketLinkHtml(ticket)");
+        expect(html).toContain("target=\"_blank\"");
+        expect(html).toContain("rel=\"noopener noreferrer\"");
         expect(html).toContain("function ticketOptionRows(session)");
         expect(html).toContain("function ticketPickerHtml(session)");
         expect(html).toContain("function selectedTicketDisplayIds(picker)");
@@ -162,6 +166,13 @@ describe("assignmentHtml - tickets column", () => {
         expect(html).toContain("'<input class=\"ticket-add\" placeholder=\"Add ticket ID\" />'");
         expect(html).toContain("ticket_display_ids: selectedTicketDisplayIds");
         expect(html).toContain("querySelectorAll('.ticket-option-cb:checked')");
+        expect(html).toContain(".ticket-option .ticket-link");
+    });
+
+    test("uses configured portal base for ticket detail links", () => {
+        const html = assignmentHtml("https://example.cawplan.test/");
+        expect(html).toContain('const CAWPLAN_PORTAL_BASE = "https://example.cawplan.test";');
+        expect(html).toContain("return CAWPLAN_PORTAL_BASE + '/issue/' + encodeURIComponent(ticket);");
     });
 
     test("supports adding tickets before saving", () => {
@@ -181,6 +192,9 @@ describe("assignmentHtml - tickets column", () => {
         expect(html).toContain("if (!productSelected) setTicketMenuOpen(picker, false);");
         expect(html).toContain("updateTicketPickerState(row);");
         expect(html).toContain("if (picker.classList.contains('disabled')) return;");
+        expect(html).toContain("if (event.target.closest('.ticket-link')) return;");
+        expect(html.indexOf("const remove = event.target.closest('.ticket-remove');"))
+            .toBeGreaterThan(html.indexOf("if (event.target.closest('.ticket-link')) return;"));
     });
 
     test("places tickets column after repo column", () => {

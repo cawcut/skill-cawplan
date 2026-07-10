@@ -1,4 +1,5 @@
-export function assignmentHtml(): string {
+export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
+    const normalizedPortalBase = portalBase.replace(/\/$/, "");
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -116,6 +117,8 @@ export function assignmentHtml(): string {
     .ticket-picker.disabled .ticket-tag { background: var(--n-03); color: var(--text-03); }
     .ticket-picker.disabled .ticket-remove { color: var(--text-04); cursor: not-allowed; }
     .ticket-tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--uBlue-01); color: var(--uBlue-07); font-size: 11px; font-weight: 600; }
+    .ticket-link { color: inherit; text-decoration: none; }
+    .ticket-link:hover { text-decoration: underline; }
     .ticket-remove { border: 0; background: transparent; color: var(--uBlue-07); width: 14px; height: 14px; padding: 0; font-size: 12px; line-height: 14px; justify-content: center; }
     .ticket-placeholder { color: var(--text-03); font-size: 12px; }
     .ticket-menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; min-width: 220px; padding: 8px; border: 1px solid var(--border); border-radius: var(--r8); background: var(--bg); box-shadow: var(--shadow-superlow); }
@@ -123,6 +126,7 @@ export function assignmentHtml(): string {
     .ticket-option { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: var(--r4); color: var(--text-01); cursor: pointer; }
     .ticket-option:hover { background: var(--bg-subtle); }
     .ticket-option input { width: 14px; height: 14px; padding: 0; flex-shrink: 0; }
+    .ticket-option .ticket-link { color: var(--uBlue-07); font-weight: 600; }
     .ticket-empty { color: var(--text-03); font-size: 12px; padding: 4px 6px; }
     input.ticket-add { height: 28px; font-size: 12px; }
     .model-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; vertical-align: middle; }
@@ -247,6 +251,7 @@ export function assignmentHtml(): string {
       claude: '/assets/model-claude.png',
       cursor: '/assets/model-cursor.png',
     };
+    const CAWPLAN_PORTAL_BASE = ${JSON.stringify(normalizedPortalBase)};
 
     function parseRepoNameFromGitHubUrl(value) {
       try {
@@ -583,6 +588,14 @@ export function assignmentHtml(): string {
       return displayMatch ? trimmed.toUpperCase() : '';
     }
 
+    function ticketDetailUrl(ticket) {
+      return CAWPLAN_PORTAL_BASE + '/issue/' + encodeURIComponent(ticket);
+    }
+
+    function ticketLinkHtml(ticket) {
+      return '<a class="ticket-link" href="' + escapeHtml(ticketDetailUrl(ticket)) + '" target="_blank" rel="noopener noreferrer" title="Open ' + escapeHtml(ticket) + '">' + escapeHtml(ticket) + '</a>';
+    }
+
     function ticketOptionRows(session) {
       const selected = new Set(sessionTickets(session).map((item) => String(item).trim().toUpperCase()).filter(Boolean));
       const options = [...new Set([...allTicketDisplayIds(), ...selected])].sort();
@@ -590,7 +603,7 @@ export function assignmentHtml(): string {
       return options.map((ticket) =>
         '<label class="ticket-option">' +
           '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '"' + (selected.has(ticket) ? ' checked' : '') + ' />' +
-          '<span>' + escapeHtml(ticket) + '</span>' +
+          ticketLinkHtml(ticket) +
         '</label>'
       ).join('');
     }
@@ -600,7 +613,7 @@ export function assignmentHtml(): string {
       if (tickets.length === 0) return '<span class="ticket-placeholder">Select tickets</span>';
       return tickets.map((ticket) =>
         '<span class="ticket-tag" data-ticket="' + escapeHtml(ticket) + '">' +
-          escapeHtml(ticket) +
+          ticketLinkHtml(ticket) +
           '<button class="ticket-remove" type="button" data-ticket="' + escapeHtml(ticket) + '" aria-label="Remove ' + escapeHtml(ticket) + '">×</button>' +
         '</span>'
       ).join('');
@@ -629,7 +642,7 @@ export function assignmentHtml(): string {
       trigger.innerHTML = selected.length
         ? selected.map((ticket) =>
           '<span class="ticket-tag" data-ticket="' + escapeHtml(ticket) + '">' +
-            escapeHtml(ticket) +
+            ticketLinkHtml(ticket) +
             '<button class="ticket-remove" type="button" data-ticket="' + escapeHtml(ticket) + '" aria-label="Remove ' + escapeHtml(ticket) + '">×</button>' +
           '</span>'
         ).join('')
@@ -651,7 +664,7 @@ export function assignmentHtml(): string {
       const label = document.createElement('label');
       label.className = 'ticket-option';
       label.innerHTML = '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '" checked />' +
-        '<span>' + escapeHtml(ticket) + '</span>';
+        ticketLinkHtml(ticket);
       options.appendChild(label);
       renderTicketTags(picker);
       return true;
@@ -907,6 +920,7 @@ export function assignmentHtml(): string {
       document.querySelectorAll('.ticket-picker').forEach((picker) => {
         picker.querySelector('.ticket-trigger').addEventListener('click', (event) => {
           if (picker.classList.contains('disabled')) return;
+          if (event.target.closest('.ticket-link')) return;
           if (event.target.closest('.ticket-remove')) return;
           setTicketMenuOpen(picker, picker.querySelector('.ticket-menu').classList.contains('hidden'));
         });
@@ -924,6 +938,7 @@ export function assignmentHtml(): string {
         });
         picker.addEventListener('click', (event) => {
           if (picker.classList.contains('disabled')) return;
+          if (event.target.closest('.ticket-link')) return;
           const remove = event.target.closest('.ticket-remove');
           if (!remove) return;
           event.stopPropagation();

@@ -4,6 +4,7 @@ import {createServer, type IncomingMessage, type ServerResponse} from "node:http
 import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {openBrowser} from "../oauth.js";
+import {getPortalBase} from "../products.js";
 import {readMatchingBrowserModule} from "./matching-browser.js";
 import {assignmentHtml} from "./assignment-html.js";
 import {
@@ -269,7 +270,7 @@ export async function startAssignmentWebServer(reports: AssignmentReport[], batc
                 }
 
                 if (req.method === "GET" && url.pathname === "/") {
-                    sendText(res, 200, assignmentHtml(), "text/html; charset=utf-8");
+                    sendText(res, 200, assignmentHtml(getPortalBase()), "text/html; charset=utf-8");
                     return;
                 }
 
