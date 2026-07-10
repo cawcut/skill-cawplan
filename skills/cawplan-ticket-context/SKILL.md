@@ -1,5 +1,5 @@
 ---
-version: 0.2.3
+version: 0.2.4
 name: cawplan-ticket-context
 description: |
   Load one or more CawPlan tickets into the current AI coding session context so the next cawplan-coding-commit daily report links this session to those tickets.
