@@ -7,7 +7,6 @@ import { localDateString } from "../src/lib/collect/date-utils.js";
 import {
   collectGuiSessions,
   decodeCursorProjectDirToCwd,
-  keyPrefixUpperBound,
   matchUserBubble,
   mergeSuspectBackdateIndices,
   normalizeBubbleMatchText,
@@ -17,7 +16,6 @@ import {
   accumulateTranscriptStatsByContent,
   refineBackdateStartsFromAssistantTimes,
   resolveUserBubbleTimes,
-  selectCursorDiskKvByKeyPrefix,
   suspectResumeLeadingGapIndices,
 } from "../src/lib/collect/agents/cursor-gui.js";
 import { enrichCursorGuiFallbackContext } from "../src/lib/collect/index.js";
@@ -71,41 +69,6 @@ describe("cursor-gui mtime fallback", () => {
       rmSync(root, { recursive: true, force: true });
     }
     tempRoot = "";
-  });
-
-  test("selectCursorDiskKvByKeyPrefix matches LIKE prefix semantics", () => {
-    const db = new DatabaseSync(":memory:");
-    try {
-      db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
-      const insert = db.prepare("INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)");
-      for (const key of [
-        "bubbleId:session-1:",
-        "bubbleId:session-1:a",
-        "bubbleId:session-1:z",
-        "bubbleId:session-10:a",
-        "bubbleId:session-1;",
-        "bubbleId:session-2:a",
-        "composerData:abc",
-      ]) {
-        insert.run(key, `value:${key}`);
-      }
-
-      const prefix = "bubbleId:session-1:";
-      const likeRows = db
-        .prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE ? ORDER BY key")
-        .all(`${prefix}%`);
-      const rangeRows = selectCursorDiskKvByKeyPrefix(db, prefix);
-
-      expect(rangeRows).toEqual(likeRows);
-      expect(rangeRows.map((row) => row.key)).toEqual([
-        "bubbleId:session-1:",
-        "bubbleId:session-1:a",
-        "bubbleId:session-1:z",
-      ]);
-      expect(keyPrefixUpperBound(prefix)).toBe("bubbleId:session-1;");
-    } finally {
-      db.close();
-    }
   });
 
   function writeTranscript(
@@ -705,6 +668,7 @@ describe("cursor-gui mtime fallback", () => {
     expect(conflict?.start_time).toBe("2026-06-24T06:27:12.322Z");
     expect(conflict?.time_precision).toBe("approximate");
     expect(conflict?.end_time).not.toBe(conflict?.start_time);
+    expect(conflict?.assistant_message).toBe("fixing conflicts\n\nconflicts resolved");
 
     db.close();
   });

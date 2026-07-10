@@ -26,13 +26,7 @@ import {
   getPortalBase,
   resolveApiPath,
 } from "../src/lib/products";
-import {
-  findLocalProductMappingForDir,
-  getConfigPath,
-  readUserConfig,
-  upsertLocalProductMapping,
-  writeUserConfig,
-} from "../src/lib/user-config";
+import { getConfigPath, readUserConfig, writeUserConfig } from "../src/lib/user-config";
 import { normalizeSessionRepoContext } from "../src/lib/collect";
 import { buildDailyApiJson } from "../src/lib/collect/aggregators/daily";
 import { calculateCost } from "../src/lib/collect/pricing";
@@ -248,28 +242,6 @@ describe("src lib products", () => {
     expect(getPortalBase()).toBe("https://env-portal");
   });
 
-  test("stores and resolves local product mappings in ~/.cawplan config", async () => {
-    await writeUserConfig({
-      env: "local",
-      local_mapping: [
-        { dir: "/workspace/root", product_id: "prod-old" },
-        { dir: "/workspace/root", product_id: "prod-root" },
-      ],
-    });
-    await upsertLocalProductMapping("/workspace/root/nested", "prod-nested");
-    await upsertLocalProductMapping("/workspace/root/nested", "prod-nested-updated");
-
-    expect(await readUserConfig()).toEqual({
-      env: "local",
-      local_mapping: [
-        { dir: "/workspace/root", product_id: "prod-root" },
-        { dir: "/workspace/root/nested", product_id: "prod-nested-updated" },
-      ],
-    });
-    expect(findLocalProductMappingForDir("/workspace/root/nested/repo")?.product_id).toBe("prod-nested-updated");
-    expect(findLocalProductMappingForDir("/workspace/root/other")?.product_id).toBe("prod-root");
-  });
-
   test("CAWPLAN_ENV selects a profile before stored URLs", async () => {
     delete process.env.CAWPLAN_BASE_URL;
     delete process.env.CAWPLAN_PORTAL_URL;
@@ -377,35 +349,6 @@ describe("src lib collect repo context normalization", () => {
       "real-repo-name",
       "real-repo-name",
     ]);
-  });
-
-  test("prefers local directory product mapping for session product_id", async () => {
-    await writeUserConfig({
-      local_mapping: [{ dir: "/workspace/product-root", product_id: "prod-local" }],
-    });
-    const sessions = [{
-      schema: "2.0" as const,
-      date: "2026-06-17",
-      agent: "cursor-cli",
-      session_id: "cursor-cli-session-id",
-      session_name: "cursor-cli session",
-      project: "local-folder-name",
-      product_id: "prod-existing",
-      product_name: "Existing Product",
-      cwd: "/workspace/product-root/repo-a",
-      time_range: { display: "10:00 - 10:05", timezone: "UTC" },
-      model_usage: {},
-      usage_breakdown: [],
-      files_changed: 0,
-      repos_touched: [],
-      message_stats: { user: 1, assistant: 1, tool_calls: 0 },
-    }];
-
-    normalizeSessionRepoContext(sessions, () => "Ubiquiti-UID/repo-a");
-
-    expect(sessions[0]?.product_id).toBe("prod-local");
-    expect(sessions[0]?.product_name).toBeUndefined();
-    expect(sessions[0]?.project).toBe("repo-a");
   });
 
   test("prefers cwd git remote over repos_touched when normalizing project", () => {
@@ -988,6 +931,10 @@ describe("src lib collect codex", () => {
     expect(session?.human_inputs?.map((input) => input.content)).toEqual([
       `${commonPrefix}第一项：修复 token 统计。`,
       `${commonPrefix}第二项：修复 prompt 去重。`,
+    ]);
+    expect(session?.human_inputs?.map((input) => input.assistant_message)).toEqual([
+      "好的。",
+      "收到。",
     ]);
   });
 

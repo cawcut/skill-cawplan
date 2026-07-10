@@ -14,6 +14,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { cursorProjectsDir } from "../paths.js";
+import { joinAssistantMessages } from "../aggregators/human-assistant.js";
 import { HumanInput, SessionData } from "../types.js";
 import {
   formatLocalTime,
@@ -169,9 +170,13 @@ function extractHumanInputs(turns: ParsedTurn[], sessionTitle: string): HumanInp
     }
 
     const deltas: FileDelta[] = [];
+    const assistantTexts: string[] = [];
     for (let j = i + 1; j < turns.length; j++) {
       const next = turns[j];
       if (!next || next.role === "user") break;
+      if (next.role === "assistant" && next.text) {
+        assistantTexts.push(next.text);
+      }
       deltas.push(...next.fileDeltas);
     }
     const deltaSummary = summarizeFileDeltas(deltas);
@@ -179,6 +184,7 @@ function extractHumanInputs(turns: ParsedTurn[], sessionTitle: string): HumanInp
     humanInputs.push({
       category,
       content: text,
+      assistant_message: joinAssistantMessages(assistantTexts),
       session_title: sessionTitle,
       session_agent: "cursor",
       time_precision: "exact",

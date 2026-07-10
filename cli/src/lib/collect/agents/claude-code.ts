@@ -27,6 +27,7 @@ import { aggregateUsageBuckets, foldBucketsToModel, mergeUsageBuckets } from "..
 import { gitRemoteRepo } from "../git.js";
 import { ChunkMessage } from "../aggregators/chunks.js";
 import {isTimestampOnLocalDate, localDateString, formatLocalTime, getLocalTimezone} from "../date-utils.js";
+import {appendAssistantMessage, extractAssistantTextFromBlocks} from "../aggregators/human-assistant.js";
 import {classifyHumanInput} from "../aggregators/human-category.js";
 import {countLines, extractPathFromInput} from "../aggregators/tool-utils.js";
 
@@ -589,6 +590,7 @@ export function collectClaudeCodeSession(
     const turn = qualifiedTurns[qi];
     const nextIdx = qi + 1 < qualifiedTurns.length ? qualifiedTurns[qi + 1].index : events.length;
     let endTs: string | null = null;
+    let assistantMessage: string | undefined;
     const turnFiles = new Set<string>();
     let turnLinesAdded = 0;
     let turnLinesDeleted = 0;
@@ -598,6 +600,10 @@ export function collectClaudeCodeSession(
       const ts = ev["timestamp"] as string | undefined;
       if (ts) endTs = ts;
       const content = (ev["message"] as Record<string, unknown> | undefined)?.["content"];
+      const assistantText = extractAssistantTextFromBlocks(content);
+      if (assistantText) {
+        assistantMessage = appendAssistantMessage(assistantMessage, assistantText);
+      }
       if (!Array.isArray(content)) continue;
       for (const block of content as Record<string, unknown>[]) {
         if (block["type"] !== "tool_use") continue;
@@ -618,6 +624,7 @@ export function collectClaudeCodeSession(
     humanInputs.push({
       category: turn.category,
       content: turn.text,
+      assistant_message: assistantMessage,
       session_title: sessionName,
       session_agent: "claude-code",
       start_time: turn.startTs,

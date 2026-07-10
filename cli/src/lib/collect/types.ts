@@ -122,6 +122,8 @@ export interface HumanInput {
   ticket_ids?: string[];
   ticket_display_id?: string;
   ticket_display_ids?: string[];
+  /** Plain-text assistant reply(s) after this human input, before the next user turn. */
+  assistant_message?: string;
   topic?: string;
   topic_source?: string;
   topic_confidence?: number;

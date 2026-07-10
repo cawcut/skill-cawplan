@@ -366,8 +366,8 @@ The page shows `session / human inputs / product / repo / tickets`, requires pro
 - If `--file` is used, the file must contain `author` (git username) and `date` (YYYY-MM-DD) fields.
 - After a single-day upload succeeds, follow Steps 6–10: query missing dates in that report's current month with `--dry-run`, then for each missing date collect → classify → assign → upload individually. Do not use `cawplan session backfill` without `--dry-run`.
 - Do not automatically backfill previous months or cross-month ranges during the single-day workflow. Only use the month-missing workflow when the user explicitly provides a month argument or asks to upload/fill missing reports for that month.
-- Preserve raw fields in `human_inputs` (for example `start_time`, `end_time`, `files_changed`, `lines_added`, `lines_deleted`).
-- Never replace raw `human_inputs` with summarized content.
+- Preserve raw fields in `human_inputs` (for example `start_time`, `end_time`, `assistant_message`, `files_changed`, `lines_added`, `lines_deleted`).
+- Never replace raw `human_inputs` with summarized content. Keep each `human_inputs[].assistant_message` as the collected assistant text for that turn — do not rewrite or summarize it during classification.
 - Rewrite `sessions[].session_title` from that session's own `human_inputs` before review and upload. Do not use human inputs from another session to title a session.
 
 ## Confirmation

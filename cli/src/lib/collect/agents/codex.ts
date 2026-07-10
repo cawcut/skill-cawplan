@@ -24,6 +24,7 @@ import { codexStateDb, codexSessionsDir } from "../paths.js";
 import { SessionData, ModelUsageEntry, UsageBucket, RepoTouched, HumanInput } from "../types.js";
 import { calculateCost, COST_CURRENCY } from "../pricing.js";
 import { classifyHumanInput } from "../aggregators/human-category.js";
+import { appendAssistantMessage } from "../aggregators/human-assistant.js";
 import { formatLocalTime, getLocalTimezone, localDateString } from "../date-utils.js";
 import { countDiffLines } from "../aggregators/tool-utils.js";
 
@@ -384,8 +385,18 @@ function parseRollout(
       }
       else if (role === "assistant") {
         result.assistantCount++;
-        if (eventType === "response_item" && payloadType === "message" && currentHumanInputIndex != null && ts) {
-          result.humanInputs[currentHumanInputIndex]!.end_time = ts;
+        if (eventType === "response_item" && payloadType === "message" && currentHumanInputIndex != null) {
+          if (ts) {
+            result.humanInputs[currentHumanInputIndex]!.end_time = ts;
+          }
+          const assistantText = extractTextContent(event["content"] ?? payload?.["content"]);
+          if (assistantText) {
+            const humanInput = result.humanInputs[currentHumanInputIndex]!;
+            humanInput.assistant_message = appendAssistantMessage(
+              humanInput.assistant_message,
+              assistantText
+            );
+          }
         }
         // Count tool calls in content
         const content = event["content"] ?? payload?.["content"];

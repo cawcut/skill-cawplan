@@ -25,6 +25,7 @@ import {cursorProjectsDir, cursorStateDbCandidates} from "../paths.js";
 import {FileChange, HumanInput, RepoTouched} from "../types.js";
 import {gitRemoteRepo, gitFileNumstat} from "../git.js";
 import {classifyHumanInput} from "../aggregators/human-category.js";
+import {extractAssistantTextFromBlocks, joinAssistantMessages} from "../aggregators/human-assistant.js";
 import {parsePatchDeltas, extractPathFromInput, estimateToolDeltas} from "../aggregators/tool-utils.js";
 
 const USER_QUERY_RE = /<user_query>\s*([\s\S]*?)\s*<\/user_query>/i;
@@ -489,10 +490,10 @@ export function accumulateTranscriptStatsByContent(
     lines: string[],
     userBubbles: UserBubble[],
     assistantTimes: Date[]
-): Map<string, Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time">> {
+): Map<string, Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time" | "assistant_message">> {
     const statsByContent = new Map<
         string,
-        Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time">
+        Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time" | "assistant_message">
     >();
     const usedBubbleIndices = new Set<number>();
     let currentNorm: string | null = null;
@@ -502,6 +503,7 @@ export function accumulateTranscriptStatsByContent(
     let linesDeleted = 0;
     let firstTool: Date | null = null;
     let lastTool: Date | null = null;
+    let assistantTexts: string[] = [];
 
     const flush = (): void => {
         if (!currentNorm) return;
@@ -514,6 +516,7 @@ export function accumulateTranscriptStatsByContent(
             lines_added: linesAdded,
             lines_deleted: linesDeleted,
             end_time: start ? formatIsoTime(end ?? start) : undefined,
+            assistant_message: joinAssistantMessages(assistantTexts),
         });
         currentNorm = null;
         currentStart = null;
@@ -522,6 +525,7 @@ export function accumulateTranscriptStatsByContent(
         linesDeleted = 0;
         firstTool = null;
         lastTool = null;
+        assistantTexts = [];
     };
 
     for (const line of lines) {
@@ -562,6 +566,8 @@ export function accumulateTranscriptStatsByContent(
         if (role !== "assistant" || !Array.isArray(content) || !currentNorm) continue;
 
         const eventTs = parseEventTimestamp(obj, message);
+        const assistantText = extractAssistantTextFromBlocks(content);
+        if (assistantText) assistantTexts.push(assistantText);
         for (const block of content) {
             const b = block as Record<string, unknown>;
             if (b["type"] !== "tool_use") continue;
@@ -819,7 +825,7 @@ function buildResolvedAtByBubble(
 
 function buildHumanInputsFromDayBubbles(
     bubbleTimeline: SessionBubbleTimeline,
-    statsByContent: Map<string, Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time">>,
+    statsByContent: Map<string, Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time" | "assistant_message">>,
     resolvedAtByBubble: Map<UserBubble, Date>,
     approxBubbles: Set<UserBubble>
 ): HumanInput[] {
@@ -852,6 +858,7 @@ function buildHumanInputsFromDayBubbles(
         inputs.push({
             category: classifyHumanInput(extracted),
             content: extracted,
+            assistant_message: stats?.assistant_message,
             session_agent: "cursor-gui",
             session_time: formatIsoTime(start),
             start_time: formatIsoTime(start),
@@ -1133,6 +1140,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         linesAdded: number;
         linesDeleted: number;
         contentNorm?: string;
+        assistantTexts?: string[];
     };
     const contexts: PromptContext[] = [];
     let currentContext: PromptContext | null = null;
@@ -1262,6 +1270,13 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
             if (!assistantOnDate) continue;
             assistantCount++;
             touchActivity(eventTs);
+            if (currentContext) {
+                const assistantText = extractAssistantTextFromBlocks(content);
+                if (assistantText) {
+                    currentContext.assistantTexts = currentContext.assistantTexts ?? [];
+                    currentContext.assistantTexts.push(assistantText);
+                }
+            }
             for (const block of content) {
                 const b = block as Record<string, unknown>;
                 if (b["type"] !== "tool_use") continue;
@@ -1320,7 +1335,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
 
     const statsByContent = new Map<
         string,
-        Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time">
+        Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time" | "assistant_message">
     >();
 
     for (let i = 0; i < contexts.length; i++) {
@@ -1336,6 +1351,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
             lines_added: ctx.linesAdded,
             lines_deleted: ctx.linesDeleted,
             end_time: formatIsoTime(end),
+            assistant_message: joinAssistantMessages(ctx.assistantTexts),
         };
         if (useBubbleAuthority && ctx.contentNorm) {
             statsByContent.set(ctx.contentNorm, stats);
@@ -1351,6 +1367,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         h.start_time = formatIsoTime(start);
         h.end_time = formatIsoTime(end);
         h.session_time = h.start_time;
+        h.assistant_message = stats.assistant_message;
         touchActivity(start);
         touchActivity(end);
     }
