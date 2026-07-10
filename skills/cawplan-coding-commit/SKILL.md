@@ -349,9 +349,11 @@ For multiple reports, prefer:
 cawplan session assign --web --files <absolute-ai-daily-file-1> --files <absolute-ai-daily-file-2>
 ```
 
-Run one command from the agent shell with every report file being processed, so the local assignment page opens automatically in the browser and all reports are handled together. Keep exactly one `cawplan session assign --web` command running until the user finishes in the browser. The command exits when the user clicks **Save assignments**, clicks **Close**, presses Ctrl+C in the terminal, or the local assignment server reaches its 10-minute timeout.
+Run one command from the agent shell with every report file being processed, so the local assignment page opens automatically in the browser and all reports are handled together. Always start this command as a background/non-blocking shell task (e.g. Bash `run_in_background: true`), never as a plain foreground call — the command idles for up to 10 minutes waiting on browser input, and a foreground call left waiting can get suspended by the shell's job control before the user finishes, leaving a dead process still holding the port. Keep exactly one `cawplan session assign --web` command running until the user finishes in the browser. The command exits when the user clicks **Save assignments**, clicks **Close**, presses Ctrl+C in the terminal, or the local assignment server reaches its 10-minute timeout.
 
 Do not rerun `cawplan session assign --web` while a previous assignment command is still running for the same report(s), even if it has been waiting for a long time. Long waits mean the page is waiting for user action, not that the command failed. If you need to report progress, tell the user to finish the already-open assignment page by saving or closing it, then wait for the existing command to exit or time out before continuing.
+
+If the assignment page fails to load or a previous run seems stuck, check for a stopped process first (`ps aux | grep "session assign"`; a `STAT` of `T` means it was suspended and is no longer serving) before assuming the command failed. Only kill and restart when the process is actually stopped, not merely still waiting.
 
 The page shows `session / human inputs / product / repo / tickets`, requires product, supports product-only assignment, can edit ticket display IDs, and can link a new GitHub repository URL in the format `https://github.com/owner/repo`.
 

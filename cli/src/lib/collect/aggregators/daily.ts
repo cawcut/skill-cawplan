@@ -100,11 +100,6 @@ function agentDisplay(session: SessionData): string {
     return session.agent;
 }
 
-function apiAgent(session: SessionData): string {
-    if (session.agent === "cursor-cli" || session.agent === "cursor-gui") return "cursor";
-    return session.agent;
-}
-
 function sessionSource(session: SessionData): string {
     if (session.agent === "cursor-cli") return "cli";
     if (session.agent === "cursor-gui") return "gui";
@@ -147,7 +142,12 @@ function tokenSource(session: SessionData): string {
     for (const entry of Object.values(session.model_usage)) {
         if (entry.token_source) return entry.token_source;
     }
-    if (apiAgent(session) === "cursor") return "char-based estimate (API unavailable)";
+    const display = agentDisplay(session);
+    // cursor-cli genuinely falls back to a character-count token estimate.
+    if (display === "cursor-cli") return "char-based estimate (API unavailable)";
+    // cursor-gui never estimates locally — it only gets cost from the Cursor Dashboard
+    // API attribution pass, so a miss here means no cost data was obtained at all.
+    if (display === "cursor-gui") return "unavailable (no matching Cursor dashboard billing event)";
     return "";
 }
 

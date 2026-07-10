@@ -78,7 +78,8 @@ export function normalizeModelUsageCurrency(entry: ModelUsageEntry): ModelUsageE
  */
 export function aggregateUsageBuckets(
   events: Record<string, unknown>[],
-  agent?: string
+  agent?: string,
+  tokenSource?: string
 ): Record<string, UsageBucket> {
   const buckets: Record<string, UsageBucket> = {};
   const seen = new Set<string>();
@@ -118,6 +119,7 @@ export function aggregateUsageBuckets(
     if (!buckets[key]) {
       buckets[key] = emptyBucket(model, speed, service_tier, effort, COST_CURRENCY);
       if (agent) buckets[key].agents = [agent];
+      if (tokenSource) buckets[key].token_source = tokenSource;
     }
 
     const bucket = buckets[key];

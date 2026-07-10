@@ -369,7 +369,7 @@ export function collectClaudeCodeSession(
 
   // Aggregate usage buckets from assistant events
   let buckets = timed(opts, `Aggregate Claude token usage ${sessionId}`, () =>
-    aggregateUsageBuckets(events, "claude-code")
+    aggregateUsageBuckets(events, "claude-code", "claude_code_pricing_table_estimate")
   );
 
   // Message stats
@@ -483,7 +483,7 @@ export function collectClaudeCodeSession(
     );
     if (!subEvents.length) continue;
     buckets = mergeUsageBuckets(buckets, timed(opts, `Aggregate Claude subagent usage ${subFile}`, () =>
-      aggregateUsageBuckets(subEvents, "claude-code")
+      aggregateUsageBuckets(subEvents, "claude-code", "claude_code_pricing_table_estimate")
     ));
     for (const ev of subEvents) {
       if (ev["type"] !== "assistant") continue;
