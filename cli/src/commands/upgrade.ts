@@ -34,6 +34,24 @@ function latestCawplanVersion(): Promise<string> {
     return commandOutput(npmCommand(), ["view", "cawplan", "version"]);
 }
 
+function parseVersion(version: string): number[] {
+    return version
+        .trim()
+        .replace(/^v/, "")
+        .split(".")
+        .map((part) => Number.parseInt(part, 10) || 0);
+}
+
+function isNewerVersion(candidate: string, base: string): boolean {
+    const c = parseVersion(candidate);
+    const b = parseVersion(base);
+    for (let i = 0; i < 3; i++) {
+        if ((c[i] ?? 0) > (b[i] ?? 0)) return true;
+        if ((c[i] ?? 0) < (b[i] ?? 0)) return false;
+    }
+    return false;
+}
+
 function runUpgrade(): Promise<void> {
     return new Promise((resolve, reject) => {
         const child = spawn(npmCommand(), ["install", "-g", "cawplan@latest"], {
@@ -59,8 +77,8 @@ export function registerUpgradeCommand(program: Command): void {
             try {
                 const currentVersion = await currentCawplanVersion();
                 const latestVersion = await latestCawplanVersion();
-                if (currentVersion === latestVersion) {
-                    console.error(`cawplan ${currentVersion} is already the latest version.`);
+                if (!isNewerVersion(latestVersion, currentVersion)) {
+                    console.error(`cawplan ${currentVersion} is already up to date (latest published: ${latestVersion}).`);
                     return;
                 }
 
