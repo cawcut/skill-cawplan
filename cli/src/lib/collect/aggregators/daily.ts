@@ -233,6 +233,14 @@ function enrichSessionHumanInputs(session: SessionData, targetDate: string) {
         });
 }
 
+function isCodingCommitOnlySession(session: SessionData): boolean {
+    const humanInputs = session.human_inputs ?? [];
+    if (humanInputs.length === 0) return false;
+    return humanInputs.every((input) =>
+        String(input.content ?? "").toLowerCase().includes("cawplan-coding-commit")
+    );
+}
+
 /**
  * Build the ai-daily JSON from collected sessions and optional Cursor API usage.
  *
@@ -253,7 +261,7 @@ export function buildDailyApiJson(
     sessions = sessions.filter((session) => {
         const hasHumanInput = (session.human_inputs ?? []).length > 0;
         const hasTokens = (session.total_tokens ?? totalTokens(session.usage_breakdown)) > 0;
-        return hasHumanInput || hasTokens;
+        return (hasHumanInput || hasTokens) && !isCodingCommitOnlySession(session);
     });
 
     // 1. Merge all session usage_breakdown buckets

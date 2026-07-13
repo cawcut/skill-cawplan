@@ -504,6 +504,53 @@ describe("src lib collect cost currency", () => {
     expect("ticket_contexts" in daily.human_inputs[0]!).toBe(false);
   });
 
+  test("filters sessions whose human inputs only run cawplan coding commit", () => {
+    const commitOnlySession: SessionData = {
+      schema: "2.0",
+      date: "2026-06-17",
+      agent: "cursor-gui",
+      session_id: "daily-upload-only",
+      session_name: "Daily upload",
+      project: "flow-cawplan-skill",
+      cwd: "/repo/flow-cawplan-skill",
+      time_range: { display: "10:00 - 10:05", timezone: "UTC" },
+      model_usage: {},
+      usage_breakdown: [],
+      files_changed: 0,
+      repos_touched: [],
+      message_stats: { user: 2, assistant: 1, tool_calls: 0 },
+      human_inputs: [
+        { category: "direction", content: "/cawplan-coding-commit", session_id: "daily-upload-only" },
+        { category: "direction", content: "run cawplan-coding-commit 2026-06-17", session_id: "daily-upload-only" },
+      ],
+    };
+    const realWorkSession: SessionData = {
+      schema: "2.0",
+      date: "2026-06-17",
+      agent: "cursor-gui",
+      session_id: "real-work",
+      session_name: "Real work",
+      project: "flow-cawplan-skill",
+      cwd: "/repo/flow-cawplan-skill",
+      time_range: { display: "11:00 - 11:30", timezone: "UTC" },
+      model_usage: {},
+      usage_breakdown: [],
+      files_changed: 1,
+      repos_touched: [],
+      message_stats: { user: 2, assistant: 2, tool_calls: 0 },
+      human_inputs: [
+        { category: "direction", content: "fix assignment ticket links", session_id: "real-work" },
+        { category: "direction", content: "/cawplan-coding-commit", session_id: "real-work" },
+      ],
+    };
+
+    const daily = buildDailyApiJson([commitOnlySession, realWorkSession], "2026-06-17", "xin.li");
+
+    expect(daily.sessions.map((session) => session.session_id)).toEqual(["real-work"]);
+    expect(daily.human_inputs.map((input) => input.session_id)).toEqual(["real-work", "real-work"]);
+    expect(daily.totals.sessions).toBe(1);
+  });
+
   test("calculateCost does not double-count cache tokens", () => {
     // 1M input tokens with 100K cache reads and 50K cache writes.
     // Non-cache input = 1M - 100K - 50K = 850K
