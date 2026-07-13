@@ -459,6 +459,7 @@ describe("src lib collect cost currency", () => {
       files_changed: 0,
       repos_touched: [],
       message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+      human_inputs: [{ category: "direction", content: "Verify dollar cost passthrough", session_id: "session-usd-cost" }],
     };
 
     const daily = buildDailyApiJson([session], "2026-06-17", "xin.li");
@@ -505,6 +506,43 @@ describe("src lib collect cost currency", () => {
   });
 
   test("filters sessions whose human inputs only run cawplan coding commit", () => {
+    const noHumanInputSession: SessionData = {
+      schema: "2.0",
+      date: "2026-06-17",
+      agent: "cursor-cli",
+      session_id: "empty-cwd",
+      session_name: "Empty CWD",
+      project: "empty-cwd",
+      cwd: "",
+      time_range: { display: "10:30", timezone: "UTC" },
+      model_usage: {
+        "composer-2.5": {
+          api_calls: 0,
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cost: 0.01,
+          currency: "$",
+        },
+      },
+      usage_breakdown: [{
+        model: "composer-2.5",
+        speed: "standard",
+        service_tier: "standard",
+        effort: "default",
+        api_calls: 0,
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cost: 0.01,
+        currency: "$",
+      }],
+      files_changed: 0,
+      repos_touched: [],
+      message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+    };
     const commitOnlySession: SessionData = {
       schema: "2.0",
       date: "2026-06-17",
@@ -544,11 +582,12 @@ describe("src lib collect cost currency", () => {
       ],
     };
 
-    const daily = buildDailyApiJson([commitOnlySession, realWorkSession], "2026-06-17", "xin.li");
+    const daily = buildDailyApiJson([noHumanInputSession, commitOnlySession, realWorkSession], "2026-06-17", "xin.li");
 
     expect(daily.sessions.map((session) => session.session_id)).toEqual(["real-work"]);
     expect(daily.human_inputs.map((input) => input.session_id)).toEqual(["real-work", "real-work"]);
     expect(daily.totals.sessions).toBe(1);
+    expect(daily.totals.cost).toEqual({});
   });
 
   test("calculateCost does not double-count cache tokens", () => {
@@ -887,11 +926,10 @@ describe("src lib collect codex", () => {
     });
 
     const daily = buildDailyApiJson([session!], "2026-06-17", "xin.li");
-    expect(daily.sessions[0]?.total_tokens).toBe(1234);
-    expect(daily.sessions[0]?.cost_basis).toBe("unknown");
-    expect(daily.totals.cost).toEqual({ "$": 0 });
-    expect(daily.usage_breakdown[0]?.output_tokens).toBe(0);
-    expect(daily.usage_breakdown[0]?.cost).toBe(0);
+    expect(daily.sessions).toHaveLength(0);
+    expect(daily.human_inputs).toHaveLength(0);
+    expect(daily.totals.cost).toEqual({});
+    expect(daily.usage_breakdown).toHaveLength(0);
   });
 
   test("skips Codex threads with no user activity or rollout activity", async () => {
@@ -1113,8 +1151,8 @@ describe("src lib collect codex", () => {
     });
 
     const daily = buildDailyApiJson([session!], "2026-06-17", "xin.li");
-    expect(daily.totals.cost).toEqual({ "$": 0 });
-    expect(daily.sessions[0]?.cost_basis).toBe("unknown");
+    expect(daily.sessions).toHaveLength(0);
+    expect(daily.totals.cost).toEqual({});
   });
 
   test("collects today's Codex rollout files even when they are not indexed by state db", async () => {

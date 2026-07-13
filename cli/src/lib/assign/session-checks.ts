@@ -25,8 +25,7 @@ export function warnMissingProductAssignment(file: string, daily: DailyApiJson):
         `Product assignment is incomplete for ${missing.length} session(s) in ${file}: ${missing.join(", ")}`
     );
     console.error("Please complete product assignment before uploading.");
-    console.error(`Batch multiple reports: cawplan session assign --web --files ${file}`);
+    console.error(`Batch multiple reports: cawplan session assign --files ${file} --web`);
     console.error(`Single-file web fallback: cawplan session assign --file ${file} --web`);
-    console.error(`TTY alternative: cawplan session assign --file ${file} --tty`);
     return true;
 }

@@ -113,7 +113,6 @@ export async function assignProjectsFromCloudMappings(daily: DailyApiJson, outpu
         );
         const fileHint = outputPath ?? `ai-daily-${daily.date}.json`;
         console.error(`To complete assignment, run: cawplan session assign --file ${fileHint} --web`);
-        console.error(`TTY alternative: cawplan session assign --file ${fileHint} --tty`);
     }
 
     return matched;
