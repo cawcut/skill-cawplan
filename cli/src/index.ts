@@ -20,6 +20,7 @@ import {registerCommunityCommand} from "./commands/community.js";
 import {registerSessionCommand} from "./commands/session.js";
 import {registerInitCommand} from "./commands/init.js";
 import {registerUpgradeCommand} from "./commands/upgrade.js";
+import {registerSkillCommand} from "./commands/skill.js";
 
 const require = createRequire(import.meta.url);
 const {version} = require("../package.json") as { version: string };
@@ -50,6 +51,7 @@ registerCommunityCommand(program);
 registerSessionCommand(program);
 registerInitCommand(program);
 registerUpgradeCommand(program);
+registerSkillCommand(program);
 
 // Raw API passthrough
 program
