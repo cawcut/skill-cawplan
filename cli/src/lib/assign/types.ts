@@ -23,6 +23,7 @@ export interface WebAssignment {
     file?: string;
     session_id?: string;
     product_id?: string;
+    product_line_id?: string;
     product_name?: string;
     repo_name?: string;
     repo_url?: string;

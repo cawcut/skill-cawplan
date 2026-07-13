@@ -49,7 +49,7 @@ cawplan tickets search --display_ids CAWP-13477,CAW-04560
 
 If the user provided CawPlan issue URLs, extract their display IDs before searching. If the user provided only unique IDs and no display IDs, search them with `cawplan tickets search --unique_ids ...` and show the returned ticket information. If the input has both display-ID-shaped refs and non-display refs, search display IDs with `--display_ids` and unique IDs with `--unique_ids`.
 
-After showing the ticket details, keep the ticket refs visible in the conversation. Do not write local ticket-context files. During `/cawplan-coding-commit`, `cawplan session collect` parses the session's `human_inputs` for `ticket_id`, `ticket_display_id`, CawPlan issue URLs, or display IDs and attaches resolved ticket IDs to the daily report session item's `ticket_ids` field. Cross-product ticket refs are preserved for review in the Web assignment page; the page warns and blocks saving until invalid ticket/product combinations are fixed.
+After showing the ticket details, keep the ticket refs visible in the conversation. Do not write local ticket-context files. During `/cawplan-coding-commit`, `cawplan session collect` parses the session's `human_inputs` for `ticket_id`, `ticket_display_id`, CawPlan issue URLs, or display IDs and attaches resolved ticket IDs to the daily report session item's `ticket_ids` field. Cross-product ticket refs are preserved for review in the Web assignment page; tickets are allowed when they belong to the selected product or another product in the same product line, and the page warns and blocks saving only for refs outside that product line.
 
 ## Response
 

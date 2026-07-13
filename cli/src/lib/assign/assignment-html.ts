@@ -319,6 +319,7 @@ export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
       return items.map((p) => ({
         product_id: p.product_id || p.unique_id,
         product_name: p.product_name || p.name || p.product_id || p.unique_id,
+        product_line_id: p.product_line_id || (p.product_line && (p.product_line.unique_id || p.product_line.id)),
       })).filter((p) => p.product_id && p.product_name);
     }
 
@@ -723,7 +724,7 @@ export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
         if (!row) continue;
         const warningEl = row.querySelector('.ticket-warning');
         if (!warningEl) continue;
-        warningEl.textContent = 'Warning: ' + (warning.ticket_display_ids || []).join(', ') + ' not in selected product';
+        warningEl.textContent = 'Warning: ' + (warning.ticket_display_ids || []).join(', ') + ' not in selected product line';
         warningEl.classList.remove('hidden');
       }
     }
@@ -1095,6 +1096,7 @@ export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
           file: tr.dataset.file,
           session_id: sessionId,
           product_id: product.product_id,
+          product_line_id: product.product_line_id,
           product_name: product.product_name,
           repo_name: mapping ? mapping.repo_name : linkedRepoName,
           repo_url: repoUrl || (mapping ? mapping.repo_url : undefined),

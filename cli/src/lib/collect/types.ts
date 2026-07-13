@@ -48,6 +48,7 @@ export interface AiSessionTicketContext {
     ticket_id: string;
     ticket_display_id?: string;
     product_id?: string;
+    product_line_id?: string;
     version_id?: string;
     title?: string;
     content?: string;

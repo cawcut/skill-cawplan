@@ -7,6 +7,7 @@ interface TicketSearchItem {
     unique_id?: string;
     display_id?: string;
     product_id?: string;
+    product_line_id?: string;
     version_id?: string;
     title?: string;
     name?: string;
@@ -38,6 +39,7 @@ function ticketContextFromSearchItem(item: TicketSearchItem, fallbackRef: string
         ticket_id: ticketId,
         ticket_display_id: displayId,
         product_id: item.product_id,
+        product_line_id: item.product_line_id,
         version_id: item.version_id,
         title: item.title ?? item.name,
         content,

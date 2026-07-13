@@ -218,7 +218,7 @@ Present the full review described in **Review content contract**. Do not show on
 
 **Step 5 — Ticket context check:**
 
-Do not ask the user to manually provide ticket IDs during reporting. `cawplan session collect` automatically parses explicit ticket refs from session `human_inputs`, including `ticket_id`, `ticket_display_id`, CawPlan issue URLs, and display IDs. Resolved tickets are only attached when their `product_id` matches the session's `product_id`.
+Do not ask the user to manually provide ticket IDs during reporting. `cawplan session collect` automatically parses explicit ticket refs from session `human_inputs`, including `ticket_id`, `ticket_display_id`, CawPlan issue URLs, and display IDs. Resolved tickets are preserved for review in the Web assignment page; assignment allows tickets from the selected product or another product in the same product line.
 
 When reviewing `$report_file`, mention any `sessions[].ticket_ids` and `sessions[].ticket_display_ids` already present. Ticket context should come from explicit human-input refs or assignment-page edits; do not keyword-search or guess tickets.
 

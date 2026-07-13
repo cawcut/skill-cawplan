@@ -16,7 +16,7 @@ import {assignProjectsFromCloudMappings} from "./auto-assign.js";
 import {applyProductRepoMappingToProject} from "./apply.js";
 import {assignmentReportPayload, readDailyReports, writeDailyReport} from "./report-io.js";
 import {assertAllSessionsHaveProduct, findSessionById} from "./session-checks.js";
-import {resolveTicketContexts, ticketContextIsResolved, ticketContextMatchesSessionProduct} from "../ai-session/ticket-context.js";
+import {resolveTicketContexts, ticketContextIsResolved} from "../ai-session/ticket-context.js";
 import type {AssignmentReport, ProductRepoMapping, WebAssignment} from "./types.js";
 import type {DailyApiJson} from "../collect/types.js";
 
@@ -33,8 +33,32 @@ interface TicketAssignmentWarning {
 
 class TicketAssignmentValidationError extends Error {
     constructor(readonly ticketWarnings: TicketAssignmentWarning[]) {
-        super("Fix ticket(s) that are not in the selected product before saving.");
+        super("Fix ticket(s) that are not in the selected product line before saving.");
     }
+}
+
+function productLineByProductId(products: Array<{product_id?: string; product_line_id?: string}>): Map<string, string> {
+    return new Map(products
+        .filter((product) => product.product_id && product.product_line_id)
+        .map((product) => [product.product_id!, product.product_line_id!]));
+}
+
+function ticketMatchesSelectedProductLine(
+    context: {product_id?: string; product_line_id?: string},
+    assignment: Pick<WebAssignment, "product_id" | "product_line_id">,
+    productLineByProduct: Map<string, string>
+): boolean {
+    const selectedProductId = assignment.product_id?.trim();
+    if (!selectedProductId) return true;
+    if (context.product_id?.trim() === selectedProductId) return true;
+
+    const selectedProductLineId = assignment.product_line_id?.trim()
+        || productLineByProduct.get(selectedProductId);
+    if (!selectedProductLineId) return false;
+
+    const ticketProductLineId = context.product_line_id?.trim()
+        || (context.product_id ? productLineByProduct.get(context.product_id) : undefined);
+    return ticketProductLineId === selectedProductLineId;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -112,6 +136,7 @@ function normalizeTicketDisplayIds(value: unknown): string[] | undefined {
 async function ticketWarningsForAssignment(
     session: Pick<DailyApiJson["sessions"][number], "session_id">,
     assignment: WebAssignment,
+    productLineByProduct: Map<string, string>,
     file?: string
 ): Promise<TicketAssignmentWarning[]> {
     const displayIds = normalizeTicketDisplayIds(assignment.ticket_display_ids);
@@ -134,31 +159,32 @@ async function ticketWarningsForAssignment(
         throw new Error(`unable to resolve ticket display ID(s): ${unresolved.join(", ")}`);
     }
 
-    const selectedProduct = {product_id: productId};
     const skipped = displayIds.filter((displayId) => {
         const context = contextByDisplayId.get(displayId);
-        return context && !ticketContextMatchesSessionProduct(selectedProduct, context);
+        return context && !ticketMatchesSelectedProductLine(context, assignment, productLineByProduct);
     });
     if (skipped.length === 0) return [];
     return [{
         file,
         session_id: session.session_id,
         ticket_display_ids: skipped,
-        reason: "not_in_selected_product",
+        reason: "not_in_selected_product_line",
     }];
 }
 
 async function validateTicketAssignments(daily: DailyApiJson, assignments: WebAssignment[], file?: string): Promise<void> {
     const ticketWarnings: TicketAssignmentWarning[] = [];
+    const products = await listProductsForSelector();
+    const productLineByProduct = productLineByProductId(products);
     for (const assignment of assignments) {
         if (!assignment.session_id) throw new Error("session_id is required for every assignment");
         if (!assignment.product_id) throw new Error(`product_id is required for session ${assignment.session_id}`);
         const session = findSessionById(daily, assignment.session_id);
-        ticketWarnings.push(...await ticketWarningsForAssignment(session, assignment, file));
+        ticketWarnings.push(...await ticketWarningsForAssignment(session, assignment, productLineByProduct, file));
     }
     if (ticketWarnings.length > 0) {
         for (const warning of ticketWarnings) {
-            console.error(`Warning: ticket(s) not in selected product for session ${warning.session_id}: ${warning.ticket_display_ids.join(", ")}`);
+            console.error(`Warning: ticket(s) not in selected product line for session ${warning.session_id}: ${warning.ticket_display_ids.join(", ")}`);
         }
         throw new TicketAssignmentValidationError(ticketWarnings);
     }
@@ -185,10 +211,11 @@ async function applyTicketDisplayIds(session: DailyApiJson["sessions"][number], 
         throw new Error(`unable to resolve ticket display ID(s): ${unresolved.join(", ")}`);
     }
 
+    const productLineByProduct = productLineByProductId(await listProductsForSelector());
     const matchedContexts = displayIds
         .map((displayId) => contextByDisplayId.get(displayId))
         .filter((context): context is NonNullable<typeof context> => Boolean(context))
-        .filter((context) => ticketContextMatchesSessionProduct(session, context));
+        .filter((context) => ticketMatchesSelectedProductLine(context, assignment, productLineByProduct));
     session.ticket_display_ids = matchedContexts.map((context) => context.ticket_display_id!).filter(Boolean);
     session.ticket_ids = matchedContexts.map((context) => context.ticket_id).filter(Boolean);
     if (session.ticket_display_ids.length === 0) delete session.ticket_display_ids;

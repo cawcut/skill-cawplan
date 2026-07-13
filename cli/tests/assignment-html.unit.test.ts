@@ -255,7 +255,9 @@ describe("assignmentHtml - submit effect", () => {
         expect(html).toContain("e.response.ticket_warnings");
         expect(html).toContain("function applyTicketWarnings(ticketWarnings)");
         expect(html).toContain("row.querySelector('.ticket-warning')");
+        expect(html).toContain("product_line_id: product.product_line_id");
+        expect(html).toContain("p.product_line_id || (p.product_line && (p.product_line.unique_id || p.product_line.id))");
         expect(html).toContain("then save again");
-        expect(html).toContain("Warning: skipped ticket(s) not in selected product");
+        expect(html).toContain("not in selected product line");
     });
 });
