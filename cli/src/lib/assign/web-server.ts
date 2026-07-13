@@ -134,40 +134,6 @@ async function applyTicketDisplayIds(session: DailyApiJson["sessions"][number], 
     if (session.ticket_ids.length === 0) delete session.ticket_ids;
 }
 
-async function pruneInvalidTicketDisplayIds(reports: AssignmentReport[]): Promise<number> {
-    const displayIds = [...new Set(reports
-        .flatMap((report) => report.daily.sessions)
-        .flatMap((session) => normalizeTicketDisplayIds(session.ticket_display_ids) ?? []))];
-    if (displayIds.length === 0) return 0;
-
-    const contexts = await resolveTicketContexts(displayIds);
-    const contextByDisplayId = new Map(contexts
-        .filter((context) => context.ticket_display_id && context.ticket_id && ticketContextIsResolved(context))
-        .map((context) => [String(context.ticket_display_id).toUpperCase(), context]));
-
-    let removed = 0;
-    for (const report of reports) {
-        for (const session of report.daily.sessions) {
-            const currentDisplayIds = normalizeTicketDisplayIds(session.ticket_display_ids) ?? [];
-            if (currentDisplayIds.length === 0) continue;
-            const matchedContexts = currentDisplayIds
-                .map((displayId) => contextByDisplayId.get(displayId))
-                .filter((context): context is NonNullable<typeof context> => Boolean(context))
-                .filter((context) => ticketContextMatchesSessionProduct(session, context));
-            const nextDisplayIds = matchedContexts.map((context) => context.ticket_display_id!).filter(Boolean);
-            removed += Math.max(currentDisplayIds.length - nextDisplayIds.length, 0);
-            if (nextDisplayIds.length > 0) {
-                session.ticket_display_ids = nextDisplayIds;
-                session.ticket_ids = matchedContexts.map((context) => context.ticket_id).filter(Boolean);
-            } else {
-                delete session.ticket_display_ids;
-                delete session.ticket_ids;
-            }
-        }
-    }
-    return removed;
-}
-
 async function applyWebAssignments(daily: DailyApiJson, assignments: WebAssignment[]): Promise<number> {
     let assigned = 0;
     for (const assignment of assignments) {
@@ -233,15 +199,6 @@ export async function assignReportsFromTty(
 }
 
 export async function startAssignmentWebServer(reports: AssignmentReport[], batchMode = false): Promise<void> {
-    let removedTickets = 0;
-    try {
-        removedTickets = await pruneInvalidTicketDisplayIds(reports);
-    } catch (e) {
-        console.error(`Warning: skipped ticket validation before opening assignment UI: ${(e as Error).message}`);
-    }
-    if (removedTickets > 0) {
-        console.error(`Warning: removed ${removedTickets} unresolved or product-mismatched ticket(s) before opening assignment UI.`);
-    }
     const token = randomBytes(16).toString("hex");
     let closed = false;
 

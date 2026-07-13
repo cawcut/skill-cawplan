@@ -95,7 +95,6 @@ function attachContextsToSession(session: SessionData, contexts: AiSessionTicket
     let next = {...session};
     for (const context of contexts) {
         if (!ticketContextIsResolved(context)) continue;
-        if (!ticketContextMatchesSessionProduct(session, context)) continue;
         next = {
             ...next,
             ticket_ids: appendUnique(next.ticket_ids, context.ticket_id),
@@ -200,8 +199,7 @@ export async function applyHumanInputTicketRefsToSessions(
         const sessionContexts = refs
             .map((ref) => contextByRef.get(ref))
             .filter((context): context is AiSessionTicketContext => Boolean(context))
-            .filter(ticketContextIsResolved)
-            .filter((context) => ticketContextMatchesSessionProduct(sessions[i]!, context));
+            .filter(ticketContextIsResolved);
         if (sessionContexts.length === 0) continue;
         const before = sessions[i]!.ticket_ids?.length ?? 0;
         sessions[i] = attachContextsToSession(sessions[i]!, sessionContexts);

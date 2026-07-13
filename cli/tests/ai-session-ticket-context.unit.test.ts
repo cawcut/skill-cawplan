@@ -171,7 +171,7 @@ describe("ai-session ticket context", () => {
         expect("ticket_ids" in sessions[0]!.human_inputs![0]!).toBe(false);
     });
 
-    test("skips human input ticket refs from a different product", async () => {
+    test("keeps human input ticket refs from a different product for web review", async () => {
         const sessions = dailyReport().sessions;
         sessions[0]!.product_id = "product-a";
         sessions[0]!.human_inputs = [{
@@ -186,9 +186,9 @@ describe("ai-session ticket context", () => {
             product_id: "product-b",
         }]);
 
-        expect(applied).toBe(0);
-        expect(sessions[0]?.ticket_ids).toBeUndefined();
-        expect(sessions[0]?.ticket_display_ids).toBeUndefined();
+        expect(applied).toBe(1);
+        expect(sessions[0]?.ticket_ids).toEqual(["ticket-14471"]);
+        expect(sessions[0]?.ticket_display_ids).toEqual(["CWP-14471"]);
     });
 
     test("skips human input ticket refs that were not found in cloud", async () => {
