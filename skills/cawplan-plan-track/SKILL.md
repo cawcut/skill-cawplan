@@ -1,5 +1,5 @@
 ---
-version: 0.2.4
+version: 0.2.5
 name: cawplan-plan-track
 description: |
   Track CawPlan release progress for a version: ticket completion, risk level, open items, and target release dates.

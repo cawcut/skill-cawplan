@@ -1,5 +1,5 @@
 ---
-version: 0.2.4
+version: 0.2.5
 name: cawplan-coding-insights
 description: |
   Show AI coding usage insights: cost, tokens, session activity, and breakdowns by member, model, agent, project, product, or prompt quality.
