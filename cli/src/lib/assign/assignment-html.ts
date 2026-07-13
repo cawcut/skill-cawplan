@@ -131,6 +131,7 @@ export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
     .ticket-open-link { margin-left: auto; color: var(--uBlue-07); font-weight: 600; font-size: 11px; }
     .ticket-empty { color: var(--text-03); font-size: 12px; padding: 4px 6px; }
     input.ticket-add { height: 28px; font-size: 12px; }
+    .ticket-warning { margin-top: 6px; font-size: 11px; line-height: 16px; color: #B45309; }
     .model-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; vertical-align: middle; }
     .model-icon img { width: 24px; height: 24px; display: block; border-radius: 6px; }
     .tsearch { padding: 10px 16px; border-bottom: 1px solid var(--border-sub); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -168,6 +169,7 @@ export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
     .actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding-bottom: 4px; }
     .status { font-size: 13px; color: var(--text-03); }
     .status-error { color: var(--red-06) !important; }
+    .status-warning { color: #B45309 !important; }
     @media (max-width: 900px) { .pbody, .phdr { padding-left: 16px; padding-right: 16px; } .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
   </style>
 </head>
@@ -268,7 +270,11 @@ export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
       headers: {'content-type': 'application/json', ...(options.headers || {})},
     }).then(async (res) => {
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || res.statusText);
+      if (!res.ok) {
+        const err = new Error(data.error || res.statusText);
+        err.response = data;
+        throw err;
+      }
       return data;
     });
 
@@ -635,6 +641,7 @@ export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
           '<div class="ticket-options">' + ticketOptionRows(session) + '</div>' +
           '<input class="ticket-add" placeholder="Add ticket ID" />' +
         '</div>' +
+        '<div class="ticket-warning hidden"></div>' +
       '</div>';
     }
 
@@ -697,6 +704,27 @@ export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
       if (addTicketOption(picker, input.value)) {
         input.value = '';
         syncRowTickets(row);
+      }
+    }
+
+    function clearTicketWarnings() {
+      document.querySelectorAll('.ticket-warning').forEach((el) => {
+        el.textContent = '';
+        el.classList.add('hidden');
+      });
+    }
+
+    function applyTicketWarnings(ticketWarnings) {
+      clearTicketWarnings();
+      for (const warning of ticketWarnings) {
+        const row = Array.from(document.querySelectorAll('tbody tr')).find((tr) =>
+          tr.dataset.sessionId === warning.session_id && (!warning.file || tr.dataset.file === warning.file)
+        );
+        if (!row) continue;
+        const warningEl = row.querySelector('.ticket-warning');
+        if (!warningEl) continue;
+        warningEl.textContent = 'Warning: ' + (warning.ticket_display_ids || []).join(', ') + ' not in selected product';
+        warningEl.classList.remove('hidden');
       }
     }
 
@@ -1079,6 +1107,7 @@ export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
       saveBtn.classList.remove('btn-saved');
       statusEl.textContent = 'Saving...';
       statusEl.className = 'status';
+      clearTicketWarnings();
       try {
         const result = await api('/api/assignments', {method: 'POST', body: JSON.stringify({assignments})});
         const fileList = (result.files || [result.file]).join(', ');
@@ -1095,8 +1124,15 @@ export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
         saveBtn.textContent = 'Save assignments';
         saveBtn.classList.remove('btn-saved');
         saveBtn.disabled = false;
-        statusEl.textContent = e.message;
-        statusEl.className = 'status status-error';
+        const ticketWarnings = e.response && Array.isArray(e.response.ticket_warnings) ? e.response.ticket_warnings : [];
+        if (ticketWarnings.length > 0) {
+          applyTicketWarnings(ticketWarnings);
+          statusEl.textContent = e.message + ' Review the warning(s) in the Tickets column, remove or change the invalid ticket(s), then save again.';
+          statusEl.className = 'status status-warning';
+        } else {
+          statusEl.textContent = e.message;
+          statusEl.className = 'status status-error';
+        }
       }
     }
 

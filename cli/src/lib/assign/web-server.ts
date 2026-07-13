@@ -24,6 +24,19 @@ const localAssignmentHost = "127.0.0.1";
 const ASSIGNMENT_SERVER_TIMEOUT_MS = 10 * 60 * 1000;
 const assetNames = new Set(["model-gpt.png", "model-claude.png", "model-cursor.png"]);
 
+interface TicketAssignmentWarning {
+    file?: string;
+    session_id: string;
+    ticket_display_ids: string[];
+    reason: string;
+}
+
+class TicketAssignmentValidationError extends Error {
+    constructor(readonly ticketWarnings: TicketAssignmentWarning[]) {
+        super("Fix ticket(s) that are not in the selected product before saving.");
+    }
+}
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
     const payload = JSON.stringify(body);
     res.writeHead(status, {
@@ -96,6 +109,61 @@ function normalizeTicketDisplayIds(value: unknown): string[] | undefined {
         .filter(Boolean))];
 }
 
+async function ticketWarningsForAssignment(
+    session: Pick<DailyApiJson["sessions"][number], "session_id">,
+    assignment: WebAssignment,
+    file?: string
+): Promise<TicketAssignmentWarning[]> {
+    const displayIds = normalizeTicketDisplayIds(assignment.ticket_display_ids);
+    if (!displayIds) return [];
+    if (displayIds.length === 0) {
+        return [];
+    }
+
+    const productId = assignment.product_id?.trim();
+    if (!productId) return [];
+    const contexts = await resolveTicketContexts(displayIds);
+    const contextByDisplayId = new Map(contexts
+        .filter((context) => context.ticket_display_id && context.ticket_id && ticketContextIsResolved(context))
+        .map((context) => [String(context.ticket_display_id).toUpperCase(), context]));
+    const unresolved = displayIds.filter((displayId) => {
+        const context = contextByDisplayId.get(displayId);
+        return !context || context.ticket_id === displayId;
+    });
+    if (unresolved.length > 0) {
+        throw new Error(`unable to resolve ticket display ID(s): ${unresolved.join(", ")}`);
+    }
+
+    const selectedProduct = {product_id: productId};
+    const skipped = displayIds.filter((displayId) => {
+        const context = contextByDisplayId.get(displayId);
+        return context && !ticketContextMatchesSessionProduct(selectedProduct, context);
+    });
+    if (skipped.length === 0) return [];
+    return [{
+        file,
+        session_id: session.session_id,
+        ticket_display_ids: skipped,
+        reason: "not_in_selected_product",
+    }];
+}
+
+async function validateTicketAssignments(daily: DailyApiJson, assignments: WebAssignment[], file?: string): Promise<void> {
+    const ticketWarnings: TicketAssignmentWarning[] = [];
+    for (const assignment of assignments) {
+        if (!assignment.session_id) throw new Error("session_id is required for every assignment");
+        if (!assignment.product_id) throw new Error(`product_id is required for session ${assignment.session_id}`);
+        const session = findSessionById(daily, assignment.session_id);
+        ticketWarnings.push(...await ticketWarningsForAssignment(session, assignment, file));
+    }
+    if (ticketWarnings.length > 0) {
+        for (const warning of ticketWarnings) {
+            console.error(`Warning: ticket(s) not in selected product for session ${warning.session_id}: ${warning.ticket_display_ids.join(", ")}`);
+        }
+        throw new TicketAssignmentValidationError(ticketWarnings);
+    }
+}
+
 async function applyTicketDisplayIds(session: DailyApiJson["sessions"][number], assignment: WebAssignment): Promise<void> {
     const displayIds = normalizeTicketDisplayIds(assignment.ticket_display_ids);
     if (!displayIds) return;
@@ -121,20 +189,16 @@ async function applyTicketDisplayIds(session: DailyApiJson["sessions"][number], 
         .map((displayId) => contextByDisplayId.get(displayId))
         .filter((context): context is NonNullable<typeof context> => Boolean(context))
         .filter((context) => ticketContextMatchesSessionProduct(session, context));
-    const skipped = displayIds.filter((displayId) => {
-        const context = contextByDisplayId.get(displayId);
-        return context && !ticketContextMatchesSessionProduct(session, context);
-    });
-    if (skipped.length > 0) {
-        console.error(`Warning: skipped ticket(s) not in selected product for session ${session.session_id}: ${skipped.join(", ")}`);
-    }
     session.ticket_display_ids = matchedContexts.map((context) => context.ticket_display_id!).filter(Boolean);
     session.ticket_ids = matchedContexts.map((context) => context.ticket_id).filter(Boolean);
     if (session.ticket_display_ids.length === 0) delete session.ticket_display_ids;
     if (session.ticket_ids.length === 0) delete session.ticket_ids;
 }
 
-async function applyWebAssignments(daily: DailyApiJson, assignments: WebAssignment[]): Promise<number> {
+async function applyWebAssignments(
+    daily: DailyApiJson,
+    assignments: WebAssignment[]
+): Promise<number> {
     let assigned = 0;
     for (const assignment of assignments) {
         if (!assignment.session_id) throw new Error("session_id is required for every assignment");
@@ -172,6 +236,10 @@ async function applyBatchWebAssignments(
 ): Promise<{assignedSessions: number; files: string[]}> {
     let assignedSessions = 0;
     const savedFiles: string[] = [];
+    for (const report of reports) {
+        const fileAssignments = assignments.filter((assignment) => assignment.file === report.file);
+        await validateTicketAssignments(report.daily, fileAssignments, report.file);
+    }
     for (const report of reports) {
         const fileAssignments = assignments.filter((assignment) => assignment.file === report.file);
         if (fileAssignments.length > 0) {
@@ -318,6 +386,13 @@ export async function startAssignmentWebServer(reports: AssignmentReport[], batc
 
                 sendJson(res, 404, {error: "not found"});
             } catch (e) {
+                if (e instanceof TicketAssignmentValidationError) {
+                    sendJson(res, 422, {
+                        error: e.message,
+                        ticket_warnings: e.ticketWarnings,
+                    });
+                    return;
+                }
                 sendJson(res, 500, {error: (e as Error).message});
             }
         });

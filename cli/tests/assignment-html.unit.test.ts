@@ -170,6 +170,8 @@ describe("assignmentHtml - tickets column", () => {
         expect(html).toContain(".ticket-option-choice");
         expect(html).toContain(".ticket-option-label");
         expect(html).toContain(".ticket-open-link");
+        expect(html).toContain(".ticket-warning");
+        expect(html).toContain("class=\"ticket-warning hidden\"");
         expect(html).toContain(">Open</a>");
         expect(html).toContain("'<label class=\"ticket-option-choice\">' +");
         expect(html).toContain("'<span class=\"ticket-option-label\">' + escapeHtml(ticket) + '</span>'");
@@ -244,5 +246,16 @@ describe("assignmentHtml - submit effect", () => {
 
     test("contains status-error CSS class", () => {
         expect(assignmentHtml()).toContain(".status-error");
+    });
+
+    test("shows skipped ticket warnings and rejects assignment save", () => {
+        const html = assignmentHtml();
+        expect(html).toContain(".status-warning");
+        expect(html).toContain("err.response = data");
+        expect(html).toContain("e.response.ticket_warnings");
+        expect(html).toContain("function applyTicketWarnings(ticketWarnings)");
+        expect(html).toContain("row.querySelector('.ticket-warning')");
+        expect(html).toContain("then save again");
+        expect(html).toContain("Warning: skipped ticket(s) not in selected product");
     });
 });
