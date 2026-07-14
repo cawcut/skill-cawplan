@@ -641,6 +641,18 @@ describe("src lib collect cost currency", () => {
       output_tokens: 1_000_000,
     }, { speed: "fast" })).toBeCloseTo(30, 4);
   });
+
+  test("calculateCost matches dotted GPT-5.6 model IDs after normalization", () => {
+    expect(calculateCost("gpt-5.6-terra", {
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+    })).toBeCloseTo(17.5, 4);
+
+    expect(calculateCost("gpt-5.6-terra", {
+      input_tokens: 1_000_000,
+      cache_read_input_tokens: 500_000,
+    })).toBeCloseTo(1.375, 4);
+  });
 });
 
 describe("src lib oauth", () => {
@@ -1101,6 +1113,113 @@ describe("src lib collect codex", () => {
     const [session] = collectCodexSessions("2026-06-17");
     expect(session?.session_id).toBe("codex-iso-time");
     expect(session?.total_tokens).toBe(99);
+  });
+
+  test("attributes Codex token usage to every model used in one session", async () => {
+    const codexHome = join(tmpDir, "codex");
+    const sessionsDir = join(codexHome, "sessions", "codex-multi-model");
+    await mkdir(sessionsDir, { recursive: true });
+    process.env.CODEX_HOME = codexHome;
+
+    const rolloutPath = join(sessionsDir, "rollout.jsonl");
+    const events = [
+      {
+        type: "turn_context",
+        timestamp: "2026-06-17T02:00:00.000Z",
+        payload: { model: "gpt-5.6-sol" },
+      },
+      {
+        type: "response_item",
+        timestamp: "2026-06-17T02:00:01.000Z",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "Use Sol for the initial analysis." }],
+        },
+      },
+      {
+        type: "event_msg",
+        timestamp: "2026-06-17T02:00:02.000Z",
+        payload: {
+          type: "token_count",
+          info: {
+            last_token_usage: {
+              input_tokens: 100,
+              cached_input_tokens: 20,
+              output_tokens: 10,
+            },
+          },
+        },
+      },
+      {
+        type: "turn_context",
+        timestamp: "2026-06-17T02:05:00.000Z",
+        payload: { model: "gpt-5.6-terra" },
+      },
+      {
+        type: "response_item",
+        timestamp: "2026-06-17T02:05:01.000Z",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "Switch to Terra for the implementation." }],
+        },
+      },
+      {
+        type: "event_msg",
+        timestamp: "2026-06-17T02:05:02.000Z",
+        payload: {
+          type: "token_count",
+          info: {
+            last_token_usage: {
+              input_tokens: 200,
+              cached_input_tokens: 50,
+              output_tokens: 20,
+            },
+          },
+        },
+      },
+    ];
+    await writeFile(rolloutPath, events.map((event) => JSON.stringify(event)).join("\n"), "utf-8");
+
+    const db = createCodexStateDb(codexHome);
+    try {
+      insertCodexThread(db, {
+        id: "codex-multi-model",
+        rolloutPath,
+        createdAt: Math.floor(new Date("2026-06-17T01:59:00.000Z").getTime() / 1000),
+        model: "gpt-5.6-terra",
+      });
+    } finally {
+      db.close();
+    }
+
+    const [session] = collectCodexSessions("2026-06-17");
+
+    expect(Object.keys(session?.model_usage ?? {}).sort()).toEqual([
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+    ]);
+    expect(session?.model_usage["gpt-5.6-sol"]).toMatchObject({
+      api_calls: 1,
+      input_tokens: 80,
+      cache_read_input_tokens: 20,
+      output_tokens: 10,
+    });
+    expect(session?.model_usage["gpt-5.6-terra"]).toMatchObject({
+      api_calls: 1,
+      input_tokens: 150,
+      cache_read_input_tokens: 50,
+      output_tokens: 20,
+    });
+    expect(session?.usage_breakdown.map((bucket) => bucket.model).sort()).toEqual([
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+    ]);
+    expect(session?.human_inputs?.map((input) => input.session_model)).toEqual([
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+    ]);
   });
 
   test("marks detailed Codex usage as unknown cost when model pricing is unavailable", async () => {

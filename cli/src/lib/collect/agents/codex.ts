@@ -32,6 +32,27 @@ interface CodexCollectOptions {
   log?: (message: string) => void;
 }
 
+interface CodexTokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
+}
+
+interface CodexModelTokenUsage {
+  tokenUsage: CodexTokenUsage;
+  tokenCountEvents: number;
+}
+
+function emptyCodexTokenUsage(): CodexTokenUsage {
+  return {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+  };
+}
+
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.round(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -176,8 +197,6 @@ function extractTextContent(content: unknown): string {
 }
 
 function isHumanInputText(text: string): boolean {
-  if (text.length < 4) return false;
-  if (text.length > 1500) return false;
   if (text.includes("<environment_context>")) return false;
   if (text.includes("<INSTRUCTIONS>")) return false;
   if (/^# AGENTS\.md instructions/.test(text)) return false;
@@ -259,12 +278,8 @@ function parseRollout(
   filesChanged: number;
   linesAdded: number;
   linesDeleted: number;
-  tokenUsage: {
-    input_tokens: number;
-    output_tokens: number;
-    cache_read_input_tokens: number;
-    cache_creation_input_tokens: number;
-  };
+  tokenUsage: CodexTokenUsage;
+  tokenUsageByModel: Record<string, CodexModelTokenUsage>;
   tokenCountEvents: number;
   model: string | null;
   rolloutPath: string | null;
@@ -279,12 +294,8 @@ function parseRollout(
     filesChanged: 0,
     linesAdded: 0,
     linesDeleted: 0,
-    tokenUsage: {
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_read_input_tokens: 0,
-      cache_creation_input_tokens: 0,
-    },
+    tokenUsage: emptyCodexTokenUsage(),
+    tokenUsageByModel: {} as Record<string, CodexModelTokenUsage>,
     tokenCountEvents: 0,
     model: null as string | null,
     rolloutPath: null as string | null,
@@ -316,6 +327,7 @@ function parseRollout(
   const allChangedFiles = new Set<string>();
   const humanInputFiles: Array<Set<string>> = [];
   let currentHumanInputIndex: number | null = null;
+  let activeModel: string | null = null;
   const seenTokenCounts = new Set<string>();
 
   const lines = timed(opts, `Split Codex rollout lines ${sessionId}`, () => content.split("\n"));
@@ -333,6 +345,14 @@ function parseRollout(
       const d = ts ? new Date(ts) : null;
       const eventOnDate = !filterDate || (d !== null && !isNaN(d.getTime()) && localDateString(d) === filterDate);
 
+      if (eventType === "turn_context") {
+        const contextModel = String(payload?.["model"] ?? event["model"] ?? "").trim();
+        if (contextModel) {
+          activeModel = contextModel;
+          if (eventOnDate && !result.model) result.model = contextModel;
+        }
+      }
+
       if (eventOnDate && d !== null && !isNaN(d.getTime())) {
           if (!result.firstTs || d < result.firstTs) result.firstTs = d;
           if (!result.lastTs || d > result.lastTs) result.lastTs = d;
@@ -344,16 +364,27 @@ function parseRollout(
         const info = payload["info"] as Record<string, unknown> | undefined;
         const lastUsage = info?.["last_token_usage"] as Record<string, unknown> | undefined;
         if (lastUsage) {
-          const model = String(info?.["model"] ?? payload["model"] ?? event["model"] ?? "").trim();
+          const model = String(info?.["model"] ?? payload["model"] ?? event["model"] ?? activeModel ?? "").trim();
           if (model && !result.model) result.model = model;
-          const dedupKey = `${ts ?? ""}::${JSON.stringify(lastUsage)}`;
+          const dedupKey = `${ts ?? ""}::${model}::${JSON.stringify(lastUsage)}`;
           if (!seenTokenCounts.has(dedupKey)) {
             seenTokenCounts.add(dedupKey);
             const inputTokens = numberField(lastUsage, "input_tokens");
             const cachedInputTokens = numberField(lastUsage, "cached_input_tokens");
-            result.tokenUsage.input_tokens += Math.max(inputTokens - cachedInputTokens, 0);
+            const outputTokens = numberField(lastUsage, "output_tokens");
+            const modelUsage = result.tokenUsageByModel[model] ?? {
+              tokenUsage: emptyCodexTokenUsage(),
+              tokenCountEvents: 0,
+            };
+            const uncachedInputTokens = Math.max(inputTokens - cachedInputTokens, 0);
+            result.tokenUsage.input_tokens += uncachedInputTokens;
             result.tokenUsage.cache_read_input_tokens += cachedInputTokens;
-            result.tokenUsage.output_tokens += numberField(lastUsage, "output_tokens");
+            result.tokenUsage.output_tokens += outputTokens;
+            modelUsage.tokenUsage.input_tokens += uncachedInputTokens;
+            modelUsage.tokenUsage.cache_read_input_tokens += cachedInputTokens;
+            modelUsage.tokenUsage.output_tokens += outputTokens;
+            modelUsage.tokenCountEvents += 1;
+            result.tokenUsageByModel[model] = modelUsage;
             result.tokenCountEvents += 1;
           }
         }
@@ -371,6 +402,7 @@ function parseRollout(
                 category: classifyHumanInput(text),
                 content: text,
                 session_agent: "codex",
+                session_model: activeModel ?? undefined,
                 start_time: ts ?? null,
                 time_precision: "exact",
                 files_changed: 0,
@@ -487,41 +519,57 @@ export function collectCodexSessions(filterDate: string, opts?: CodexCollectOpti
         rolloutData.tokenUsage.cache_read_input_tokens +
         rolloutData.tokenUsage.cache_creation_input_tokens >
         0;
-    const usage = hasDetailedUsage
-      ? rolloutData.tokenUsage
-      : {
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_read_input_tokens: 0,
-        cache_creation_input_tokens: 0,
+    const usageByModel = new Map<string, CodexModelTokenUsage>();
+    for (const [recordedModel, recordedUsage] of Object.entries(rolloutData.tokenUsageByModel)) {
+      const resolvedModel = recordedModel || model;
+      const existing = usageByModel.get(resolvedModel) ?? {
+        tokenUsage: emptyCodexTokenUsage(),
+        tokenCountEvents: 0,
       };
-    const calculatedCost = timed(opts, `Calculate Codex cost ${id}`, () =>
-      hasDetailedUsage ? calculateCost(model, usage) : null
-    );
+      existing.tokenUsage.input_tokens += recordedUsage.tokenUsage.input_tokens;
+      existing.tokenUsage.output_tokens += recordedUsage.tokenUsage.output_tokens;
+      existing.tokenUsage.cache_read_input_tokens += recordedUsage.tokenUsage.cache_read_input_tokens;
+      existing.tokenUsage.cache_creation_input_tokens += recordedUsage.tokenUsage.cache_creation_input_tokens;
+      existing.tokenCountEvents += recordedUsage.tokenCountEvents;
+      usageByModel.set(resolvedModel, existing);
+    }
+    if (!hasDetailedUsage) {
+      usageByModel.set(model, {
+        tokenUsage: emptyCodexTokenUsage(),
+        tokenCountEvents: rolloutData.assistantCount || 1,
+      });
+    }
 
-    const modelEntry: ModelUsageEntry = {
-      api_calls: rolloutData.tokenCountEvents || rolloutData.assistantCount || 1,
-      input_tokens: usage.input_tokens,
-      output_tokens: usage.output_tokens,
-      cache_read_input_tokens: usage.cache_read_input_tokens,
-      cache_creation_input_tokens: usage.cache_creation_input_tokens,
-      cost: calculatedCost ?? 0,
-      currency: COST_CURRENCY,
-      token_source: hasDetailedUsage ? "codex_token_count_estimate" : "total_only",
-      note: hasDetailedUsage
-        ? "Estimated from Codex rollout token_count events"
-        : "Codex only provides total token count without input/output breakdown",
-    };
-
-    const modelUsage: Record<string, ModelUsageEntry> = { [model]: modelEntry };
-    const usageBucket: UsageBucket = {
-      ...modelEntry,
-      model,
-      speed: "standard",
-      service_tier: "standard",
-      effort: "default",
-      agents: ["codex"],
-    };
+    const modelUsage: Record<string, ModelUsageEntry> = {};
+    const usageBreakdown: UsageBucket[] = [];
+    let hasUnpricedModel = false;
+    timed(opts, `Calculate Codex cost ${id}`, () => {
+      for (const [usageModel, recordedUsage] of usageByModel.entries()) {
+        const calculatedCost = hasDetailedUsage
+          ? calculateCost(usageModel, recordedUsage.tokenUsage)
+          : null;
+        if (hasDetailedUsage && calculatedCost === null) hasUnpricedModel = true;
+        const modelEntry: ModelUsageEntry = {
+          api_calls: recordedUsage.tokenCountEvents,
+          ...recordedUsage.tokenUsage,
+          cost: calculatedCost ?? 0,
+          currency: COST_CURRENCY,
+          token_source: hasDetailedUsage ? "codex_token_count_estimate" : "total_only",
+          note: hasDetailedUsage
+            ? "Estimated from Codex rollout token_count events"
+            : "Codex only provides total token count without input/output breakdown",
+        };
+        modelUsage[usageModel] = modelEntry;
+        usageBreakdown.push({
+          ...modelEntry,
+          model: usageModel,
+          speed: "standard",
+          service_tier: "standard",
+          effort: "default",
+          agents: ["codex"],
+        });
+      }
+    });
 
     const reposTouched: RepoTouched[] = cwd
       ? [{
@@ -557,9 +605,9 @@ export function collectCodexSessions(filterDate: string, opts?: CodexCollectOpti
         start: startLocal,
       },
       model_usage: modelUsage,
-      usage_breakdown: [usageBucket],
+      usage_breakdown: usageBreakdown,
       total_tokens: hasDetailedUsage ? undefined : tokensUsed,
-      cost_basis: calculatedCost === null ? "unknown" : "estimate",
+      cost_basis: !hasDetailedUsage || hasUnpricedModel ? "unknown" : "estimate",
       files_changed: rolloutData.filesChanged,
       files_added: rolloutData.linesAdded,
       files_deleted: rolloutData.linesDeleted,
@@ -571,7 +619,7 @@ export function collectCodexSessions(filterDate: string, opts?: CodexCollectOpti
       },
       human_inputs: rolloutData.humanInputs.length > 0 ? rolloutData.humanInputs : undefined,
     }));
-    logCodex(opts, `Collected Codex session ${id}: model=${model}, users=${rolloutData.userCount}, assistants=${rolloutData.assistantCount}.`);
+    logCodex(opts, `Collected Codex session ${id}: models=${Object.keys(modelUsage).join(",")}, users=${rolloutData.userCount}, assistants=${rolloutData.assistantCount}.`);
   }
 
   try {

@@ -29,6 +29,9 @@ const PRICING: Record<string, PricingEntry> = {
     "claude-haiku-3-5": {input: 0.80, output: 4, cache_read: 0.08, cache_write: 1, currency: "$"},
 
     // OpenAI ($/MTok - official pricing from https://developers.openai.com/api/docs/pricing)
+    "gpt-5.6-sol": {input: 5, output: 30, cache_read: 0.50, cache_write: 6.25, currency: "$"},
+    "gpt-5.6-terra": {input: 2.5, output: 15, cache_read: 0.25, cache_write: 3.125, currency: "$"},
+    "gpt-5.6-luna": {input: 1, output: 6, cache_read: 0.10, cache_write: 1.25, currency: "$"},
     "gpt-5-5": {input: 5, output: 30, cache_read: 0.50, cache_write: 0, currency: "$"},
     "gpt-5.5": {input: 5, output: 30, cache_read: 0.50, cache_write: 0, currency: "$"},
     "gpt-5-4": {input: 2.5, output: 15, cache_read: 0.25, cache_write: 0, currency: "$"},
@@ -66,15 +69,16 @@ function normalizeModel(model: string): string {
 export function matchPricing(model: string): PricingEntry | null {
     const normalized = normalizeModel(model);
 
-    // Exact match first
-    if (PRICING[normalized]) return PRICING[normalized];
-
-    // Prefix match — longest prefix wins
+    // Normalize pricing keys too. Model IDs in the table may use their public
+    // dotted spelling (for example, gpt-5.6-terra), while normalizeModel()
+    // deliberately converts dots to dashes for cross-client compatibility.
+    // Prefix match also covers dated/suffixed model snapshots; longest wins.
     let bestKey = "";
     let bestEntry: PricingEntry | null = null;
     for (const [key, entry] of Object.entries(PRICING)) {
-        if (normalized.startsWith(key) && key.length > bestKey.length) {
-            bestKey = key;
+        const normalizedKey = normalizeModel(key);
+        if (normalized.startsWith(normalizedKey) && normalizedKey.length > bestKey.length) {
+            bestKey = normalizedKey;
             bestEntry = entry;
         }
     }
@@ -114,4 +118,3 @@ export function calculateCost(
 
     return cost;
 }
-
