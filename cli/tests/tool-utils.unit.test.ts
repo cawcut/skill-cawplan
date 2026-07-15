@@ -36,6 +36,15 @@ describe("tool-utils file path helpers", () => {
     ]);
   });
 
+  test("mergeFileDeltas drops read-only entries with zero added and deleted", () => {
+    expect(
+      aggregateFileChanges([
+        { path: "internal/service/slack.go", added: 0, deleted: 0 },
+        { path: "internal/service/slack_thread_sync.go", added: 23, deleted: 15 },
+      ])
+    ).toEqual([{ path: "internal/service/slack_thread_sync.go", added: 23, deleted: 15 }]);
+  });
+
   test("relativizeFileChanges normalizes paths before merge", () => {
     const repo = "/repo/flow-cawplan-skill";
     expect(

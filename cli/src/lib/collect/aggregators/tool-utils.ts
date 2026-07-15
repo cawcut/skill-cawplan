@@ -51,29 +51,32 @@ export function aggregateFileChanges(changes: Array<FileDelta | undefined>): Fil
     return merged.length > 0 ? merged : undefined;
 }
 
+function hasFileDelta(delta: FileDelta): boolean {
+    return delta.added > 0 || delta.deleted > 0;
+}
+
 export function mergeFileDeltas(deltas: FileDelta[]): FileDelta[] {
     const byPath = new Map<string, FileDelta>();
     for (const delta of deltas) {
         if (!delta.path) continue;
         appendFileDelta(byPath, delta);
     }
-    return [...byPath.values()];
+    return [...byPath.values()].filter(hasFileDelta);
 }
 
 export function appendFileDelta(byPath: Map<string, FileDelta>, delta: FileDelta): void {
     const path = delta.path.trim();
     if (!path) return;
+    const added = Math.max(0, delta.added);
+    const deleted = Math.max(0, delta.deleted);
     const existing = byPath.get(path);
     if (!existing) {
-        byPath.set(path, {
-            path,
-            added: Math.max(0, delta.added),
-            deleted: Math.max(0, delta.deleted),
-        });
+        if (!hasFileDelta({ path, added, deleted })) return;
+        byPath.set(path, { path, added, deleted });
         return;
     }
-    existing.added += Math.max(0, delta.added);
-    existing.deleted += Math.max(0, delta.deleted);
+    existing.added += added;
+    existing.deleted += deleted;
 }
 
 export function summarizeFileDeltas(deltas: FileDelta[]): {
@@ -162,7 +165,7 @@ export function estimateToolDeltas(
 
     if (name === "multiedit") {
         const edits = input["edits"] as Array<Record<string, unknown>> | undefined;
-        if (!Array.isArray(edits) || edits.length === 0) return path ? [{ path, added: 0, deleted: 0 }] : [];
+        if (!Array.isArray(edits) || edits.length === 0) return [];
         const firstPath = extractPathFromInput(edits[0]) ?? path;
         if (!firstPath) return [];
         let added = 0;

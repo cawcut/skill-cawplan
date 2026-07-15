@@ -619,11 +619,9 @@ export function collectClaudeCodeSession(
           turnLinesDeleted += deleted;
           appendFileDelta(turnFileDeltas, { path: fp, added, deleted });
         } else if (toolName === "Write") {
-          const added = countLines(input?.["content"]);
+          const added = countLines(input?.["content"] ?? input?.["contents"] ?? input?.["new_string"]);
           turnLinesAdded += added;
           appendFileDelta(turnFileDeltas, { path: fp, added, deleted: 0 });
-        } else {
-          appendFileDelta(turnFileDeltas, { path: fp, added: 0, deleted: 0 });
         }
       }
     }
