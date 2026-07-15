@@ -7,13 +7,15 @@ import {
   resolveChatProjectHashToCwd,
 } from "../cursor-chat-project.js";
 import * as paths from "../paths.js";
+import { appendAssistantMessage } from "../aggregators/human-assistant.js";
+import { classifyHumanInput } from "../aggregators/human-category.js";
 import {
   formatLocalTime,
   getLocalTimezone,
   localDateString,
   parseTimestampTag,
 } from "../date-utils.js";
-import { SessionData, FileChange, RepoTouched, UsageBucket, ModelUsageEntry } from "../types.js";
+import { SessionData, FileChange, RepoTouched, UsageBucket, ModelUsageEntry, HumanInput } from "../types.js";
 import { calculateCost, COST_CURRENCY } from "../pricing.js";
 
 const CHARS_PER_TOKEN = 4;
@@ -31,6 +33,14 @@ function formatDuration(ms: number): string {
 
 function logCursorCli(opts: CursorCliCollectOptions | undefined, message: string): void {
   opts?.log?.(`[cursor-cli] ${message}`);
+}
+
+function toBuffer(value: unknown): Buffer | null {
+  if (!value) return null;
+  if (Buffer.isBuffer(value)) return value;
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  if (typeof value === "string") return Buffer.from(value);
+  return null;
 }
 
 function timed<T>(opts: CursorCliCollectOptions | undefined, label: string, run: () => T): T {
@@ -93,7 +103,7 @@ function extractJsonFromBlob(blob: Buffer): Record<string, unknown>[] {
 interface CursorMessage {
   role: "user" | "assistant";
   content: unknown;
-  timestamp?: number;
+  timestamp?: number | string;
   model?: string;
   toolCalls?: unknown[];
 }
@@ -136,12 +146,13 @@ function readStoreMeta(dbPath: string): StoreMetadata {
 
       const row = db
         .prepare("SELECT value FROM blobs WHERE key = '0'")
-        .get() as { value: Buffer } | undefined;
+        .get() as { value: unknown } | undefined;
 
-      if (!row?.value) return { sessionName: "", model: "" };
+      const rowValue = toBuffer(row?.value);
+      if (!rowValue) return { sessionName: "", model: "" };
 
       // Try to extract JSON from the blob
-      const messages = extractJsonFromBlob(row.value);
+      const messages = extractJsonFromBlob(rowValue);
       if (messages.length > 0) {
         const meta = messages[0];
         return {
@@ -153,7 +164,7 @@ function readStoreMeta(dbPath: string): StoreMetadata {
 
       // Try plain JSON parse
       try {
-        const parsed = JSON.parse(row.value.toString("utf-8")) as Record<string, unknown>;
+        const parsed = JSON.parse(rowValue.toString("utf-8")) as Record<string, unknown>;
         return {
           sessionName: (parsed["name"] ?? parsed["title"] ?? "") as string,
           model: (parsed["model"] ?? "") as string,
@@ -184,11 +195,12 @@ function readStoreMessages(dbPath: string): CursorMessage[] {
       try {
         const dataRows = db
           .prepare("SELECT id, data FROM blobs WHERE length(data) > 100 ORDER BY rowid")
-          .all() as Array<{ id: string; data: Buffer }>;
+          .all() as Array<{ id: string; data: unknown }>;
 
         for (const row of dataRows) {
-          if (!row.data?.includes(Buffer.from('"role"'))) continue;
-          const extracted = extractJsonFromBlob(row.data);
+          const data = toBuffer(row.data);
+          if (!data?.includes(Buffer.from('"role"'))) continue;
+          const extracted = extractJsonFromBlob(data);
           for (const msg of extracted) {
             if (msg["role"] !== "user" && msg["role"] !== "assistant") continue;
             const dedupKey = JSON.stringify(msg["content"] ?? "");
@@ -197,7 +209,7 @@ function readStoreMessages(dbPath: string): CursorMessage[] {
             messages.push({
               role: msg["role"] as "user" | "assistant",
               content: msg["content"] ?? "",
-              timestamp: msg["timestamp"] as number | undefined,
+              timestamp: msg["timestamp"] as number | string | undefined,
               model: msg["model"] as string | undefined,
               toolCalls: msg["toolCalls"] as unknown[] | undefined,
             });
@@ -211,17 +223,18 @@ function readStoreMessages(dbPath: string): CursorMessage[] {
 
       const rows = db
         .prepare("SELECT key, value FROM blobs WHERE key != '0' ORDER BY key ASC")
-        .all() as Array<{ key: string; value: Buffer }>;
+        .all() as Array<{ key: string; value: unknown }>;
 
       for (const row of rows) {
-        if (!row.value) continue;
-        const extracted = extractJsonFromBlob(row.value);
+        const value = toBuffer(row.value);
+        if (!value) continue;
+        const extracted = extractJsonFromBlob(value);
         for (const msg of extracted) {
           if (msg["role"] === "user" || msg["role"] === "assistant") {
             messages.push({
               role: msg["role"] as "user" | "assistant",
               content: msg["content"] ?? "",
-              timestamp: msg["timestamp"] as number | undefined,
+              timestamp: msg["timestamp"] as number | string | undefined,
               model: msg["model"] as string | undefined,
               toolCalls: msg["toolCalls"] as unknown[] | undefined,
             });
@@ -292,6 +305,120 @@ function estimateTokensFromMessages(messages: CursorMessage[]): { inputTokens: n
   };
 }
 
+function parseMessageTimestamp(raw: number | string | undefined): Date | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    if (!text) return null;
+    if (/^\d+(\.\d+)?$/.test(text)) return parseMessageTimestamp(Number(text));
+    const d = new Date(text);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(raw > 1_000_000_000_000 ? raw : raw * 1000);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function extractTextContent(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => {
+      if (typeof block !== "object" || block === null) return "";
+      const item = block as Record<string, unknown>;
+      const type = item["type"];
+      if (type === "text" || type === "input_text" || type === "output_text") {
+        return String(item["text"] ?? "").trim();
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+const USER_QUERY_RE = /<user_query>\s*([\s\S]*?)\s*<\/user_query>/i;
+const TS_TAG_RE = /<timestamp>[\s\S]*?<\/timestamp>/gi;
+
+function extractHumanInputText(content: unknown): string {
+  const raw = extractTextContent(content);
+  const query = raw.match(USER_QUERY_RE)?.[1]?.trim();
+  if (query) return query;
+  return raw
+    .replace(TS_TAG_RE, "")
+    .replace(/<\/?user_query>/gi, "")
+    .trim();
+}
+
+function isHumanInputText(text: string): boolean {
+  if (!text) return false;
+  if (text.includes("<user_info>")) return false;
+  if (text.includes("<git_status>")) return false;
+  if (text.includes("<agent_transcripts>")) return false;
+  if (text.includes("<rules>")) return false;
+  if (text.includes("<agent_skills>")) return false;
+  if (text.includes("<environment_context>")) return false;
+  if (text.includes("<INSTRUCTIONS>")) return false;
+  if (/^# AGENTS\.md instructions/.test(text)) return false;
+  if (/^Base directory for this skill:/.test(text)) return false;
+  if (/^This session is being continued/.test(text)) return false;
+  if (/^Continue from where you left off\.?$/i.test(text)) return false;
+  if (/<command-message>/.test(text)) return false;
+  if (/^(git |npm |npx |cawplan |cd |ls |cat |echo )/.test(text)) return false;
+  return true;
+}
+
+function buildHumanInputsFromMessages(
+  messages: CursorMessage[],
+  sessionName: string,
+  model: string
+): HumanInput[] {
+  const inputs: HumanInput[] = [];
+  const seen = new Set<string>();
+  let current: HumanInput | null = null;
+
+  for (const msg of messages) {
+    const ts = parseMessageTimestamp(msg.timestamp);
+    if (msg.role === "user") {
+      const text = extractHumanInputText(msg.content);
+      if (!isHumanInputText(text)) {
+        current = null;
+        continue;
+      }
+      const dedupeKey = text.replace(/\s+/g, " ").trim().slice(0, 500);
+      if (seen.has(dedupeKey)) {
+        current = null;
+        continue;
+      }
+      seen.add(dedupeKey);
+      current = {
+        category: classifyHumanInput(text),
+        content: text,
+        session_title: sessionName,
+        session_agent: "cursor-cli",
+        session_model: model || undefined,
+        start_time: ts ? ts.toISOString() : null,
+        end_time: ts ? ts.toISOString() : null,
+        time_precision: ts ? "exact" : "approximate",
+        files_changed: 0,
+        lines_added: 0,
+        lines_deleted: 0,
+      };
+      inputs.push(current);
+      continue;
+    }
+
+    if (msg.role === "assistant" && current) {
+      if (ts) current.end_time = ts.toISOString();
+      const assistantText = extractTextContent(msg.content);
+      if (assistantText) {
+        current.assistant_message = appendAssistantMessage(current.assistant_message, assistantText);
+      }
+    }
+  }
+
+  return inputs;
+}
+
 function extractTranscriptEventTime(event: Record<string, unknown>): Date | null {
   const ts = (event["timestamp"] ?? event["ts"]) as string | number | undefined;
   if (ts != null) {
@@ -355,6 +482,55 @@ function readTranscriptJsonl(transcriptPath: string): Record<string, unknown>[] 
     // file not found
   }
   return events;
+}
+
+function transcriptEventContent(event: Record<string, unknown>): unknown {
+  const message = event["message"] as Record<string, unknown> | undefined;
+  return message?.["content"] ?? event["content"] ?? "";
+}
+
+function transcriptToolCalls(content: unknown): unknown[] | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const calls = content.filter((block) => {
+    if (typeof block !== "object" || block === null) return false;
+    return (block as Record<string, unknown>)["type"] === "tool_use";
+  });
+  return calls.length > 0 ? calls : undefined;
+}
+
+function buildMessagesFromTranscriptEvents(events: Record<string, unknown>[]): CursorMessage[] {
+  const messages: CursorMessage[] = [];
+  for (const event of events) {
+    const role = event["role"];
+    if (role !== "user" && role !== "assistant") continue;
+    const content = transcriptEventContent(event);
+    const ts = extractTranscriptEventTime(event)?.toISOString();
+    messages.push({
+      role,
+      content,
+      timestamp: ts,
+      toolCalls: role === "assistant" ? transcriptToolCalls(content) : undefined,
+    });
+  }
+  return messages;
+}
+
+function selectTranscriptTurnEventsForDate(
+  events: Record<string, unknown>[],
+  filterDate: string
+): Record<string, unknown>[] {
+  const selected: Record<string, unknown>[] = [];
+  let includeCurrentTurn = false;
+
+  for (const event of events) {
+    const d = extractTranscriptEventTime(event);
+    if (d) {
+      includeCurrentTurn = localDateString(d) === filterDate;
+    }
+    if (includeCurrentTurn) selected.push(event);
+  }
+
+  return selected;
 }
 
 /**
@@ -451,24 +627,28 @@ export function collectCursorCliSessions(filterDate: string, opts?: CursorCliCol
       logCursorCli(opts, `Conversation ${convId}: day transcript events=${dayTranscriptEvents.length}.`);
 
       // Fall back to local file mtimes when transcript lines lack parseable timestamps.
+      // Prefer transcript mtime when a transcript exists; store.db may be touched later
+      // by Cursor bookkeeping and otherwise duplicate the same conversation across days.
       if (!hasActivityOnDate && !hasParseableTranscriptTime) {
-        try {
-          const stat = statSync(storeDbPath);
-          if (localDateString(stat.mtime) === filterDate) {
-            hasActivityOnDate = true;
+        const shouldUseTranscriptMtime = transcriptEvents.length > 0 && existsSync(transcriptSourcePath);
+        if (shouldUseTranscriptMtime) {
+          try {
+            const stat = statSync(transcriptSourcePath);
+            if (localDateString(stat.mtime) === filterDate) {
+              hasActivityOnDate = true;
+            }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
-        }
-      }
-      if (!hasActivityOnDate && !hasParseableTranscriptTime && existsSync(transcriptSourcePath)) {
-        try {
-          const stat = statSync(transcriptSourcePath);
-          if (localDateString(stat.mtime) === filterDate) {
-            hasActivityOnDate = true;
+        } else {
+          try {
+            const stat = statSync(storeDbPath);
+            if (localDateString(stat.mtime) === filterDate) {
+              hasActivityOnDate = true;
+            }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
         }
       }
 
@@ -478,17 +658,26 @@ export function collectCursorCliSessions(filterDate: string, opts?: CursorCliCol
       // Read session metadata
       const meta = timed(opts, `Read Cursor CLI store metadata ${convId}`, () => readStoreMeta(storeDbPath));
       const allMessages = timed(opts, `Read Cursor CLI store messages ${convId}`, () => readStoreMessages(storeDbPath));
-      const messages = timed(opts, `Filter Cursor CLI store messages ${convId}`, () => {
+      const storeMessages = timed(opts, `Filter Cursor CLI store messages ${convId}`, () => {
         const hasMessageTimestamps = allMessages.some((msg) => msg.timestamp != null);
         return hasMessageTimestamps
           ? allMessages.filter((msg) => {
           if (msg.timestamp == null) return false;
-          const d = new Date(msg.timestamp > 1_000_000_000_000 ? msg.timestamp : msg.timestamp * 1000);
-          return !Number.isNaN(d.getTime()) && localDateString(d) === filterDate;
+          const d = parseMessageTimestamp(msg.timestamp);
+          return !!d && localDateString(d) === filterDate;
         })
           : allMessages;
       });
-      logCursorCli(opts, `Conversation ${convId}: store messages=${allMessages.length}, day messages=${messages.length}.`);
+      const transcriptMessages = timed(opts, `Build Cursor CLI transcript messages ${convId}`, () =>
+        buildMessagesFromTranscriptEvents(
+          dayTranscriptEvents.length > 0
+            ? selectTranscriptTurnEventsForDate(transcriptEvents, filterDate)
+            : transcriptEvents
+        )
+      );
+      const messages = storeMessages.length > 0 ? storeMessages : transcriptMessages;
+      const messageSource = storeMessages.length > 0 ? "store" : "project transcript";
+      logCursorCli(opts, `Conversation ${convId}: store messages=${allMessages.length}, day messages=${storeMessages.length}, transcript messages=${transcriptMessages.length}, using=${messageSource}.`);
 
       // Count message stats
       let userCount = 0;
@@ -599,6 +788,9 @@ export function collectCursorCliSessions(filterDate: string, opts?: CursorCliCol
       }
 
       const sessionName = meta.sessionName || convId.slice(0, 8);
+      const humanInputs = timed(opts, `Build Cursor CLI human inputs ${convId}`, () =>
+        buildHumanInputsFromMessages(messages, sessionName, model)
+      );
 
       timed(opts, `Build Cursor CLI session payload ${convId}`, () => sessions.push({
         schema: "2.0",
@@ -624,6 +816,7 @@ export function collectCursorCliSessions(filterDate: string, opts?: CursorCliCol
           assistant: assistantCount,
           tool_calls: toolCallCount,
         },
+        human_inputs: humanInputs.length > 0 ? humanInputs : undefined,
       }));
       logCursorCli(opts, `Collected Cursor CLI conversation ${convId}: users=${userCount}, assistants=${assistantCount}, tool_calls=${toolCallCount}.`);
     }

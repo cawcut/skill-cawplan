@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
@@ -31,6 +31,7 @@ import { normalizeSessionRepoContext } from "../src/lib/collect";
 import { buildDailyApiJson } from "../src/lib/collect/aggregators/daily";
 import { calculateCost } from "../src/lib/collect/pricing";
 import { collectCodexSessions } from "../src/lib/collect/agents/codex";
+import { collectCursorCliSessions } from "../src/lib/collect/agents/cursor-cli";
 import { aggregateUsageBuckets } from "../src/lib/collect/aggregators/tokens";
 import {
   aggregateCursorUsageBySession,
@@ -58,6 +59,7 @@ let originalCredentialsPath: string | undefined;
 let originalConfigPath: string | undefined;
 let originalCachePath: string | undefined;
 let originalCodexHome: string | undefined;
+let originalCursorHome: string | undefined;
 
 function unsignedJwt(payload: Record<string, unknown>): string {
   return [
@@ -77,6 +79,7 @@ beforeEach(async () => {
   originalConfigPath = process.env.CAWPLAN_CONFIG_PATH;
   originalCachePath = process.env.CAWPLAN_CACHE_PATH;
   originalCodexHome = process.env.CODEX_HOME;
+  originalCursorHome = process.env.CURSOR_HOME;
 
   tmpDir = await mkdtemp(join(tmpdir(), "cawplan-tests-"));
   process.env.CAWPLAN_CREDENTIALS_PATH = join(tmpDir, "credentials.json");
@@ -87,6 +90,7 @@ beforeEach(async () => {
   delete process.env.CAWPLAN_ENV;
   delete process.env.CAWPLAN_API_KEY;
   delete process.env.CODEX_HOME;
+  delete process.env.CURSOR_HOME;
 });
 
 afterEach(async () => {
@@ -116,6 +120,9 @@ afterEach(async () => {
   if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
   else process.env.CODEX_HOME = originalCodexHome;
 
+  if (originalCursorHome === undefined) delete process.env.CURSOR_HOME;
+  else process.env.CURSOR_HOME = originalCursorHome;
+
   await rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -138,6 +145,29 @@ function createCodexStateDb(codexHome: string): DatabaseSync {
     );
   `);
   return db;
+}
+
+function createCursorCliStoreDb(dbPath: string, messages: Array<Record<string, unknown>>): void {
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec(`
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB NOT NULL);
+    `);
+    const meta = Buffer.from(JSON.stringify({
+      name: "Cursor CLI human input test",
+      lastUsedModel: "composer-2.5",
+      createdAt: Date.parse("2026-06-17T12:00:00.000Z"),
+    })).toString("hex");
+    db.prepare("INSERT INTO meta (key, value) VALUES ('0', ?)").run(meta);
+
+    const insertBlob = db.prepare("INSERT INTO blobs (id, data) VALUES (?, ?)");
+    messages.forEach((message, index) => {
+      insertBlob.run(String(index + 1), Buffer.from(JSON.stringify(message)));
+    });
+  } finally {
+    db.close();
+  }
 }
 
 function insertCodexThread(
@@ -907,6 +937,186 @@ describe("src lib http", () => {
       expect(err).toBeInstanceOf(ApiError);
       expect((err as ApiError).status).toBe(401);
     }
+  });
+});
+
+describe("src lib collect cursor cli", () => {
+  test("collects user messages as human_inputs", async () => {
+    const cursorHome = join(tmpDir, "cursor-home");
+    process.env.CURSOR_HOME = cursorHome;
+
+    const convDir = join(cursorHome, "chats", "project-hash", "conversation-1");
+    await mkdir(convDir, { recursive: true });
+
+    createCursorCliStoreDb(join(convDir, "store.db"), [
+      {
+        role: "user",
+        content: "<timestamp>Wednesday, Jun 17, 2026, 8:00 PM</timestamp>\n<user_query>\n请修复 Cursor CLI 日报 human input 采集\n</user_query>",
+        timestamp: Date.parse("2026-06-17T12:00:00.000Z"),
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "我会检查 collector 并补上 human_inputs。" }],
+        timestamp: Date.parse("2026-06-17T12:01:00.000Z"),
+      },
+    ]);
+    await writeFile(
+      join(convDir, "agent-transcript.jsonl"),
+      `${JSON.stringify({ timestamp: "2026-06-17T12:00:00.000Z", cwd: "/repo/flow-cawplan-skill" })}\n`
+    );
+    await utimes(join(convDir, "store.db"), new Date("2026-06-17T12:00:00.000Z"), new Date("2026-06-17T12:00:00.000Z"));
+
+    const sessions = collectCursorCliSessions("2026-06-17");
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.human_inputs).toHaveLength(1);
+    expect(sessions[0]?.human_inputs?.[0]).toMatchObject({
+      category: "correction",
+      content: "请修复 Cursor CLI 日报 human input 采集",
+      assistant_message: "我会检查 collector 并补上 human_inputs。",
+      session_title: "Cursor CLI human input test",
+      session_agent: "cursor-cli",
+      session_model: "composer-2.5",
+      start_time: "2026-06-17T12:00:00.000Z",
+      end_time: "2026-06-17T12:01:00.000Z",
+      time_precision: "exact",
+    });
+  });
+
+  test("does not treat Cursor injected context as human input", async () => {
+    const cursorHome = join(tmpDir, "cursor-home");
+    process.env.CURSOR_HOME = cursorHome;
+
+    const convDir = join(cursorHome, "chats", "project-hash", "context-only-conversation");
+    await mkdir(convDir, { recursive: true });
+
+    createCursorCliStoreDb(join(convDir, "store.db"), [
+      {
+        role: "user",
+        content: [
+          "<user_info>",
+          "OS Version: darwin 25.0.0",
+          "Workspace Path: /repo/flow-cawplan-skill",
+          "</user_info>",
+          "<rules>",
+          "<user_rule>Always respond in Chinese-simplified</user_rule>",
+          "</rules>",
+          "<agent_skills>",
+          "<agent_skill fullPath=\"/tmp/SKILL.md\" />",
+          "</agent_skills>",
+        ].join("\n"),
+        timestamp: Date.parse("2026-06-17T12:00:00.000Z"),
+      },
+    ]);
+    await writeFile(
+      join(convDir, "agent-transcript.jsonl"),
+      `${JSON.stringify({ timestamp: "2026-06-17T12:00:00.000Z", cwd: "/repo/flow-cawplan-skill" })}\n`
+    );
+
+    const sessions = collectCursorCliSessions("2026-06-17");
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.message_stats.user).toBe(1);
+    expect(sessions[0]?.human_inputs).toBeUndefined();
+  });
+
+  test("falls back to project agent transcript when store messages are empty", async () => {
+    const cursorHome = join(tmpDir, "cursor-home");
+    process.env.CURSOR_HOME = cursorHome;
+
+    const convId = "conversation-transcript-only";
+    const convDir = join(cursorHome, "chats", "project-hash", convId);
+    await mkdir(convDir, { recursive: true });
+    createCursorCliStoreDb(join(convDir, "store.db"), []);
+
+    const transcriptDir = join(cursorHome, "projects", "Users-test-repo", "agent-transcripts", convId);
+    await mkdir(transcriptDir, { recursive: true });
+    await writeFile(
+      join(transcriptDir, `${convId}.jsonl`),
+      [
+        JSON.stringify({
+          role: "user",
+          message: {
+            content: [{
+              type: "text",
+              text: "<timestamp>Wednesday, Jun 17, 2026, 8:10 PM (UTC+8)</timestamp>\n<user_query>\n开始处理 Cursor CLI transcript 兜底\n</user_query>",
+            }],
+          },
+        }),
+        JSON.stringify({
+          role: "assistant",
+          message: {
+            content: [
+              { type: "text", text: "我会从 project transcript 生成 human inputs。" },
+              { type: "tool_use", name: "Read", input: { path: "/tmp/example.ts" } },
+            ],
+          },
+        }),
+      ].join("\n")
+    );
+
+    const sessions = collectCursorCliSessions("2026-06-17");
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.message_stats).toMatchObject({
+      user: 1,
+      assistant: 1,
+      tool_calls: 1,
+    });
+    expect(sessions[0]?.human_inputs).toHaveLength(1);
+    expect(sessions[0]?.human_inputs?.[0]).toMatchObject({
+      category: "direction",
+      content: "开始处理 Cursor CLI transcript 兜底",
+      assistant_message: "我会从 project transcript 生成 human inputs。",
+      session_title: "Cursor CLI human input test",
+      session_agent: "cursor-cli",
+      session_model: "composer-2.5",
+      start_time: "2026-06-17T12:10:00.000Z",
+      end_time: "2026-06-17T12:10:00.000Z",
+      time_precision: "exact",
+    });
+  });
+
+  test("does not duplicate no-timestamp transcript sessions on later store mtime", async () => {
+    const cursorHome = join(tmpDir, "cursor-home");
+    process.env.CURSOR_HOME = cursorHome;
+
+    const convId = "conversation-no-timestamp";
+    const convDir = join(cursorHome, "chats", "project-hash", convId);
+    await mkdir(convDir, { recursive: true });
+    createCursorCliStoreDb(join(convDir, "store.db"), [
+      {
+        role: "user",
+        content: [{ type: "text", text: "<user_query>\nwho are you\n</user_query>" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "我是 Composer。" }],
+      },
+    ]);
+
+    const transcriptDir = join(cursorHome, "projects", "Users-test-repo", "agent-transcripts", convId);
+    await mkdir(transcriptDir, { recursive: true });
+    const transcriptPath = join(transcriptDir, `${convId}.jsonl`);
+    await writeFile(
+      transcriptPath,
+      [
+        JSON.stringify({
+          role: "user",
+          message: { content: [{ type: "text", text: "<user_query>\nwho are you\n</user_query>" }] },
+        }),
+        JSON.stringify({
+          role: "assistant",
+          message: { content: [{ type: "text", text: "我是 Composer。" }] },
+        }),
+      ].join("\n")
+    );
+
+    await utimes(transcriptPath, new Date("2026-06-17T07:05:00.000Z"), new Date("2026-06-17T07:05:00.000Z"));
+    await utimes(join(convDir, "store.db"), new Date("2026-06-18T09:26:00.000Z"), new Date("2026-06-18T09:26:00.000Z"));
+
+    expect(collectCursorCliSessions("2026-06-17")).toHaveLength(1);
+    expect(collectCursorCliSessions("2026-06-18")).toHaveLength(0);
   });
 });
 
