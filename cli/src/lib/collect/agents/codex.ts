@@ -26,7 +26,7 @@ import { calculateCost, COST_CURRENCY } from "../pricing.js";
 import { classifyHumanInput } from "../aggregators/human-category.js";
 import { appendAssistantMessage } from "../aggregators/human-assistant.js";
 import { formatLocalTime, getLocalTimezone, localDateString } from "../date-utils.js";
-import { countDiffLines } from "../aggregators/tool-utils.js";
+import { countDiffLines, appendFileDelta, mergeFileDeltas, type FileDelta } from "../aggregators/tool-utils.js";
 
 interface CodexCollectOptions {
   log?: (message: string) => void;
@@ -325,7 +325,7 @@ function parseRollout(
 
   const seenHumanInputs = new Set<string>();
   const allChangedFiles = new Set<string>();
-  const humanInputFiles: Array<Set<string>> = [];
+  const humanInputFileDeltas: Array<Map<string, FileDelta>> = [];
   let currentHumanInputIndex: number | null = null;
   let activeModel: string | null = null;
   const seenTokenCounts = new Set<string>();
@@ -409,7 +409,7 @@ function parseRollout(
                 lines_added: 0,
                 lines_deleted: 0,
               });
-              humanInputFiles.push(new Set<string>());
+              humanInputFileDeltas.push(new Map());
               currentHumanInputIndex = result.humanInputs.length - 1;
             }
           }
@@ -451,10 +451,9 @@ function parseRollout(
         const changes = payload["changes"] as Record<string, Record<string, unknown>> | undefined;
         if (!changes) continue;
         const humanInput = currentHumanInputIndex == null ? null : result.humanInputs[currentHumanInputIndex];
-        const filesForInput = currentHumanInputIndex == null ? null : humanInputFiles[currentHumanInputIndex];
+        const filesForInput = currentHumanInputIndex == null ? null : humanInputFileDeltas[currentHumanInputIndex];
         for (const [filePath, change] of Object.entries(changes)) {
           allChangedFiles.add(filePath);
-          filesForInput?.add(filePath);
 
           let delta = countDiffLines(String(change["unified_diff"] ?? ""));
           if (delta.added === 0 && delta.deleted === 0) {
@@ -470,7 +469,10 @@ function parseRollout(
           if (humanInput) {
             humanInput.lines_added = (humanInput.lines_added ?? 0) + delta.added;
             humanInput.lines_deleted = (humanInput.lines_deleted ?? 0) + delta.deleted;
-            humanInput.files_changed = filesForInput?.size ?? humanInput.files_changed ?? 0;
+            if (filesForInput) {
+              appendFileDelta(filesForInput, { path: filePath, ...delta });
+              humanInput.files_changed = filesForInput.size;
+            }
           }
         }
         result.filesChanged = allChangedFiles.size;
@@ -480,6 +482,12 @@ function parseRollout(
     }
   }
   });
+  for (let i = 0; i < result.humanInputs.length; i++) {
+    const merged = mergeFileDeltas([...humanInputFileDeltas[i]?.values() ?? []]);
+    if (merged.length > 0) {
+      result.humanInputs[i]!.file_changes = merged;
+    }
+  }
   logCodex(opts, `Codex session ${sessionId}: users=${result.userCount}, assistants=${result.assistantCount}, tool_calls=${result.toolCallCount}, token_events=${result.tokenCountEvents}, files=${result.filesChanged}.`);
 
   return result;

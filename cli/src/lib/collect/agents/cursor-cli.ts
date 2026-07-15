@@ -17,6 +17,7 @@ import {
 } from "../date-utils.js";
 import { SessionData, FileChange, RepoTouched, UsageBucket, ModelUsageEntry, HumanInput } from "../types.js";
 import { calculateCost, COST_CURRENCY } from "../pricing.js";
+import { appendFileDelta, mergeFileDeltas, type FileDelta } from "../aggregators/tool-utils.js";
 
 const CHARS_PER_TOKEN = 4;
 
@@ -419,6 +420,52 @@ function buildHumanInputsFromMessages(
   return inputs;
 }
 
+/** Attribute transcript file-change events to human inputs by event timestamp. */
+export function attributeFileChangesToHumanInputs(
+  humanInputs: HumanInput[],
+  events: Record<string, unknown>[]
+): void {
+  if (humanInputs.length === 0 || events.length === 0) return;
+
+  const deltasByInput = humanInputs.map(() => new Map<string, FileDelta>());
+
+  const findIndexForTime = (eventTime: Date | null): number => {
+    if (humanInputs.length === 1) return 0;
+    if (!eventTime) return Math.max(0, humanInputs.length - 1);
+    const eventMs = eventTime.getTime();
+    let idx = 0;
+    for (let i = 0; i < humanInputs.length; i++) {
+      const start = humanInputs[i]?.start_time;
+      const startMs = start ? new Date(start).getTime() : Number.NaN;
+      if (!Number.isFinite(startMs) || startMs <= eventMs) idx = i;
+      else break;
+    }
+    return idx;
+  };
+
+  for (const event of events) {
+    const filePath = (event["file"] ?? event["path"]) as string | undefined;
+    if (!filePath?.trim()) continue;
+    const added = (event["added"] as number) ?? 0;
+    const deleted = (event["deleted"] as number) ?? 0;
+    const idx = findIndexForTime(extractTranscriptEventTime(event));
+    appendFileDelta(deltasByInput[idx]!, {
+      path: filePath.trim(),
+      added,
+      deleted,
+    });
+  }
+
+  for (let i = 0; i < humanInputs.length; i++) {
+    const merged = mergeFileDeltas([...deltasByInput[i]!.values()]);
+    if (merged.length === 0) continue;
+    humanInputs[i]!.file_changes = merged;
+    humanInputs[i]!.files_changed = merged.length;
+    humanInputs[i]!.lines_added = merged.reduce((sum, delta) => sum + delta.added, 0);
+    humanInputs[i]!.lines_deleted = merged.reduce((sum, delta) => sum + delta.deleted, 0);
+  }
+}
+
 function extractTranscriptEventTime(event: Record<string, unknown>): Date | null {
   const ts = (event["timestamp"] ?? event["ts"]) as string | number | undefined;
   if (ts != null) {
@@ -790,6 +837,9 @@ export function collectCursorCliSessions(filterDate: string, opts?: CursorCliCol
       const sessionName = meta.sessionName || convId.slice(0, 8);
       const humanInputs = timed(opts, `Build Cursor CLI human inputs ${convId}`, () =>
         buildHumanInputsFromMessages(messages, sessionName, model)
+      );
+      timed(opts, `Attribute Cursor CLI file changes ${convId}`, () =>
+        attributeFileChangesToHumanInputs(humanInputs, fileEvents)
       );
 
       timed(opts, `Build Cursor CLI session payload ${convId}`, () => sessions.push({

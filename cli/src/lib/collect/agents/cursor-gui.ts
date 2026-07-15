@@ -26,7 +26,7 @@ import {FileChange, HumanInput, RepoTouched} from "../types.js";
 import {gitRemoteRepo, gitFileNumstat} from "../git.js";
 import {classifyHumanInput} from "../aggregators/human-category.js";
 import {extractAssistantTextFromBlocks, joinAssistantMessages} from "../aggregators/human-assistant.js";
-import {parsePatchDeltas, extractPathFromInput, estimateToolDeltas} from "../aggregators/tool-utils.js";
+import {parsePatchDeltas, extractPathFromInput, estimateToolDeltas, appendFileDelta, mergeFileDeltas, type FileDelta} from "../aggregators/tool-utils.js";
 
 const USER_QUERY_RE = /<user_query>\s*([\s\S]*?)\s*<\/user_query>/i;
 const TS_TAG_RE = /<timestamp>([^<]+)<\/timestamp>/i;
@@ -490,17 +490,12 @@ export function accumulateTranscriptStatsByContent(
     lines: string[],
     userBubbles: UserBubble[],
     assistantTimes: Date[]
-): Map<string, Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time" | "assistant_message">> {
-    const statsByContent = new Map<
-        string,
-        Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time" | "assistant_message">
-    >();
+): Map<string, HumanInputFileStats> {
+    const statsByContent = new Map<string, HumanInputFileStats>();
     const usedBubbleIndices = new Set<number>();
     let currentNorm: string | null = null;
     let currentStart: Date | null = null;
-    let files = new Set<string>();
-    let linesAdded = 0;
-    let linesDeleted = 0;
+    let fileDeltas = new Map<string, FileDelta>();
     let firstTool: Date | null = null;
     let lastTool: Date | null = null;
     let assistantTexts: string[] = [];
@@ -511,18 +506,17 @@ export function accumulateTranscriptStatsByContent(
         // Only attribute duration from actual transcript tool timestamps. Assistant
         // bubble DB times include resume restamps and must not extend historical prompts.
         const end = lastTool ?? firstTool ?? start;
-        statsByContent.set(currentNorm, {
-            files_changed: files.size,
-            lines_added: linesAdded,
-            lines_deleted: linesDeleted,
-            end_time: start ? formatIsoTime(end ?? start) : undefined,
-            assistant_message: joinAssistantMessages(assistantTexts),
-        });
+        statsByContent.set(
+            currentNorm,
+            statsFromFileDeltas(
+                fileDeltas,
+                start ? formatIsoTime(end ?? start) : undefined,
+                joinAssistantMessages(assistantTexts)
+            )
+        );
         currentNorm = null;
         currentStart = null;
-        files = new Set<string>();
-        linesAdded = 0;
-        linesDeleted = 0;
+        fileDeltas = new Map();
         firstTool = null;
         lastTool = null;
         assistantTexts = [];
@@ -575,9 +569,7 @@ export function accumulateTranscriptStatsByContent(
             if (typeof rawInput === "string" && String(b["name"] ?? "") === "ApplyPatch") {
                 const patchFiles = parsePatchDeltas(rawInput);
                 for (const pf of patchFiles) {
-                    files.add(pf.path);
-                    linesAdded += Math.max(0, pf.added);
-                    linesDeleted += Math.max(0, pf.deleted);
+                    appendFileDelta(fileDeltas, pf);
                     if (eventTs) {
                         firstTool = firstTool ?? eventTs;
                         lastTool = eventTs;
@@ -593,9 +585,11 @@ export function accumulateTranscriptStatsByContent(
             const delta = deltas[0];
             const p = delta?.path ?? extractPathFromInput(input);
             if (!p) continue;
-            files.add(p);
-            linesAdded += Math.max(0, delta?.added ?? 0);
-            linesDeleted += Math.max(0, delta?.deleted ?? 0);
+            appendFileDelta(fileDeltas, {
+                path: p,
+                added: Math.max(0, delta?.added ?? 0),
+                deleted: Math.max(0, delta?.deleted ?? 0),
+            });
             if (eventTs) {
                 firstTool = firstTool ?? eventTs;
                 lastTool = eventTs;
@@ -825,7 +819,7 @@ function buildResolvedAtByBubble(
 
 function buildHumanInputsFromDayBubbles(
     bubbleTimeline: SessionBubbleTimeline,
-    statsByContent: Map<string, Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time" | "assistant_message">>,
+    statsByContent: Map<string, HumanInputFileStats>,
     resolvedAtByBubble: Map<UserBubble, Date>,
     approxBubbles: Set<UserBubble>
 ): HumanInput[] {
@@ -868,6 +862,7 @@ function buildHumanInputsFromDayBubbles(
             files_changed: stats?.files_changed ?? 0,
             lines_added: stats?.lines_added ?? 0,
             lines_deleted: stats?.lines_deleted ?? 0,
+            file_changes: stats?.file_changes,
         });
     }
 
@@ -936,6 +931,27 @@ function parseEventTimestamp(
 
 function isMutationTool(toolName: string): boolean {
     return ["StrReplace", "Edit", "EditNotebook", "MultiEdit", "Write", "Delete"].includes(toolName);
+}
+
+type HumanInputFileStats = Pick<
+    HumanInput,
+    "files_changed" | "lines_added" | "lines_deleted" | "end_time" | "assistant_message" | "file_changes"
+>;
+
+function statsFromFileDeltas(
+    fileDeltas: Map<string, FileDelta>,
+    end_time?: string,
+    assistant_message?: string
+): HumanInputFileStats {
+    const merged = mergeFileDeltas([...fileDeltas.values()]);
+    return {
+        files_changed: merged.length,
+        lines_added: merged.reduce((sum, delta) => sum + delta.added, 0),
+        lines_deleted: merged.reduce((sum, delta) => sum + delta.deleted, 0),
+        file_changes: merged.length > 0 ? merged : undefined,
+        end_time,
+        assistant_message,
+    };
 }
 
 function inferGitRootFromPath(filePath: string | null | undefined): string {
@@ -1136,9 +1152,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         start: Date | null;
         firstTool: Date | null;
         lastTool: Date | null;
-        files: Set<string>;
-        linesAdded: number;
-        linesDeleted: number;
+        fileDeltas: Map<string, FileDelta>;
         contentNorm?: string;
         assistantTexts?: string[];
     };
@@ -1240,9 +1254,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
                         start: promptTs,
                         firstTool: null,
                         lastTool: null,
-                        files: new Set<string>(),
-                        linesAdded: 0,
-                        linesDeleted: 0,
+                        fileDeltas: new Map(),
                     };
                     contexts.push(currentContext);
                 } else if (useBubbleAuthority && bubbleMatched) {
@@ -1252,9 +1264,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
                         start: promptTs,
                         firstTool: null,
                         lastTool: null,
-                        files: new Set<string>(),
-                        linesAdded: 0,
-                        linesDeleted: 0,
+                        fileDeltas: new Map(),
                         contentNorm,
                     };
                     contexts.push(currentContext);
@@ -1287,9 +1297,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
                     for (const pf of patchFiles) {
                         upsertFile(pf.path, pf.added, pf.deleted, "ApplyPatch");
                         if (currentContext) {
-                            currentContext.files.add(pf.path);
-                            currentContext.linesAdded += Math.max(0, pf.added);
-                            currentContext.linesDeleted += Math.max(0, pf.deleted);
+                            appendFileDelta(currentContext.fileDeltas, pf);
                             if (eventTs) {
                                 currentContext.firstTool = currentContext.firstTool ?? eventTs;
                                 currentContext.lastTool = eventTs;
@@ -1316,9 +1324,11 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
                 if (!p) continue;
                 upsertFile(p, delta?.added ?? 0, delta?.deleted ?? 0, toolName || undefined);
                 if (currentContext) {
-                    currentContext.files.add(p);
-                    currentContext.linesAdded += Math.max(0, delta?.added ?? 0);
-                    currentContext.linesDeleted += Math.max(0, delta?.deleted ?? 0);
+                    appendFileDelta(currentContext.fileDeltas, {
+                        path: p,
+                        added: Math.max(0, delta?.added ?? 0),
+                        deleted: Math.max(0, delta?.deleted ?? 0),
+                    });
                     if (eventTs) {
                         currentContext.firstTool = currentContext.firstTool ?? eventTs;
                         currentContext.lastTool = eventTs;
@@ -1333,10 +1343,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         `Parsed ${sessionId}: users=${userCount}, assistants=${assistantCount}, tool_calls=${toolCallCount}, files=${files.length}, human_inputs=${humanInputs.length}.`
     );
 
-    const statsByContent = new Map<
-        string,
-        Pick<HumanInput, "files_changed" | "lines_added" | "lines_deleted" | "end_time" | "assistant_message">
-    >();
+    const statsByContent = new Map<string, HumanInputFileStats>();
 
     for (let i = 0; i < contexts.length; i++) {
         const ctx = contexts[i];
@@ -1346,13 +1353,11 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
             const nextStart = contexts[i + 1]?.start ?? null;
             end = resolveBubbleEndTime(start, nextStart, bubbleTimeline.assistantTimes) ?? end;
         }
-        const stats = {
-            files_changed: ctx.files.size,
-            lines_added: ctx.linesAdded,
-            lines_deleted: ctx.linesDeleted,
-            end_time: formatIsoTime(end),
-            assistant_message: joinAssistantMessages(ctx.assistantTexts),
-        };
+        const stats = statsFromFileDeltas(
+            ctx.fileDeltas,
+            formatIsoTime(end),
+            joinAssistantMessages(ctx.assistantTexts)
+        );
         if (useBubbleAuthority && ctx.contentNorm) {
             statsByContent.set(ctx.contentNorm, stats);
             touchActivity(start);
@@ -1364,6 +1369,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         h.files_changed = stats.files_changed;
         h.lines_added = stats.lines_added;
         h.lines_deleted = stats.lines_deleted;
+        h.file_changes = stats.file_changes;
         h.start_time = formatIsoTime(start);
         h.end_time = formatIsoTime(end);
         h.session_time = h.start_time;

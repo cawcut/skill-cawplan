@@ -29,7 +29,7 @@ import { ChunkMessage } from "../aggregators/chunks.js";
 import {isTimestampOnLocalDate, localDateString, formatLocalTime, getLocalTimezone} from "../date-utils.js";
 import {appendAssistantMessage, extractAssistantTextFromBlocks} from "../aggregators/human-assistant.js";
 import {classifyHumanInput} from "../aggregators/human-category.js";
-import {countLines, extractPathFromInput} from "../aggregators/tool-utils.js";
+import {countLines, extractPathFromInput, appendFileDelta, mergeFileDeltas, type FileDelta} from "../aggregators/tool-utils.js";
 
 interface ClaudeCollectOptions {
   log?: (message: string) => void;
@@ -591,7 +591,7 @@ export function collectClaudeCodeSession(
     const nextIdx = qi + 1 < qualifiedTurns.length ? qualifiedTurns[qi + 1].index : events.length;
     let endTs: string | null = null;
     let assistantMessage: string | undefined;
-    const turnFiles = new Set<string>();
+    const turnFileDeltas = new Map<string, FileDelta>();
     let turnLinesAdded = 0;
     let turnLinesDeleted = 0;
     for (let j = turn.index + 1; j < nextIdx; j++) {
@@ -612,15 +612,22 @@ export function collectClaudeCodeSession(
         if (!input) continue;
         const fp = extractPathFromInput(input);
         if (!fp) continue;
-        turnFiles.add(fp);
         if (toolName === "Edit") {
-          turnLinesAdded += countLines(input?.["new_string"]);
-          turnLinesDeleted += countLines(input?.["old_string"]);
+          const added = countLines(input?.["new_string"]);
+          const deleted = countLines(input?.["old_string"]);
+          turnLinesAdded += added;
+          turnLinesDeleted += deleted;
+          appendFileDelta(turnFileDeltas, { path: fp, added, deleted });
         } else if (toolName === "Write") {
-          turnLinesAdded += countLines(input?.["content"]);
+          const added = countLines(input?.["content"]);
+          turnLinesAdded += added;
+          appendFileDelta(turnFileDeltas, { path: fp, added, deleted: 0 });
+        } else {
+          appendFileDelta(turnFileDeltas, { path: fp, added: 0, deleted: 0 });
         }
       }
     }
+    const mergedTurnFiles = mergeFileDeltas([...turnFileDeltas.values()]);
     humanInputs.push({
       category: turn.category,
       content: turn.text,
@@ -630,9 +637,10 @@ export function collectClaudeCodeSession(
       start_time: turn.startTs,
       end_time: endTs,
       time_precision: "exact",
-      files_changed: turnFiles.size > 0 ? turnFiles.size : undefined,
+      files_changed: mergedTurnFiles.length > 0 ? mergedTurnFiles.length : undefined,
       lines_added: turnLinesAdded > 0 ? turnLinesAdded : undefined,
       lines_deleted: turnLinesDeleted > 0 ? turnLinesDeleted : undefined,
+      file_changes: mergedTurnFiles.length > 0 ? mergedTurnFiles : undefined,
     });
   }
   });

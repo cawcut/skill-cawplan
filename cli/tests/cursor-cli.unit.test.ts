@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { localDateString } from "../src/lib/collect/date-utils.js";
-import { collectCursorCliSessions } from "../src/lib/collect/agents/cursor-cli.js";
+import { collectCursorCliSessions, attributeFileChangesToHumanInputs } from "../src/lib/collect/agents/cursor-cli.js";
 import {
   cwdFromProjectTranscriptPath,
   findProjectAgentTranscriptPath,
@@ -217,5 +217,49 @@ describe("collectCursorCliSessions cwd fallback", () => {
     vi.spyOn(paths, "cursorChatsDir").mockReturnValue(chatsRoot);
 
     expect(collectCursorCliSessions(filterDate)).toHaveLength(0);
+  });
+});
+
+describe("attributeFileChangesToHumanInputs", () => {
+  test("maps transcript file events to human inputs by timestamp", () => {
+    const humanInputs = [
+      {
+        category: "direction" as const,
+        content: "first task",
+        start_time: "2026-06-17T12:00:00.000Z",
+        end_time: "2026-06-17T12:01:00.000Z",
+      },
+      {
+        category: "correction" as const,
+        content: "second task",
+        start_time: "2026-06-17T12:05:00.000Z",
+        end_time: "2026-06-17T12:06:00.000Z",
+      },
+    ];
+    const events = [
+      {
+        timestamp: "2026-06-17T12:01:30.000Z",
+        file: "src/a.ts",
+        added: 10,
+        deleted: 2,
+      },
+      {
+        timestamp: "2026-06-17T12:06:00.000Z",
+        path: "src/b.ts",
+        added: 3,
+        deleted: 0,
+      },
+    ];
+
+    attributeFileChangesToHumanInputs(humanInputs, events);
+
+    expect(humanInputs[0]?.file_changes).toEqual([
+      { path: "src/a.ts", added: 10, deleted: 2 },
+    ]);
+    expect(humanInputs[0]?.files_changed).toBe(1);
+    expect(humanInputs[1]?.file_changes).toEqual([
+      { path: "src/b.ts", added: 3, deleted: 0 },
+    ]);
+    expect(humanInputs[1]?.lines_added).toBe(3);
   });
 });

@@ -27,6 +27,13 @@ export interface FileChange {
     change_type?: string;
 }
 
+/** Per-file line deltas attributed to one human input turn. */
+export interface HumanInputFileChange {
+    path: string;
+    added: number;
+    deleted: number;
+}
+
 export interface RepoTouched {
     repo: string;
     repo_name?: string;
@@ -88,6 +95,8 @@ export interface SessionData {
     files_added?: number;
     /** Lines deleted across all files */
     files_deleted?: number;
+    /** Aggregated file paths and line deltas across this session's human inputs. */
+    file_changes?: HumanInputFileChange[];
     repos_touched: RepoTouched[];
     message_stats: MessageStats;
     human_inputs?: HumanInput[];
@@ -139,6 +148,8 @@ export interface HumanInput {
   files_changed?: number;
   lines_added?: number;
   lines_deleted?: number;
+  /** File paths and per-file line deltas for this human input turn. */
+  file_changes?: HumanInputFileChange[];
   start_time?: string | null;
   end_time?: string | null;
   /**

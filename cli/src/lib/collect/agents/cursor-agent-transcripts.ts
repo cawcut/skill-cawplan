@@ -23,7 +23,7 @@ import {
   localDateString,
   parseTimestampTag,
 } from "../date-utils.js";
-import { FileDelta, estimateToolDeltas } from "../aggregators/tool-utils.js";
+import { FileDelta, estimateToolDeltas, summarizeFileDeltas } from "../aggregators/tool-utils.js";
 import { COST_CURRENCY } from "../pricing.js";
 
 const CHARS_PER_TOKEN = 4;
@@ -106,30 +106,6 @@ function extractFileDeltasFromToolCall(call: ToolCall): FileDelta[] {
   return estimateToolDeltas(call.name, (call.input ?? {}) as Record<string, unknown>);
 }
 
-function mergeFileDeltas(deltas: FileDelta[]): FileDelta[] {
-  const byPath = new Map<string, FileDelta>();
-  for (const delta of deltas) {
-    if (!delta.path) continue;
-    const existing = byPath.get(delta.path);
-    if (!existing) {
-      byPath.set(delta.path, { ...delta });
-      continue;
-    }
-    existing.added += delta.added;
-    existing.deleted += delta.deleted;
-  }
-  return [...byPath.values()];
-}
-
-function summarizeFileDeltas(deltas: FileDelta[]): { files: number; added: number; deleted: number } {
-  const merged = mergeFileDeltas(deltas);
-  return {
-    files: merged.length,
-    added: merged.reduce((sum, delta) => sum + delta.added, 0),
-    deleted: merged.reduce((sum, delta) => sum + delta.deleted, 0),
-  };
-}
-
 function deriveSessionTitle(projectPath: string, sessionId: string): string {
   const projectName = basename(projectPath) || "cursor";
   return `${projectName}/${sessionId.slice(0, 8)}`;
@@ -191,6 +167,7 @@ function extractHumanInputs(turns: ParsedTurn[], sessionTitle: string): HumanInp
       files_changed: deltaSummary.files,
       lines_added: deltaSummary.added,
       lines_deleted: deltaSummary.deleted,
+      file_changes: deltaSummary.file_changes.length > 0 ? deltaSummary.file_changes : undefined,
     });
   }
 

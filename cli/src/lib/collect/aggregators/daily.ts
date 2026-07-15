@@ -7,6 +7,7 @@ import {
     MessageStats,
 } from "../types.js";
 import {inferHumanInputTopicDetails} from "./human-topic.js";
+import {aggregateFileChanges, relativizeFileChanges} from "./tool-utils.js";
 
 function unionAgents(a?: string[], b?: string[]): string[] | undefined {
     const all = [...(a ?? []), ...(b ?? [])];
@@ -227,6 +228,7 @@ function enrichSessionHumanInputs(session: SessionData, targetDate: string) {
                 files_changed: h.files_changed ?? 0,
                 lines_added: h.lines_added ?? 0,
                 lines_deleted: h.lines_deleted ?? 0,
+                file_changes: relativizeFileChanges(h.file_changes, session.cwd),
                 start_time: nonEmpty(h.start_time ?? h.session_time),
                 end_time: nonEmpty(h.end_time ?? h.start_time ?? h.session_time),
             };
@@ -332,7 +334,12 @@ export function buildDailyApiJson(
 
     const r2 = (v: number) => Math.round(v * 100) / 100;
 
-    const reportSessions = sessions.map((session) => {
+    const sessionEnrichments = sessions.map((session) => ({
+        session,
+        humanInputs: enrichSessionHumanInputs(session, date),
+    }));
+
+    const sessionReports = sessionEnrichments.map(({ session, humanInputs }) => {
         const { human_inputs: _humanInputs, title: _legacyTitle, ...sessionRest } = session;
         const usageBreakdown = session.usage_breakdown.map((bucket) => normalizeUsageBucketCurrency(bucket));
         const modelUsage = Object.fromEntries(
@@ -340,6 +347,9 @@ export function buildDailyApiJson(
                 const normalizedEntry = normalizeModelUsageCurrency(entry);
                 return [model, normalizedEntry];
             })
+        );
+        const file_changes = aggregateFileChanges(
+            humanInputs.flatMap((input) => input.file_changes ?? [])
         );
         return {
             ...sessionRest,
@@ -352,9 +362,10 @@ export function buildDailyApiJson(
             session_cost: session.session_cost ?? sessionCost(usageBreakdown, r2),
             cost_basis: session.cost_basis ?? costBasis(session),
             token_source: session.token_source ?? tokenSource(session),
+            file_changes,
         };
     });
-    const reportHumanInputs = sessions.flatMap((s) => enrichSessionHumanInputs(s, date));
+    const reportHumanInputs = sessionEnrichments.flatMap((entry) => entry.humanInputs);
 
     return {
         schema: "2.0",
@@ -381,7 +392,7 @@ export function buildDailyApiJson(
                 { ...v, cost: r2(v.cost) },
             ])
         ),
-        sessions: reportSessions,
+        sessions: sessionReports,
         repos: allRepos,
         human_inputs: reportHumanInputs,
     };
