@@ -8,12 +8,16 @@ Reports include local AI coding sessions, token usage, estimated or actual costs
 ### 1. Install Or Update The Skill
 
 ```bash
+# Install
 npx skills add Ubiquiti-UID/flow-cawplan-skill -a cursor claude-code codex -g -y
+
+# Update
+cawplan skill update
 ```
 
-Run the same command again to update the skill. Restart the agent after installation or upgrade so the new instructions take effect.
+Restart the agent after installation or upgrade so the new instructions take effect.
 
-### 2. Install Or Upgrade The CLI
+### 2. Install Or Update The CLI
 
 `cawplan` requires Node.js `>=22.13.0`.
 
@@ -21,7 +25,7 @@ Run the same command again to update the skill. Restart the agent after installa
 # Install
 npm install -g cawplan@latest
 
-# Upgrade an existing install
+# Update
 cawplan upgrade
 ```
 

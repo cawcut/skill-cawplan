@@ -6,6 +6,7 @@ import {
     latestCawplanVersion,
     runCawplanUpgrade,
 } from "../lib/cawplan-upgrade.js";
+import {runSkillsAdd} from "../lib/skill-update.js";
 
 async function ensureLatestCawplan(): Promise<void> {
     let currentVersion: string;
@@ -42,6 +43,23 @@ export function registerSkillCommand(program: Command): void {
                 await ensureAuthenticated();
             } catch (err) {
                 console.error((err as Error).message);
+                process.exit(1);
+            }
+        });
+
+    skill
+        .command("update")
+        .description("Install or update the CawPlan agent skills (npx skills add)")
+        .action(async () => {
+            console.error("Installing/updating CawPlan skills for: cursor, claude-code, codex...");
+            try {
+                await runSkillsAdd();
+                console.error("Skill update completed. Restart the agent so the new instructions take effect.");
+            } catch (err) {
+                console.error(`Error: ${(err as Error).message}`);
+                console.error(
+                    "If HTTPS cloning failed, try: npx skills add git@github.com:Ubiquiti-UID/flow-cawplan-skill.git -a cursor claude-code codex -g -y"
+                );
                 process.exit(1);
             }
         });
