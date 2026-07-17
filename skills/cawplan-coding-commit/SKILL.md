@@ -1,5 +1,5 @@
 ---
-version: 0.2.5
+version: 0.2.6
 name: cawplan-coding-commit
 description: |
   Use when the user asks to collect, generate, summarize, submit, upload, or report CawPlan AI coding session daily reports from local agent data or existing ai-daily JSON files.
@@ -111,7 +111,7 @@ cawplan api get /api/v1/public/openapi/ai-session-usage/policy
 
 If `cloud_enrichment_enabled && (cloud_enrichment_enabled_for_all || cloud_enrichment_enabled_for_me)` is `true`, skip LLM classification and title rewrite for all newly collected files and keep collected values unchanged.
 
-Otherwise, classify human inputs from all newly collected `$report_dir/ai-daily-<date>.json` files in a single batch using the same prompt as Step 2 below. Then rewrite `sessions[].session_title` for all newly collected files using the session title rewrite prompt from Step 2. Write both classifications and rewritten titles back before assignment or upload.
+Otherwise, classify human inputs from all newly collected `$report_dir/ai-daily-<date>.json` files in a single batch using the same prompt as Step 2 below. Then rewrite `sessions[].session_title` for all newly collected files using the session title rewrite prompt from Step 2. For every file, extract inputs and merge results back using the same script-based approach as Step 2 — never read and rewrite a whole report file yourself, since large files can silently truncate and drop `totals.cost`/`model_usage` on write-back.
 
 **Step M5 — Product/repo/ticket assignment:**
 
@@ -162,7 +162,22 @@ If `skip_llm_fix` is `true`, **skip all LLM correction in this step**:
 
 If `skip_llm_fix` is `false`, run the full classification and title rewrite flow below.
 
-Read `$report_file`. If `human_inputs` is non-empty, classify every entry in a single batch using the prompt below. Write the results back into the JSON file by updating each `human_input`'s `category`, `topic`, `topic_confidence`, `topic_reason`, and `topic_source` fields. If `human_inputs` is empty or absent, skip this step and continue.
+**Never load the full `$report_file` into your own context to build the prompt or to write results back.** Large reports (many active sessions/worktrees) commonly exceed the file-read tool's context window and get silently truncated; if you then reconstruct or rewrite the file from that truncated view, everything past the cutoff — including `totals.cost`, `model_usage`, and `sessions[].session_cost` — is dropped or corrupted, while `cawplan session collect` output for the same day stays correct. This exact class of bug has caused reports to upload with cost `0` even though local collection computed the right value. Always extract the input list and merge results back with a script, never with your own Read/Edit/Write on the whole file:
+
+```bash
+node -e '
+const fs = require("node:fs");
+const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const inputs = (report.human_inputs || []).map((hi, index) => ({
+  index,
+  session_title: hi.session_title || "",
+  content: String(hi.content || "").slice(0, 200),
+}));
+console.log(JSON.stringify(inputs));
+' "$report_file" > "$report_dir/human-inputs-for-classify.json"
+```
+
+If `human_inputs` is empty or absent (empty array from the command above), skip this step and continue. Otherwise, read `$report_dir/human-inputs-for-classify.json` (not `$report_file`) and classify every entry in a single batch using the prompt below.
 
 Classification prompt to use:
 
@@ -190,16 +205,51 @@ Classification prompt to use:
 > [0] session:"<session_title>" content:"<human_input_content>"
 > [1] ...
 
-After receiving the JSON array, write back to `$report_file`: for each entry at `index` N, set:
-- `human_inputs[N].category` = classified `category`
-- `human_inputs[N].topic` = classified `topic`
-- `human_inputs[N].topic_confidence` = classified `topic_confidence`
-- `human_inputs[N].topic_reason` = classified `topic_reason`
-- `human_inputs[N].topic_source` = `"llm"`
+After receiving the JSON array, save it to `$report_dir/classify-result.json`, then merge it into `$report_file` with a script — never by reading and rewriting `$report_file` yourself:
 
-If the classification response is malformed or an error occurs, leave the existing values unchanged and continue.
+```bash
+node -e '
+const fs = require("node:fs");
+const reportPath = process.argv[1];
+const resultPath = process.argv[2];
+const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+const results = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+for (const r of results) {
+  const hi = report.human_inputs?.[r.index];
+  if (!hi) continue;
+  hi.category = r.category;
+  hi.topic = r.topic;
+  hi.topic_confidence = r.topic_confidence;
+  hi.topic_reason = r.topic_reason;
+  hi.topic_source = "llm";
+}
+fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+' "$report_file" "$report_dir/classify-result.json"
+```
 
-After classification, rewrite every session's `session_title` from the human inputs that belong to that session. Group `human_inputs` by `session_id`; include only each input's `content` when building the title prompt. If a session has no human inputs, leave its existing title unchanged.
+This script reads and rewrites the file entirely on disk, so `totals`, `model_usage`, and every other field are preserved byte-for-byte regardless of report size. If the classification response is malformed or an error occurs, skip the merge and leave the existing values unchanged.
+
+After classification, rewrite every session's `session_title` from the human inputs that belong to that session. Extract the session-grouped inputs the same way — with a script, not by reading `$report_file` yourself:
+
+```bash
+node -e '
+const fs = require("node:fs");
+const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const bySession = new Map();
+for (const hi of report.human_inputs || []) {
+  if (!bySession.has(hi.session_id)) bySession.set(hi.session_id, []);
+  bySession.get(hi.session_id).push({category: hi.category, topic: hi.topic, content: hi.content});
+}
+const sessions = (report.sessions || []).map((s) => ({
+  session_id: s.session_id,
+  current_title: s.session_title,
+  inputs: bySession.get(s.session_id) || [],
+})).filter((s) => s.inputs.length > 0);
+console.log(JSON.stringify(sessions));
+' "$report_file" > "$report_dir/sessions-for-title.json"
+```
+
+Read `$report_dir/sessions-for-title.json` (not `$report_file`) to build the title prompt. If a session has no human inputs, leave its existing title unchanged.
 
 Session title rewrite prompt to use:
 
@@ -221,12 +271,28 @@ Session title rewrite prompt to use:
 > - category:"<category>" topic:"<topic>" content:"<human_input_content>"
 > - ...
 
-After receiving the JSON array, write back to `$report_file`: for each returned `session_id`, find the matching `sessions[]` entry and set:
-- `sessions[].session_title` = rewritten `session_title`
-- `sessions[].session_title_source` = `"llm"`
-- `sessions[].session_title_reason` = returned `title_reason`
+After receiving the JSON array, save it to `$report_dir/title-result.json`, then merge it into `$report_file` with a script — never by reading and rewriting `$report_file` yourself:
 
-If the title rewrite response is malformed or an error occurs, leave existing session titles unchanged and continue.
+```bash
+node -e '
+const fs = require("node:fs");
+const reportPath = process.argv[1];
+const resultPath = process.argv[2];
+const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+const results = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+const bySessionId = new Map(results.map((r) => [r.session_id, r]));
+for (const s of report.sessions || []) {
+  const r = bySessionId.get(s.session_id);
+  if (!r) continue;
+  s.session_title = r.session_title;
+  s.session_title_source = "llm";
+  s.session_title_reason = r.title_reason;
+}
+fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+' "$report_file" "$report_dir/title-result.json"
+```
+
+If the title rewrite response is malformed or an error occurs, skip the merge and leave existing session titles unchanged.
 
 **Step 3 — Product/repo/ticket assignment:**
 
@@ -286,7 +352,7 @@ cawplan api get /api/v1/public/openapi/ai-session-usage/policy
 
 If `cloud_enrichment_enabled && (cloud_enrichment_enabled_for_all || cloud_enrichment_enabled_for_me)` is `true`, skip LLM classification and title rewrite for all newly collected files and keep collected values unchanged.
 
-Otherwise, classify human inputs from **all** newly collected files in `$report_dir` in a single batch operation using the same prompt as Step 2. Then rewrite `sessions[].session_title` for those files using the same session title rewrite prompt from Step 2. For files with empty `human_inputs`, skip silently. Write results back to all files before moving to Step 11.
+Otherwise, classify human inputs from **all** newly collected files in `$report_dir` in a single batch operation using the same prompt as Step 2. Then rewrite `sessions[].session_title` for those files using the same session title rewrite prompt from Step 2. For files with empty `human_inputs`, skip silently. For every file, extract inputs and merge results back using the same script-based approach as Step 2 — never read and rewrite a whole report file yourself, since large files can silently truncate and drop `totals.cost`/`model_usage` on write-back. Do this for all files before moving to Step 11.
 
 **Step 11 — Product/repo/ticket assignment for missing reports:**
 

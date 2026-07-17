@@ -1,5 +1,5 @@
 ---
-version: 0.2.5
+version: 0.2.6
 name: cawplan-plan-create
 description: |
   Create a CawPlan version plan: create a version and optionally populate it with tickets.
