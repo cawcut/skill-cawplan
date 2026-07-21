@@ -22,8 +22,6 @@ This skill supports two workflows:
 - **Single-day workflow:** Collect → Assign → Review → Upload → Current-Month Backfill
 - **Month-missing workflow:** Query cloud missing dates for a month → collect and upload only missing dates
 
-Use it when the user invokes `cawplan-coding-commit` or `/cawplan-coding-commit`, with or without a date or month argument. Do not use this skill for a plain `git commit` request unless the user explicitly mentions CawPlan, AI report upload, or an `ai-daily-*.json` file.
-
 Supported single-day arguments:
 - no date, `today` → today's date
 - `yesterday`, `yestoday` → yesterday's date (`yestoday` is accepted as a common typo)
@@ -54,15 +52,15 @@ Minimize permission prompts during report collection:
 - Run each logical phase as one shell block instead of many tiny commands.
 - When using Cursor agent shell tools for any collection phase, request full network access once for the whole shell block (`required_permissions: ["full_network"]`), because collection may call the Cursor Dashboard API at `cursor.com`.
 - Store every generated `ai-daily-*.json` report in a system temporary directory, not in the current repository. This avoids repository write prompts and keeps generated report files out of the working tree.
-- Reuse the same workflow-scoped temp directory for collect, classify, assign, review, and upload.
+- Reuse the same workflow-scoped temp directory for collect, assign, review, and upload.
 - For Web assignment, batch all files in a single `cawplan session assign --web --files ...` command. Do not start one assignment command per report.
 
-Before collecting reports, create one workflow-scoped temp directory with Node.js so the same command works on macOS, Linux, and Windows:
+Before collecting reports, create one workflow-scoped temp directory via the CLI so the same command works on macOS, Linux, and Windows:
 ```bash
-report_dir="$(node -e 'const {mkdirSync} = require("node:fs"); const {join} = require("node:path"); const {tmpdir} = require("node:os"); const dir = join(tmpdir(), "cawplan-ai-daily"); mkdirSync(dir, {recursive: true}); console.log(dir);')"
+report_dir="$(cawplan session temp-dir)"
 ```
 
-Use absolute file paths under this directory for every subsequent collect, classify, assign, review, and upload step:
+Use absolute file paths under this directory for every subsequent collect, assign, review, and upload step:
 ```bash
 report_file="$report_dir/ai-daily-<YYYY-MM-DD>.json"
 ```
@@ -100,28 +98,17 @@ done
 wait
 ```
 
-Run this whole shell block with full network access when using Cursor agent tools. Use bounded concurrency because each collection may call the Cursor Dashboard API. The default concurrency is 5; reduce `CAWPLAN_COLLECT_CONCURRENCY` only when the network or Cursor API is unstable.
+Use bounded concurrency because each collection may call the Cursor Dashboard API. The default concurrency is 5; reduce `CAWPLAN_COLLECT_CONCURRENCY` only when the network or Cursor API is unstable.
 
-**Step M4 — Classify all newly collected reports and rewrite session titles:**
+**Step M4 — Product/repo/ticket assignment:**
 
-First query cloud policy once:
-```bash
-cawplan api get /api/v1/public/openapi/ai-session-usage/policy
-```
+Run **Product/repo/ticket assignment** for all newly collected files.
 
-If `cloud_enrichment_enabled && (cloud_enrichment_enabled_for_all || cloud_enrichment_enabled_for_me)` is `true`, skip LLM classification and title rewrite for all newly collected files and keep collected values unchanged.
-
-Otherwise, classify human inputs from all newly collected `$report_dir/ai-daily-<date>.json` files in a single batch using the same prompt as Step 2 below. Then rewrite `sessions[].session_title` for all newly collected files using the session title rewrite prompt from Step 2. For every file, extract inputs and merge results back using the same script-based approach as Step 2 — never read and rewrite a whole report file yourself, since large files can silently truncate and drop `totals.cost`/`model_usage` on write-back.
-
-**Step M5 — Product/repo/ticket assignment:**
-
-Always run the Web assignment command from **Product/repo/ticket assignment** for all newly collected files, even when every session already has `product_id`. For multiple files, prefer the `--files` form to batch-review all reports at once before continuing.
-
-**Step M6 — Ticket progress write-back:**
+**Step M5 — Ticket progress write-back:**
 
 Run **Ticket Progress Write-Back** below for every newly collected missing-date report that has `sessions[].ticket_ids`.
 
-**Step M7 — Upload missing reports:**
+**Step M6 — Upload missing reports:**
 
 Upload each newly collected missing-date file individually in date order:
 ```bash
@@ -134,199 +121,41 @@ After upload, report the requested month, uploaded dates, number of sessions per
 
 **Step 1 — Collect:**
 ```bash
-report_dir="$(node -e 'const {mkdirSync} = require("node:fs"); const {join} = require("node:path"); const {tmpdir} = require("node:os"); const dir = join(tmpdir(), "cawplan-ai-daily"); mkdirSync(dir, {recursive: true}); console.log(dir);')"
 report_file="$report_dir/ai-daily-<YYYY-MM-DD>.json"
 cawplan session collect --date <YYYY-MM-DD> --output "$report_file"
 ```
 
-When running this shell block from Cursor agent tools, request full network access once on the shell tool call (`required_permissions: ["full_network"]`) because Cursor token/cost collection depends on the Cursor Dashboard API at `cursor.com`.
+**Step 2 — Product/repo/ticket assignment:**
 
-During collection, `cawplan session collect` may ask the user to assign each session to a CawPlan product and repository using existing product-repo mappings. If no mapping exists, the user can link a GitHub repository URL in the required format `https://github.com/owner/repo`.
+Run **Product/repo/ticket assignment** for `$report_file`, then complete the review before continuing so product, repo, and ticket display IDs can be checked or edited.
 
-In Cursor, if product/repo assignment is skipped during collection because prompts cannot be shown, always open the Web assignment flow in Step 3 to review or edit product, repo, and ticket assignments.
-
-**Step 2 — Classify human inputs and rewrite session titles (LLM):**
-
-Before classifying, query cloud policy:
-```bash
-cawplan api get /api/v1/public/openapi/ai-session-usage/policy
-```
-
-Read `data` from the response and compute:
-- `skip_llm_fix = cloud_enrichment_enabled && (cloud_enrichment_enabled_for_all || cloud_enrichment_enabled_for_me)`
-
-If `skip_llm_fix` is `true`, **skip all LLM correction in this step**:
-- Do not reclassify `human_inputs[].category/topic/topic_confidence/topic_reason/topic_source`
-- Do not rewrite `sessions[].session_title/session_title_source/session_title_reason`
-- Keep collected values unchanged and continue to Step 3
-
-If `skip_llm_fix` is `false`, run the full classification and title rewrite flow below.
-
-**Never load the full `$report_file` into your own context to build the prompt or to write results back.** Large reports (many active sessions/worktrees) commonly exceed the file-read tool's context window and get silently truncated; if you then reconstruct or rewrite the file from that truncated view, everything past the cutoff — including `totals.cost`, `model_usage`, and `sessions[].session_cost` — is dropped or corrupted, while `cawplan session collect` output for the same day stays correct. This exact class of bug has caused reports to upload with cost `0` even though local collection computed the right value. Always extract the input list and merge results back with a script, never with your own Read/Edit/Write on the whole file:
-
-```bash
-node -e '
-const fs = require("node:fs");
-const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-const inputs = (report.human_inputs || []).map((hi, index) => ({
-  index,
-  session_title: hi.session_title || "",
-  content: String(hi.content || "").slice(0, 200),
-}));
-console.log(JSON.stringify(inputs));
-' "$report_file" > "$report_dir/human-inputs-for-classify.json"
-```
-
-If `human_inputs` is empty or absent (empty array from the command above), skip this step and continue. Otherwise, read `$report_dir/human-inputs-for-classify.json` (not `$report_file`) and classify every entry in a single batch using the prompt below.
-
-Classification prompt to use:
-
-> Classify each AI coding session human input below. Return a JSON array — one object per input — with these exact fields:
-> `{ "index": N, "category": "...", "topic": "...", "topic_confidence": 0.0–1.0, "topic_reason": "one sentence" }`
->
-> **category** (pick one):
-> - `decision` — human chose between options ("agreed", "use X instead of Y")
-> - `direction` — human instructed AI what to build (default when nothing else fits)
-> - `correction` — human corrected AI output or reported an error ("bug", "fix", "error")
-> - `planning` — human planned or designed the approach ("plan", "roadmap", "next step")
->
-> **topic** (pick one):
-> - `bug` — fixing a defect or regression
-> - `ux` — UI, interaction, or visual design
-> - `security` — authentication, authorization, or vulnerability
-> - `performance` — speed, memory, latency, or throughput
-> - `new_feature` — adding new functionality
-> - `improvement` — refactor, cleanup, or enhancement of existing code
-> - `docs` — documentation, README, or comments
-> - `infra` — CI/CD, build, deploy, or environment
-> - `other` — does not fit any category above
->
-> Inputs (truncate content to 200 chars if needed):
-> [0] session:"<session_title>" content:"<human_input_content>"
-> [1] ...
-
-After receiving the JSON array, save it to `$report_dir/classify-result.json`, then merge it into `$report_file` with a script — never by reading and rewriting `$report_file` yourself:
-
-```bash
-node -e '
-const fs = require("node:fs");
-const reportPath = process.argv[1];
-const resultPath = process.argv[2];
-const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
-const results = JSON.parse(fs.readFileSync(resultPath, "utf8"));
-for (const r of results) {
-  const hi = report.human_inputs?.[r.index];
-  if (!hi) continue;
-  hi.category = r.category;
-  hi.topic = r.topic;
-  hi.topic_confidence = r.topic_confidence;
-  hi.topic_reason = r.topic_reason;
-  hi.topic_source = "llm";
-}
-fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
-' "$report_file" "$report_dir/classify-result.json"
-```
-
-This script reads and rewrites the file entirely on disk, so `totals`, `model_usage`, and every other field are preserved byte-for-byte regardless of report size. If the classification response is malformed or an error occurs, skip the merge and leave the existing values unchanged.
-
-After classification, rewrite every session's `session_title` from the human inputs that belong to that session. Extract the session-grouped inputs the same way — with a script, not by reading `$report_file` yourself:
-
-```bash
-node -e '
-const fs = require("node:fs");
-const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-const bySession = new Map();
-for (const hi of report.human_inputs || []) {
-  if (!bySession.has(hi.session_id)) bySession.set(hi.session_id, []);
-  bySession.get(hi.session_id).push({category: hi.category, topic: hi.topic, content: hi.content});
-}
-const sessions = (report.sessions || []).map((s) => ({
-  session_id: s.session_id,
-  current_title: s.session_title,
-  inputs: bySession.get(s.session_id) || [],
-})).filter((s) => s.inputs.length > 0);
-console.log(JSON.stringify(sessions));
-' "$report_file" > "$report_dir/sessions-for-title.json"
-```
-
-Read `$report_dir/sessions-for-title.json` (not `$report_file`) to build the title prompt. If a session has no human inputs, leave its existing title unchanged.
-
-Session title rewrite prompt to use:
-
-> Rewrite AI coding session titles from the session-specific human inputs below. Return a JSON array — one object per session — with these exact fields:
-> `{ "session_id": "...", "session_title": "...", "title_reason": "one sentence" }`
->
-> Rules:
-> - Use only the human input `content` values listed for that session.
-> - Do not read or summarize `assistant_message` for title generation; it is intentionally excluded to keep this step fast and token-efficient.
-> - Create a concise, human-readable title, ideally 4-10 words.
-> - Prefer the actual product area, feature, bug, workflow, or document being changed.
-> - Avoid generic titles such as "coding session", "daily report", "git commit", or the raw command name unless that is truly the work.
-> - Preserve a user's explicit task name when it is already clear and specific.
-> - If the inputs are mostly in a non-English language, the title may use that language; otherwise prefer English.
->
-> Sessions:
-> session_id:"<session_id>" current_title:"<existing_session_title>"
-> inputs:
-> - category:"<category>" topic:"<topic>" content:"<human_input_content>"
-> - ...
-
-After receiving the JSON array, save it to `$report_dir/title-result.json`, then merge it into `$report_file` with a script — never by reading and rewriting `$report_file` yourself:
-
-```bash
-node -e '
-const fs = require("node:fs");
-const reportPath = process.argv[1];
-const resultPath = process.argv[2];
-const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
-const results = JSON.parse(fs.readFileSync(resultPath, "utf8"));
-const bySessionId = new Map(results.map((r) => [r.session_id, r]));
-for (const s of report.sessions || []) {
-  const r = bySessionId.get(s.session_id);
-  if (!r) continue;
-  s.session_title = r.session_title;
-  s.session_title_source = "llm";
-  s.session_title_reason = r.title_reason;
-}
-fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
-' "$report_file" "$report_dir/title-result.json"
-```
-
-If the title rewrite response is malformed or an error occurs, skip the merge and leave existing session titles unchanged.
-
-**Step 3 — Product/repo/ticket assignment:**
-
-> **Order is fixed: always complete Step 2 (LLM classification) before this step.** Classification does not depend on product assignment and must not be deferred until after assignment.
-
-Always run the Web assignment command from **Product/repo/ticket assignment** for `$report_file`, even when every `sessions[]` entry already has `product_id`. Complete assignment/review before continuing so product, repo, and ticket display IDs can be checked or edited.
-
-**Step 4 — Review the report with the user:**
+**Step 3 — Review the report with the user:**
 
 Present the full review described in **Review content contract**. Do not show only a stats table.
 
-**Step 5 — Ticket context check:**
+**Step 4 — Ticket context check:**
 
 Do not ask the user to manually provide ticket IDs during reporting. `cawplan session collect` automatically parses explicit ticket refs from session `human_inputs`, including `ticket_id`, `ticket_display_id`, CawPlan issue URLs, and display IDs. Resolved tickets are preserved for review in the Web assignment page; assignment allows tickets from the selected product or another product in the same product line.
 
 When reviewing `$report_file`, mention any `sessions[].ticket_ids` and `sessions[].ticket_display_ids` already present. Ticket context should come from explicit human-input refs or assignment-page edits; do not keyword-search or guess tickets.
 
-**Step 6 — Ticket progress write-back:**
+**Step 5 — Ticket progress write-back:**
 
 Run **Ticket Progress Write-Back** below if `$report_file` has any `sessions[].ticket_ids`. This step belongs to the skill workflow, not to `cawplan session assign --web`; assignment only saves product/repo/ticket links into the daily report.
 
-**Step 7 — Upload:**
+**Step 6 — Upload:**
 ```bash
 cawplan session report --file "$report_file"
 ```
 
-**Step 8 — Query missing current-month reports:**
+**Step 7 — Query missing current-month reports:**
 ```bash
 cawplan session backfill --from <YYYY-MM-01> --to <YYYY-MM-DD> --dry-run
 ```
 
 Use the first day of the report's month as `--from` and the report date as `--to`. Show the returned `missing_dates` to the user. If there are no missing dates, say so and stop.
 
-**Step 9 — Collect each missing date with bounded concurrency:**
+**Step 8 — Collect each missing date with bounded concurrency:**
 
 Launch missing dates with a small concurrency limit:
 ```bash
@@ -341,28 +170,17 @@ for date in <date1> <date2> ...; do
 done
 wait
 ```
-Run this whole shell block with full network access when using Cursor agent tools. Each date is independent, but unbounded parallel collection can overload the Cursor Dashboard API and cause timeouts. The default concurrency is 5; reduce `CAWPLAN_COLLECT_CONCURRENCY` to 1 or 2 for unstable networks.
+Each date is independent, but unbounded parallel collection can overload the Cursor Dashboard API and cause timeouts. The default concurrency is 5; reduce `CAWPLAN_COLLECT_CONCURRENCY` to 1 or 2 for unstable networks.
 
-**Step 10 — Classify missing reports' human inputs and rewrite session titles (LLM):**
+**Step 9 — Product/repo/ticket assignment for missing reports:**
 
-First query cloud policy once:
-```bash
-cawplan api get /api/v1/public/openapi/ai-session-usage/policy
-```
+Run **Product/repo/ticket assignment** for all newly collected files.
 
-If `cloud_enrichment_enabled && (cloud_enrichment_enabled_for_all || cloud_enrichment_enabled_for_me)` is `true`, skip LLM classification and title rewrite for all newly collected files and keep collected values unchanged.
-
-Otherwise, classify human inputs from **all** newly collected files in `$report_dir` in a single batch operation using the same prompt as Step 2. Then rewrite `sessions[].session_title` for those files using the same session title rewrite prompt from Step 2. For files with empty `human_inputs`, skip silently. For every file, extract inputs and merge results back using the same script-based approach as Step 2 — never read and rewrite a whole report file yourself, since large files can silently truncate and drop `totals.cost`/`model_usage` on write-back. Do this for all files before moving to Step 11.
-
-**Step 11 — Product/repo/ticket assignment for missing reports:**
-
-Always run the Web assignment command from **Product/repo/ticket assignment** for all newly collected files, even when every session already has `product_id`. For multiple files, prefer the `--files` form to batch-review all reports at once before continuing.
-
-**Step 12 — Ticket progress write-back for missing reports:**
+**Step 10 — Ticket progress write-back for missing reports:**
 
 Run **Ticket Progress Write-Back** below for each newly collected file that has `sessions[].ticket_ids`.
 
-**Step 13 — Upload missing reports:**
+**Step 11 — Upload missing reports:**
 
 Upload each file individually in date order:
 ```bash
@@ -451,21 +269,14 @@ The page shows `session / human inputs / product / repo / tickets`, requires pro
 
 - If no `--date` is given, defaults to today.
 - Do not fabricate session data. Only report what the agents produce locally.
-- When running `cawplan session collect` from Cursor agent tools, request full network access (`required_permissions: ["full_network"]`) so Cursor Dashboard token/cost data can be fetched from `cursor.com`.
 - If product/repo assignment prompts appear during collection, only use explicit user selections or existing mappings.
-- Before reviewing or uploading, always run the Web assignment flow for every report. Do this even when all sessions already have `product_id`, no file changes, or no repository data.
 - Product selection is required for every session in the Web assignment flow; repository selection is optional.
-- If product/repo assignment is skipped in Cursor because the agent shell is non-interactive, immediately run the `--web` command from the agent shell and open the local assignment page automatically. For one report, use the single-file command with `--file <absolute-ai-daily-file>`. For multiple reports, prefer `--files <absolute-ai-daily-file>` repeated once per JSON file.
-- GitHub repository URLs used to create mappings must be in the format `https://github.com/owner/repo`.
 - Never create a new product-repo mapping unless the user explicitly selects or confirms the exact product and GitHub repository URL.
 - If `--file` is used, the file must contain `author` (git username) and `date` (YYYY-MM-DD) fields.
-- After a single-day upload succeeds, follow Steps 6–10: query missing dates in that report's current month with `--dry-run`, then for each missing date collect → classify → assign → upload individually. Do not use `cawplan session backfill` without `--dry-run`.
+- After a single-day upload succeeds, follow Steps 7–11: query missing dates in that report's current month with `--dry-run`, then for each missing date collect → assign → upload individually. Do not use `cawplan session backfill` without `--dry-run`.
 - Do not automatically backfill previous months or cross-month ranges during the single-day workflow. Only use the month-missing workflow when the user explicitly provides a month argument or asks to upload/fill missing reports for that month.
 - Preserve raw fields in `human_inputs` (for example `start_time`, `end_time`, `assistant_message`, `files_changed`, `lines_added`, `lines_deleted`).
-- Never replace raw `human_inputs` with summarized content. Keep each `human_inputs[].assistant_message` as the collected assistant text for that turn — do not rewrite or summarize it during classification.
-- Rewrite `sessions[].session_title` from that session's own `human_inputs` before review and upload. Do not use human inputs from another session to title a session.
-- Before any LLM classification/title rewrite step (single-day Step 2, month-missing Step M4, and backfill Step 10), call `cawplan api get /api/v1/public/openapi/ai-session-usage/policy`. If `cloud_enrichment_enabled && (cloud_enrichment_enabled_for_all || cloud_enrichment_enabled_for_me)` is true, skip LLM correction and keep collected category/topic/session_title values unchanged.
-- When the policy condition above is true, skip writing all LLM-adjusted fields: `human_inputs[].category`, `human_inputs[].topic`, `human_inputs[].topic_confidence`, `human_inputs[].topic_reason`, `human_inputs[].topic_source`, `sessions[].session_title`, `sessions[].session_title_source`, and `sessions[].session_title_reason`.
+- Never replace raw `human_inputs` with summarized content. Keep each `human_inputs[].assistant_message` and `human_inputs[].category/topic/topic_confidence/topic_reason/topic_source` exactly as collected — do not reclassify, rewrite, or summarize them at any point in this workflow.
 
 ## Confirmation
 
