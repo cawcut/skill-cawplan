@@ -1,4 +1,5 @@
 import {Command} from "commander";
+import {mkdirSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {buildQueryFromFlags, csvToArray} from "../lib/cache.js";
@@ -30,6 +31,19 @@ import {
 import {listCawplanProducts} from "../lib/product-catalog.js";
 import {registerAiSessionInsightsCommands} from "./session-insights.js";
 
+const REPORT_TEMP_DIR_NAME = "cawplan-ai-daily";
+
+// resolveReportTempDir returns the shared, workflow-scoped temp directory
+// used to stage ai-daily-<date>.json report files across collect/assign/
+// review/upload, creating it if it doesn't already exist. Centralized here
+// so callers (including the cawplan-coding-commit skill) don't need their
+// own platform-specific directory-creation logic.
+export function resolveReportTempDir(): string {
+    const dir = join(tmpdir(), REPORT_TEMP_DIR_NAME);
+    mkdirSync(dir, {recursive: true});
+    return dir;
+}
+
 export function formatElapsedMs(ms: number): string {
     const totalSeconds = Math.max(0, Math.round(ms / 1000));
     const minutes = Math.floor(totalSeconds / 60);
@@ -58,7 +72,7 @@ function registerSessionSubcommands(session: Command): void {
         .option("--verbose", "Print detailed collection progress and per-step timings")
         .action(async (opts) => {
             const date = opts.date ?? new Date().toISOString().slice(0, 10);
-            const outputPath: string = opts.output ?? join(tmpdir(), "cawplan-ai-daily", `ai-daily-${date}.json`);
+            const outputPath: string = opts.output ?? join(resolveReportTempDir(), `ai-daily-${date}.json`);
             const agents =
                 opts.agent && opts.agent.length > 0
                     ? (opts.agent as AiSessionAgent[])
@@ -94,6 +108,12 @@ function registerSessionSubcommands(session: Command): void {
                 console.error(`Error: ${(e as Error).message}`);
                 process.exit(1);
             }
+        });
+
+    session.command("temp-dir")
+        .description("Create (if needed) and print the shared temp directory for ai-daily report files")
+        .action(() => {
+            console.log(resolveReportTempDir());
         });
 
     session.command("products")
