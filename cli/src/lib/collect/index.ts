@@ -2,7 +2,12 @@ import {writeFileSync, mkdirSync} from "node:fs";
 import {dirname} from "node:path";
 import {CollectOptions, DailyApiJson} from "./types.js";
 import {gitAuthor, gitRemoteRepo} from "./git.js";
-import {collectClaudeCodeSession, findSessionsByDate} from "./agents/claude-code.js";
+import {
+    collectClaudeCodeSession,
+    findSessionsByDate,
+    mergeCompactionContinuations,
+    type CollectedClaudeSession,
+} from "./agents/claude-code.js";
 import {collectGuiSessions} from "./agents/cursor-gui.js";
 import {collectCursorCliSessions} from "./agents/cursor-cli.js";
 import {collectCodexSessions} from "./agents/codex.js";
@@ -176,6 +181,7 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
             log: logger.log,
         }));
         logger.log(`Found ${claudeSessions.length} Claude Code candidate session(s).`);
+        const collectedClaudeSessions: CollectedClaudeSession[] = [];
         for (const {jsonlPath, projectName, sessionId} of claudeSessions) {
             try {
                 const s = logger.step(`Collect Claude Code session ${sessionId}`, () =>
@@ -189,11 +195,18 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
                     logger.log(`Skip Claude Code session ${sessionId}: no activity on ${date}.`);
                     continue;
                 }
-                sessions.push(s);
+                collectedClaudeSessions.push({jsonlPath, sessionId, session: s});
             } catch (e) {
                 console.warn(`Warning: claude-code session ${sessionId}: ${(e as Error).message}`);
             }
         }
+        // Claude Code's auto-compact splits one long work thread across multiple
+        // session files; merge those back into a single reported session so they
+        // don't show up as several duplicate-looking entries in the same report.
+        const mergedClaudeSessions = logger.step("Merge Claude compaction-continuation sessions", () =>
+            mergeCompactionContinuations(collectedClaudeSessions, {log: logger.log})
+        );
+        sessions.push(...mergedClaudeSessions);
     }
 
     // Collect Cursor GUI sessions

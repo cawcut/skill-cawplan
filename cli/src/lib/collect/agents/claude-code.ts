@@ -22,8 +22,8 @@ import { readFileSync, readdirSync, statSync, openSync, readSync, closeSync } fr
 import { join, basename, dirname } from "node:path";
 import { homedir } from "node:os";
 import { claudeProjectsDir } from "../paths.js";
-import { SessionData, FileChange, RepoTouched, HumanInput } from "../types.js";
-import { aggregateUsageBuckets, foldBucketsToModel, mergeUsageBuckets } from "../aggregators/tokens.js";
+import { SessionData, FileChange, RepoTouched, HumanInput, UsageBucket, MessageStats } from "../types.js";
+import { aggregateUsageBuckets, bucketKey, foldBucketsToModel, mergeUsageBuckets } from "../aggregators/tokens.js";
 import { gitRemoteRepo } from "../git.js";
 import { ChunkMessage } from "../aggregators/chunks.js";
 import {isTimestampOnLocalDate, localDateString, formatLocalTime, getLocalTimezone} from "../date-utils.js";
@@ -672,4 +672,232 @@ export function collectClaudeCodeSession(
     },
     human_inputs: humanInputs.length > 0 ? humanInputs : undefined,
   };
+}
+
+/**
+ * When Claude Code's context auto-compacts, it starts a new session file whose
+ * first event is a "compact_boundary" system message carrying `logicalParentUuid`
+ * — the uuid of the last preserved message in the conversation it continues from.
+ * Returns that uuid, or null if this session did not start from a compaction.
+ */
+export function findCompactionOriginUuid(jsonlPath: string): string | null {
+  let content: string;
+  try {
+    content = readFileSync(jsonlPath, "utf-8");
+  } catch {
+    return null;
+  }
+  if (!content.includes("compact_boundary")) return null;
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.includes("compact_boundary")) continue;
+    try {
+      const obj = JSON.parse(trimmed) as Record<string, unknown>;
+      if (obj["type"] === "system" && obj["subtype"] === "compact_boundary") {
+        const originUuid = obj["logicalParentUuid"] as string | undefined;
+        if (originUuid) return originUuid;
+      }
+    } catch {
+      // skip malformed line
+    }
+  }
+  return null;
+}
+
+/**
+ * True if this session's transcript contains a message with the given uuid —
+ * i.e. it is the historical conversation another session's compaction boundary
+ * continues from.
+ */
+export function sessionContainsUuid(jsonlPath: string, uuid: string): boolean {
+  let content: string;
+  try {
+    content = readFileSync(jsonlPath, "utf-8");
+  } catch {
+    return false;
+  }
+  if (!content.includes(uuid)) return false;
+  for (const line of content.split("\n")) {
+    if (!line.includes(uuid)) continue;
+    try {
+      const obj = JSON.parse(line.trim()) as Record<string, unknown>;
+      if (obj["uuid"] === uuid) return true;
+    } catch {
+      // skip malformed line
+    }
+  }
+  return false;
+}
+
+export interface CollectedClaudeSession {
+  jsonlPath: string;
+  sessionId: string;
+  session: SessionData;
+}
+
+function mergeTimeRangeDisplay(members: SessionData[]): string {
+  const parts = members.map((m) => m.time_range.display).filter((d) => d && d.includes(" - "));
+  if (!parts.length) return members[0]?.time_range.display ?? "unknown";
+  const starts = parts.map((p) => p.split(" - ")[0]).sort();
+  const ends = parts.map((p) => p.split(" - ")[1]).sort();
+  return `${starts[0]} - ${ends[ends.length - 1]}`;
+}
+
+function mergeSessionDataGroup(members: SessionData[], canonicalIndex: number): SessionData {
+  const canonical = members[canonicalIndex];
+
+  const buckets: Record<string, UsageBucket> = {};
+  for (const m of members) {
+    for (const b of m.usage_breakdown) {
+      const key = bucketKey({ model: b.model, speed: b.speed, service_tier: b.service_tier, effort: b.effort });
+      if (!buckets[key]) {
+        buckets[key] = { ...b };
+        continue;
+      }
+      const existing = buckets[key];
+      existing.api_calls += b.api_calls;
+      existing.input_tokens += b.input_tokens;
+      existing.output_tokens += b.output_tokens;
+      existing.cache_read_input_tokens += b.cache_read_input_tokens;
+      existing.cache_creation_input_tokens += b.cache_creation_input_tokens;
+      existing.cost += b.cost;
+    }
+  }
+  const usageBreakdown = Object.values(buckets);
+  const modelUsage = foldBucketsToModel(buckets);
+
+  // collectClaudeCodeSession() never populates the top-level file_changes array
+  // (only human_inputs[].file_changes, which the daily aggregator later rolls up
+  // into it) — so files_changed here must be summed directly from each member's
+  // count, not derived from a field that's always empty at this pipeline stage.
+  const filesChangedCount = members.reduce((s, m) => s + (m.files_changed ?? 0), 0);
+
+  const humanInputs = members
+    .flatMap((m) => m.human_inputs ?? [])
+    .sort((a, b) => (a.start_time ?? "").localeCompare(b.start_time ?? ""));
+
+  const messageStats: MessageStats = {
+    user: members.reduce((s, m) => s + m.message_stats.user, 0),
+    assistant: members.reduce((s, m) => s + m.message_stats.assistant, 0),
+    tool_calls: members.reduce((s, m) => s + m.message_stats.tool_calls, 0),
+  };
+
+  const repoMap = new Map<string, RepoTouched>();
+  for (const m of members) {
+    for (const r of m.repos_touched) {
+      const existing = repoMap.get(r.repo);
+      if (!existing) {
+        repoMap.set(r.repo, { ...r });
+        continue;
+      }
+      existing.files += r.files;
+      existing.added += r.added;
+      existing.deleted += r.deleted;
+    }
+  }
+
+  const starts = members.map((m) => m.time_range.start).filter((s): s is string => Boolean(s)).sort();
+  const filesAdded = members.reduce((s, m) => s + (m.files_added ?? 0), 0);
+  const filesDeleted = members.reduce((s, m) => s + (m.files_deleted ?? 0), 0);
+  const ticketIds = [...new Set(members.flatMap((m) => m.ticket_ids ?? []))];
+  const ticketDisplayIds = [...new Set(members.flatMap((m) => m.ticket_display_ids ?? []))];
+
+  // total_tokens/session_cost/models/cost_basis/token_source are intentionally
+  // left unset here, same as a plain collectClaudeCodeSession() result — the
+  // daily aggregator derives them from usage_breakdown/model_usage. Setting an
+  // explicit value here (even 0) would short-circuit that derivation, since it
+  // only falls back when the field is nullish.
+  return {
+    ...canonical,
+    time_range: {
+      ...canonical.time_range,
+      display: mergeTimeRangeDisplay(members),
+      start: starts[0] ?? canonical.time_range.start,
+    },
+    models: undefined,
+    total_tokens: undefined,
+    session_cost: undefined,
+    cost_basis: undefined,
+    token_source: undefined,
+    model_usage: modelUsage,
+    usage_breakdown: usageBreakdown,
+    files_changed: filesChangedCount,
+    files_added: filesAdded > 0 ? filesAdded : undefined,
+    files_deleted: filesDeleted > 0 ? filesDeleted : undefined,
+    repos_touched: [...repoMap.values()],
+    message_stats: messageStats,
+    human_inputs: humanInputs.length > 0 ? humanInputs : undefined,
+    ticket_ids: ticketIds.length > 0 ? ticketIds : undefined,
+    ticket_display_ids: ticketDisplayIds.length > 0 ? ticketDisplayIds : undefined,
+  };
+}
+
+/**
+ * Merge Claude Code sessions that are really the same long-running work thread
+ * split across multiple files by auto-compaction (see findCompactionOriginUuid).
+ * Sessions that share a compaction origin uuid are grouped; if one of today's
+ * other collected sessions is itself the historical conversation they continue
+ * from, that session becomes the canonical merged entry, otherwise the earliest
+ * session in the group is used. Groups of size 1 pass through unchanged.
+ */
+export function mergeCompactionContinuations(
+  collected: CollectedClaudeSession[],
+  opts?: ClaudeCollectOptions
+): SessionData[] {
+  if (collected.length <= 1) return collected.map((c) => c.session);
+
+  const originUuidByIndex = collected.map((c) => findCompactionOriginUuid(c.jsonlPath));
+
+  // Group indices by shared origin uuid (siblings continuing from the same point).
+  const groupsByOrigin = new Map<string, number[]>();
+  originUuidByIndex.forEach((uuid, i) => {
+    if (!uuid) return;
+    const group = groupsByOrigin.get(uuid) ?? [];
+    group.push(i);
+    groupsByOrigin.set(uuid, group);
+  });
+
+  // For each distinct origin uuid, check whether one of today's OTHER sessions
+  // is the actual historical file it continues from — if so it joins the group
+  // as the canonical parent. A session can both have its own external origin
+  // (it forked from an even older ancestor) AND be the parent of a later fork,
+  // so having an origin does not disqualify it from being a parent here.
+  const parentIndexByOrigin = new Map<string, number>();
+  for (const uuid of groupsByOrigin.keys()) {
+    for (let i = 0; i < collected.length; i++) {
+      if (groupsByOrigin.get(uuid)!.includes(i)) continue;
+      if (sessionContainsUuid(collected[i].jsonlPath, uuid)) {
+        parentIndexByOrigin.set(uuid, i);
+        break;
+      }
+    }
+  }
+
+  const merged: SessionData[] = [];
+  const consumed = new Set<number>();
+
+  for (const [uuid, memberIndices] of groupsByOrigin.entries()) {
+    const parentIndex = parentIndexByOrigin.get(uuid);
+    const groupIndices = parentIndex !== undefined ? [parentIndex, ...memberIndices] : memberIndices;
+    if (groupIndices.length <= 1) continue; // nothing to merge
+    if (groupIndices.some((i) => consumed.has(i))) continue; // already part of another merged group
+
+    const members = groupIndices.map((i) => collected[i].session);
+    const canonicalIndex = parentIndex !== undefined ? 0 : members
+      .map((m, i) => ({ i, start: m.time_range.start ?? "" }))
+      .sort((a, b) => a.start.localeCompare(b.start))[0].i;
+
+    logClaude(
+      opts,
+      `Merging ${groupIndices.length} compaction-continuation session(s) into "${members[canonicalIndex].session_name}" (origin ${uuid.slice(0, 8)}...).`
+    );
+    merged.push(mergeSessionDataGroup(members, canonicalIndex));
+    groupIndices.forEach((i) => consumed.add(i));
+  }
+
+  for (let i = 0; i < collected.length; i++) {
+    if (!consumed.has(i)) merged.push(collected[i].session);
+  }
+
+  return merged;
 }
