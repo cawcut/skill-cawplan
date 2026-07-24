@@ -59,7 +59,7 @@ export function registerAuthCommand(program: Command): void {
       const envNames = getEnvNames();
       const defaultEnv = existingConfig?.env ?? getDefaultEnvName();
 
-      console.log("Open https://www.cawplan.com/account/api to generate an API Key");
+      console.log("Open https://app.cawplan.com/account/api to generate an API Key");
       let env: string;
       let baseUrl: string;
       let portalUrl: string;

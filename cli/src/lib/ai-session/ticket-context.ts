@@ -43,7 +43,7 @@ function ticketContextFromSearchItem(item: TicketSearchItem, fallbackRef: string
         version_id: item.version_id,
         title: item.title ?? item.name,
         content,
-        url: item.url ?? (displayId ? `https://www.cawplan.com/issue/${displayId}` : undefined),
+        url: item.url ?? (displayId ? `https://app.cawplan.com/issue/${displayId}` : undefined),
     };
 }
 

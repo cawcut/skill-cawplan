@@ -8,7 +8,7 @@
       "defaultEnv": "prd",
       "env": {
         "prd": {
-          "portalBase": "https://www.cawplan.com",
+          "portalBase": "https://app.cawplan.com",
           "apiBase": "https://api.cawplan.com/core-product"
         },
         "proto": {

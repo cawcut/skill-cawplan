@@ -1,4 +1,4 @@
-export function assignmentHtml(portalBase = "https://www.cawplan.com"): string {
+export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     const normalizedPortalBase = portalBase.replace(/\/$/, "");
     return `<!doctype html>
 <html lang="en">

@@ -71,7 +71,7 @@ Run these commands in the agent chat, not directly in your shell:
 If the current coding session belongs to one or more CawPlan tickets, load them during the session:
 
 ```bash
-/cawplan-ticket-context https://www.cawplan.com/issue/CWP-14471 https://www.cawplan.com/issue/CWP-14472
+/cawplan-ticket-context https://app.cawplan.com/issue/CWP-14471 https://app.cawplan.com/issue/CWP-14472
 ```
 
 The next `/cawplan-coding-commit` report will automatically link the session to those tickets.

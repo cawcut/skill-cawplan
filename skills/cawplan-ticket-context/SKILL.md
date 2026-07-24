@@ -21,14 +21,14 @@ cawplan skill check
 
 Use this skill when the user invokes `/cawplan-ticket-context`, asks to load ticket context for the current coding session, or mentions a CawPlan issue URL in the session.
 
-Automatically trigger this skill as soon as the user message contains a CawPlan issue URL such as `https://www.cawplan.com/issue/CWP-14471` or `https://core-web-product.uid.dev.ui.com/issue/CAW-04560`. Do not wait for an explicit `/cawplan-ticket-context` command in that case.
+Automatically trigger this skill as soon as the user message contains a CawPlan issue URL such as `https://app.cawplan.com/issue/CWP-14471` or `https://core-web-product.uid.dev.ui.com/issue/CAW-04560`. Do not wait for an explicit `/cawplan-ticket-context` command in that case.
 
 This skill runs before any daily report exists. Do not ask for, read, create, or modify an `ai-daily-*.json` file.
 
 This skill is display-only. After looking up and showing the ticket details, stop. Do not inspect the repository, search source files, infer an implementation plan, run tests, edit files, commit changes, or continue into another workflow unless the user explicitly asks for that follow-up work.
 
 Accept any mix of:
-- CawPlan issue URLs, for example `https://www.cawplan.com/issue/CAWP-13477`
+- CawPlan issue URLs, for example `https://app.cawplan.com/issue/CAWP-13477`
 - Product issue URLs, for example `https://core-web-product.uid.dev.ui.com/issue/CAW-04560`
 - Ticket display IDs, for example `CAWP-13477`, `CAW-04560`, or any `PREFIX-123` style ID
 - Ticket unique IDs

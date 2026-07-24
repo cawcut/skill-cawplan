@@ -54,7 +54,7 @@ Track release progress, dependencies, pending tasks, and target delivery dates
 Load one or more CawPlan tickets into the current AI coding session so the next daily report links this session to those tickets.
 
 ```text
-/cawplan-ticket-context https://www.cawplan.com/issue/CWP-14471 https://www.cawplan.com/issue/CWP-14472
+/cawplan-ticket-context https://app.cawplan.com/issue/CWP-14471 https://app.cawplan.com/issue/CWP-14472
 /cawplan-ticket-context CWP-14471 CWP-14472
 ```
 

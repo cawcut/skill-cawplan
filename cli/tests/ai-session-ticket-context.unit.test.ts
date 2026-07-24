@@ -69,7 +69,7 @@ function dailyReport(): DailyApiJson {
 
 describe("ai-session ticket context", () => {
     test("extracts ticket display IDs from CawPlan issue URL refs", () => {
-        expect(ticketDisplayIdFromRef("https://www.cawplan.com/issue/CWP-14471"))
+        expect(ticketDisplayIdFromRef("https://app.cawplan.com/issue/CWP-14471"))
             .toBe("CWP-14471");
     });
 
@@ -82,7 +82,7 @@ describe("ai-session ticket context", () => {
         const refs = extractTicketRefsFromHumanInputs([
             {
                 category: "direction",
-                content: "Continue ticket_display_id: CWP-14471 and https://www.cawplan.com/issue/CAW-04560",
+                content: "Continue ticket_display_id: CWP-14471 and https://app.cawplan.com/issue/CAW-04560",
                 ticket_id: "ticket-14471",
                 session_id: "s1",
             },
@@ -101,7 +101,7 @@ describe("ai-session ticket context", () => {
         expect(ticketContextIsResolved({
             ticket_id: "CWP-14471",
             ticket_display_id: "CWP-14471",
-            url: "https://www.cawplan.com/issue/CWP-14471",
+            url: "https://app.cawplan.com/issue/CWP-14471",
         })).toBe(false);
         expect(ticketContextIsResolved({
             ticket_id: "ticket-14471",
@@ -202,7 +202,7 @@ describe("ai-session ticket context", () => {
         const applied = await applyHumanInputTicketRefsToSessions(sessions, async () => [{
             ticket_id: "CWP-00000",
             ticket_display_id: "CWP-00000",
-            url: "https://www.cawplan.com/issue/CWP-00000",
+            url: "https://app.cawplan.com/issue/CWP-00000",
         }]);
 
         expect(applied).toBe(0);
