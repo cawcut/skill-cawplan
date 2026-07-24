@@ -772,9 +772,21 @@ function mergeSessionDataGroup(members: SessionData[], canonicalIndex: number): 
   // count, not derived from a field that's always empty at this pipeline stage.
   const filesChangedCount = members.reduce((s, m) => s + (m.files_changed ?? 0), 0);
 
+  // Compaction continuation seeds the new file with a copy of the preserved
+  // segment from the file it continues from, so the same human_input turn can
+  // legitimately appear in both members' own parsed lists. Drop exact repeats
+  // (by content), keeping the earliest occurrence chronologically.
+  const seenContent = new Set<string>();
   const humanInputs = members
     .flatMap((m) => m.human_inputs ?? [])
-    .sort((a, b) => (a.start_time ?? "").localeCompare(b.start_time ?? ""));
+    .sort((a, b) => (a.start_time ?? "").localeCompare(b.start_time ?? ""))
+    .filter((h) => {
+      const key = h.content.trim();
+      if (!key) return true;
+      if (seenContent.has(key)) return false;
+      seenContent.add(key);
+      return true;
+    });
 
   const messageStats: MessageStats = {
     user: members.reduce((s, m) => s + m.message_stats.user, 0),

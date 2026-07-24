@@ -235,6 +235,47 @@ describe("mergeCompactionContinuations", () => {
     expect(totalCost).toBeCloseTo(6, 4);
   });
 
+  test("drops exact-duplicate human_inputs carried over by compaction's preserved segment", () => {
+    // Compaction seeds the new file with a copy of the preserved segment from
+    // the file it continues from, so both members legitimately re-parse the
+    // same turn as their own human_input — this should collapse to one.
+    const dir = makeDir();
+    const childA = join(dir, "child-a.jsonl");
+    const childB = join(dir, "child-b.jsonl");
+    writeJsonl(childA, [{ type: "system", subtype: "compact_boundary", logicalParentUuid: "origin-uuid" }]);
+    writeJsonl(childB, [{ type: "system", subtype: "compact_boundary", logicalParentUuid: "origin-uuid" }]);
+
+    const collected: CollectedClaudeSession[] = [
+      {
+        jsonlPath: childA,
+        sessionId: "child-a",
+        session: session({
+          session_id: "child-a",
+          human_inputs: [
+            { category: "direction", content: "shared preserved turn", start_time: "2026-07-23T01:00:00.000Z" },
+            { category: "direction", content: "only in child-a", start_time: "2026-07-23T01:05:00.000Z" },
+          ],
+        }),
+      },
+      {
+        jsonlPath: childB,
+        sessionId: "child-b",
+        session: session({
+          session_id: "child-b",
+          human_inputs: [
+            { category: "direction", content: "shared preserved turn", start_time: "2026-07-23T01:00:00.000Z" },
+            { category: "direction", content: "only in child-b", start_time: "2026-07-23T02:00:00.000Z" },
+          ],
+        }),
+      },
+    ];
+
+    const merged = mergeCompactionContinuations(collected);
+    expect(merged).toHaveLength(1);
+    const contents = merged[0].human_inputs?.map((h) => h.content);
+    expect(contents).toEqual(["shared preserved turn", "only in child-a", "only in child-b"]);
+  });
+
   test("leaves unrelated sessions unmerged", () => {
     const dir = makeDir();
     const pathA = join(dir, "a.jsonl");
