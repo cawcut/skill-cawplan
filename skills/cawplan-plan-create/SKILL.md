@@ -5,7 +5,7 @@ description: |
   Create a CawPlan version plan: create a version and optionally populate it with tickets.
   Use when: the user asks to create a version plan, set up a new release, create a version with goals or tasks, or plan a release train.
   NOT for: tracking an existing plan, creating standalone backlog tickets, querying product info, or metrics.
-argument-hint: "[product name or ID, version name, and optional ticket descriptions]"
+argument-hint: "[product name or ID, version name, and optional ticket titles/summaries]"
 allowed-tools: Bash
 ---
 
@@ -32,9 +32,11 @@ cawplan skill check
 3. If the user provided tickets or tasks, create them on the new version:
    ```bash
    cawplan tickets create-version <product_id> <version_id> \
-     --description "<task description>" --type FEATURE --priority MEDIUM
+     --description "<ticket title/summary>" \
+     --remarks "<html body>" \
+     --type FEATURE --priority MEDIUM
    ```
-   Repeat for each ticket. Resolve assignees with `cawplan users query --email <email>` when provided.
+   Repeat for each ticket. Include `--remarks` only when the user provides ticket body details; it supports HTML. Resolve assignees with `cawplan users query --email <email>` when provided.
 
 ## Rules
 
@@ -54,7 +56,7 @@ After creating the version, report:
 - Version name and unique ID.
 - Product name and ID.
 - Description (truncated if long).
-- List of created tickets (display ID, type, description), or "No tickets created" if none.
+- List of created tickets (display ID, type, title/summary, remarks if provided), or "No tickets created" if none.
 
 ## References
 

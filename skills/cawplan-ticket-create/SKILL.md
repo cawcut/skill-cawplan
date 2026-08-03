@@ -2,10 +2,10 @@
 version: 0.2.6
 name: cawplan-ticket-create
 description: |
-  Create a new CawPlan ticket (version-scoped or backlog) with details, assignee, and priority.
+  Create a new CawPlan ticket (version-scoped or backlog) with title/summary, optional HTML remarks, assignee, and priority.
   Use when: the user asks to create, file, or add a ticket, issue, bug, or task in CawPlan.
   NOT for: updating existing tickets, searching tickets, critical issues, or release planning.
-argument-hint: "[product, version (optional), description, type, priority, assignee]"
+argument-hint: "[product, version (optional), ticket title/summary, remarks, type, priority, assignee]"
 allowed-tools: Bash
 ---
 
@@ -26,7 +26,8 @@ Use `--product` and `--version` by name — the CLI resolves IDs internally. No 
 cawplan tickets create-version \
   --product "<product name>" \
   --ver "<version name>" \
-  --description "<text>" \
+  --description "<ticket title/summary>" \
+  --remarks "<html body>" \
   --type FEATURE \
   --priority MEDIUM \
   --reporter <your-email> \
@@ -37,7 +38,8 @@ cawplan tickets create-version \
 ```bash
 cawplan tickets create-backlog \
   --product "<product name>" \
-  --description "<text>" \
+  --description "<ticket title/summary>" \
+  --remarks "<html body>" \
   --type FEATURE \
   --priority MEDIUM \
   --reporter <your-email>
@@ -54,7 +56,8 @@ For API Key auth, omit `--reporter`.
 - Default type to `FEATURE`; use `BUGFIX` only when the user says bug, defect, or issue.
 - Default priority to `MEDIUM` when not specified.
 - If the user did not specify a version, use `create-backlog` and tell the user: "This ticket was created as a backlog item and is not assigned to any version."
-- Do not guess the description. Ask one clarifying question if the content is missing.
+- Do not guess the ticket title/summary. Ask one clarifying question if it is missing.
+- Use `--remarks` for the ticket page body; it supports HTML. Omit it when the user only provides a title/summary.
 - If the CLI reports multiple matches for a product or version, ask the user to disambiguate.
 
 ## Confirmation
@@ -65,7 +68,8 @@ After creating, report:
 - Product / version scope (or "Backlog").
 - Type, priority, status.
 - Assignees, or `-` if none.
-- Description (stripped of HTML, truncated if long).
+- Title/summary (stripped of HTML, truncated if long).
+- Remarks (stripped of HTML, truncated if long), or `-` if none.
 
 ## References
 
