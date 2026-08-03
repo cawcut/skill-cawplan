@@ -33,6 +33,7 @@ For CI or headless use: `cawplan auth configure` (API key).
 | 6 | `cawplan-ticket-context` | `/cawplan-ticket-context` | Load CawPlan tickets into the current coding session context for daily report linkage |
 | 7 | `cawplan-coding-commit` | `/cawplan-coding-commit` | Collect local agent data (Claude Code, Cursor, Codex) and upload a daily AI coding session report |
 | 8 | `cawplan-coding-insights` | `/cawplan-coding-insights` | AI coding cost, token, and prompt quality insights across all dimensions |
+| 9 | `cawplan-requirement-analyze` | `/cawplan-requirement-analyze` | Analyze requirement inputs into five fields and archive a Requirement to QA Insights |
 
 ## Quick Reference
 
@@ -46,6 +47,7 @@ For CI or headless use: `cawplan auth configure` (API key).
 | 6 | Load ticket context | `/cawplan-ticket-context https://app.cawplan.com/issue/CWP-14471 https://app.cawplan.com/issue/CWP-14472` |
 | 7 | Collect & submit AI coding report | `/cawplan-coding-commit` |
 | 8 | My session activity | `/cawplan-coding-insights show my own session activity for 2026-06-15` |
+| 9 | Analyze and archive a requirement | `/cawplan-requirement-analyze analyze this ticket CAWP-04606 into five fields` |
 
 More examples: `COOKBOOK.md`.
 

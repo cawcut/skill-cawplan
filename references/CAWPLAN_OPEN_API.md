@@ -527,6 +527,50 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
 - Query params: `date` or `date_from` + `date_to`, `fuzzy_match` (optional)
 - Response: `application/pdf` binary
 
+## 15) QA Insights APIs
+Module tree and Requirement archive for Test Suites. **Public Open API only** — do not use Internal routes (`/api/v1/product/{unique_id}/qa/...`).
+
+### Get Module Tree
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/module-tree`
+- Path params: `product_id` (product `unique_id`)
+- Response: `product_id`, hierarchical `nodes[]` (`id`, `name`, `parent_id`, `level`, `children[]`); `nodes` may be empty
+- Maps to cawplan CLI: `cawplan api GET /api/v1/public/openapi/product/{product_id}/qa/module-tree`
+
+### Create Module Tree Node
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/module-tree`
+- Path params: `product_id`
+- Body: `parent_id` (node `id`, or `null` for a root node), `name` (required)
+- Response: single node `id`, `name`, `parent_id`, `level`
+- Notes: depth > 5 → `FAILURE_INVALID_INPUT` (`module tree depth exceeds limit (5)`)
+- Maps to cawplan CLI: `cawplan api POST /api/v1/public/openapi/product/{product_id}/qa/module-tree --body '{"parent_id":null,"name":"..."}'`
+
+### Create Requirement
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/requirements`
+- Path params: `product_id` (**do not include `product_id` in the body**)
+- Body (required): `module_tree_node_id`, `function_description`, `entry_trigger`, `normal_expectation`, `constraints`
+- Body (optional on API): `out_of_scope`, `ticket_id` (ticket `display_id`), `summary` (display label for list/cards — API allows null)
+- Notes:
+    - `summary`: short one-line overview for QA Insights list display. **Not** one of the five requirement fields; **not** test-point input. `cawplan-requirement-analyze` always sends non-empty `summary` on POST.
+    - Do not send `review_status` (defaults to `PENDING`) or `is_edited` (TestPoint field only).
+    - Response `data.url` is a **portal deep-link path** (e.g. `/product/{product_id}/qa-insights/test-suites/requirements/{id}`) for opening Test Suites in the browser — **not** a Public Open API route. Return it to the user as-is from the response; **never** construct or guess this path.
+    - Response `data.id` is the requirement id for later API calls (e.g. `GET .../qa/requirements?module_tree_node_id=...`, `POST .../qa/requirements/{id}/testpoints/batch`).
+- Maps to cawplan CLI: `cawplan api POST /api/v1/public/openapi/product/{product_id}/qa/requirements --body '{...}'`
+- Example body: `{"summary":"道具图固定1:1裁剪","function_description":"...","entry_trigger":"...","normal_expectation":"...","constraints":"...","out_of_scope":"...","module_tree_node_id":"<id>","ticket_id":"CAWP-04606"}`
+
+### Update Requirement
+- Endpoint: `PATCH /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}`
+- Path params: `product_id`, `requirement_id`
+- Body: any subset of `function_description`, `entry_trigger`, `normal_expectation`, `constraints`, `out_of_scope`, `summary` — send **only changed** fields
+- Notes: do not send `product_id`, `review_status`, or `is_edited` in the body. `summary` may be cleared with empty string or `null`. Use when updating an existing Requirement after hot/cold handoff; compare five fields against `five_field_snapshot` and `summary` against `summary_snapshot` before PATCH vs POST create. Example bodies (changed keys only): `{"constraints":"..."}`, `{"summary":"..."}`
+- Maps to cawplan CLI: `cawplan api PATCH /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id} --body '{...}'`
+
+### List Requirements (read — cold-handoff and reconcile)
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements`
+- Query params: `module_tree_node_id` (optional), `version_id` (optional)
+- Response: array of requirements (not paginated); each row includes five fields, `summary` (`null` if unset), and metadata; filter client-side by `id` when needed. **No** `GET .../qa/requirements/{requirement_id}` single-item endpoint.
+- Notes: also used when a POST/PATCH outcome is **unknown** (network/timeout) — list rows under the target `module_tree_node_id` and compare **five fields only** to avoid duplicate POST creates. **Strong match / dedup compares five fields only** — `summary` does **not** participate. Reconcile compare rules for `cawplan-requirement-analyze`: see `skills/cawplan-requirement-analyze/SKILL.md` §10 (Field comparison).
+- Maps to cawplan CLI: `cawplan api GET /api/v1/public/openapi/product/{product_id}/qa/requirements --query "module_tree_node_id=..."`
+
 ## Error Responses
 - `401` Unauthorized
 - `404` Not Found
