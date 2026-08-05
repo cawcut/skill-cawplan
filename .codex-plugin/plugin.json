@@ -54,6 +54,10 @@
     {
       "name": "cawplan-requirement-analyze",
       "path": "skills/cawplan-requirement-analyze"
+    },
+    {
+      "name": "cawplan-testpoint-generate",
+      "path": "skills/cawplan-testpoint-generate"
     }
   ]
 }

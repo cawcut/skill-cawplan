@@ -115,6 +115,7 @@ SKILLS=(
   cawplan-coding-commit
   cawplan-coding-insights
   cawplan-requirement-analyze
+  cawplan-testpoint-generate
 )
 
 LEGACY_SKILLS=(

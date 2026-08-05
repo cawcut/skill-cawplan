@@ -553,7 +553,7 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
     - `summary`: short one-line overview for QA Insights list display. **Not** one of the five requirement fields; **not** test-point input. `cawplan-requirement-analyze` always sends non-empty `summary` on POST.
     - Do not send `review_status` (defaults to `PENDING`) or `is_edited` (TestPoint field only).
     - Response `data.url` is a **portal deep-link path** (e.g. `/product/{product_id}/qa-insights/test-suites/requirements/{id}`) for opening Test Suites in the browser — **not** a Public Open API route. Return it to the user as-is from the response; **never** construct or guess this path.
-    - Response `data.id` is the requirement id for later API calls (e.g. `GET .../qa/requirements?module_tree_node_id=...`, `POST .../qa/requirements/{id}/testpoints/batch`).
+    - Response `data.id` is the requirement id for later API calls (e.g. `GET .../qa/requirements/{id}`, `POST .../qa/requirements/{id}/testpoints/batch`).
 - Maps to cawplan CLI: `cawplan api POST /api/v1/public/openapi/product/{product_id}/qa/requirements --body '{...}'`
 - Example body: `{"summary":"道具图固定1:1裁剪","function_description":"...","entry_trigger":"...","normal_expectation":"...","constraints":"...","out_of_scope":"...","module_tree_node_id":"<id>","ticket_id":"CAWP-04606"}`
 
@@ -564,12 +564,42 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 - Notes: do not send `product_id`, `review_status`, or `is_edited` in the body. `summary` may be cleared with empty string or `null`. Use when updating an existing Requirement after hot/cold handoff; compare five fields against `five_field_snapshot` and `summary` against `summary_snapshot` before PATCH vs POST create. Example bodies (changed keys only): `{"constraints":"..."}`, `{"summary":"..."}`
 - Maps to cawplan CLI: `cawplan api PATCH /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id} --body '{...}'`
 
-### List Requirements (read — cold-handoff and reconcile)
+### Get Requirement (read — single item)
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}`
+- Path params: `product_id`, `requirement_id`
+- Response: single `QARequirement` in `data` — five fields, `summary` (`null` if unset), optional `url` (portal deep-link path, often `null`), and metadata (`id`, `module_tree_node_id`, `review_status`, `ticket_id`, etc.)
+- Notes: **primary path for `cawplan-testpoint-generate`** — cold handoff and pre-generate refresh (hot/cold). Use `data` directly; no list filter. `404` → Requirement missing or deleted. RBAC: `qa_insights.view`.
+- Maps to cawplan CLI: `cawplan api GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}`
+
+### List Requirements (read — reconcile)
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements`
 - Query params: `module_tree_node_id` (optional), `version_id` (optional)
-- Response: array of requirements (not paginated); each row includes five fields, `summary` (`null` if unset), and metadata; filter client-side by `id` when needed. **No** `GET .../qa/requirements/{requirement_id}` single-item endpoint.
-- Notes: also used when a POST/PATCH outcome is **unknown** (network/timeout) — list rows under the target `module_tree_node_id` and compare **five fields only** to avoid duplicate POST creates. **Strong match / dedup compares five fields only** — `summary` does **not** participate. Reconcile compare rules for `cawplan-requirement-analyze`: see `skills/cawplan-requirement-analyze/SKILL.md` §10 (Field comparison).
+- Response: array of requirements (not paginated); each row includes five fields, `summary` (`null` if unset), optional `url` (portal deep-link path, often `null`), and metadata; filter client-side by `id` when needed.
+- Notes: used by `cawplan-requirement-analyze` when a POST/PATCH outcome is **unknown** (network/timeout) — list rows under the target `module_tree_node_id` and compare **five fields only** to avoid duplicate POST creates. **Strong match / dedup compares five fields only** — `summary` does **not** participate. Reconcile compare rules: see `skills/cawplan-requirement-analyze/SKILL.md` §10 (Field comparison). **Not** used by `cawplan-testpoint-generate` for fetching five fields (use Get Requirement above).
 - Maps to cawplan CLI: `cawplan api GET /api/v1/public/openapi/product/{product_id}/qa/requirements --query "module_tree_node_id=..."`
+
+### List TestPoints (read — probe, incremental, UNKNOWN reconcile)
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints`
+- Path params: `product_id`, `requirement_id`
+- Response: `test_points[]` for the requirement, stable order by `sort_order` (backend-assigned). Each item includes `id`, `requirement_id`, `title`, `tags[]`, `group`, `is_edited`, `created_by`, `created_at`, `updated_at`.
+- Notes:
+    - **No sequence number in response** — caller computes N / N.M from `group` + return order (empty `group` → "未分组", last). See `cawplan-testpoint-generate` A2_SPEC §4.4.
+    - Used before generate (first vs incremental, stubs), and after ambiguous POST (count reconcile). `cawplan-testpoint-generate` does **not** use PATCH/DELETE on archived rows.
+- Maps to cawplan CLI: `cawplan api GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints`
+
+### Batch Create TestPoints (write — archive drafts)
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints/batch`
+- Path params: `product_id`, `requirement_id` (**do not include in body**)
+- Body: `{ "test_points": [ { "title", "tags", "group", "is_edited" }, ... ] }`
+- Notes:
+    - Each item: **only** `title`, `tags`, `group`, `is_edited`. `tags` may be `[]`; `group` may be empty (display as 未分组).
+    - **Do not send**: `id`, `sort_order`, `product_id`, `requirement_id`, review fields, or display sequence N/N.M.
+    - Array order = display order = backend `sort_order`. Batch is all-or-nothing (no partial success).
+    - Response on `code: SUCCESS`: `data.test_points[]` — same length as POST array; each item echoes `title`, `tags`, `group`, `is_edited` from the request plus server-assigned `id`, `requirement_id`, `created_by`, `created_at`, `updated_at` (same shape as List TestPoints rows).
+    - **`cawplan-testpoint-generate` counts shown to SQA**: **only** in post-POST success receipt (`已归档 N 条…`, N = `body.test_points.length`). **Do not** output `共 N 条草稿`, `本轮新增 M 条`, `其余 K 条为已存`, or any other row-count summary after tables; do not put counts in archive prompts or §8.4 read-back — agents cannot reliably count table rows in chat. Incremental display uses per-row `已存`/`新增` status column only (optional non-numeric footer allowed).
+    - **`cawplan-testpoint-generate` success receipt**: agent stores returned `id`s in session stubs only; tells SQA a one-line count confirmation (e.g. `已归档 N 条到 Requirement〔标题〕下`, N = POST length) — **does not** list per-row `id`s or titles, **does not** re-generate or summarize titles after POST, **does not** post-hoc apologize for miscounts; appends Requirement `url` from refresh **only when non-empty** — **never** mentions missing `url` (no "未返回 url"/"无法附链接").
+- Maps to cawplan CLI: `cawplan api POST /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints/batch --body '{"test_points":[...]}'`
+- Example body: `{"test_points":[{"title":"用户名含特殊字符注册时应被拦截并明确提示","tags":["异常"],"group":"注册校验","is_edited":false}]}`
 
 ## Error Responses
 - `401` Unauthorized

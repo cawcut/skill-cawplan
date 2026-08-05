@@ -26,7 +26,7 @@ Accept any mix of:
 
 - **User text** — use as-is.
 - **CawPlan ticket** — URL, `PREFIX-123` display ID, or unique ID. Extract display IDs from URLs like `/issue/CAWP-04606` before searching.
-- **Screenshots** — multimodal images only; **do not OCR**. 分析截图时除文字外也要留意控件状态与页面当前状态（如按钮置灰/禁用、输入框已填、是否正显示错误/成功态），并区分「当前正处于」和「规则上会出现」；写入五字段时用页面/规则表述，勿写来源词（step 2 No provenance），分不清时写入存疑清单。If SQA provides **multiple** screenshots, **include every image** — do not analyze only the first or drop the rest.
+- **Screenshots** — multimodal images only; **do not OCR**. 分析截图时除文字外也要留意控件状态与页面当前状态（如按钮置灰/禁用、输入框已填、是否正显示错误/成功态），并区分「当前正处于」和「规则上会出现」；写入五字段时用页面/规则表述，勿写来源词（step 2 No provenance）。**强推断**（UI 强暗示、可与惯例一并写入字段）→ 用 **`（界面推断）`** 写入字段（step 3 固定措辞）；**弱推断**（单帧难区分态与规则）→ **待确认** 存疑，不写进字段。If SQA provides **multiple** screenshots, **include every image** — do not analyze only the first or drop the rest.
 
 Do not process ticket image attachments in A1.
 
@@ -52,12 +52,42 @@ Present exactly these five fields, in this order, as **section headings** (not a
 1. **功能描述** (`function_description`) — what the feature is and what problem it solves. No triggers or rules.
 2. **操作入口 / 触发条件** (`entry_trigger`) — where the user enters and what triggers it. No post-trigger expectations.
 3. **正常预期行为** (`normal_expectation`) — what should happen on the happy path. No errors or constraints.
-4. **约束与规则** (`constraints`) — limits, business rules, boundary values **already in material**. No normal flow; do not list missing or "common but unmentioned" items here.
+4. **约束与规则** (`constraints`) — validation and business rules: **material facts** (no source marker) or **惯例推断** (`（惯例推断）` prefix + step 3 fixed phrasing, Rules **红线 0** directional only). No happy-path-only content. Do not invent specific thresholds, copy, or URLs; **material enums explicitly listed in material must be retained per 枚举完整性** (Rules).
 5. **不测范围** (`out_of_scope`, may be empty) — what is explicitly out of scope for this round.
 
-**Fill rules**: fill when possible; infer reasonably when implied; **never invent** to fill gaps. **Whole field empty** → that field is `（素材未提及）` only (valid — e.g. **不测范围** stays in the field, not moved to 存疑清单). **Partial content** → write only confirmed facts in that field; gaps go to **存疑清单** only — never append inline `（素材未提及）…` after known items. **Provenance** (step 2): rewrite UI/state as requirement facts — ✗「截图中密码框为空」→ ✓「密码框为空时…」
+**Fill rules** (Rules **红线 0** + **枚举完整性** + step 5 **总判据** — replaces any separate "infer / never invent / do not list common" rules):
 
-**Constraints — no inline gaps**: ✗ `…红色提示；（素材未提及）密码错误次数、账户锁定` → ✓ field: `…红色提示` only; lockout policy → **需补充** on 存疑清单.
+1. **素材明写** → write into the matching field (no source marker).
+2. **行业标配 / UI 强暗示且方向唯一** → write into `constraints` or `normal_expectation` with `（惯例推断）` or `（界面推断）` + **fixed phrasing** (step 3 table below). No specific values **unless** rule 7 applies (material enum with differentiated behavior — keep the enum, not a generic "所选 X").
+3. **需具体值才能定稿** → do **not** write into fields; use **需补充** (never sole trigger `素材未提及` / `未写明`).
+4. **弱推断 / 范围歧义 / 多种合理实现** → do **not** write into fields; use **待确认** or **需澄清**.
+5. **Whole field** has no material and no applicable baseline → that field is `（素材未提及）` only; do **not** split into multiple 存疑 lines.
+6. **Never** append inline `（素材未提及）…` after known bullets.
+7. **枚举完整性（防信息丢失）** — symmetric to **红线 0** (no fabrication):
+   - Material **explicit enums** (platform, aspect ratio, resolution, language, status, type, etc.) → **keep** the list or at least its **classification dimension** in the five fields when **different enum items imply different expected behavior that must be verified separately**.
+   - **Testability criterion**: if test design would need **separate cases per item or per class**, the enum **must** be retained — do **not** collapse to "须与所选 X 一致" / "与所选 X 一致" when material named the items.
+   - **May still abstract** when every item behaves the same and only the value differs with **no differentiated verification** (e.g. interchangeable labels) → "所选 X" is OK.
+   - **Form**: prefer **grouped bullets** over line-by-line dumps — e.g. three aspect-ratio classes with **all** platforms in each class in parentheses, plus a **共 N 个** line when SQA needs to verify completeness; list languages **one per line or one bullet with full names** (no abbreviation). Platform / language names stay in **material wording**.
+   - **Field placement**: differentiated enum constraints → usually `constraints`; switching behavior tied to happy path → may also appear in `normal_expectation`. **Do not** push retained enums only into 存疑 — they belong in fields.
+
+**Provenance** (step 2): rewrite UI/state as requirement facts — ✗「截图中密码框为空」→ ✓「密码框为空时…」
+
+**Constraints — no inline gaps**: ✗ `…红色提示；（素材未提及）密码错误次数、账户锁定` → ✓ field: `…红色提示` only; lockout **specific policy** → **需补充**; 「不一致须提示」→ `（惯例推断）` fixed phrasing in field, not 需补充.
+
+**Fixed phrasing for inferred bullets** — use **exact** sentences below (do not synonym-rewrite); extend via walkthrough examples only, no separate checklist file:
+
+| 场景 | 固定措辞 |
+|------|----------|
+| **跨场景 · 必填拦截** | `（惯例推断）必填项未满足或校验未通过时应拦截提交并给出明确提示` |
+| **跨场景 · 删除确认** | `（惯例推断）破坏性或删除操作应经二次确认后方可执行` |
+| 注册 · 必填 | `（惯例推断）用户名、邮箱、密码、确认密码为必填项` |
+| 注册 · 格式校验 | `（惯例推断）须校验用户名、邮箱、密码格式（具体规则以产品规范为准）` |
+| 注册 · 确认密码 | `（惯例推断）确认密码应与密码一致，不一致时应拦截提交并给出明确提示` |
+| 注册 · 提交门槛 | `（惯例推断）必填项未填或校验未通过时不应完成注册` |
+| 注册 · 成功反馈 | `（惯例推断）注册成功后应有明确成功反馈或进入后续页面（具体页面以产品为准）` |
+| 界面 · 按钮禁用 | `（界面推断）必填项未填全时提交按钮呈不可用状态` |
+
+Pick rows that apply; do not paste the whole table. Material facts stay **without** markers.
 
 **Display** (`normal_expectation`, `constraints`): **one** point → single line after the heading; **two or more** → `- ` bullets, one point per line — not one long paragraph or semicolon chains.
 
@@ -97,25 +127,86 @@ If over 15 characters and not yet shortened:
 
 After the five fields and display summary, add an **存疑清单**. Classify each item as exactly one of:
 
-- **需补充** — not mentioned in material; SQA must provide info.
-- **待确认** — AI inferred; SQA should verify.
-- **需澄清** — material is vague; AI states its interpretation for SQA to confirm.
+- **需补充** — missing **product-specific** concrete values (thresholds, literal copy, landing URL, non-standard rules) that cannot be covered by directional field text. **Forbidden sole triggers**: `素材未提及`, `未写明`, `未提及`.
+- **待确认** — **weak** inference / screenshot ambiguity only (step 5 **总判据** — not written in fields). **Forbidden** if the same claim already appears under `（惯例推断）` / `（界面推断）` in the five fields.
+- **需澄清** — scope or flow ambiguity (multiple reasonable implementations); state your interpretation for SQA to confirm.
 
-只列影响本需求测试设计的关键缺口，不穷举所有素材未提项。
+**总判据（写进字段 vs 存疑 — 互斥，禁止两头问）**:
+
+| 条件 | 动作 | 禁止 |
+|------|------|------|
+| 行业标配 + 方向唯一 + 无产品歧义 | 写字段：`（惯例推断）` + 固定措辞 | 同条再 **待确认** |
+| UI/字段强暗示（如 Confirm Password 字段） | 视同上 → 写字段 | 待确认「是否要一致」 |
+| 截图弱推断 | **待确认** | 写字段 |
+| 产品可能非标 / 需具体值定稿 | **需补充**（具体阈值/文案/URL） | sole trigger「素材未提及」 |
+| 范围/流程多种合理实现 | **需澄清** | 写字段猜一种 |
+
+只列 **五字段未承担** 且影响测试设计的关键缺口 — not every unmentioned item.
 
 If there are truly no open questions, say **无存疑项** — do not pad the list.
 
 The list is advisory only: **do not** auto-edit the five fields or archive based on it. SQA decides.
 
+**与 A2 分工**：方向性「有没有标配」由 A1 字段（标记推断）承担；A2 不用「素材未提及」存疑重复同一缺口。
+
 **Example**:
 
-> - **需补充**：「不测范围」素材未提及，请补充本次明确不覆盖的场景。
-> - **待确认**：「约束与规则」中"仅对道具图生效"为我根据功能名推断，请确认是否准确。
-> - **需澄清**：素材提到"主体不被裁切"，但未说明主体如何识别，我理解为居中主体，是否正确？
+> - **需补充**：用户名/邮箱/密码的具体长度与复杂度阈值（若产品有独标，请补充）。
+> - **待确认**：Sign Up 呈灰色是否为必填未填全时的禁用态（仅当未写入 `（界面推断）` 字段时）。
+> - **需澄清**：是否包含邮箱验证码或邮箱验证流程。
+>
+> **反例（禁止）**:
+> - **需补充**：密码不一致时的提示文案（应 `（惯例推断）` 写字段）
+> - **待确认**：确认密码是否须一致（页面有 Confirm Password → 写字段）
+> - **需补充**：「不测范围」素材未提及（字段 `（素材未提及）` 占位即可）
 
 Default: deliver five fields + display summary + open-questions list in one turn. **Do not** ask repeated follow-up questions.
 
 Ask inline **only** when a fundamental gap blocks drafting (e.g. "what is this feature for?").
+
+**Walkthrough — registration (CawCut-style; material vs inferred separated)**:
+
+> **约束与规则**：
+> - 用户名、邮箱、密码、确认密码为必填项
+> - （惯例推断）须校验用户名、邮箱、密码格式（具体规则以产品规范为准）
+> - （惯例推断）确认密码应与密码一致，不一致时应拦截提交并给出明确提示
+> - （界面推断）必填项未填全时 Sign Up 按钮呈不可用状态
+>
+> **正常预期行为**：
+> - 校验通过后点击 Sign Up 完成账号创建
+> - （惯例推断）注册成功后应有明确成功反馈或进入后续页面（具体页面以产品为准）
+>
+> **不测范围**：（素材未提及）
+>
+> **存疑**：
+> - **需澄清**：是否包含邮箱验证码或邮箱验证流程？
+> - **需补充**（可选）：用户名/邮箱/密码的具体格式与长度阈值（若 CawCut 有独标）
+>
+> **不生成进字段也不进存疑**：「第 3 次失败锁定」「提示应为 xxx」（红线 0 — 具体次数/文案）
+
+**Walkthrough — video export config (enum retention; material lists must not collapse)**:
+
+> **约束与规则**：
+> - 共支持 11 个发布平台：TikTok、YouTube Shorts、Instagram Reel、Instagram Story、Facebook、Pinterest、Snapchat、YouTube、X、Instagram Post、LinkedIn
+> - 画面比例按平台分为三类，切换平台时输出比例应随之变化，须分别覆盖三类比例验证：
+>   - 9:16（TikTok、YouTube Shorts、Instagram Reel、Instagram Story、Facebook、Pinterest、Snapchat）
+>   - 16:9（YouTube、X）
+>   - 1:1（Instagram Post、LinkedIn）
+> - 支持分辨率四档：480P、720P、1080P、4K
+> - 支持语言九种：英语、西班牙语、法语、德语、意大利语、葡萄牙语、日语、韩语、中文
+>
+> **正常预期行为**：
+> - 用户选择发布平台后，预览/导出画面比例应与该平台所属比例类一致
+> - 用户切换平台时，画面比例应随平台所属类别更新（9:16 / 16:9 / 1:1）
+>
+> **不测范围**：（素材未提及）
+>
+> **存疑**：（按素材实际情况；若无缺口则 **无存疑项**）
+>
+> **反例（禁止 — 信息降级）**:
+> - ✗ `输出比例须与所选平台一致`（丢失三类比例及平台映射，A2 无法生成分类验证点）
+> - ✗ `分辨率须与所选分辨率一致`（丢失 480P/720P/1080P/4K 四档）
+> - ✗ `文案/字幕/配音须与所选语言一致`（丢失九种语言清单，A2 无法规划多语言验证）
 
 ### 6. Revise from SQA feedback
 
@@ -225,8 +316,11 @@ On **SUCCESS**: bind (step 10 Store), clear `pending_write`, set `write_outcome 
 
 **Field comparison** (authoritative — reconcile dedup + snapshot diff):
 
-- **Normalize**: trim whitespace; treat `out_of_scope` `null`/empty/`（素材未提及）` as equivalent.
-- **Strong match** (reconcile / dedup): all **five fields** equal after normalize. **`summary` does not participate in strong match or dedup** — never include `summary` in reconcile probe or binding match.
+- **Normalize** (after trim whitespace):
+  - `out_of_scope`: treat `null` / empty / `（素材未提及）` as equivalent.
+  - **Do not strip** `（惯例推断）` / `（界面推断）` markers for comparison — inferred bullets stay traceable in strong match.
+  - **Fixed phrasing**: agent must use step 3 table sentences for inferred bullets — **no synonym rewrites** (reduces reconcile drift).
+- **Strong match** (reconcile / dedup): after normalize, all **five fields** **string-equal** field-by-field. No fuzzy or semantic matching. **`summary` does not participate** in strong match or dedup.
 - **Snapshot diff** (Table B — Archive / PATCH body): compare five fields vs `five_field_snapshot`; compare `summary` only vs `summary_snapshot` (PATCH keys and duplicate-intent summary arm — not for reconcile binding).
 
 **Cold handoff** (SQA provides a requirement `id`, portal link, or asks to continue an existing Requirement):
@@ -281,13 +375,13 @@ When Table B routes here (no bound, or SQA confirms另建 / different requiremen
 
 **Read-back** (new):
 
-> 将把以上五字段与展示摘要【`summary` 文案】归档到【Product：X】的【模块树节点：Y】下的**新** Requirement，review 状态 = 待 review。确认？
+> 将把以上五字段与展示摘要【`summary` 文案】归档到【Product：X】的【模块树节点：Y】下的**新** Requirement，review 状态 = 待 review。约束/正常预期中含 **（惯例推断）** / **（界面推断）** 项，请核对；不符请先改五字段再确认。确认？
 
 **Read-back** (retry after Table A no-match):
 
-> 上次归档结果不明且服务端未发现相同记录，将**重试创建**同一条 Requirement（**不是另建第二条**）。确认？
+> 上次归档结果不明且服务端未发现相同记录，将**重试创建**同一条 Requirement（**不是另建第二条**）。约束/正常预期中含 **（惯例推断）** / **（界面推断）** 项，请核对。确认？
 
-If open-questions list still has unresolved **需补充** items, add a soft note — remind only; do not block.
+If open-questions list still has unresolved **需补充** (product-specific concrete values) or unverified **（惯例推断）** / **（界面推断）** bullets SQA may want to fix first, add a soft note — remind only; do not block.
 
 Wait for SQA confirmation. **Do not POST** without it.
 
@@ -307,7 +401,7 @@ When Table B routes here (bound + snapshot diff shows changes).
 
 **PATCH read-back** (must state update, not create):
 
-> 将**更新** Requirement【`bound_requirement_id`】（**不是新建**），变动字段：【列出变动的中文字段名，如「约束与规则」「展示摘要」】。确认？
+> 将**更新** Requirement【`bound_requirement_id`】（**不是新建**），变动字段：【列出变动的中文字段名，如「约束与规则」「展示摘要」】。约束/正常预期中含 **（惯例推断）** / **（界面推断）** 项，请核对。确认？
 
 Wait for SQA confirmation. **Do not PATCH** without it.
 
@@ -333,6 +427,22 @@ Applies to Requirement **POST** and **PATCH** (not module-tree POST).
 
 ## Rules
 
+- **红线 0 — 防臆造 + 推断可追溯可否决（最高优先级，压过推断写字段与存疑补全）**:
+  - Five fields may assert **directional** outcomes unless material supplies the value: `应成功` / `应失败` / `应拦截` / `须有明确提示` / `须二次确认` (`明确提示` = feedback type, not a literal sentence).
+  - **Forbidden** in fields without material source: specific copy, error codes, lockout counts, timeout seconds, invented thresholds, concrete URLs.
+  - **Material facts** → normal bullets, **no** source marker. **惯例推断** → `（惯例推断）` + step 3 fixed phrasing. **界面推断** → `（界面推断）` + fixed phrasing. **Never** mix inferred and material with the same tone.
+  - Before writing: would this need a **number / literal message / threshold / error code / URL**? If yes and not in material → **do not** write; use **需补充**. **Prefer fewer invented specifics** — not skipping marked baseline rows.
+  - Archived five fields become team assets and feed A2 — SQA must be able to **spot and veto** inferred lines (archive read-back + markers).
+  - **Pair with 枚举完整性** (below): 红线 0 = do not **add** values not in material; 枚举完整性 = do not **drop** material enums that drive differentiated verification.
+- **枚举完整性 — 防信息丢失（与红线 0 对称，同等优先级）**:
+  - When material **explicitly lists** an enum (platforms, ratios, resolutions, languages, states, types, …), **do not** over-abstract into a single "所选 X" / "与所选 X 一致" line if items or classes need **separate test coverage**.
+  - **Retain** the full list **or** a **classification** that preserves every verification-relevant distinction (e.g. three aspect-ratio classes with **all** platforms per class in parentheses, plus **共 N 个** for completeness check — not "11 platforms, ratio follows selection").
+  - **Criterion**: would A2 need distinct test points per item or per class? → enum must stay in five fields (usually `constraints` / `normal_expectation`), not only in 存疑.
+  - **Still abstract** when all items share identical behavior and no per-item/per-class tests are needed.
+  - **Not** a license to dump every table cell into five fields — only enums where **different item → different expected behavior → separate verification**. Language names: list **full names** in material wording, no abbreviation.
+  - **Does not change**: step 4 summary (may stay short), step 5 字段 vs 存疑互斥, Field comparison / archive dedup.
+- **总判据互斥**: step 5 table — same inference **either** in fields (marked) **or** in 存疑, never both. Confirm Password on page → field, not 待确认.
+- **A2 boundary**: A1 owns directional rules in five fields; A2 generates test points — do not duplicate baseline gaps as A1-style `需补充：素材未提及`.
 - **Trigger boundary**: this skill is for SQA requirement analysis and QA Insights archiving — not for loading a ticket into a coding session. If the user only pasted a CawPlan issue URL with no analysis intent, stop and use `cawplan-ticket-context` instead. Ticket links are **material** here only when the user also wants five-field analysis or archive.
 - **Display summary**: see step 4 (展示摘要 / `summary` role). Snapshots: step 10 Store (`summary_snapshot` separate from `five_field_snapshot`).
 - **A1 API scope**: QA Insights module-tree `GET`/`POST`; Requirement `GET` (list), `POST` (create), `PATCH` (update five fields + `summary`) only — no test-point APIs.
