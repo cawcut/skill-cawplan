@@ -94,7 +94,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     td { padding: 12px 16px; border-bottom: 1px solid var(--border-sub); vertical-align: top; }
     tbody tr:last-child td { border-bottom: none; }
     tbody tr:hover td { background: var(--bg-hover); transition: background 80ms; }
-    .session-title { font-weight: 400; color: var(--text-00); font-size: 13px; }
+    .session-title { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; color: var(--text-00); font-size: 13px; }
     .session-meta { font-size: 13px; color: var(--text-02); margin-top: 2px; }
     .dt-cell { font-size: 12px; color: var(--text-02); white-space: nowrap; vertical-align: middle; padding-right: 20px; }
     .input-cell { overflow: hidden; }
