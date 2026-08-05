@@ -209,15 +209,12 @@ Use this step only after product/repo/ticket assignment has been reviewed and sa
    - Keep each bullet compact, ideally one sentence and under 120 characters.
    - Use session metadata such as title, agent, project, file counts, and line deltas only as supporting context.
    - Do not include a separate "Updated from ..." paragraph; keep the comment visually dense.
+   - Do not insert blank lines in the final HTML. Keep adjacent tags contiguous; avoid empty lines between `<p>`, `<ul>`, and `<li>` elements.
    - If no human inputs exist for the grouped sessions, skip the ticket write-back and mention that it had no human-input basis.
 
    Use this shape:
    ```html
-   <p><strong>AI session progress CWP-14471</strong> (2026-07-09)</p>
-   <ul>
-     <li><strong>Guardrails:</strong> only attach Cloud-resolved tickets that match the session product.</li>
-     <li><strong>Write-back:</strong> summarize human inputs in this skill before uploading the report.</li>
-   </ul>
+   <p><strong>AI session progress CWP-14471</strong> (2026-07-09)</p><ul><li><strong>Guardrails:</strong> only attach Cloud-resolved tickets that match the session product.</li><li><strong>Write-back:</strong> summarize human inputs in this skill before uploading the report.</li></ul>
    ```
    Use `sessions[].ticket_display_ids` when available for the display ID in the heading. Escape user/session text before placing it in HTML. The bullet text should be a human-readable summary derived from `human_inputs[].content`, not the raw input text.
 6. Write the HTML back to `progress_comment` with the CLI, not by direct HTTP:
