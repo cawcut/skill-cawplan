@@ -91,12 +91,13 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     .table-wrap { overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; }
     th { position: sticky; top: 0; background: var(--bg); padding: 9px 16px; text-align: left; font-size: 13px; font-weight: 600; color: var(--text-01); border-bottom: 1px solid var(--border-sub); white-space: nowrap; }
+    th:last-child { text-align: right; }
     td { padding: 12px 16px; border-bottom: 1px solid var(--border-sub); vertical-align: top; }
     tbody tr:last-child td { border-bottom: none; }
     tbody tr:hover td { background: var(--bg-hover); transition: background 80ms; }
     .session-title { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; color: var(--text-00); font-size: 13px; }
     .session-meta { font-size: 13px; color: var(--text-02); margin-top: 2px; }
-    .dt-cell { font-size: 12px; color: var(--text-02); white-space: nowrap; vertical-align: middle; padding-right: 20px; }
+    .dt-cell { font-size: 12px; color: var(--text-02); white-space: nowrap; vertical-align: middle; text-align: right; padding-right: 20px; }
     .input-cell { overflow: hidden; }
     .human-inputs { margin: 0; padding: 0; list-style: none; max-width: 100%; overflow: hidden; }
     .human-inputs li { font-size: 11px; color: var(--text-02); line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -215,7 +216,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
                 <col style="width:140px" />
                 <col style="width:260px" />
                 <col style="width:120px" />
-                <col style="width:120px" />
+                <col style="width:136px" />
               </colgroup>
               <thead>
                 <tr>
