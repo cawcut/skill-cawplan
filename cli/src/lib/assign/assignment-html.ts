@@ -108,7 +108,8 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     .num-cell { font-size: 13px; color: var(--text-01); vertical-align: middle; }
     .models-cell { font-size: 12px; color: var(--text-02); vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .agent-cell { font-size: 12px; color: var(--text-02); vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tickets-cell { font-size: 12px; color: var(--text-02); vertical-align: middle; overflow: visible; }
+    .product-cell, .repo-cell, .tickets-cell { vertical-align: middle; }
+    .tickets-cell { font-size: 12px; color: var(--text-02); overflow: visible; }
     .ticket-picker { position: relative; min-width: 180px; }
     .ticket-trigger { min-height: 32px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 4px 26px 4px 6px; border: 1px solid var(--border); border-radius: var(--r4); background: var(--bg); cursor: pointer; position: relative; }
     .ticket-trigger::after { content: "▾"; position: absolute; right: 8px; top: 5px; color: var(--text-03); font-size: 12px; }
@@ -122,7 +123,8 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     .ticket-link:hover { text-decoration: underline; }
     .ticket-remove { border: 0; background: transparent; color: var(--uBlue-07); width: 14px; height: 14px; padding: 0; font-size: 12px; line-height: 14px; justify-content: center; }
     .ticket-placeholder { color: var(--text-03); font-size: 12px; }
-    .ticket-menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; min-width: 220px; padding: 8px; border: 1px solid var(--border); border-radius: var(--r8); background: var(--bg); box-shadow: var(--shadow-superlow); }
+    .ticket-menu { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; right: 0; min-width: 220px; padding: 8px; border: 1px solid var(--border); border-radius: var(--r8); background: var(--bg); box-shadow: var(--shadow-superlow); }
+    .ticket-picker.drop-up .ticket-menu { top: auto; bottom: calc(100% + 4px); }
     .ticket-options { max-height: 144px; overflow: auto; display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
     .ticket-option { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: var(--r4); color: var(--text-01); cursor: pointer; }
     .ticket-option:hover { background: var(--bg-subtle); }
@@ -148,6 +150,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     input.unassigned-cb { width: 14px; height: 14px; flex-shrink: 0; accent-color: var(--uBlue-06); cursor: pointer; border: none; padding: 0; }
     .required { color: var(--red-06); }
     .field-error { color: var(--red-06); font-size: 11px; margin-top: 4px; }
+    .field-error:empty { display: none; }
     tr.invalid-product input.product { border-color: var(--red-06); box-shadow: 0 0 0 3px rgba(240,58,62,.12); }
     .hidden { display: none !important; }
     .muted { color: var(--text-03); }
@@ -731,7 +734,18 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     }
 
     function setTicketMenuOpen(picker, open) {
-      picker.querySelector('.ticket-menu').classList.toggle('hidden', !open);
+      const menu = picker.querySelector('.ticket-menu');
+      if (open) {
+        const trigger = picker.querySelector('.ticket-trigger');
+        const rect = trigger.getBoundingClientRect();
+        const menuHeight = 220;
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        picker.classList.toggle('drop-up', spaceBelow < menuHeight && spaceAbove > spaceBelow);
+      } else {
+        picker.classList.remove('drop-up');
+      }
+      menu.classList.toggle('hidden', !open);
     }
 
     function sessionLinesText(session) {
@@ -912,9 +926,9 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
           '<td class="num-cell">' + escapeHtml(s.files_changed ?? 0) + '</td>' +
           '<td class="agent-cell" title="' + escapeHtml(s.agent || '') + '">' + (s.agent ? escapeHtml(s.agent) : '<span class="muted">—</span>') + '</td>' +
           '<td class="models-cell" title="' + escapeHtml(sessionModelsText(s)) + '">' + sessionModelsHtml(s) + '</td>' +
-          '<td><input class="product" list="product-list" value="' + escapeHtml(productValue) + '" placeholder="Search product" required />' +
+          '<td class="product-cell"><input class="product" list="product-list" value="' + escapeHtml(productValue) + '" placeholder="Search product" required />' +
           '<div class="product-error field-error"></div></td>' +
-          '<td><div class="repo-field"><select class="repo">' + repoOptions(s.product_id, selectedRepo) + '</select>' +
+          '<td class="repo-cell"><div class="repo-field"><select class="repo">' + repoOptions(s.product_id, selectedRepo) + '</select>' +
           repoPickerHtml(s.product_id, selectedRepo) +
           '<input class="repo-url hidden" type="url" placeholder="https://github.com/owner/repo" pattern="https://github\\.com/[^/]+/[^/]+" /></div></td>' +
           '<td class="tickets-cell">' + ticketPickerHtml(s) + '</td>' +
