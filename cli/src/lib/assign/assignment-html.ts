@@ -1132,11 +1132,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
         saveBtn.classList.add('btn-saved');
         statusEl.textContent = 'Saved ' + result.assigned_sessions + ' session(s) to ' + fileList + '. Return to your agent to review and confirm upload.';
         statusEl.className = 'status';
-        setTimeout(() => {
-          saveBtn.textContent = 'Save assignments';
-          saveBtn.classList.remove('btn-saved');
-          saveBtn.disabled = false;
-        }, 2000);
+        setTimeout(closePage, 150);
       } catch (e) {
         saveBtn.textContent = 'Save assignments';
         saveBtn.classList.remove('btn-saved');
@@ -1153,8 +1149,13 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       }
     }
 
+    function closePage() {
+      window.open('', '_self');
+      window.close();
+    }
+
     document.getElementById('save').addEventListener('click', () => save());
-    document.getElementById('close').addEventListener('click', () => api('/api/close', {method: 'POST'}).then(() => window.close()).catch((e) => alert(e.message)));
+    document.getElementById('close').addEventListener('click', () => api('/api/close', {method: 'POST'}).finally(closePage));
     load().catch((e) => document.getElementById('status').textContent = e.message);
   </script>
 </body>
