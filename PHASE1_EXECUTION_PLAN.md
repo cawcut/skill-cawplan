@@ -216,6 +216,32 @@ cawplan api POST /api/v1/public/openapi/product/019fb1ff-d547-741f-bfa2-405386d0
 
 **未探到项**：`feature_disabled` 真实形态。用户确认「就是 403」，且 403 形态已由权限旁证实测；但**「功能未开」与「无产品权限」是否同码**未验证 → 步骤 9 按 403/`INSUFFICIENT_PERMISSIONS` 实现，`feature_disabled` 与 `auth` 归同一 403 分支处理，注释标注该细分**未证实**。
 
+### 补充探针：depth>5（用户批准「选项 A」后执行 · 2026-08-06）
+
+**目标**：在 `019fb201-…` 的 level-5 节点 `V4`（`019fb339-664e-7ef5-b1ef-43bc5a41cf25`）下建子节点，实测 depth>5 报错形态。
+
+**结果：未测到 —— 被权限层拦截，未产生写入。**
+
+```
+POST .../product/019fb201-…/qa/module-tree  {"parent_id":"019fb339-664e-…","name":"…"}
+→ HTTP 403 · code: INSUFFICIENT_PERMISSIONS
+  msg: "user has 'qa_insights.edit' but lacks access to product '019fb201-…'"
+```
+
+**三方对照（同一账号、同一时刻）确立了权限模型**：
+
+| 产品 | 读（GET） | 写（POST/PATCH） |
+|------|-----------|------------------|
+| `019fb1ff-…`（测试 product） | ✅ SUCCESS | ✅ 通（到达业务层，返回 `FAILURE_INVALID_INPUT / requirement not found`） |
+| `019fb201-…`（用户提供） | ✅ SUCCESS | ❌ **403 INSUFFICIENT_PERMISSIONS** |
+
+**结论（对步骤 9 的实际价值）**：
+
+1. **权限是 per-product 且读写分离** —— 「有 `qa_insights.edit` 角色」≠「对该产品可写」。403 的 `data.required` / `data.resource_type` 明确指出是**产品级资源访问**问题，不是角色缺失。
+2. **403 形态第二次独立复现**（不同产品、不同 HTTP 方法 POST vs PATCH），`code: INSUFFICIENT_PERMISSIONS` 稳定 → 步骤 9 的 403 分支可**照实测实现**，不再是单点观测。
+3. **depth>5 仍未实测** → 该分支按 §15 文档形态（`FAILURE_INVALID_INPUT` + `msg: "module tree depth exceeds limit (5)"`）以 mock 实现，代码注释标注 **`// depth>5: 形态取自 §15 文档，未实测`**。因其归 `validation` 分支、与 not-found 的 `msg` 判别互不干扰，风险可控。
+4. **写库联调（步骤 24）只能在 `019fb1ff-…` 上进行** —— 与计划写死的测试 product 一致，无需调整。
+
 【需用户确认后再继续】（**本轮首次发出写请求**，由用户确认再执行本步）
 
 【状态：完成】（OQ-A/B 已实测；OQ-C 未复现 feature-disabled，见实测表）
@@ -232,7 +258,16 @@ cawplan api POST /api/v1/public/openapi/product/019fb1ff-d547-741f-bfa2-405386d0
 
 **(c)** `npm test -- qa-insights-errors` 全绿；测试名须对齐 **OQ#1**、**§6**、**`P9`**（写 POST 5xx→UNKNOWN、GET 5xx、401、403/404 或信封失败）；OQ-C 未实测分支须在测试名或注释中标 **`OQ-C-unverified`**。
 
-【状态：未开始】
+**实测**：`qa-insights-errors` **35 passed**；全量 **23 files / 376 tests passed**，无回归。
+
+**按步骤 8 实测表实现（与原计划假设不同处）**：
+1. **写路径 not-found 不走 HTTP 404** —— 按 `FAILURE_INVALID_INPUT` + `msg` 含 `not found`/`不存在` 判定 → `FAILURE`/`not_found`。HTTP 404 分支保留但**仅供读路径**。
+2. **`FAILURE_INVALID_INPUT` 一码多义** —— msg 敏感分类；无法确认为 not-found 时**保守归 `validation`**。单测以 OQ-A/OQ-B **原样 payload** 为 fixture，形态漂移即红灯。
+3. **失败响应 `data` 可能非空** —— 单测显式断言 OQ-A 的 `data` 非空但仍判 FAILURE（防「有 data 即成功」误判）。
+4. **403** —— `code: INSUFFICIENT_PERMISSIONS` 实测两次（PATCH/019fb1ff 授权前、POST/019fb201）；ACL 缺失 → `auth`，msg 含 feature 字样 → `feature_disabled`（该细分标注 `OQ-C-unverified`）。
+5. **depth>5** —— 代码注释标注取自 §15 文档、**未实测**（探针被产品权限拦截）。
+
+【状态：完成】
 
 ---
 
@@ -524,7 +559,11 @@ bash cli/scripts/qa-insights-write-smoke.sh
 
 **测试计数**：基线 17 files / 187 tests → 现 **22 files / 341 tests passed**（新增 154：normalize 28、strong-match 27、snapshot-diff 28、body-builders 45、api-codes 26）。`npm run build` 无 TS 错误；无回归。
 
-**当前停点**：步骤 9（`errors.ts`）之前 —— 需用户就 **OQ-C 补充探针**（在 flag-off 产品 `019fb201-…` 的 level-5 节点下建子节点以实测 depth>5，**属真实写入**）作决定；不做则 depth>5 分支按 §15 文档形态以 mock 实现。
+- 步骤 9（`errors.ts`）—— 按步骤 8 实测表实现两层错误映射，35 passed。
+
+**测试计数**：**23 files / 376 tests passed**（基线 187 + 新增 189）。
+
+**下一步**：步骤 10–12（reconcile-requirement / reconcile-testpoints / envelope）—— 纯离线，可连续执行。再下一停点为**步骤 24 真写冒烟**（步骤 13–23 为命令层 + mock 单测，不碰真实后端）。
 
 **已确认事项**（用户 2026-08-06 回复）：
 1. 步骤 1 字段映射表无误，准予进入 lib 实现；
