@@ -525,7 +525,41 @@ bash cli/scripts/qa-insights-write-smoke.sh
 
 **脏数据备注**：本步会在测试 product 留下带 `[SMOKE-` 前缀的 requirement（含 §7.2 步骤 3 刻意产生的重复条目）；**API 无删除接口，需定期人工清理**。
 
-【状态：未开始】（首次写请求确认关卡已前移至步骤 8）
+### 步骤 24 实测结果（2026-08-06 · proto · 11 passed / 0 failed）
+
+**执行方式**：`CAWPLAN_BIN="node cli/dist/index.js" bash cli/scripts/qa-insights-write-smoke.sh` —— 全局 `cawplan` 仍为 `0.0.24`（无本命令族），须显式指向本地 `0.0.25` 构建。
+
+**脚本缺陷（已修）**：`CAWPLAN_BIN` 原以单字符串展开，多词命令（`node /path/index.js`）无法执行；改为 `read -r -a` 数组展开 + `"${CAWPLAN[@]}"`。
+
+| # | 用例 | 期望 | 实测 |
+|---|------|------|------|
+| 1 | module-tree node create | SUCCESS | ✅ node `019fd51f-db2c-…` |
+| 2 | requirements create | SUCCESS | ✅ req `019fd51f-e440-…` |
+| 3 | **重复 create（P1）** | SUCCESS（仍 POST） | ✅ 第二条 `019fd51f-e9ca-…` |
+| 4 | reconcile（P2/P13） | FAILURE + 列全 id | ✅ `strong_match_multiple`，返回**两个** id |
+| 5 | update 仅 summary（P4） | patch_body 仅 `{summary}` | ✅ |
+| 6 | update 无变化 | NOOP | ✅ |
+| 7 | testpoints archive 3 条（P7） | SUCCESS | ✅ |
+| 8 | testpoints reconcile 0+3=3（P8） | RECONCILED | ✅ `count_matched` |
+| 8b | 错误基线 batch=99 | FAILURE | ✅ `count_unexpected` |
+| 9 | 禁发 `product_id`（P6） | FAILURE/validation，无 HTTP | ✅ |
+| 10 | `--dry-run` | 不写 | ✅ `dry_run=true` |
+
+**服务端独立核验（脚本之外另发只读 GET 复查，不轻信命令自报）**：
+
+- `GET requirements/019fd51f-e440-…` → `summary` = `…冒烟摘要（已更新）`（PATCH **确已落库**）；`constraints` 仍为原值（**印证仅发变动键，未覆盖其他字段**）；`review_status` = `PENDING`（未误发该字段）。
+- `GET .../testpoints` → **3 条**，`is_edited` 分别 `False/False/True`（**原样透传，未被推断**）、`tags` = `['冒烟']/[]/['边界']`、第 3 条 `group` 为空 —— 与提交 body 完全一致。
+
+**遗留数据（Open API 无删除接口，需从 Test Suites UI 人工清理）**：
+
+| 类型 | id / 数量 |
+|------|-----------|
+| 模块树节点 | `019fd51f-db2c-7b8e-9346-965526b29078` |
+| Requirement | `019fd51f-e440-747a-8f81-f5f27b82c020` + 重复条 `019fd51f-e9ca-7c51-ad5a-d72eda87239a` |
+| 测试点 | 3 条（挂第一条 requirement 下） |
+| grep 前缀 | `[SMOKE-20260806T0331]` |
+
+【状态：完成】（11 passed / 0 failed；首次写请求确认关卡已前移至步骤 8）
 
 ---
 
@@ -539,7 +573,48 @@ bash cli/scripts/qa-insights-write-smoke.sh
 
 **(c)** 在 PR 描述或本文件后续修订中记录勾选结果；未勾项（除上述「不适用」外）或未跑步骤 24 → Phase 1a **未完成**。
 
-【状态：未开始】
+### Phase 1a 验收对照结果（2026-08-06）
+
+**硬前置**：步骤 24 真写冒烟 **11 passed / 0 failed** ✅
+
+**方案 §13 验收标准**：
+
+| 验收项 | 结果 |
+|--------|------|
+| `create` 默认**不** reconcile；与 A1 step 11 Gate / Table B 一致 | ✅ 单测断言 `gets()===0`；冒烟步骤 3 重复 create 仍 POST |
+| `archive` 正常路径**不** GET；成功只看 POST 信封 | ✅ 单测断言 `gets()===0`；含长度校验 |
+| A1/A2 reconcile **分开**；触发方在 skill | ✅ 两模块独立，策略分别为五字段强匹配 / 条数核对 |
+| 禁发字段硬失败；`reviewer_*` 可透传 | ✅ 单测 + 冒烟步骤 9（零 HTTP） |
+| §6 两层分类；5xx 写后 UNKNOWN 已写死 | ✅ `errors.ts`；按步骤 8 实测（**非 404**）实现 |
+| Phase 2 审计两条已写入 §9 | ✅ 方案文档未改动，条款仍在 |
+| 写命令 ≠ SQA 同意已明文 | ✅ 方案 §2.4/§8.1；本轮**未改 skill**，read-back 门禁原样保留 |
+| 未证实 API 行为仅在 §12 OQ-A/B/C | ✅ OQ-A/B/depth>5/403 **均已实测**；仅剩「功能未开 vs 无产品权限是否同码」标注未证实 |
+| 多强匹配无 `--bind-id`；联调不进 CI | ✅ 无该 flag（冒烟步骤 4 列全 id）；`.github/` 零命中 |
+| ~~exit code 分层~~ / ~~`DUPLICATE_BLOCKED`~~ / ~~`count_mismatch_*` 细分~~ | **Phase 1a 已削减 — 不适用** |
+
+**§8.2 Parity P1–P13**：
+
+| ID | 证明 |
+|----|------|
+| P1 | 单测 `gets()===0` + 冒烟 2/3 |
+| P2 | 冒烟 4（reconcile 命中）|
+| P3 | 单测（summary 不参与，取真实近似 summary 两行）|
+| P4 | 冒烟 5 + **服务端复查 constraints 未被覆盖** |
+| P5 | 单测（Table A 五 decision 全可达）|
+| P6 | 冒烟 9（零 HTTP）|
+| P7 | 单测 `gets()===0` + 冒烟 7 |
+| P8 | 冒烟 8 / 8b |
+| P9 | 单测 21 处断言；reconcile 全分支 `writes()===0` |
+| P10 | 单测（batch 多余键硬失败）|
+| P11 | 单测（用户实测 depth>5 原样 payload）|
+| **P12** | **不适用于 CLI** —— 方案 §8.2 标注「留 skill；默认 create 不挡」，属设计审查项 |
+| P13 | 冒烟 4 返回**两个** id，未自动绑定 |
+
+**未改动确认**：`git diff --name-only 164c68a..HEAD` 仅 `cli/**` + 本计划文件；`skills/`、`.claude-plugin/`、`.cursor-plugin/`、`.codex-plugin/`、根 `VERSION`、`references/` **均未触碰**；`cawplan api` 逃生舱保留。
+
+**结论：Phase 1a 验收通过。**
+
+【状态：完成】
 
 ---
 
@@ -611,9 +686,18 @@ bash cli/scripts/qa-insights-write-smoke.sh
 
 **测试计数**：**27 files / 508 tests passed**（基线 187 + 新增 321）。`npm run build` 无 TS 错误；`validate-skills.sh` 通过；无回归。
 
-**当前停点**：**步骤 24（本地真写库冒烟）**—— 会在测试 product 上**真实创建**模块节点、2 条 requirement（其一为刻意重复）、3 条测试点，且 **Open API 无删除接口**。**须用户确认后方可执行。**
+- 步骤 24（真写库冒烟）—— **11 passed / 0 failed**，并另发只读 GET **独立复核**服务端状态。
+- 步骤 25（验收对照）—— §13 与 P1–P13 逐条勾选通过。
 
-**Phase 1a 剩余**：步骤 24（真写冒烟）→ 步骤 25（验收对照，硬依赖 24）。
+## ✅ Phase 1a 全部完成（步骤 0–25）
+
+**交付**：`cli/src/lib/qa-insights/`（9 模块）+ `cli/src/commands/qa-insights.ts`（6 子命令）+ 10 个单测文件（**27 files / 508 tests passed**）+ 人工冒烟脚本；CLI `0.0.24 → 0.0.25`。
+
+**待人工清理**：测试 product 上带 `[SMOKE-20260806T0331]` 前缀的节点/2 条 requirement/3 条测试点（Open API 无删除接口）。
+
+**未做（按计划「明确不做」）**：未改 skill、未改 plugin 与根 `VERSION`、未实现读命令薄包装、未接入 CI、未 push、未开 PR。
+
+**Phase 2（另一轮，需单独批准）**：改 skill 写路径为 `cawplan qa-insights …` 并瘦身 prose；**务必保留 SQA read-back 确认门禁**（方案 §2.4/§8.1）。
 
 **已确认事项**（用户 2026-08-06 回复）：
 1. 步骤 1 字段映射表无误，准予进入 lib 实现；

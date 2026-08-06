@@ -22,7 +22,10 @@ set -uo pipefail
 PRODUCT_ID="019fb1ff-d547-741f-bfa2-405386d04d5b"
 STAMP="$(date -u +%Y%m%dT%H%M)"
 PREFIX="[SMOKE-${STAMP}]"
-CAWPLAN="${CAWPLAN_BIN:-cawplan}"
+# CAWPLAN_BIN may be a bare binary name or a multi-word command such as
+# "node /path/to/dist/index.js" (useful for testing a local build before it is
+# installed globally), so it is expanded as an array rather than a single word.
+read -r -a CAWPLAN <<< "${CAWPLAN_BIN:-cawplan}"
 
 PASS=0
 FAIL=0
@@ -59,7 +62,7 @@ for k in '$1'.split('.'):
 print(d if d is not None else '')" 2>/dev/null
 }
 
-qa() { "${CAWPLAN}" qa-insights "$@" 2>&1; }
+qa() { "${CAWPLAN[@]}" qa-insights "$@" 2>&1; }
 
 cat <<BANNER
 QA Insights write smoke test
