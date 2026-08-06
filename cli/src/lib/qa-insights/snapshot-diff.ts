@@ -4,13 +4,13 @@
  * Authoritative source: skills/cawplan-requirement-analyze/SKILL.md
  * "Write body rules" (PATCH: send only keys that changed) and §10
  * "Field comparison — Snapshot diff": five fields vs five_field_snapshot,
- * `summary` vs summary_snapshot separately.
+ * `summary` vs summary_snapshot, `ticket_id` vs ticket_id_snapshot separately.
  *
  * Sending the full body instead of changed keys would silently clobber
  * concurrent edits, so this is correctness-critical (A1-WB-4 / P4).
  */
 
-import { normalizeField, normalizeFieldByKey } from "./normalize.js";
+import { normalizeField, normalizeFieldByKey, normalizeTicketId } from "./normalize.js";
 import { FIVE_FIELD_KEYS, type FiveFieldKey } from "./types.js";
 
 export interface DesiredRequirement {
@@ -21,6 +21,8 @@ export interface DesiredRequirement {
   out_of_scope?: unknown;
   /** Compared against summary_snapshot only — never part of strong match. */
   summary?: unknown;
+  /** Compared against ticket_id_snapshot only — never part of strong match. */
+  ticket_id?: unknown;
   [key: string]: unknown;
 }
 
@@ -31,6 +33,7 @@ export interface SnapshotForDiff {
   constraints?: unknown;
   out_of_scope?: unknown;
   summary?: unknown;
+  ticket_id?: unknown;
   [key: string]: unknown;
 }
 
@@ -64,6 +67,12 @@ export function computePatchBody(
     const next = normalizeField(from.summary);
     const prev = normalizeField(base.summary);
     if (next !== prev) body.summary = next;
+  }
+
+  if ("ticket_id" in from) {
+    const next = normalizeTicketId(from.ticket_id);
+    const prev = normalizeTicketId(base.ticket_id);
+    if (next !== prev) body.ticket_id = next;
   }
 
   return body;

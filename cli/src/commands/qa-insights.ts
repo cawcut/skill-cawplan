@@ -57,17 +57,27 @@ function requester(deps?: CommandDeps): RequestFn {
   return deps?.request ?? cawplanRequest;
 }
 
+/**
+ * Read JSON from either a file or an inline string — exactly one of the two.
+ *
+ * Callers pass the flag names so the error text names the flags the user
+ * actually typed (`--body-file`/`--body`, `--desired-file`/`--desired`, …).
+ * File-only inputs pass the same name twice; the error text then names it once.
+ */
 async function readJsonInput(
   bodyFile: string | undefined,
   inlineBody: string | undefined,
   label: string,
+  fileFlag = "--body-file",
+  inlineFlag = "--body",
 ): Promise<unknown> {
+  const flags = fileFlag === inlineFlag ? fileFlag : `${fileFlag} or ${inlineFlag}`;
   if (bodyFile && inlineBody) {
-    throw new BodyValidationError(`${label}: pass either --body-file or --body, not both`);
+    throw new BodyValidationError(`${label}: pass either ${fileFlag} or ${inlineFlag}, not both`);
   }
   const raw = bodyFile ? await readFile(bodyFile, "utf8") : inlineBody;
   if (!raw) {
-    throw new BodyValidationError(`${label}: --body-file or --body is required`);
+    throw new BodyValidationError(`${label}: ${flags} is required`);
   }
   try {
     return JSON.parse(raw);
@@ -290,7 +300,13 @@ export async function runRequirementsCreate(
 export async function runRequirementsUpdate(
   productId: string,
   requirementId: string,
-  opts: { desiredFile?: string; snapshotFile?: string; dryRun?: boolean },
+  opts: {
+    desiredFile?: string;
+    desired?: string;
+    snapshotFile?: string;
+    snapshot?: string;
+    dryRun?: boolean;
+  },
   deps?: CommandDeps,
 ) {
   const command = "requirements update";
@@ -303,11 +319,20 @@ export async function runRequirementsUpdate(
 
   let patchBody: Record<string, unknown>;
   try {
-    if (!opts.desiredFile || !opts.snapshotFile) {
-      throw new BodyValidationError(`${command}: --desired-file and --snapshot-file are both required`);
+    // Each pair accepts a file OR an inline string — readJsonInput enforces
+    // "exactly one"; these checks only cover "neither was supplied".
+    if (!opts.desiredFile && !opts.desired) {
+      throw new BodyValidationError(`${command}: --desired-file or --desired is required`);
     }
-    const desired = await readJsonInput(opts.desiredFile, undefined, `${command} --desired-file`);
-    const snapshot = await readJsonInput(opts.snapshotFile, undefined, `${command} --snapshot-file`);
+    if (!opts.snapshotFile && !opts.snapshot) {
+      throw new BodyValidationError(`${command}: --snapshot-file or --snapshot is required`);
+    }
+    const desired = await readJsonInput(
+      opts.desiredFile, opts.desired, `${command} desired`, "--desired-file", "--desired",
+    );
+    const snapshot = await readJsonInput(
+      opts.snapshotFile, opts.snapshot, `${command} snapshot`, "--snapshot-file", "--snapshot",
+    );
     patchBody = computePatchBody(
       desired as Record<string, unknown>,
       snapshot as Record<string, unknown>,
@@ -369,12 +394,22 @@ export async function runRequirementsReconcile(
     if (!opts.moduleTreeNodeId) {
       throw new BodyValidationError(`${command}: --module-tree-node-id is required`);
     }
-    probe = await readJsonInput(opts.probeFile, undefined, `${command} --probe-file`);
+    // Both inputs are file-only (no inline counterpart), so they pass the same
+    // flag name for both slots — the error text names the one flag that exists.
+    probe = await readJsonInput(
+      opts.probeFile,
+      undefined,
+      command,
+      "--probe-file",
+      "--probe-file",
+    );
     if (opts.intendedPatchFile) {
       intendedPatch = (await readJsonInput(
         opts.intendedPatchFile,
         undefined,
-        `${command} --intended-patch-file`,
+        command,
+        "--intended-patch-file",
+        "--intended-patch-file",
       )) as Record<string, unknown>;
     }
   } catch (err) {
@@ -586,8 +621,10 @@ export function registerQAInsightsCommand(program: Command): void {
   requirements
     .command("update <product_id> <requirement_id>")
     .description("Update a requirement, sending only changed keys")
-    .requiredOption("--desired-file <path>", "JSON file with the desired state")
-    .requiredOption("--snapshot-file <path>", "JSON file with the last-written snapshot")
+    .option("--desired-file <path>", "JSON file with the desired state")
+    .option("--desired <json>", "Inline JSON desired state")
+    .option("--snapshot-file <path>", "JSON file with the last-written snapshot")
+    .option("--snapshot <json>", "Inline JSON snapshot — the values last written to CawPlan")
     .option("--dry-run", "Print the patch body without sending the request")
     .action((productId: string, requirementId: string, opts) =>
       runRequirementsUpdate(productId, requirementId, opts),

@@ -54,6 +54,8 @@ Use `data` directly for the five fields + `url` (single `QARequirement` object; 
 cawplan api GET /api/v1/public/openapi/product/<product_id>/qa/requirements/<requirement_id>/testpoints
 ```
 
+**Record `data.test_points.length` as `count_before`** (session state ③). This is the baseline `testpoints reconcile` needs if an archive comes back `UNKNOWN` — the command **refuses to derive it**, because a second GET could pick up rows someone else added in between and silently corrupt the comparison. Re-record it on every refresh; a stale baseline is worse than none.
+
 | Result | Action |
 |--------|--------|
 | Requirement found (`code: SUCCESS`) | Use **latest** five fields silently; do not diff against chat cache |
@@ -274,29 +276,46 @@ Requirement display name: `summary` → truncate `function_description` → `req
 POST **only drafts without `id`**, in display order:
 
 ```bash
-cawplan api POST /api/v1/public/openapi/product/<product_id>/qa/requirements/<requirement_id>/testpoints/batch \
-  --body '{"test_points":[{"title":"...","tags":["边界"],"group":"...","is_edited":false}]}'
+cawplan qa-insights testpoints archive <product_id> <requirement_id> \
+  --body-file <path>   # {"test_points":[{"title":"...","tags":["边界"],"group":"...","is_edited":false}]}
 ```
 
-Body per item: **only** `title`, `tags`, `group`, `is_edited`. Never send `id`, `sort_order`, `product_id`, `requirement_id`, or review fields.
+Body per item: **only** `title`, `tags`, `group`, `is_edited`. The command rejects the batch and sends nothing if an item carries anything else (an `id` here usually means an already-archived row is being re-posted).
 
-**`is_edited`**: `false` if untouched since 原稿 (includes rows added in §6 self-critique — AI-generated, no source tag); `true` if SQA edited or added (including adopting 存疑). Incremental batch: only for **new** M drafts vs their 原稿; archived N rows excluded.
+**`is_edited`**: `false` if untouched since 原稿 (includes rows added in §6 self-critique — AI-generated, no source tag); `true` if SQA edited or added (including adopting 存疑). Incremental batch: only for **new** M drafts vs their 原稿; archived N rows excluded. The command passes this through verbatim — **it never infers the value**, so getting it right is this skill's job.
 
-On `code: SUCCESS` and returned count matches POST → store returned `id`s as session stubs (§10); **do not** list them to SQA.
+Branch on `outcome`:
+
+| `outcome` | Action |
+|-----------|--------|
+| `SUCCESS` | The command already verified the envelope and that the returned count equals what was sent. Store `api.data.test_points[].id` as session stubs (§10); **do not** list them to SQA → **success receipt (§9.5)** |
+| `FAILURE` | Report `error.message` honestly (§9.6). `validation` = the body was built wrong; fix and resend. Do **not** fake success, do **not** blind-retry |
+| `UNKNOWN` | The batch may or may not have landed. **Never re-archive on a guess** → §10 |
 
 **Success receipt (§9.5)** — **only place SQA sees a count**. One short line. Use **`N` = `body.test_points.length`** (or response `test_points.length` on SUCCESS), e.g. `已归档 N 条到 Requirement〔标题〕下`. Requirement display name: `summary` → truncate `function_description` → `requirement_id`. If refresh returned a non-empty `url`, append it as-is on the same line or the next line. **If `url` is missing or null, say nothing about links** — never construct portal URLs, never note that `url` was unavailable.
 
 **Forbidden in success receipt**: per-row tables; title lists; `id` lists; re-generated or summarized titles; any line about missing `url` (e.g. "未返回 url"/"无法附链接"); **apology or post-hoc recount explanations** (e.g. "之前误算成 13 条").
 
-On failure → report `code` / `msg` honestly (§9.6). Do not fake success or blind-retry.
+On failure → report `error.message` (and `api.code` / `api.msg` when present) honestly (§9.6). Do not fake success or blind-retry.
 
 ### 10. UNKNOWN write outcome (§9.4)
 
-If POST outcome unclear → `write_outcome = UNKNOWN`. Re-`GET .../testpoints` and compare **counts** only:
+Archive returned `outcome: UNKNOWN` → set `write_outcome = UNKNOWN`, then run:
 
-- `old + batch` → treat as success; tell SQA already saved.
-- `old` unchanged → retry **same** batch after read-back.
-- Never auto POST a duplicate batch on ambiguity.
+```bash
+cawplan qa-insights testpoints reconcile <product_id> <requirement_id> \
+  --count-before <§2 刷新时记录的基线> --batch-size <本批条数>
+```
+
+`--count-before` is the baseline recorded at the §2 refresh, **before** the archive. The command will not guess it. Read-only — it never writes.
+
+| `reconcile.decision` | Action |
+|----------------------|--------|
+| `count_matched` | The batch already landed. Tell SQA it is saved; clear UNKNOWN; merge stubs on the next refresh. **Do not archive again.** |
+| `retry_same_batch` | Nothing landed. Read-back, then archive the **same** batch — not a regenerated one. |
+| `count_unexpected` | The count is neither unchanged nor `+batch`. Someone may have appended concurrently, or the data is inconsistent. **Stop and ask SQA to check Test Suites**; archive nothing. |
+
+**Never** re-archive a batch on ambiguity.
 
 ### 11. Archived row edits
 
@@ -375,9 +394,9 @@ Authoritative rules live in **Workflow**; this section is navigation only. On co
 | **Self-critique** | §6 |
 | **Presentation** — 分节、状态列 | §7 |
 | **Draft totals** — SQA 只看归档后条数 | §7 · §9.5 · §9 read-back（禁草稿/归档前计数） |
-| **Archive / confirm / receipt** | §9; UNKNOWN → §10 |
+| **Archive / confirm / receipt** | §9; UNKNOWN → §10 (`testpoints reconcile`, needs `count_before` from §2) |
 | **Cross-batch dedup** | §10 (`id` stubs); batch-internal → §5 step 3 + granularity §2 |
-| **API** | `cawplan api` only; `references/CAWPLAN_OPEN_API.md` §15 |
+| **API** | Writes → `cawplan qa-insights` (§9 archive, §10 reconcile); reads → `cawplan api GET` (§2); `references/CAWPLAN_OPEN_API.md` §15 |
 | **Trigger boundary** | §1 priority 3 → A1; ticket URL without test-point intent → not this skill |
 | **Failures** | §9 On failure; keep drafts |
 

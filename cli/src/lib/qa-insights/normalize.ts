@@ -56,3 +56,10 @@ export function extractFiveFields(source: unknown): RequirementFiveFields {
 export function fieldsEqual(key: FiveFieldKey, a: unknown, b: unknown): boolean {
   return normalizeFieldByKey(key, a) === normalizeFieldByKey(key, b);
 }
+
+/** `ticket_id`: null / undefined / empty string mean no linked ticket. */
+export function normalizeTicketId(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = String(value).trim();
+  return trimmed === "" ? null : trimmed;
+}

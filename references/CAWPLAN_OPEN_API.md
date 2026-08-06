@@ -530,6 +530,8 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
 ## 15) QA Insights APIs
 Module tree and Requirement archive for Test Suites. **Public Open API only** — do not use Internal routes (`/api/v1/product/{unique_id}/qa/...`).
 
+**CLI routing**: the four **write** endpoints go through the `cawplan qa-insights` command family, which owns the correctness-critical rules (five-field strong match, PATCH changed-keys diff, batch all-or-nothing, forbidden-field rejection, UNKNOWN handling). **Reads** still use the `cawplan api GET` escape hatch — there are no read wrappers. Reconcile paths (`requirements reconcile`, `testpoints reconcile`) are read-only and never write.
+
 ### Get Module Tree
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/module-tree`
 - Path params: `product_id` (product `unique_id`)
@@ -542,7 +544,7 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 - Body: `parent_id` (node `id`, or `null` for a root node), `name` (required)
 - Response: single node `id`, `name`, `parent_id`, `level`
 - Notes: depth > 5 → `FAILURE_INVALID_INPUT` (`module tree depth exceeds limit (5)`)
-- Maps to cawplan CLI: `cawplan api POST /api/v1/public/openapi/product/{product_id}/qa/module-tree --body '{"parent_id":null,"name":"..."}'`
+- Maps to cawplan CLI: `cawplan qa-insights module-tree node create {product_id} --name "..."` (omit `--parent-id` for a root node)
 
 ### Create Requirement
 - Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/requirements`
@@ -554,15 +556,15 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
     - Do not send `review_status` (defaults to `PENDING`) or `is_edited` (TestPoint field only).
     - Response `data.url` is a **portal deep-link path** (e.g. `/product/{product_id}/qa-insights/test-suites/requirements/{id}`) for opening Test Suites in the browser — **not** a Public Open API route. Return it to the user as-is from the response; **never** construct or guess this path.
     - Response `data.id` is the requirement id for later API calls (e.g. `GET .../qa/requirements/{id}`, `POST .../qa/requirements/{id}/testpoints/batch`).
-- Maps to cawplan CLI: `cawplan api POST /api/v1/public/openapi/product/{product_id}/qa/requirements --body '{...}'`
+- Maps to cawplan CLI: `cawplan qa-insights requirements create {product_id} --body-file <path>`
 - Example body: `{"summary":"道具图固定1:1裁剪","function_description":"...","entry_trigger":"...","normal_expectation":"...","constraints":"...","out_of_scope":"...","module_tree_node_id":"<id>","ticket_id":"CAWP-04606"}`
 
 ### Update Requirement
 - Endpoint: `PATCH /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}`
 - Path params: `product_id`, `requirement_id`
-- Body: any subset of `function_description`, `entry_trigger`, `normal_expectation`, `constraints`, `out_of_scope`, `summary` — send **only changed** fields
-- Notes: do not send `product_id`, `review_status`, or `is_edited` in the body. `summary` may be cleared with empty string or `null`. Use when updating an existing Requirement after hot/cold handoff; compare five fields against `five_field_snapshot` and `summary` against `summary_snapshot` before PATCH vs POST create. Example bodies (changed keys only): `{"constraints":"..."}`, `{"summary":"..."}`
-- Maps to cawplan CLI: `cawplan api PATCH /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id} --body '{...}'`
+- Body: any subset of `function_description`, `entry_trigger`, `normal_expectation`, `constraints`, `out_of_scope`, `summary`, `ticket_id` — send **only changed** fields
+- Notes: do not send `product_id`, `review_status`, or `is_edited` in the body. `summary` may be cleared with empty string or `null`. `ticket_id` is the ticket **display_id** (e.g. `CAWP-04606`); pass `null` to unlink. Use when updating an existing Requirement after hot/cold handoff; compare five fields against `five_field_snapshot`, `summary` against `summary_snapshot`, and `ticket_id` against `ticket_id_snapshot` before PATCH vs POST create. Example bodies (changed keys only): `{"constraints":"..."}`, `{"summary":"..."}`, `{"ticket_id":"CAWP-04606"}`, `{"ticket_id":null}`
+- Maps to cawplan CLI: `cawplan qa-insights requirements update {product_id} {requirement_id} --desired '<json>' --snapshot '<json>'` — pass complete states; the command derives the changed keys and PATCHes only those
 
 ### Get Requirement (read — single item)
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}`
@@ -598,7 +600,7 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
     - Response on `code: SUCCESS`: `data.test_points[]` — same length as POST array; each item echoes `title`, `tags`, `group`, `is_edited` from the request plus server-assigned `id`, `requirement_id`, `created_by`, `created_at`, `updated_at` (same shape as List TestPoints rows).
     - **`cawplan-testpoint-generate` counts shown to SQA**: **only** in post-POST success receipt (`已归档 N 条…`, N = `body.test_points.length`). **Do not** output `共 N 条草稿`, `本轮新增 M 条`, `其余 K 条为已存`, or any other row-count summary after tables; do not put counts in archive prompts or §8.4 read-back — agents cannot reliably count table rows in chat. Incremental display uses per-row `已存`/`新增` status column only (optional non-numeric footer allowed).
     - **`cawplan-testpoint-generate` success receipt**: agent stores returned `id`s in session stubs only; tells SQA a one-line count confirmation (e.g. `已归档 N 条到 Requirement〔标题〕下`, N = POST length) — **does not** list per-row `id`s or titles, **does not** re-generate or summarize titles after POST, **does not** post-hoc apologize for miscounts; appends Requirement `url` from refresh **only when non-empty** — **never** mentions missing `url` (no "未返回 url"/"无法附链接").
-- Maps to cawplan CLI: `cawplan api POST /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints/batch --body '{"test_points":[...]}'`
+- Maps to cawplan CLI: `cawplan qa-insights testpoints archive {product_id} {requirement_id} --body-file <path>`
 - Example body: `{"test_points":[{"title":"用户名含特殊字符注册时应被拦截并明确提示","tags":["异常"],"group":"注册校验","is_edited":false}]}`
 
 ## Error Responses

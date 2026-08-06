@@ -113,6 +113,24 @@ describe("A1-WB-4 computePatchBody — omitted keys mean leave-as-is", () => {
     );
     expect(body).toEqual({ constraints: "改了" });
   });
+  test("ticket_id change emits { ticket_id } only", () => {
+    const body = computePatchBody(
+      { ...snapshot, ticket_id: "CAWP-04606" },
+      { ...snapshot, ticket_id: null },
+    );
+    expect(body).toEqual({ ticket_id: "CAWP-04606" });
+  });
+  test("ticket_id unlink emits { ticket_id: null }", () => {
+    const body = computePatchBody(
+      { ...snapshot, ticket_id: null },
+      { ...snapshot, ticket_id: "CAWP-04606" },
+    );
+    expect(body).toEqual({ ticket_id: null });
+  });
+  test("ticket_id null vs absent is not a change", () => {
+    const body = computePatchBody({ ...snapshot, ticket_id: null }, snapshot);
+    expect(body).toEqual({});
+  });
 });
 
 describe("A1-WB-4 computePatchBody — summary vs summary_snapshot", () => {

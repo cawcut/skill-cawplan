@@ -272,15 +272,17 @@ Wait for SQA confirmation. **Do not POST** without it.
 **After confirmation**:
 
 ```bash
-cawplan api POST /api/v1/public/openapi/product/<product_id>/qa/module-tree --body '{...}'
+cawplan qa-insights module-tree node create <product_id> \
+  --parent-id <parent node id> --name "<node name>"
 ```
 
-Body fields: see `references/CAWPLAN_OPEN_API.md` §15 — subsection **Create Module Tree Node**.
+- `--parent-id`: existing node `id`; **omit** for a new root-level node.
+- Read the JSON on stdout and branch on `outcome` (see **Command outcomes**):
+  - `SUCCESS` → save `api.data.id` as `module_tree_node_id` for archive.
+  - `FAILURE` → report `error.message`; on a depth-limit error do not retry with a deeper path.
+  - `UNKNOWN` → the node may or may not exist; **do not re-run the command** (that risks a duplicate node). Ask SQA to check Test Suites.
 
-- `parent_id`: existing node `id`; use `null` for a new root-level node.
-- On `SUCCESS`, save `data.id` as `module_tree_node_id` for archive.
-- On `FAILURE_INVALID_INPUT` (depth > 5): report the error; do not retry with a deeper path.
-- On any other failure: see **Failures** (Rules).
+Use the `product_id` resolved in step 7.
 
 Use the `product_id` resolved in step 7.
 
@@ -293,9 +295,10 @@ Keep in session context after either:
 
 **Store**:
 
-- `bound_requirement_id` — from `data.id` (POST/PATCH response) or matched `id` from list GET.
+- `bound_requirement_id` — from `api.data.id` (create/update response), `reconcile.matched_requirement_ids[0]` (10b), or the matched `id` from a cold-handoff GET.
 - `five_field_snapshot` — the five saved fields (`function_description`, `entry_trigger`, `normal_expectation`, `constraints`, `out_of_scope`) from that write or list row; **five fields only** (Field comparison) — never include `summary`.
 - `summary_snapshot` — the saved `summary` from that write or list row (`null` if server has no value); **separate from** `five_field_snapshot`.
+- `ticket_id_snapshot` — the saved `ticket_id` from that write or list row (`null` if none); **separate from** `five_field_snapshot` and `summary_snapshot`. Store the ticket **display_id** (e.g. `CAWP-04606`), not the unique id.
 - Also keep `product_id`, product name, `module_tree_node_id`, and module-tree node name when known.
 
 Snapshots = last values written to CawPlan, not unsaved draft.
@@ -308,20 +311,17 @@ After SQA confirms a write, if the CLI returns no clear `SUCCESS` or `FAILURE` �
 - `product_id`, `module_tree_node_id`, `ticket_id` (if any)
 - For POST: full intended five fields + `summary`
 - For PATCH: `target_requirement_id` + changed keys and values (Field comparison — snapshot diff)
-- Do **not** set `bound_requirement_id` or refresh `five_field_snapshot` / `summary_snapshot` on UNKNOWN.
+- Do **not** set `bound_requirement_id` or refresh `five_field_snapshot` / `summary_snapshot` / `ticket_id_snapshot` on UNKNOWN.
 
 On **clear API failure** (`FAILURE_*` or HTTP error with body): see **Failures** (Rules); `write_outcome` is not UNKNOWN — SQA may retry after read-back without reconcile-first for duplicate fear (same operation retry).
 
 On **SUCCESS**: bind (step 10 Store), clear `pending_write`, set `write_outcome = SUCCESS`. On **unknown outcome**: set `write_outcome = UNKNOWN`, keep `pending_write`, tell SQA the result is unclear — next step **10b** / **Table A — Reconcile** (step 11); do **not** claim success or immediately POST again.
 
-**Field comparison** (authoritative — reconcile dedup + snapshot diff):
+**Field comparison** — the `qa-insights` commands own this. `requirements reconcile` decides what matches; `requirements update` decides which keys changed. Do not compare fields by hand or hand-compute a PATCH body.
 
-- **Normalize** (after trim whitespace):
-  - `out_of_scope`: treat `null` / empty / `（素材未提及）` as equivalent.
-  - **Do not strip** `（惯例推断）` / `（界面推断）` markers for comparison — inferred bullets stay traceable in strong match.
-  - **Fixed phrasing**: agent must use step 3 table sentences for inferred bullets — **no synonym rewrites** (reduces reconcile drift).
-- **Strong match** (reconcile / dedup): after normalize, all **five fields** **string-equal** field-by-field. No fuzzy or semantic matching. **`summary` does not participate** in strong match or dedup.
-- **Snapshot diff** (Table B — Archive / PATCH body): compare five fields vs `five_field_snapshot`; compare `summary` only vs `summary_snapshot` (PATCH keys and duplicate-intent summary arm — not for reconcile binding).
+Your part is to feed them the right inputs: the probe / `--desired` come from the current draft, and **`--snapshot` is `five_field_snapshot` + `summary_snapshot` + `ticket_id_snapshot` verbatim** (step 10 **Store**). Put the intended `ticket_id` (display_id, or `null` to unlink) in `--desired` when the link should change; omit `ticket_id` from `--desired` only when you are not touching the link this round (leave-as-is).
+
+**Fixed phrasing**: use the step 3 table sentences for inferred bullets — **no synonym rewrites**. Reworded bullets read as changed text and stop matching an earlier archive.
 
 **Cold handoff** (SQA provides a requirement `id`, portal link, or asks to continue an existing Requirement):
 
@@ -329,15 +329,29 @@ On **SUCCESS**: bind (step 10 Store), clear `pending_write`, set `write_outcome 
 cawplan api GET /api/v1/public/openapi/product/<product_id>/qa/requirements --query "module_tree_node_id=<node_id>"
 ```
 
-Filter client-side by `id` when SQA names a specific requirement. Map the row's five fields into the current draft. Set `bound_requirement_id`, `five_field_snapshot` (five fields per Field comparison), and `summary_snapshot` from that row. If `summary` is `null`, **generate** a display summary for the draft now (step 4); next archive **PATCH** writes `summary`. Clear any `pending_write` / UNKNOWN. Re-show five fields + display summary + open-questions list if SQA wants to edit before the next archive/update.
+Filter client-side by `id` when SQA names a specific requirement. Map the row's five fields into the current draft. Set `bound_requirement_id`, `five_field_snapshot` (five fields per Field comparison), `summary_snapshot`, and `ticket_id_snapshot` from that row. If `summary` is `null`, **generate** a display summary for the draft now (step 4); next archive **PATCH** writes `summary`. Clear any `pending_write` / UNKNOWN. Re-show five fields + display summary + open-questions list if SQA wants to edit before the next archive/update.
 
 ### 10b. Reconcile (run Table A)
 
 Run when `write_outcome = UNKNOWN`, when SQA asks to archive again after a failed/unclear write, or when about to `POST` while `pending_write` still exists for the same `module_tree_node_id`.
 
-Use the **same GET** as step 10 cold handoff (`module_tree_node_id` from `pending_write` or context). Probe = **five fields** from `pending_write` or current draft — **`summary` not in probe** (Field comparison — strong match).
+```bash
+# POST pending
+cawplan qa-insights requirements reconcile <product_id> \
+  --module-tree-node-id <node_id> --probe-file <五字段 JSON>
 
-Follow **Table A — Reconcile** (step 11). While `write_outcome = UNKNOWN`, **never** auto-POST; **never** use Table B「无变化 → 另建」（that row applies only when `write_outcome = SUCCESS`).
+# PATCH pending — add the target and what that PATCH meant to write
+cawplan qa-insights requirements reconcile <product_id> \
+  --module-tree-node-id <node_id> --probe-file <五字段 JSON> \
+  --target-requirement-id <bound_requirement_id> \
+  --intended-patch-file <上次 update 返回的 patch_body>
+```
+
+Probe = the **five fields** from `pending_write` or the current draft (the command ignores `summary`). `module_tree_node_id` comes from `pending_write` or context.
+
+This command is **read-only** — it never writes. It reports what it found via `reconcile.decision`; act on it per **Table A** (step 11).
+
+While `write_outcome = UNKNOWN`, **never** re-run the write command; **never** use Table B「无变化 → 另建」（that row applies only when `write_outcome = SUCCESS`).
 
 ### 11. Archive or update Requirement (write — confirm first)
 
@@ -348,24 +362,24 @@ When SQA signals archive/submit intent ("可以了", "存吧", "归档", "提交
 - `write_outcome = UNKNOWN` or `pending_write` → step **10b** / **Table A — Reconcile** first; do **not** POST/PATCH until UNKNOWN is cleared or SQA explicitly wants a **new** Requirement (11a full read-back).
 - Otherwise → **Table B — Archive**. SQA explicitly wants a **new** Requirement while already bound → **11a** (full POST read-back).
 
-**Table A — Reconcile** (`write_outcome = UNKNOWN` or `pending_write` exists; strong match per **Field comparison**)
+**Table A — Reconcile** (`write_outcome = UNKNOWN` or `pending_write` exists) — run `requirements reconcile` (step 10b), then act on `reconcile.decision`:
 
-| Server compare result | Action |
-|-----------------------|--------|
-| **Strong match** (one row, five fields) | Bind `id`; refresh snapshots from server; clear `pending_write` and UNKNOWN. Tell SQA: 上次归档可能已成功，已绑定 `id`，**无需再建**. **Do not POST.** |
-| **Multiple strong matches** | List `id`s; ask SQA which to bind. Do not auto-POST. |
-| **PATCH pending** — server row for `target_requirement_id` already has intended new values | Treat PATCH as likely succeeded; refresh snapshots; clear UNKNOWN. |
-| **PATCH pending** — server row still has old values | Read-back → **PATCH retry** (not POST). |
-| **No match** | Read-back → **retry same write** (POST or PATCH; **不是另建第二条**). SQA says it is a **different** requirement → Table B → **11a POST**. |
+| `reconcile.decision` | Action |
+|----------------------|--------|
+| `strong_match_single` | Bind `reconcile.matched_requirement_ids[0]`; refresh snapshots from `api`/server; clear `pending_write` and UNKNOWN; **set `just_reconciled = true`**. Tell SQA: 上次归档可能已成功，已绑定 `id`，**无需再建**. **Do not create.** |
+| `strong_match_multiple` | **List every id in `reconcile.matched_requirement_ids`; ask SQA which to bind.** Do not pick one yourself; do not create. |
+| `patch_already_applied` | Treat PATCH as likely succeeded; refresh snapshots; clear UNKNOWN; **set `just_reconciled = true`**. |
+| `patch_still_old` | Read-back → **PATCH retry** via `requirements update` (not create). |
+| `no_match` | Read-back → **retry the same write** (`requirements create` with the same body, or `requirements update`; **不是另建第二条**). SQA says it is a **different** requirement → Table B → **11a**. |
 
 **Table B — Archive** (`write_outcome = SUCCESS`, UNKNOWN cleared; diff per **Field comparison** — snapshot diff)
 
 | Condition | Action |
 |-----------|--------|
 | No `bound_requirement_id` | **11a POST** create (steps 7–9 if not done). |
-| Bound + five fields and `summary` both unchanged vs snapshots | Warn: likely duplicate archive. Ask 是否**另建**? Confirm → **11a POST**. **Skip if you just bound via reconcile (10b)** — tell SQA already bound, no second copy. |
-| Bound + five fields unchanged, `summary` changed | **11b PATCH** `summary` only. |
-| Bound + five fields changed | **11b PATCH** changed keys vs snapshots (`summary` only if differs from `summary_snapshot`). |
+| Bound + five fields, `summary`, and `ticket_id` all unchanged vs snapshots (`requirements update` returns **`NOOP`**) | Warn: likely duplicate archive. Ask 是否**另建**? Confirm → **11a POST**. **Skip if you just bound via reconcile (10b)** — tell SQA already bound, no second copy.<br><br>Two branches, decided by `just_reconciled`: **(a) `just_reconciled = false`** → warn and **ask**; only after SQA confirms do you go to 11a. `NOOP` states a fact; it is **not** permission to create. **(b) `just_reconciled = true`** → **skip the warning and the question entirely**; tell SQA already bound, no second copy. Asking here would invite a duplicate moments after telling SQA 无需再建. |
+| Bound + five fields unchanged, `summary` and/or `ticket_id` changed | **11b PATCH** metadata only (`summary`, `ticket_id`, or both — command emits only changed keys). |
+| Bound + five fields changed | **11b PATCH** changed keys vs snapshots (`summary` / `ticket_id` only if they differ from their snapshots). |
 | SQA says it is a different requirement | **11a POST** (full read-back for **new**). |
 | **CLEAR_FAILURE** (not UNKNOWN) | Report error; read-back → retry **same** operation (no reconcile required). |
 
@@ -388,12 +402,14 @@ Wait for SQA confirmation. **Do not POST** without it.
 **After confirmation** — record `pending_write` (operation `POST`, full five fields + `summary`) then call:
 
 ```bash
-cawplan api POST /api/v1/public/openapi/product/<product_id>/qa/requirements --body '{...}'
+cawplan qa-insights requirements create <product_id> --body-file <path>
 ```
 
-Body fields: see `references/CAWPLAN_OPEN_API.md` §15 — subsection **Create Requirement**. Body rules: see **Write body rules** below.
+Body: `module_tree_node_id` + the five fields + non-empty `summary` (+ `ticket_id` when a ticket was used). Write it to a temp file — long JSON is error-prone to inline. See `references/CAWPLAN_OPEN_API.md` §15 — subsection **Create Requirement**.
 
-**After the call**: update session state per step 10 (**Pending write**). On SUCCESS → **Confirmation**.
+The command POSTs directly — it does **not** look for duplicates first. Preventing duplicates is this skill's job (step 11 Gate + Table B + 10b reconcile), not the command's.
+
+**After the call**: branch on `outcome` (see **Command outcomes**) and update session state per step 10 (**Pending write**). On `SUCCESS` → **Confirmation**.
 
 #### 11b. Update (PATCH)
 
@@ -405,25 +421,43 @@ When Table B routes here (bound + snapshot diff shows changes).
 
 Wait for SQA confirmation. **Do not PATCH** without it.
 
-**After confirmation** — record `pending_write` (operation `PATCH`, `target_requirement_id`, changed keys per Field comparison) then call:
+**After confirmation** — record `pending_write` (operation `PATCH`, `target_requirement_id`) then call:
 
 ```bash
-cawplan api PATCH /api/v1/public/openapi/product/<product_id>/qa/requirements/<bound_requirement_id> --body '{...}'
+cawplan qa-insights requirements update <product_id> <bound_requirement_id> \
+  --desired '<五字段 + summary + ticket_id 的期望状态 JSON>' \
+  --snapshot '<five_field_snapshot + summary_snapshot + ticket_id_snapshot 原样 JSON>'
 ```
 
-Changed fields only — see `references/CAWPLAN_OPEN_API.md` §15 — subsection **Update Requirement**. Body rules: see **Write body rules** below.
+Pass **complete** states, not a hand-computed diff — the command works out which keys changed and PATCHes only those. (`--desired-file` / `--snapshot-file` accept the same content from files when the JSON is long.) Include `ticket_id` in both objects when comparing or changing the ticket link (display_id, or `null` to clear); reconcile strong match still uses **five fields only**.
 
-**After the call**: update session state per step 10. On SUCCESS → **Confirmation**.
+**`--snapshot` must be the values last written to CawPlan** — i.e. `five_field_snapshot` + `summary_snapshot` + `ticket_id_snapshot` from step 10, verbatim. Not the current draft (that yields `NOOP` and silently drops the edit), and not a fresh `GET` (that re-sends someone else's concurrent edit as if it were yours). Neither mistake raises an error.
+
+Echo the returned `patch_body` keys back to SQA as the changed-field list.
+
+**After the call**: branch on `outcome` (see **Command outcomes**) and update session state per step 10. On `SUCCESS` → **Confirmation**.
+
+## Command outcomes
+
+Every `cawplan qa-insights` command prints one JSON object. **Branch on the `outcome` field — not on the exit code**: `FAILURE` and `UNKNOWN` share exit code 1, and they call for opposite responses.
+
+| `outcome` | Meaning | Action |
+|-----------|---------|--------|
+| `SUCCESS` | The write landed | Bind / refresh snapshots (step 10 **Store**); clear `pending_write`; → **Confirmation** |
+| `NOOP` | **Nothing was sent** — the update had no changed keys | → **Table B** row 2 (both branches — see that row) |
+| `RECONCILED` | **Nothing was written** — reconcile found the earlier write had already landed | → **Table A** (`strong_match_single` / `patch_already_applied`) |
+| `FAILURE` | Definitively failed; nothing was written | Report `error.message` honestly. Fix and **retry the same operation** — no reconcile needed |
+| `UNKNOWN` | **The result is genuinely unknown** — the write may or may not have landed | Set `write_outcome = UNKNOWN`; keep `pending_write`; **never re-run the write**; → step **10b** reconcile. Never report this as success |
+
+`error.type` refines a `FAILURE`: `validation` (bad body — fix it), `not_found` (target gone), `auth` / `feature_disabled` (permissions), `api` (server-side business error).
+
+**Session flag `just_reconciled`** — set to `true` when Table A binds via `strong_match_single` or `patch_already_applied`. **Cleared after the next `requirements create` / `requirements update` call, regardless of what that call returns (`NOOP`, `SUCCESS`, `FAILURE`, or `UNKNOWN`).** It exists solely to pick the branch in **Table B** row 2.
 
 ## Write body rules
 
-Applies to Requirement **POST** and **PATCH** (not module-tree POST).
+Field names are **snake_case**. A `create` body carries `module_tree_node_id`, the five fields, a non-empty `summary`, and `ticket_id` only when a ticket was used. A `update` `--desired` / `--snapshot` pair may also carry `ticket_id` (display_id, or `null` to unlink); it is compared like `summary` — **not** part of reconcile strong match.
 
-- `product_id` is only in the URL — **never** in the body.
-- Do **not** send `review_status` or `is_edited`.
-- Field names are **snake_case**.
-- **POST**: all five fields + non-empty `summary` + `module_tree_node_id`; omit `ticket_id` or set `null` when no ticket was used.
-- **PATCH**: send **only** keys that changed (Field comparison — snapshot diff). Do not include unchanged `summary` just because five fields changed.
+The command rejects a body containing `product_id`, `review_status`, or `is_edited` and sends nothing — so a `FAILURE` / `validation` here means the body you built was wrong, not that the server refused. (These keys do appear in `GET` responses; that is expected — the restriction is on what you send.)
 
 ## Rules
 
@@ -445,8 +479,8 @@ Applies to Requirement **POST** and **PATCH** (not module-tree POST).
 - **A2 boundary**: A1 owns directional rules in five fields; A2 generates test points — do not duplicate baseline gaps as A1-style `需补充：素材未提及`.
 - **Trigger boundary**: this skill is for SQA requirement analysis and QA Insights archiving — not for loading a ticket into a coding session. If the user only pasted a CawPlan issue URL with no analysis intent, stop and use `cawplan-ticket-context` instead. Ticket links are **material** here only when the user also wants five-field analysis or archive.
 - **Display summary**: see step 4 (展示摘要 / `summary` role). Snapshots: step 10 Store (`summary_snapshot` separate from `five_field_snapshot`).
-- **A1 API scope**: QA Insights module-tree `GET`/`POST`; Requirement `GET` (list), `POST` (create), `PATCH` (update five fields + `summary`) only — no test-point APIs.
-- **Failures**: report `code` / `msg` honestly for any `cawplan` or `cawplan api` error; never claim success when the CLI failed or outcome is unknown. Keep the draft (five fields + display summary); do not claim saved or updated.
+- **A1 API scope**: writes go through `cawplan qa-insights` (module-tree node create; requirement create / update / reconcile). Reads still use `cawplan api GET` (module tree, requirement list). **No test-point APIs.**
+- **Failures**: report `error.message` (and `api.code` / `api.msg` when present) honestly for any command failure; **never claim success when `outcome` is `FAILURE` or `UNKNOWN`**. Keep the draft (five fields + display summary); do not claim saved or updated.
 
 ## Output
 
@@ -461,12 +495,12 @@ Applies to Requirement **POST** and **PATCH** (not module-tree POST).
 
 ## Confirmation
 
-After a successful **create** (`POST`, `code: SUCCESS`) or **update** (`PATCH`, `code: SUCCESS`), report **only fields returned by the API** — do not invent paths:
+After a create or update returns `outcome: SUCCESS`, report **only fields present in `api.data`** — do not invent paths:
 
-- Requirement `id` from `data.id` — set `bound_requirement_id` and refresh `five_field_snapshot` and `summary_snapshot` (step 10).
-- For **PATCH**, state clearly that the existing Requirement was **updated**, not newly created.
-- **`id` / `url`**: use `data.id` for CLI follow-up. Return `data.url` exactly as returned — portal deep link (e.g. `/product/.../qa-insights/test-suites/requirements/{id}`); prepend portal base to open in browser. **Never** construct `url` or call `cawplan api` with `data.url`. Cold-handoff / read-back GET: see `references/CAWPLAN_OPEN_API.md` §15 — subsection **List Requirements (read — cold-handoff and reconcile)**.
-- **展示摘要** (`summary`) from `data.summary`, or `-` if API returns `null`.
+- Requirement `id` from `api.data.id` — set `bound_requirement_id` and refresh `five_field_snapshot`, `summary_snapshot`, and `ticket_id_snapshot` (step 10).
+- For an **update**, state clearly that the existing Requirement was **updated**, not newly created.
+- **`url`**: return `api.data.url` exactly as returned — portal deep link (e.g. `/product/.../qa-insights/test-suites/requirements/{id}`); prepend portal base to open in browser. **Never** construct `url` or pass it to `cawplan api`.
+- **展示摘要** (`summary`) from `api.data.summary`, or `-` when it is `null`.
 - Product name and `product_id`.
 - Module-tree node name and `module_tree_node_id`.
 - `review_status` (expected `PENDING`).
@@ -474,7 +508,7 @@ After a successful **create** (`POST`, `code: SUCCESS`) or **update** (`PATCH`, 
 
 **After reconcile (10b / Table A) binds an existing row** — no new write:
 
-- State that the prior write outcome was unclear but the server already has a matching Requirement (five-field strong match per **Field comparison** — `summary` not in match).
+- State that the prior write outcome was unclear but the server already has a matching Requirement (`requirements reconcile` returned `strong_match_single`).
 - Report bound `id`, product, module-tree node, `summary`, and `review_status` from the list row.
 - Clear `pending_write` and UNKNOWN.
 

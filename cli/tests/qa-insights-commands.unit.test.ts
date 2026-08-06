@@ -242,6 +242,156 @@ describe("A1-WB-4 / A1-TB-3 / P4 requirements update — changed keys only", () 
   });
 });
 
+/*
+ * Phase 2 step 1b/1c — inline JSON inputs.
+ *
+ * The skill holds five_field_snapshot / summary_snapshot in conversation state,
+ * so requiring a real file forced it to spill that state to disk on every
+ * update. Inline is additive: the --*-file forms keep working unchanged.
+ */
+describe("OQ-3 / 1b requirements update — inline --desired / --snapshot", () => {
+  const snapshotState = { ...fiveFields, summary: "旧摘要" };
+  const desiredState = { ...fiveFields, summary: "新摘要" };
+
+  test("1b inline inputs produce a PATCH of only the changed keys", async () => {
+    const h = harness([ok({ id: REQUIREMENT })]);
+    await runRequirementsUpdate(
+      PRODUCT, REQUIREMENT,
+      { desired: JSON.stringify(desiredState), snapshot: JSON.stringify(snapshotState) },
+      h.deps,
+    );
+    expect(h.calls[0].method).toBe("PATCH");
+    expect(h.calls[0].body).toEqual({ summary: "新摘要" });
+  });
+
+  test("1b inline and file forms produce an IDENTICAL patch_body", async () => {
+    const inline = harness([ok({ id: REQUIREMENT })]);
+    await runRequirementsUpdate(
+      PRODUCT, REQUIREMENT,
+      { desired: JSON.stringify(desiredState), snapshot: JSON.stringify(snapshotState) },
+      inline.deps,
+    );
+
+    const desiredFile = await tempJson("d.json", desiredState);
+    const snapshotFile = await tempJson("s.json", snapshotState);
+    const file = harness([ok({ id: REQUIREMENT })]);
+    await runRequirementsUpdate(PRODUCT, REQUIREMENT, { desiredFile, snapshotFile }, file.deps);
+
+    expect(inline.envelope.patch_body).toEqual(file.envelope.patch_body);
+    expect(inline.calls[0].body).toEqual(file.calls[0].body);
+  });
+
+  test("1b mixing --desired-file with --desired is a validation failure", async () => {
+    const desiredFile = await tempJson("d.json", desiredState);
+    const h = harness([]);
+    await runRequirementsUpdate(
+      PRODUCT, REQUIREMENT,
+      { desiredFile, desired: JSON.stringify(desiredState), snapshot: JSON.stringify(snapshotState) },
+      h.deps,
+    );
+    expect(h.calls).toHaveLength(0);
+    expect(h.envelope.error?.type).toBe("validation");
+    expect(h.envelope.error?.message).toMatch(/not both/);
+  });
+
+  test("1b mixing --snapshot-file with --snapshot is a validation failure", async () => {
+    const snapshotFile = await tempJson("s.json", snapshotState);
+    const h = harness([]);
+    await runRequirementsUpdate(
+      PRODUCT, REQUIREMENT,
+      { desired: JSON.stringify(desiredState), snapshotFile, snapshot: JSON.stringify(snapshotState) },
+      h.deps,
+    );
+    expect(h.calls).toHaveLength(0);
+    expect(h.envelope.error?.message).toMatch(/not both/);
+  });
+
+  test("1b omitting desired entirely is a validation failure", async () => {
+    const h = harness([]);
+    await runRequirementsUpdate(
+      PRODUCT, REQUIREMENT, { snapshot: JSON.stringify(snapshotState) }, h.deps,
+    );
+    expect(h.calls).toHaveLength(0);
+    expect(h.envelope.error?.message).toMatch(/--desired-file or --desired is required/);
+  });
+
+  test("1b omitting snapshot entirely is a validation failure", async () => {
+    const h = harness([]);
+    await runRequirementsUpdate(
+      PRODUCT, REQUIREMENT, { desired: JSON.stringify(desiredState) }, h.deps,
+    );
+    expect(h.calls).toHaveLength(0);
+    expect(h.envelope.error?.message).toMatch(/--snapshot-file or --snapshot is required/);
+  });
+
+  test("1b inline malformed JSON is a validation failure with no request", async () => {
+    const h = harness([]);
+    await runRequirementsUpdate(
+      PRODUCT, REQUIREMENT, { desired: "{not json", snapshot: JSON.stringify(snapshotState) }, h.deps,
+    );
+    expect(h.calls).toHaveLength(0);
+    expect(h.envelope.error?.type).toBe("validation");
+  });
+
+  test("1b inline no-change input still yields NOOP without a PATCH", async () => {
+    const h = harness([]);
+    await runRequirementsUpdate(
+      PRODUCT, REQUIREMENT,
+      { desired: JSON.stringify(snapshotState), snapshot: JSON.stringify(snapshotState) },
+      h.deps,
+    );
+    expect(h.calls).toHaveLength(0);
+    expect(h.envelope.outcome).toBe("NOOP");
+  });
+});
+
+/*
+ * E19 — the snapshot must be the values LAST WRITTEN to CawPlan, not the current
+ * draft and not a fresh GET. Both wrong sources fail silently rather than
+ * erroring, so they are pinned here explicitly.
+ */
+describe("E19 update --snapshot provenance — wrong sources fail silently", () => {
+  const lastWritten = { ...fiveFields, summary: "上次写入的摘要" };
+  const draft = { ...fiveFields, constraints: "我改过的约束", summary: "上次写入的摘要" };
+
+  test("E19 correct snapshot (last written) yields only the real change", async () => {
+    const h = harness([ok({ id: REQUIREMENT })]);
+    await runRequirementsUpdate(
+      PRODUCT, REQUIREMENT,
+      { desired: JSON.stringify(draft), snapshot: JSON.stringify(lastWritten) },
+      h.deps,
+    );
+    expect(h.envelope.patch_body).toEqual({ constraints: "我改过的约束" });
+  });
+
+  test("E19 passing the CURRENT DRAFT as snapshot silently swallows the change", async () => {
+    const h = harness([]);
+    await runRequirementsUpdate(
+      PRODUCT, REQUIREMENT,
+      { desired: JSON.stringify(draft), snapshot: JSON.stringify(draft) },
+      h.deps,
+    );
+    // No error — just a NOOP that loses the edit. This is why prose must pin the source.
+    expect(h.envelope.outcome).toBe("NOOP");
+    expect(h.calls).toHaveLength(0);
+  });
+
+  test("E19 passing a LIVE GET as snapshot re-sends someone else's concurrent edit", async () => {
+    // Another author changed normal_expectation on the server after our last write.
+    const liveGet = { ...lastWritten, normal_expectation: "他人并发改过的预期" };
+    const h = harness([ok({ id: REQUIREMENT })]);
+    await runRequirementsUpdate(
+      PRODUCT, REQUIREMENT,
+      { desired: JSON.stringify(draft), snapshot: JSON.stringify(liveGet) },
+      h.deps,
+    );
+    // Our own edit plus a revert of their edit — silently clobbering their work.
+    expect(h.envelope.patch_body).toHaveProperty("normal_expectation");
+    expect(Object.keys(h.envelope.patch_body ?? {}).sort())
+      .toEqual(["constraints", "normal_expectation"]);
+  });
+});
+
 describe("A1-TA-1 / P2 / P13 requirements reconcile — read-only Table A", () => {
   test("P2 single strong match yields RECONCILED and issues no write", async () => {
     const probe = await tempJson("p.json", fiveFields);
