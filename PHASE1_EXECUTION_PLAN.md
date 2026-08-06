@@ -84,7 +84,9 @@ cawplan api GET /api/v1/public/openapi/product/019fb1ff-d547-741f-bfa2-405386d04
 
 **(c)** `cd cli && npm run build` 无 TS 错误；类型可被其他模块 `import`；`outcome` 联合类型**不含** `DUPLICATE_BLOCKED`。
 
-【状态：未开始】
+**实测**：`npm run build` 无 TS 错误；`outcome` 五值联合，`grep DUPLICATE_BLOCKED cli/src` 仅命中一处**说明其被移除的注释**，无类型成员。
+
+【状态：完成】
 
 ---
 
@@ -96,7 +98,9 @@ cawplan api GET /api/v1/public/openapi/product/019fb1ff-d547-741f-bfa2-405386d04
 
 **(c)** `cd cli && npm test -- qa-insights-normalize` 全绿；测试名须含 **`A1-FC-1`**、**`A1-FC-2`**（及方案 §7.1 其余用例）。跑完后在输出中可逐条对上 **P3**（normalize 为强匹配前置）。
 
-【状态：未开始】
+**实测**：`qa-insights-normalize` **28 passed**。按步骤 1 实测补充：`out_of_scope` **有内容**为主用例（含真实库长文本），三态等价为边界用例。
+
+【状态：完成】
 
 ---
 
@@ -110,7 +114,9 @@ cawplan api GET /api/v1/public/openapi/product/019fb1ff-d547-741f-bfa2-405386d04
 
 **(c)** `npm test -- qa-insights-strong-match` 全绿；测试名须含 **`A1-FC-3`**、**`A1-FC-5`**、**`P3`**（含「summary 不同仍匹配」）。
 
-【状态：未开始】
+**实测**：`qa-insights-strong-match` **27 passed**。P3 用步骤 1 真实数据取例（同节点两行 summary「视频导出参数配置」/「视频生成参数配置」近似但非同条），验证 summary 不参与匹配。
+
+【状态：完成】
 
 ---
 
@@ -122,7 +128,9 @@ cawplan api GET /api/v1/public/openapi/product/019fb1ff-d547-741f-bfa2-405386d04
 
 **(c)** `npm test -- qa-insights-snapshot-diff` 全绿；测试名须含 **`A1-FC-6`**、**`A1-WB-4`**、**`P4`**（仅 summary 变 / 五字段+summary 均变 / 无变空 diff）。
 
-【状态：未开始】
+**实测**：`qa-insights-snapshot-diff` **28 passed**。另覆盖「desired 中缺席的键 = 保持不变，绝不清空」——防 PATCH 误清字段。
+
+【状态：完成】
 
 ---
 
@@ -134,7 +142,9 @@ cawplan api GET /api/v1/public/openapi/product/019fb1ff-d547-741f-bfa2-405386d04
 
 **(c)** `npm test -- qa-insights-body-builders` 全绿；测试名须含 **`A1-WB-1`**、**`A1-WB-2`**、**`A1-WB-3`**、**`A2-§9-body`**、**`P6`**、**`P10`**。
 
-【状态：未开始】
+**实测**：`qa-insights-body-builders` **45 passed**。含读写不对称用例：把步骤 1 那种 GET 回来的行直接当写 body → 因含 `product_id`/`review_status` 被硬拒。
+
+【状态：完成】
 
 ---
 
@@ -146,7 +156,9 @@ cawplan api GET /api/v1/public/openapi/product/019fb1ff-d547-741f-bfa2-405386d04
 
 **(c)** `npm test -- qa-insights-api-codes` 全绿；测试名须含 **`A1-MT-1`** / **`P11`** 相关（`SUCCESS`、`FAILURE_INVALID_INPUT` mock payload）。
 
-【状态：未开始】
+**实测**：`qa-insights-api-codes` **26 passed**。SUCCESS 形态取自步骤 1 真实响应 `{code:SUCCESS,data,msg:"success"}`。
+
+【状态：完成】
 
 ---
 
@@ -486,8 +498,12 @@ bash cli/scripts/qa-insights-write-smoke.sh
 - 步骤 0（执行前基线）—— 构建无错、17 files / 187 tests 全绿、skill 校验通过、CLI 版本 `0.0.24`。
 - 步骤 1（只读探路 GET）—— 两条只读 GET 均 `code: SUCCESS`；字段形态与方案假设**完全一致**（详见步骤 1「字段映射表」）。**无写操作。**
 
-**当前停点**：步骤 1 的【需用户确认后再继续】—— 等用户确认字段映射表无误，方可进入步骤 2。
+- 步骤 2–7（types + normalize / strong-match / snapshot-diff / body-builders / api-codes）—— 六个纯离线模块 + 五个单测文件全绿。**全程无后端调用。**
 
-**下一步**：步骤 2–7（types + normalize / strong-match / snapshot-diff / body-builders / api-codes 五个纯离线模块 + 单测）—— 均不碰后端，可连续执行；再下一个停点为**步骤 8（OQ-A/B/C 写探针，本轮首次真实写请求）**。
+**测试计数**：基线 17 files / 187 tests → 现 **22 files / 341 tests passed**（新增 154：normalize 28、strong-match 27、snapshot-diff 28、body-builders 45、api-codes 26）。`npm run build` 无 TS 错误；无回归。
 
-**待用户拍板**：本地 `cawplan auth status` 显示环境为 **`proto`**（非 `prd`）。计划仅写死 test product_id，未指定环境 —— 后续步骤 8 写探针与步骤 24 真写冒烟均将落在 **proto**，需用户确认。
+**当前停点**：**步骤 8（OQ-A/B/C 写探针）**—— 结尾带【需用户确认后再继续】，且为**本轮首次真实写请求**（对全零 UUID 发 PATCH / batch POST）。**须用户确认后方可执行。**
+
+**已确认事项**（用户 2026-08-06 回复）：
+1. 步骤 1 字段映射表无误，准予进入 lib 实现；
+2. 后续写操作（步骤 8 探针、步骤 24 真写冒烟）落在 **proto** 环境。

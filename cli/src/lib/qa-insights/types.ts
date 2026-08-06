@@ -1,0 +1,139 @@
+/**
+ * QA Insights write-command types (Phase 1a).
+ *
+ * Source of truth: QA_INSIGHTS_WRITE_COMMANDS_IMPLEMENTATION_PLAN.md §3.3.1,
+ * narrowed by PHASE1_EXECUTION_PLAN.md (Phase 1a) — no DUPLICATE_BLOCKED outcome,
+ * exit codes collapsed to 0/1, testpoint count mid-states merged into count_unexpected.
+ *
+ * Field shape verified against the live proto API on 2026-08-06 (step 1 field map):
+ * the five fields and `summary` sit flat at the top level of `data`, snake_case,
+ * and list rows are structurally identical to a single GET.
+ */
+
+/**
+ * Command outcome. This is what skills consume from stdout JSON — exit codes are
+ * only a coarse success/attention split (see envelope.ts).
+ */
+export type QAInsightsOutcome =
+  | "SUCCESS"     // write request definitively succeeded (envelope code === SUCCESS)
+  | "RECONCILED"  // no write issued; reconcile determined the prior write already landed
+  | "NOOP"        // no write issued; PATCH diff was empty
+  | "FAILURE"     // definitive failure
+  | "UNKNOWN";    // transport failure or post-write 5xx — result indeterminate
+
+export type QAInsightsErrorType =
+  | "transport"
+  | "api"
+  | "validation"
+  | "auth"
+  | "not_found"
+  | "feature_disabled";
+
+export type ReconcileStrategy = "five_field_strong_match" | "testpoint_count";
+
+/** Table A decisions (A1 SKILL.md step 11) plus A2 count-reconcile decisions. */
+export type ReconcileDecision =
+  // A1 — five-field strong match (Table A)
+  | "strong_match_single"
+  | "strong_match_multiple"
+  | "patch_already_applied"
+  | "patch_still_old"
+  | "no_match"
+  // A2 — testpoint count reconcile
+  | "count_matched"
+  | "retry_same_batch"
+  | "count_unexpected";
+
+/** The five requirement fields. `summary` is deliberately NOT one of them. */
+export interface RequirementFiveFields {
+  function_description: string;
+  entry_trigger: string;
+  normal_expectation: string;
+  constraints: string;
+  /** May be empty/null/（素材未提及） — treated as equivalent when normalized. */
+  out_of_scope: string;
+}
+
+export const FIVE_FIELD_KEYS = [
+  "function_description",
+  "entry_trigger",
+  "normal_expectation",
+  "constraints",
+  "out_of_scope",
+] as const satisfies readonly (keyof RequirementFiveFields)[];
+
+export type FiveFieldKey = (typeof FIVE_FIELD_KEYS)[number];
+
+/**
+ * Last values written to CawPlan. `summary_snapshot` is kept separate from the
+ * five fields: summary participates in PATCH diffs but never in strong match.
+ */
+export interface RequirementSnapshot {
+  five_fields: RequirementFiveFields;
+  summary_snapshot: string | null;
+}
+
+/** A requirement row as returned by GET (single) or list GET — same shape. */
+export interface RequirementRow extends Partial<RequirementFiveFields> {
+  id: string;
+  summary?: string | null;
+  module_tree_node_id?: string;
+  url?: string | null;
+  ticket_id?: string | null;
+  /** Read-only echo fields; never sent in a write body. */
+  product_id?: string;
+  review_status?: string;
+  [key: string]: unknown;
+}
+
+/** One test-point draft. Batch bodies carry exactly these four keys. */
+export interface TestPointDraft {
+  title: string;
+  tags: string[];
+  group: string;
+  is_edited: boolean;
+}
+
+export const TESTPOINT_BODY_KEYS = ["title", "tags", "group", "is_edited"] as const;
+
+/**
+ * Keys that must never appear in a Requirement write body.
+ * Note the read/write asymmetry: GET responses DO include product_id and
+ * review_status — that is expected and is not a violation.
+ */
+export const FORBIDDEN_WRITE_BODY_KEYS = ["product_id", "review_status", "is_edited"] as const;
+
+export interface QAInsightsReconcileInfo {
+  strategy: ReconcileStrategy;
+  decision: ReconcileDecision;
+  matched_requirement_ids?: string[];
+  count_before?: number;
+  count_after?: number;
+  batch_size?: number;
+}
+
+export interface QAInsightsError {
+  type: QAInsightsErrorType;
+  message: string;
+  status?: number;
+  api_code?: string;
+}
+
+export interface QAInsightsMeta {
+  product_id: string;
+  requirement_id?: string;
+  module_tree_node_id?: string;
+  dry_run: boolean;
+}
+
+/** Single JSON object printed to stdout by every write/reconcile command. */
+export interface QAInsightsWriteEnvelope {
+  outcome: QAInsightsOutcome;
+  command: string;
+  api?: { code: string; msg: string; data?: unknown };
+  reconcile?: QAInsightsReconcileInfo;
+  patch_body?: Record<string, unknown>;
+  post_body?: Record<string, unknown>;
+  error?: QAInsightsError;
+  meta: QAInsightsMeta;
+}
