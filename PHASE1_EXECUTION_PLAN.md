@@ -48,9 +48,31 @@ cawplan api GET /api/v1/public/openapi/product/019fb1ff-d547-741f-bfa2-405386d04
 
 **(c)** 终端可见 `code: SUCCESS` 与完整 JSON；书面记录：`data` 类型、五字段键名、`summary`/`url`/`module_tree_node_id` 等实际路径。与方案假设一致方可进入步骤 2；不一致则先更新执行笔记中的「字段映射表」，再实现 lib。
 
+### 字段映射表（2026-08-06 实测 · proto 环境）
+
+探针对象：`product 019fb1ff-…` / `requirement 019fcfa0-da13-78db-b552-323598ce1c38`（单条 GET）；对照 list GET `module_tree_node_id=019fcf73-7fd1-7b6a-8745-97c2ffaded05`（返回 2 行）。两条均 `code: SUCCESS`。
+
+| 项 | 实测 | 与方案假设 |
+|----|------|-----------|
+| 单条 GET `data` | **单对象**（dict） | ✅ 一致 |
+| list GET `data` | **数组**（list，非分页信封） | ✅ 一致 |
+| list 行结构 vs 单条 GET | **20 个 key 完全相同** | ✅ 一致 |
+| 五字段位置 | **`data` 顶层扁平**，`snake_case`，无嵌套 | ✅ 一致 |
+| `summary` | 与五字段**平级独立**（本条 `"视频导出参数配置"`） | ✅ 一致 |
+
+**五字段键名（lib 直接取顶层，无需路径拼接）**：`function_description`、`entry_trigger`、`normal_expectation`、`constraints`、`out_of_scope`
+
+**其余键**：`id`、`module_tree_node_id`、`url`（portal 深链路径，非 API 路由）、`ticket_id`、`created_at`/`updated_at`/`created_by`、`last_reviewed_at`。
+
+**只读回显字段（读有、写 body 禁发 —— 读写不对称，勿混淆）**：`product_id`、`review_status`（本条 `PENDING`）、`reviewer_group`、`reviewers`、`reviewer_reviews`、`review_history`。`body-builders` 硬拒的是**写 body** 中的 `{product_id, review_status, is_edited}`，与响应含这些键不矛盾。
+
+**实测补充（影响步骤 3 单测取例）**：本条 `out_of_scope` 为**有实质内容的长文本**，非 `（素材未提及）`/空/`null` 三态之一 —— 真实库中 `out_of_scope` 常态有值。步骤 3 单测须将「有内容正常比对」作为**主用例**，三态等价作为**边界用例**，不可只测三态。
+
+**旁证（设计正确性）**：同一节点下 2 行 `summary` 分别为「视频导出参数配置」与「视频生成参数配置」—— 高度相似但非同一条，印证 `requirements reconcile` 采用**五字段强匹配而非 summary 匹配**（A1 Field comparison）是必要的。
+
 【需用户确认后再继续】
 
-【状态：未开始】
+【状态：完成】（待用户确认字段形态后方可进入步骤 2）
 
 ---
 
@@ -460,6 +482,12 @@ bash cli/scripts/qa-insights-write-smoke.sh
 
 ## 当前进度
 
-**已完成**：步骤 0（执行前基线）—— 构建无错、17 files / 187 tests 全绿、skill 校验通过、CLI 版本 `0.0.24`。
+**已完成**：
+- 步骤 0（执行前基线）—— 构建无错、17 files / 187 tests 全绿、skill 校验通过、CLI 版本 `0.0.24`。
+- 步骤 1（只读探路 GET）—— 两条只读 GET 均 `code: SUCCESS`；字段形态与方案假设**完全一致**（详见步骤 1「字段映射表」）。**无写操作。**
 
-**下一步**：步骤 1（只读探路 GET，确认真实 Requirement 字段形态）——**结尾有【需用户确认后再继续】**，需用户确认字段形态后方可进入步骤 2。
+**当前停点**：步骤 1 的【需用户确认后再继续】—— 等用户确认字段映射表无误，方可进入步骤 2。
+
+**下一步**：步骤 2–7（types + normalize / strong-match / snapshot-diff / body-builders / api-codes 五个纯离线模块 + 单测）—— 均不碰后端，可连续执行；再下一个停点为**步骤 8（OQ-A/B/C 写探针，本轮首次真实写请求）**。
+
+**待用户拍板**：本地 `cawplan auth status` 显示环境为 **`proto`**（非 `prd`）。计划仅写死 test product_id，未指定环境 —— 后续步骤 8 写探针与步骤 24 真写冒烟均将落在 **proto**，需用户确认。
