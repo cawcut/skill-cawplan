@@ -195,9 +195,30 @@ cawplan api POST /api/v1/public/openapi/product/019fb1ff-d547-741f-bfa2-405386d0
 
 **(c)** 书面记录每条探针的 HTTP status、body 信封 `code`/`msg`；写入执行笔记「OQ-A/B/C 实测表」。步骤 9 `errors.ts` **必须**按此表实现 404/信封/`feature_disabled` 分支；OQ-C 未探到时在代码注释与单测中标注 **未证实**。确认两条写探针用的都是全零 UUID。
 
+### OQ-A/B/C 实测表（2026-08-06 · proto · 全零 UUID）
+
+> ⚠️ **实测推翻方案假设**：写接口的 not-found **不是 HTTP 404**，而是 **HTTP 200 + 信封 `FAILURE_INVALID_INPUT` + `msg: "requirement not found"`**。§15「Get Requirement Notes: `404` → Requirement missing」**只适用于读**（单条 GET）；写接口（PATCH / batch POST）走信封。`errors.ts` **不得**依赖 HTTP 404 判定写路径的 not-found。
+
+| 探针 | 请求 | 实测结果 | 结论 |
+|------|------|----------|------|
+| **OQ-A** | `PATCH .../qa/requirements/0000…0000 --body '{}'` | **HTTP 200** + `code: FAILURE_INVALID_INPUT`、`msg: "requirement not found"`、`data` 为含 null 字段的占位对象 | 写 not-found = **200 + 信封**，非 404 |
+| **OQ-B**（第 1 次） | 同上 batch POST，`{"test_points":[]}` | HTTP 200 + `FAILURE_INVALID_INPUT`、`msg: "test_points are required"` | **body 校验先于 requirement 查找**；空数组探不到 not-found |
+| **OQ-B**（第 2 次，带 1 条合法测试点） | batch POST，1 条合法四键测试点 | **HTTP 200** + `FAILURE_INVALID_INPUT`、`msg: "requirement not found"`、`data: {}` | 与 OQ-A **同形态** |
+| **OQ-C** | `GET .../product/019fb201-…/qa/module-tree`（用户提供的「qa_reports 未开」产品） | **HTTP 200 + `code: SUCCESS`**，正常返回 7 个节点 | **未复现 feature-disabled**：该产品 QA Insights 读路径可用，`qa_reports` 未开**不影响** QA Insights |
+| **OQ-C 旁证**（首轮 403，权限修复前） | `PATCH .../product/019fb1ff-…/qa/requirements/0000…0000` | **HTTP 403** + `code: INSUFFICIENT_PERMISSIONS`、`data.required: "qa_insights.edit"`、`data.resource_type: "product"` | 403 形态**已实测**：code 为 `INSUFFICIENT_PERMISSIONS`，**非** `FAILURE_*` 前缀 |
+
+**关键实现要点（步骤 9 必须遵循）**：
+
+1. **写路径 not-found**：`FAILURE_INVALID_INPUT` + `msg` 含 `not found` → 映射 `FAILURE` / `not_found`（**不是** `validation`）。仅凭 `code` 无法区分 not-found 与真正的入参非法（**同一个 code**），须结合 `msg`。
+2. **`FAILURE_INVALID_INPUT` 一码多义**：depth>5、缺 `test_points`、requirement not found **共用**此 code —— 分类须看 `msg`，且分不出时**保守归 `validation`**。
+3. **403 形态**：`code: INSUFFICIENT_PERMISSIONS`（独立命名空间，非 `FAILURE_*`），由 `cawplanRequest` 抛 `ApiError(403)`。
+4. **`data` 非空不代表成功**：OQ-A 的失败响应 `data` 是含 null 字段的对象 —— **必须先判 `code`**，不可因 `data` 有内容就认为成功。
+
+**未探到项**：`feature_disabled` 真实形态。用户确认「就是 403」，且 403 形态已由权限旁证实测；但**「功能未开」与「无产品权限」是否同码**未验证 → 步骤 9 按 403/`INSUFFICIENT_PERMISSIONS` 实现，`feature_disabled` 与 `auth` 归同一 403 分支处理，注释标注该细分**未证实**。
+
 【需用户确认后再继续】（**本轮首次发出写请求**，由用户确认再执行本步）
 
-【状态：未开始】
+【状态：完成】（OQ-A/B 已实测；OQ-C 未复现 feature-disabled，见实测表）
 
 ---
 
@@ -499,10 +520,11 @@ bash cli/scripts/qa-insights-write-smoke.sh
 - 步骤 1（只读探路 GET）—— 两条只读 GET 均 `code: SUCCESS`；字段形态与方案假设**完全一致**（详见步骤 1「字段映射表」）。**无写操作。**
 
 - 步骤 2–7（types + normalize / strong-match / snapshot-diff / body-builders / api-codes）—— 六个纯离线模块 + 五个单测文件全绿。**全程无后端调用。**
+- 步骤 8（OQ-A/B/C 写探针）—— 已实测，**结果推翻方案假设**：写路径 not-found 为 **HTTP 200 + `FAILURE_INVALID_INPUT`**，非 HTTP 404（详见步骤 8「OQ-A/B/C 实测表」）。全零 UUID，**未产生任何数据**。
 
 **测试计数**：基线 17 files / 187 tests → 现 **22 files / 341 tests passed**（新增 154：normalize 28、strong-match 27、snapshot-diff 28、body-builders 45、api-codes 26）。`npm run build` 无 TS 错误；无回归。
 
-**当前停点**：**步骤 8（OQ-A/B/C 写探针）**—— 结尾带【需用户确认后再继续】，且为**本轮首次真实写请求**（对全零 UUID 发 PATCH / batch POST）。**须用户确认后方可执行。**
+**当前停点**：步骤 9（`errors.ts`）之前 —— 需用户就 **OQ-C 补充探针**（在 flag-off 产品 `019fb201-…` 的 level-5 节点下建子节点以实测 depth>5，**属真实写入**）作决定；不做则 depth>5 分支按 §15 文档形态以 mock 实现。
 
 **已确认事项**（用户 2026-08-06 回复）：
 1. 步骤 1 字段映射表无误，准予进入 lib 实现；
