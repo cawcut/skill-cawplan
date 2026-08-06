@@ -67,17 +67,28 @@ describe("§6 / OQ-B batch not-found shares the OQ-A shape", () => {
 });
 
 describe("A1-MT-1 / P11 FAILURE_INVALID_INPUT is overloaded — msg drives classification", () => {
-  test("A1-MT-1 depth>5 maps to validation (shape from §15 docs, NOT measured)", () => {
-    const depth = {
-      code: "FAILURE_INVALID_INPUT",
-      msg: "module tree depth exceeds limit (5)",
-      data: null,
-    };
+  // Measured 2026-08-06 (verbatim payload) — creating a child under a level-5 node.
+  const depth = {
+    code: "FAILURE_INVALID_INPUT",
+    data: { parent_id: null },
+    msg: "module tree depth exceeds limit (5)",
+  };
+
+  test("A1-MT-1 depth>5 maps to validation (measured payload)", () => {
     expect(mapEnvelopeFailure(depth)?.error.type).toBe("validation");
   });
   test("P11 depth>5 is a FAILURE, never silently ignored", () => {
-    const depth = { code: "FAILURE_INVALID_INPUT", msg: "module tree depth exceeds limit (5)" };
     expect(mapEnvelopeFailure(depth)?.outcome).toBe("FAILURE");
+  });
+  test("A1-MT-1 depth>5 is NOT misread as not_found despite sharing the code", () => {
+    expect(mapEnvelopeFailure(depth)?.error.type).not.toBe("not_found");
+  });
+  test("A1-MT-1 depth>5 carries a non-empty data — code must still win", () => {
+    expect(depth.data).not.toEqual({});
+    expect(mapEnvelopeFailure(depth)).not.toBeNull();
+  });
+  test("A1-MT-1 depth>5 msg is surfaced verbatim to the caller", () => {
+    expect(mapEnvelopeFailure(depth)?.error.message).toBe("module tree depth exceeds limit (5)");
   });
   test("§6 unknown FAILURE_INVALID_INPUT msg falls back to validation (conservative)", () => {
     const vague = { code: "FAILURE_INVALID_INPUT", msg: "something else entirely" };

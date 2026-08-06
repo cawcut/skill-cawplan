@@ -239,8 +239,19 @@ POST .../product/019fb201-…/qa/module-tree  {"parent_id":"019fb339-664e-…","
 
 1. **权限是 per-product 且读写分离** —— 「有 `qa_insights.edit` 角色」≠「对该产品可写」。403 的 `data.required` / `data.resource_type` 明确指出是**产品级资源访问**问题，不是角色缺失。
 2. **403 形态第二次独立复现**（不同产品、不同 HTTP 方法 POST vs PATCH），`code: INSUFFICIENT_PERMISSIONS` 稳定 → 步骤 9 的 403 分支可**照实测实现**，不再是单点观测。
-3. **depth>5 仍未实测** → 该分支按 §15 文档形态（`FAILURE_INVALID_INPUT` + `msg: "module tree depth exceeds limit (5)"`）以 mock 实现，代码注释标注 **`// depth>5: 形态取自 §15 文档，未实测`**。因其归 `validation` 分支、与 not-found 的 `msg` 判别互不干扰，风险可控。
+3. **depth>5 已由用户实测补齐**（2026-08-06，见下）→ 不再是未证实分支。
 4. **写库联调（步骤 24）只能在 `019fb1ff-…` 上进行** —— 与计划写死的测试 product 一致，无需调整。
+
+**depth>5 实测（用户代跑，2026-08-06）**：
+
+```
+HTTP 200
+{ "code": "FAILURE_INVALID_INPUT",
+  "data": { "parent_id": null },
+  "msg":  "module tree depth exceeds limit (5)" }
+```
+
+`msg` 与 §15 文档记载**逐字一致**；`data` **非空**（`{"parent_id": null}`）—— 与 OQ-A 同为「失败响应带 data」的实例，再次印证**必须先判 `code`**。步骤 9 已按此 payload 原样写入单测 fixture，注释由「未实测」改为「measured 2026-08-06」。**OQ-A/B/C 相关分支现全部有实测支撑，仅「功能未开 vs 无产品权限是否同码」一项仍标注未证实。**
 
 【需用户确认后再继续】（**本轮首次发出写请求**，由用户确认再执行本步）
 
@@ -279,7 +290,9 @@ POST .../product/019fb201-…/qa/module-tree  {"parent_id":"019fb339-664e-…","
 
 **(c)** `npm test -- qa-insights-reconcile-requirement` 全绿；测试名须含 **`A1-TA-1`**～**`A1-TA-5`**、**`P5`**、**`P13`**；`patch_already_applied` 仅比变动键；`strong_match_single` 时 `matched_requirement_ids.length === 1`。
 
-【状态：未开始】
+**实测**：**35 passed**。含 P9 断言：Table A 五个分支**无一**建议自动再 POST；断言五个 decision 全部可达。OQ#5「仅比变动键」以「无关字段被他人改动仍判 already_applied」用例锁定。
+
+【状态：完成】
 
 ---
 
@@ -298,7 +311,9 @@ POST .../product/019fb201-…/qa/module-tree  {"parent_id":"019fb339-664e-…","
 
 **(c)** `npm test -- qa-insights-reconcile-testpoints` 全绿；测试名须含 **`A2-§9.4`**、**`P8`**、**`P9`**；覆盖四类：`old + batch` → `RECONCILED`、`old` 不变 → `retry_same_batch`、**`count_unexpected`（合并原 partial / high 两例为一组断言，偏低与偏高各一条输入即可）**、缺 `count_before` → validation。
 
-【状态：未开始】
+**实测**：**28 passed**。`count_unexpected` 覆盖偏低/偏高/**条数反而减少**三种输入，断言三者同一 decision。缺 `--count-before` 的报错文案显式说明「须为 batch 前那次 GET 的基线」——防调用方自行猜基线导致竞态。
+
+【状态：完成】
 
 ---
 
@@ -310,7 +325,9 @@ POST .../product/019fb201-…/qa/module-tree  {"parent_id":"019fb339-664e-…","
 
 **(c)** `npm test -- qa-insights-envelope` 全绿；测试名标注各 `outcome` 的 exit code（**SUCCESS/RECONCILED/NOOP→0**、**FAILURE/UNKNOWN→1**）；`printEnvelope` 输出可 `JSON.parse` 且含 `outcome`/`command`/`meta`；断言五值 enum 全覆盖且**无** `DUPLICATE_BLOCKED`、**无** exit 2/3。
 
-【状态：未开始】
+**实测**：**21 passed**。断言五个 outcome 全部映射到 0/1、**不含 exit 2/3**；并显式断言 `UNKNOWN` 与 `FAILURE` 的 exit code **无法区分** → skill 必须读 JSON `outcome` 字段（防误用 exit code 判 UNKNOWN）。
+
+【状态：完成】
 
 ---
 
@@ -559,11 +576,12 @@ bash cli/scripts/qa-insights-write-smoke.sh
 
 **测试计数**：基线 17 files / 187 tests → 现 **22 files / 341 tests passed**（新增 154：normalize 28、strong-match 27、snapshot-diff 28、body-builders 45、api-codes 26）。`npm run build` 无 TS 错误；无回归。
 
-- 步骤 9（`errors.ts`）—— 按步骤 8 实测表实现两层错误映射，35 passed。
+- 步骤 9（`errors.ts`）—— 按步骤 8 实测表实现两层错误映射，38 passed（含用户补测的 depth>5 原样 payload）。
+- 步骤 10–12（reconcile-requirement / reconcile-testpoints / envelope）—— Table A 五行、条数核对、信封与 exit code，全部纯离线。
 
-**测试计数**：**23 files / 376 tests passed**（基线 187 + 新增 189）。
+**测试计数**：**26 files / 463 tests passed**（基线 187 + 新增 276）。`npm run build` 无 TS 错误；无回归。
 
-**下一步**：步骤 10–12（reconcile-requirement / reconcile-testpoints / envelope）—— 纯离线，可连续执行。再下一停点为**步骤 24 真写冒烟**（步骤 13–23 为命令层 + mock 单测，不碰真实后端）。
+**下一步**：步骤 13–20（命令骨架 + 六个子命令，全部 mock 单测，**不碰真实后端**）→ 21–23（全量单测 / 版本 bump / skill 校验）→ **步骤 24 真写冒烟（下一个真实写入停点）**。
 
 **已确认事项**（用户 2026-08-06 回复）：
 1. 步骤 1 字段映射表无误，准予进入 lib 实现；

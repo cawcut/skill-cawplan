@@ -83,9 +83,12 @@ export function classifyFailureEnvelope(envelope: ParsedEnvelope): QAInsightsErr
   }
 
   if (isFailureInvalidInput(code)) {
-    // Includes module-tree depth>5. That specific shape is documented in
-    // CAWPLAN_OPEN_API.md §15 but was NOT reproduced live: the depth probe was
-    // blocked by product-level permissions before reaching the depth check.
+    // Includes module-tree depth>5, measured 2026-08-06:
+    //   HTTP 200 { code: "FAILURE_INVALID_INPUT",
+    //             msg: "module tree depth exceeds limit (5)",
+    //             data: { parent_id: null } }
+    // Note the non-empty `data` on a failure — another reason `code` must be
+    // read before `data`.
     return {
       type: "validation",
       message: msg || "invalid input",
