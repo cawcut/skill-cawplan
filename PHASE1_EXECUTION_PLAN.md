@@ -339,7 +339,9 @@ HTTP 200
 
 **(c)** `cd cli && npm run build && node dist/index.js qa-insights --help` 能列出子命令树；**现有** `npm test` 仍全绿。
 
-【状态：未开始】
+**实测**：`qa-insights --help` 列出 `module-tree` / `requirements` / `testpoints` 三组；六子命令 `--help` 全部可达。命令层以 `CommandDeps { request, emit }` 依赖注入实现（仓库无 `vi.mock` 先例），便于单测断言「是否发出请求」。
+
+【状态：完成】
 
 ---
 
@@ -351,7 +353,9 @@ HTTP 200
 
 **(c)** 单测/mock：`--dry-run` 输出 `post_body` 且无 HTTP；测试名含 **`A1-MT-1`**、**`P11`**；`qa-insights module-tree node create --help` 显示参数。
 
-【状态：未开始】
+**实测**：4 条用例全绿；P11 用**用户实测的 depth>5 原样 payload** 断言 → `FAILURE`/`validation`。
+
+【状态：完成】
 
 ---
 
@@ -370,7 +374,9 @@ cawplan qa-insights requirements create <product_id> \
 
 **(c)** 单测 mock：路径**不**调用 GET requirements；测试名含 **`A1-TB-1`**、**`A1-PW-2`**、**`P1`**；禁发字段 → validation 不发 POST；`--help` **不含** `--reconcile-first` / `--force-new`。
 
-【状态：未开始】
+**实测**：10 条用例全绿。**P1 断言 `gets().length === 0`**（POST 前零 GET）；重复 create 仍 POST（不做 CLI 去重）；禁发字段 → 零请求；5xx/transport → `UNKNOWN`。`--help` 实测无 `--reconcile-first`/`--force-new`。
+
+【状态：完成】
 
 ---
 
@@ -382,7 +388,9 @@ cawplan qa-insights requirements create <product_id> \
 
 **(c)** 单测：测试名含 **`A1-WB-4`**、**`A1-TB-3`**、**`P4`**；仅 summary 变时 `patch_body` 仅 `{summary}`；无变 `outcome: NOOP` 且不 PATCH。
 
-【状态：未开始】
+**实测**：7 条用例全绿。仅 summary 变 → `patch_body` 恰为 `{summary}`；空 diff → `NOOP` 且**零请求**；`out_of_scope` 三态等价也判 `NOOP`（防无谓 PATCH）。
+
+【状态：完成】
 
 ---
 
@@ -394,7 +402,9 @@ cawplan qa-insights requirements create <product_id> \
 
 **(c)** 单测：测试名含 **`A1-TA-1`**～**`A1-TA-5`**、**`P2`**、**`P5`**、**`P13`**；决策码与 §3.3.5 表一致；强匹配命中 → `RECONCILED`（**不**产生 `DUPLICATE_BLOCKED`）。
 
-【状态：未开始】
+**实测**：8 条用例全绿。所有分支断言 `writes().length === 0`（reconcile 纯只读）；多匹配列全 id 且 `outcome: FAILURE`（不自动绑定）。
+
+【状态：完成】
 
 ---
 
@@ -406,7 +416,9 @@ cawplan qa-insights requirements create <product_id> \
 
 **(c)** 单测：测试名含 **`A2-§9.5`**、**`A2-§8.5`**、**`P7`**、**`P9`**、**`P10`**；正常路径无 GET testpoints；长度不等 → `FAILURE`。
 
-【状态：未开始】
+**实测**：8 条用例全绿。**P7 断言成功路径 `gets().length === 0`**；返回长度 < 请求长度 → `FAILURE`（提示 all-or-nothing）；SUCCESS 但无 `test_points` 数组亦判 `FAILURE`；5xx → `UNKNOWN` 且**同次不 GET、不重发**。
+
+【状态：完成】
 
 ---
 
@@ -418,7 +430,9 @@ cawplan qa-insights requirements create <product_id> \
 
 **(c)** 单测：测试名含 **`A2-§9.4`**、**`P8`**、**`P9`**；缺 `--count-before`、`old + batch`、`old` 不变、`count_unexpected`（偏低/偏高各一条）全覆盖。
 
-【状态：未开始】
+**实测**：8 条用例全绿。断言 `writes().length === 0`（永不 POST）；缺 `--count-before` 报错文案含「will not guess」——明示不自行猜基线。
+
+【状态：完成】
 
 ---
 
@@ -434,7 +448,13 @@ cd cli && npm run build && npm test
 
 **(c)** 全部 test files 绿；`qa-insights-*.unit.test.ts` 输出中 **§8 的 P1–P13** 可逐一对上（含命令层 mock 单测；**`P2` 由 `requirements reconcile` 单独承担** —— reconcile-first 语境已随 Phase 1a 削减移除）；`dist/index.js` 含 `qa-insights` 六子命令。
 
-【状态：未开始】
+**实测**：**27 files / 508 tests passed**（基线 187 + 新增 321），`npm run build` 无 TS 错误，无回归。
+
+Parity 覆盖（`grep` 测试文件计数）：`P1`×4、`P2`×6、`P3`×13、`P4`×9、`P5`×2、`P6`×9、`P7`×2、`P8`×8、`P9`×21、`P10`×6、`P11`×7、`P13`×12。**`P12` 无 CLI 用例** —— 其判据为「Table B 未变时问是否另建」，方案 §8.2 本就标注「**留 skill**；默认 create 不挡」，证明方式为**设计审查**而非单测，故 CLI 侧无对应断言（非遗漏）。
+
+六子命令均可 `--help` 到达。
+
+【状态：完成】
 
 ---
 
@@ -446,7 +466,9 @@ cd cli && npm run build && npm test
 
 **(c)** `cd cli && npm run build` 后 `node dist/index.js --version` 显示新版本；根 `VERSION` 仍为 `0.2.6`。
 
-【状态：未开始】
+**实测**：`node dist/index.js --version` → **`0.0.25`**；根 `VERSION` → `0.2.6`（未动）；`git status` 确认未触碰 `skills/`、三个 plugin 目录。
+
+【状态：完成】
 
 ---
 
@@ -462,7 +484,9 @@ bash scripts/validate-skills.sh
 
 **(c)** 输出 `All skill validations passed.`；`git status` 无 skill / plugin 意外修改。
 
-【状态：未开始】
+**实测**：`All skill validations passed.`；`git status` 改动仅 `cli/package.json`、`cli/src/index.ts`（+2 行注册）、新增 `cli/src/commands/qa-insights.ts`、`cli/tests/qa-insights-commands.unit.test.ts`、`cli/scripts/qa-insights-write-smoke.sh`。
+
+【状态：完成】
 
 ---
 
@@ -476,7 +500,11 @@ bash scripts/validate-skills.sh
 
 **(c)** `bash -n cli/scripts/qa-insights-write-smoke.sh` 通过；脚本注释标明需 `cawplan auth`、仅测试 product；**并注明**：「本脚本会在测试 product 上**累积**冒烟数据（§7.2 步骤 3 刻意验证『默认不去重』会真建重复条目），**Open API 无 DELETE requirement 接口**，需**定期人工清理**；带 `[SMOKE-` 前缀便于识别与 grep。」
 
-【状态：未开始】
+**实测**：`bash -n` 通过；`chmod +x` 已加。脚本头部大写 WARNING 完整声明累积/不可删/需人工清理/前缀可 grep。校验：`grep -rl qa-insights-write-smoke .github/` **零命中**（未进 CI）；脚本内 product id **仅** `019fb1ff-…` 一处，无其他 product。
+
+**脚本覆盖 10 步**：建节点 → create → **刻意重复 create** → reconcile（因前两步产生两行同五字段 → 预期 `strong_match_multiple`）→ update（仅 summary）→ update 无变（`NOOP`）→ archive 3 条 → reconcile 条数（`RECONCILED`）→ 错误基线（`count_unexpected`）→ 禁发字段（validation，无 HTTP）→ `--dry-run`。结尾打印遗留数据 id 与 `[SMOKE-` 前缀供人工清理。
+
+【状态：完成】
 
 ---
 
@@ -578,10 +606,14 @@ bash cli/scripts/qa-insights-write-smoke.sh
 
 - 步骤 9（`errors.ts`）—— 按步骤 8 实测表实现两层错误映射，38 passed（含用户补测的 depth>5 原样 payload）。
 - 步骤 10–12（reconcile-requirement / reconcile-testpoints / envelope）—— Table A 五行、条数核对、信封与 exit code，全部纯离线。
+- 步骤 13–20（命令骨架 + 六子命令 + 全量单测）—— 全部 mock 单测，**未发出任何真实请求**。
+- 步骤 21–23（版本 bump 0.0.24→0.0.25 / skill 校验回归 / 冒烟脚本）。
 
-**测试计数**：**26 files / 463 tests passed**（基线 187 + 新增 276）。`npm run build` 无 TS 错误；无回归。
+**测试计数**：**27 files / 508 tests passed**（基线 187 + 新增 321）。`npm run build` 无 TS 错误；`validate-skills.sh` 通过；无回归。
 
-**下一步**：步骤 13–20（命令骨架 + 六个子命令，全部 mock 单测，**不碰真实后端**）→ 21–23（全量单测 / 版本 bump / skill 校验）→ **步骤 24 真写冒烟（下一个真实写入停点）**。
+**当前停点**：**步骤 24（本地真写库冒烟）**—— 会在测试 product 上**真实创建**模块节点、2 条 requirement（其一为刻意重复）、3 条测试点，且 **Open API 无删除接口**。**须用户确认后方可执行。**
+
+**Phase 1a 剩余**：步骤 24（真写冒烟）→ 步骤 25（验收对照，硬依赖 24）。
 
 **已确认事项**（用户 2026-08-06 回复）：
 1. 步骤 1 字段映射表无误，准予进入 lib 实现；
