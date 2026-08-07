@@ -258,6 +258,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       gpt: '/assets/model-gpt.png',
       claude: '/assets/model-claude.png',
       cursor: '/assets/model-cursor.png',
+      deepseek: '/assets/model-deepseek.png',
     };
     const CAWPLAN_PORTAL_BASE = ${JSON.stringify(normalizedPortalBase)};
 
@@ -555,6 +556,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     function modelIconKind(model) {
       const value = String(model || '').toLowerCase();
       if (value.includes('claude')) return 'claude';
+      if (value.includes('deepseek')) return 'deepseek';
       if (value.includes('gpt')) return 'gpt';
       if (value.includes('default') || value.includes('composer')) return 'cursor';
       return '';
