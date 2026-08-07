@@ -51,6 +51,14 @@
     {
       "name": "cawplan-coding-insights",
       "path": "skills/cawplan-coding-insights"
+    },
+    {
+      "name": "cawplan-requirement-analyze",
+      "path": "skills/cawplan-requirement-analyze"
+    },
+    {
+      "name": "cawplan-testpoint-generate",
+      "path": "skills/cawplan-testpoint-generate"
     }
   ]
 }

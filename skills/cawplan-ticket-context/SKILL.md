@@ -3,8 +3,8 @@ version: 0.2.6
 name: cawplan-ticket-context
 description: |
   Load one or more CawPlan tickets into the current AI coding session context so the next cawplan-coding-commit daily report links this session to those tickets.
-  Use when: the user gives or mentions CawPlan issue URLs, display IDs, or ticket unique IDs in the current coding session. Automatically run when a CawPlan issue URL appears, even if the user did not explicitly ask to load ticket context.
-  NOT for: creating tickets, uploading daily reports, product status reporting, codebase exploration, implementation, or file edits.
+  Use when: the user gives or mentions CawPlan issue URLs, display IDs, or ticket unique IDs for coding-session context. Automatically run when a CawPlan issue URL appears with no other workflow intent, even if the user did not explicitly ask to load ticket context.
+  NOT for: creating tickets, uploading daily reports, product status reporting, codebase exploration, implementation, file edits, or SQA requirement analysis.
 argument-hint: "[CawPlan issue URLs, display IDs, or unique IDs]"
 allowed-tools: Bash
 ---
@@ -21,7 +21,7 @@ cawplan skill check
 
 Use this skill when the user invokes `/cawplan-ticket-context`, asks to load ticket context for the current coding session, or mentions a CawPlan issue URL in the session.
 
-Automatically trigger this skill as soon as the user message contains a CawPlan issue URL such as `https://app.cawplan.com/issue/CWP-14471` or `https://core-web-product.uid.dev.ui.com/issue/CAW-04560`. Do not wait for an explicit `/cawplan-ticket-context` command in that case.
+Automatically trigger this skill when the user message contains a CawPlan issue URL such as `https://app.cawplan.com/issue/CWP-14471` or `https://core-web-product.uid.dev.ui.com/issue/CAW-04560` **and** they are not asking for SQA requirement analysis, five-field structuring, module-tree selection, or QA Insights archiving — use `cawplan-requirement-analyze` for those. Do not wait for an explicit `/cawplan-ticket-context` command when only a bare issue URL is pasted.
 
 This skill runs before any daily report exists. Do not ask for, read, create, or modify an `ai-daily-*.json` file.
 

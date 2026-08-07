@@ -50,6 +50,16 @@
           "name": "coding-insights",
           "path": "skills/cawplan-coding-insights",
           "invoke": "/cawplan-coding-insights"
+        },
+        {
+          "name": "requirement-analyze",
+          "path": "skills/cawplan-requirement-analyze",
+          "invoke": "/cawplan-requirement-analyze"
+        },
+        {
+          "name": "testpoint-generate",
+          "path": "skills/cawplan-testpoint-generate",
+          "invoke": "/cawplan-testpoint-generate"
         }
       ]
     }

@@ -13,3 +13,4 @@ cli/coverage/
 Outputs/
 Reports/
 ai-daily-*.json
+.cursor/rules/
