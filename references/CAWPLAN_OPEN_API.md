@@ -530,7 +530,7 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
 ## 15) QA Insights APIs
 Module tree and Requirement archive for Test Suites. **Public Open API only** — do not use Internal routes (`/api/v1/product/{unique_id}/qa/...`).
 
-**CLI routing**: the four **write** endpoints go through the `cawplan qa-insights` command family, which owns the correctness-critical rules (five-field strong match, PATCH changed-keys diff, batch all-or-nothing, forbidden-field rejection, UNKNOWN handling). **Reads** still use the `cawplan api GET` escape hatch — there are no read wrappers. Reconcile paths (`requirements reconcile`, `testpoints reconcile`) are read-only and never write.
+**CLI routing**: the four **write** endpoints go through the `cawplan qa-insights` command family, which owns the correctness-critical rules (five-field strong match, PATCH changed-keys diff, batch all-or-nothing, forbidden-field rejection, UNKNOWN handling). **`cawplan-testcase-generate` reads** (single Requirement, List TestPoints) also go through `cawplan qa-insights` (`requirements get`, `testpoints list`); other reads (module tree, requirement list) still use the `cawplan api GET` escape hatch. Reconcile paths (`requirements reconcile`, `testpoints reconcile`) are read-only and never write.
 
 ### Get Module Tree
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/module-tree`

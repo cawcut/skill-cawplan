@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import {
   buildEnvelope,
+  buildReadEnvelope,
   printEnvelope,
   exitCodeForOutcome,
 } from "../src/lib/qa-insights/envelope";
@@ -107,6 +108,32 @@ describe("buildEnvelope — required fields always present", () => {
       error: { type: "validation", message: "bad body" },
     });
     expect(env.error?.type).toBe("validation");
+  });
+});
+
+describe("buildReadEnvelope — read commands", () => {
+  test("SUCCESS carries API data at the top level only", () => {
+    const apiData = { id: "req-1", function_description: "x" };
+    const env = buildReadEnvelope({
+      outcome: "SUCCESS",
+      command: "requirements get",
+      meta,
+      data: apiData,
+    });
+    expect(env.data).toEqual(apiData);
+    expect(env).not.toHaveProperty("api");
+    expect(Object.keys(env).sort()).toEqual(["command", "data", "meta", "outcome"]);
+  });
+
+  test("FAILURE carries error without data", () => {
+    const env = buildReadEnvelope({
+      outcome: "FAILURE",
+      command: "requirements get",
+      meta,
+      error: { type: "not_found", message: "missing", status: 404 },
+    });
+    expect(env.error?.status).toBe(404);
+    expect(env.data).toBeUndefined();
   });
 });
 

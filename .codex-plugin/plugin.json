@@ -58,6 +58,10 @@
     {
       "name": "cawplan-testpoint-generate",
       "path": "skills/cawplan-testpoint-generate"
+    },
+    {
+      "name": "cawplan-testcase-generate",
+      "path": "skills/cawplan-testcase-generate"
     }
   ]
 }

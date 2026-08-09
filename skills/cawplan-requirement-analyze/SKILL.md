@@ -405,7 +405,7 @@ Wait for SQA confirmation. **Do not POST** without it.
 cawplan qa-insights requirements create <product_id> --body-file <path>
 ```
 
-Body: `module_tree_node_id` + the five fields + non-empty `summary` (+ `ticket_id` when a ticket was used). Write it to a temp file — long JSON is error-prone to inline. See `references/CAWPLAN_OPEN_API.md` §15 — subsection **Create Requirement**.
+Body: `module_tree_node_id` + the five fields + non-empty `summary` (+ `ticket_id` when a ticket was used). Write it to a temp file — long JSON is error-prone to inline. See 仓库根 `references/CAWPLAN_OPEN_API.md` §15 — subsection **Create Requirement**.
 
 The command POSTs directly — it does **not** look for duplicates first. Preventing duplicates is this skill's job (step 11 Gate + Table B + 10b reconcile), not the command's.
 

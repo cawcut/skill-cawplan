@@ -60,6 +60,11 @@
           "name": "testpoint-generate",
           "path": "skills/cawplan-testpoint-generate",
           "invoke": "/cawplan-testpoint-generate"
+        },
+        {
+          "name": "testcase-generate",
+          "path": "skills/cawplan-testcase-generate",
+          "invoke": "/cawplan-testcase-generate"
         }
       ]
     }
