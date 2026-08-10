@@ -137,3 +137,19 @@ export interface QAInsightsWriteEnvelope {
   error?: QAInsightsError;
   meta: QAInsightsMeta;
 }
+
+/** Read commands never emit RECONCILED or NOOP. */
+export type QAInsightsReadOutcome = "SUCCESS" | "FAILURE" | "UNKNOWN";
+
+/**
+ * stdout envelope for read commands (`requirements get`, `testpoints list`).
+ * On SUCCESS, `data` is the API `data` field verbatim — skills read it directly.
+ */
+export interface QAInsightsReadEnvelope {
+  outcome: QAInsightsReadOutcome;
+  command: string;
+  /** Present on SUCCESS — same object as `{ code, msg, data }`.data from the API. */
+  data?: unknown;
+  error?: QAInsightsError;
+  meta: QAInsightsMeta;
+}

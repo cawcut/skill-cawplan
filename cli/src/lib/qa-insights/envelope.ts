@@ -12,6 +12,8 @@ import type {
   QAInsightsError,
   QAInsightsMeta,
   QAInsightsOutcome,
+  QAInsightsReadEnvelope,
+  QAInsightsReadOutcome,
   QAInsightsReconcileInfo,
   QAInsightsWriteEnvelope,
 } from "./types.js";
@@ -65,5 +67,34 @@ export function printEnvelope(envelope: QAInsightsWriteEnvelope): void {
  */
 export function emitEnvelopeAndExit(envelope: QAInsightsWriteEnvelope): never {
   printEnvelope(envelope);
+  process.exit(exitCodeForOutcome(envelope.outcome));
+}
+
+export interface BuildReadEnvelopeInput {
+  outcome: QAInsightsReadOutcome;
+  command: string;
+  meta: QAInsightsMeta;
+  data?: unknown;
+  error?: QAInsightsError;
+}
+
+/** Assemble a read envelope; SUCCESS carries API `data` at the top level only. */
+export function buildReadEnvelope(input: BuildReadEnvelopeInput): QAInsightsReadEnvelope {
+  const envelope: QAInsightsReadEnvelope = {
+    outcome: input.outcome,
+    command: input.command,
+    meta: input.meta,
+  };
+  if (input.data !== undefined) envelope.data = input.data;
+  if (input.error) envelope.error = input.error;
+  return envelope;
+}
+
+export function printReadEnvelope(envelope: QAInsightsReadEnvelope): void {
+  console.log(JSON.stringify(envelope, null, 2));
+}
+
+export function emitReadEnvelopeAndExit(envelope: QAInsightsReadEnvelope): never {
+  printReadEnvelope(envelope);
   process.exit(exitCodeForOutcome(envelope.outcome));
 }

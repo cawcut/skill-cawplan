@@ -6,12 +6,14 @@ import { ApiError } from "../src/lib/http";
 import {
   runModuleTreeNodeCreate,
   runRequirementsCreate,
+  runRequirementsGet,
   runRequirementsUpdate,
   runRequirementsReconcile,
   runTestPointsArchive,
+  runTestPointsList,
   runTestPointsReconcile,
 } from "../src/commands/qa-insights";
-import type { QAInsightsWriteEnvelope } from "../src/lib/qa-insights/types";
+import type { QAInsightsReadEnvelope, QAInsightsWriteEnvelope } from "../src/lib/qa-insights/types";
 
 const PRODUCT = "019fb1ff-d547-741f-bfa2-405386d04d5b";
 const REQUIREMENT = "019fcfa0-da13-78db-b552-323598ce1c38";
@@ -49,6 +51,34 @@ function harness(responses: unknown[] | ((call: Call) => unknown)) {
       return envelopes[0];
     },
     writes: () => calls.filter((c) => c.method === "POST" || c.method === "PATCH"),
+    gets: () => calls.filter((c) => (c.method ?? "GET") === "GET"),
+  };
+}
+
+/** Same as harness but captures read envelopes. */
+function readHarness(responses: unknown[] | ((call: Call) => unknown)) {
+  const calls: Call[] = [];
+  let index = 0;
+  const envelopes: QAInsightsReadEnvelope[] = [];
+
+  const request = async (options: Call) => {
+    calls.push(options);
+    if (typeof responses === "function") return responses(options);
+    const next = responses[index++];
+    if (next instanceof Error) throw next;
+    return next;
+  };
+
+  const emit = (envelope: QAInsightsReadEnvelope) => {
+    envelopes.push(envelope);
+  };
+
+  return {
+    calls,
+    deps: { request: request as never, emit: emit as never },
+    get envelope() {
+      return envelopes[0];
+    },
     gets: () => calls.filter((c) => (c.method ?? "GET") === "GET"),
   };
 }
@@ -570,5 +600,79 @@ describe("A2-§9.4 / P8 / P9 testpoints reconcile — one GET, never a POST", ()
     const h = harness([]);
     await runTestPointsReconcile(PRODUCT, REQUIREMENT, { countBefore: "abc", batchSize: "3" }, h.deps);
     expect(h.calls).toHaveLength(0);
+  });
+});
+
+describe("R1–R5 requirements get — single-item read", () => {
+  const requirementData = { id: REQUIREMENT, ...fiveFields, module_tree_node_id: NODE, summary: "标题" };
+
+  test("R1 success returns API data verbatim at envelope.data", async () => {
+    const h = readHarness([ok(requirementData)]);
+    await runRequirementsGet(PRODUCT, REQUIREMENT, h.deps);
+    expect(h.gets()).toHaveLength(1);
+    expect(h.calls[0].path).toBe(`/api/v1/public/openapi/product/${PRODUCT}/qa/requirements/${REQUIREMENT}`);
+    expect(h.envelope.outcome).toBe("SUCCESS");
+    expect(h.envelope.data).toEqual(requirementData);
+    expect(h.envelope).not.toHaveProperty("api");
+  });
+
+  test("R2 HTTP 404 maps to FAILURE / not_found", async () => {
+    const h = readHarness([new ApiError("API error 404", 404, {})]);
+    await runRequirementsGet(PRODUCT, REQUIREMENT, h.deps);
+    expect(h.envelope.outcome).toBe("FAILURE");
+    expect(h.envelope.error?.type).toBe("not_found");
+    expect(h.envelope.error?.status).toBe(404);
+  });
+
+  test("R3 HTTP 401 maps to FAILURE / auth", async () => {
+    const h = readHarness([new ApiError("Session expired", 401)]);
+    await runRequirementsGet(PRODUCT, REQUIREMENT, h.deps);
+    expect(h.envelope.outcome).toBe("FAILURE");
+    expect(h.envelope.error?.type).toBe("auth");
+  });
+
+  test("R4 HTTP 5xx maps to UNKNOWN without reconcile hint", async () => {
+    const h = readHarness([new ApiError("API error 500", 500, {})]);
+    await runRequirementsGet(PRODUCT, REQUIREMENT, h.deps);
+    expect(h.envelope.outcome).toBe("UNKNOWN");
+    expect(h.envelope.error?.message).not.toMatch(/reconcile/i);
+  });
+
+  test("R5 HTTP 200 + FAILURE_* envelope maps to FAILURE", async () => {
+    const h = readHarness([{ code: "FAILURE_CONFLICT", msg: "conflict", data: {} }]);
+    await runRequirementsGet(PRODUCT, REQUIREMENT, h.deps);
+    expect(h.envelope.outcome).toBe("FAILURE");
+    expect(h.envelope.error?.type).toBe("api");
+  });
+});
+
+describe("R6–R8 testpoints list — requirement test points read", () => {
+  const testPointsData = {
+    test_points: [
+      { id: "tp-1", title: "第一条", tags: ["异常"], group: "注册", is_edited: false },
+    ],
+  };
+
+  test("R6 success returns data.test_points verbatim", async () => {
+    const h = readHarness([ok(testPointsData)]);
+    await runTestPointsList(PRODUCT, REQUIREMENT, h.deps);
+    expect(h.envelope.outcome).toBe("SUCCESS");
+    expect(h.envelope.data).toEqual(testPointsData);
+    expect((h.envelope.data as typeof testPointsData).test_points).toHaveLength(1);
+  });
+
+  test("R7 HTTP 404 maps to FAILURE / not_found", async () => {
+    const h = readHarness([new ApiError("API error 404", 404, {})]);
+    await runTestPointsList(PRODUCT, REQUIREMENT, h.deps);
+    expect(h.envelope.error?.type).toBe("not_found");
+  });
+
+  test("R8 GET path ends with /testpoints and sends no query", async () => {
+    const h = readHarness([ok(testPointsData)]);
+    await runTestPointsList(PRODUCT, REQUIREMENT, h.deps);
+    expect(h.calls[0].path).toBe(
+      `/api/v1/public/openapi/product/${PRODUCT}/qa/requirements/${REQUIREMENT}/testpoints`,
+    );
+    expect(h.calls[0].query).toBeUndefined();
   });
 });

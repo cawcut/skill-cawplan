@@ -1,0 +1,6 @@
+CaseId,Title,Priority,Tag,Group,TestPointTitle,Preconditions,Step description,Expected Result,moduleTreeNodeId,RequirementId,TestPointId
+1,输入正确的用户名与密码点击 Sign In 后应登录成功,Critical,正向,登录校验,输入正确的用户名/邮箱与密码点击 Sign In 后应登录成功,"1.已存在一个有效用户
+2.当前处于未登录状态",访问系统登录页面 URL,登录页面正常加载，显示用户名输入框、密码输入框和 Sign In 按钮,019fd633-47c8-7be0-a7c5-1ea1179c7195,019fd634-8ffd-7d62-b46e-32f8132b4520,019fd7aa-0000-0000-0000-000000000001
+,,,,,,,在用户名输入框中输入正确的账号,输入框正确显示所输入内容，无格式报错,,,
+,,,,,,,点击 Sign In 按钮,登录成功，页面跳转到登录后的默认首页,,,
+2,用户名为空点击 Sign In 应提示必填且不发起登录,High,反向,登录校验,用户名/邮箱为空时点击 Sign In 应校验拦截并提示必填,1.当前处于未登录状态,用户名留空，输入任意密码后点击 Sign In,应提示请输入用户名（具体文案以实现为准），且不发起登录请求,019fd633-47c8-7be0-a7c5-1ea1179c7195,019fd634-8ffd-7d62-b46e-32f8132b4520,019fd7aa-0000-0000-0000-000000000002

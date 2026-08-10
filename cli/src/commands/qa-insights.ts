@@ -9,7 +9,7 @@ import {
   buildTestPointBatchBody,
   validateRequirementPatchBody,
 } from "../lib/qa-insights/body-builders.js";
-import { buildEnvelope, emitEnvelopeAndExit } from "../lib/qa-insights/envelope.js";
+import { buildEnvelope, buildReadEnvelope, emitEnvelopeAndExit, emitReadEnvelopeAndExit } from "../lib/qa-insights/envelope.js";
 import { mapCawplanRequestError, mapEnvelopeFailure } from "../lib/qa-insights/errors.js";
 import { computePatchBody, isEmptyDiff } from "../lib/qa-insights/snapshot-diff.js";
 import { reconcileRequirement } from "../lib/qa-insights/reconcile-requirement.js";
@@ -19,12 +19,13 @@ import {
 } from "../lib/qa-insights/reconcile-testpoints.js";
 import type {
   QAInsightsMeta,
+  QAInsightsReadEnvelope,
   QAInsightsWriteEnvelope,
   RequirementRow,
 } from "../lib/qa-insights/types.js";
 
 /**
- * `cawplan qa-insights` — QA Insights Test Suites writes and reconcile.
+ * `cawplan qa-insights` — QA Insights Test Suites reads, writes, and reconcile.
  *
  * Distinct from `cawplan qa-reports` (version-level /qa_report CRUD).
  *
@@ -49,11 +50,20 @@ export interface CommandDeps {
   emit?: (envelope: QAInsightsWriteEnvelope) => never | void;
 }
 
+export interface ReadCommandDeps {
+  request?: RequestFn;
+  emit?: (envelope: QAInsightsReadEnvelope) => never | void;
+}
+
 function emitter(deps?: CommandDeps) {
   return deps?.emit ?? emitEnvelopeAndExit;
 }
 
-function requester(deps?: CommandDeps): RequestFn {
+function readEmitter(deps?: ReadCommandDeps) {
+  return deps?.emit ?? emitReadEnvelopeAndExit;
+}
+
+function requester(deps?: { request?: RequestFn }): RequestFn {
   return deps?.request ?? cawplanRequest;
 }
 
@@ -214,6 +224,79 @@ async function performRead(options: {
   }
 
   return { data: parseApiEnvelope(payload).data };
+}
+
+/** Map a performRead failure envelope into the read-command stdout shape. */
+function readFailureFromWriteEnvelope(
+  command: string,
+  meta: QAInsightsMeta,
+  writeEnvelope: QAInsightsWriteEnvelope,
+): QAInsightsReadEnvelope {
+  const outcome = writeEnvelope.outcome === "UNKNOWN" ? "UNKNOWN" : "FAILURE";
+  return buildReadEnvelope({
+    outcome,
+    command,
+    meta,
+    error: writeEnvelope.error,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// requirements get — single-item read (HTTP 404 on missing)
+// ---------------------------------------------------------------------------
+
+export async function runRequirementsGet(
+  productId: string,
+  requirementId: string,
+  deps?: ReadCommandDeps,
+) {
+  const command = "requirements get";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    requirement_id: requirementId,
+    dry_run: false,
+  };
+  const emit = readEmitter(deps);
+
+  const read = await performRead({
+    request: requester(deps),
+    path: `${API_BASE}/${productId}/qa/requirements/${requirementId}`,
+    command,
+    meta,
+  });
+  if (read.envelope) {
+    return emit(readFailureFromWriteEnvelope(command, meta, read.envelope));
+  }
+  return emit(buildReadEnvelope({ outcome: "SUCCESS", command, meta, data: read.data }));
+}
+
+// ---------------------------------------------------------------------------
+// testpoints list — all test points for a requirement
+// ---------------------------------------------------------------------------
+
+export async function runTestPointsList(
+  productId: string,
+  requirementId: string,
+  deps?: ReadCommandDeps,
+) {
+  const command = "testpoints list";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    requirement_id: requirementId,
+    dry_run: false,
+  };
+  const emit = readEmitter(deps);
+
+  const read = await performRead({
+    request: requester(deps),
+    path: `${API_BASE}/${productId}/qa/requirements/${requirementId}/testpoints`,
+    command,
+    meta,
+  });
+  if (read.envelope) {
+    return emit(readFailureFromWriteEnvelope(command, meta, read.envelope));
+  }
+  return emit(buildReadEnvelope({ outcome: "SUCCESS", command, meta, data: read.data }));
 }
 
 // ---------------------------------------------------------------------------
@@ -611,6 +694,13 @@ export function registerQAInsightsCommand(program: Command): void {
 
   const requirements = qa.command("requirements").description("Requirement operations");
   requirements
+    .command("get <product_id> <requirement_id>")
+    .description("Get a single requirement (five fields + metadata)")
+    .action((productId: string, requirementId: string) =>
+      runRequirementsGet(productId, requirementId),
+    );
+
+  requirements
     .command("create <product_id>")
     .description("Create a requirement (plain POST; de-duplication is the skill's job)")
     .option("--body-file <path>", "JSON file containing the requirement body")
@@ -641,6 +731,13 @@ export function registerQAInsightsCommand(program: Command): void {
     .action((productId: string, opts) => runRequirementsReconcile(productId, opts));
 
   const testpoints = qa.command("testpoints").description("Test point operations");
+  testpoints
+    .command("list <product_id> <requirement_id>")
+    .description("List test points for a requirement")
+    .action((productId: string, requirementId: string) =>
+      runTestPointsList(productId, requirementId),
+    );
+
   testpoints
     .command("archive <product_id> <requirement_id>")
     .description("Batch-create test points")
