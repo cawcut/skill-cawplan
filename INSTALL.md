@@ -12,13 +12,13 @@ cawplan --version
 **Option A — `npx skills add` (recommended, no git clone needed)**
 
 ```bash
-npx skills add Ubiquiti-UID/flow-cawplan-skill --all -g -y
+npx skills add cawcut/skill-cawplan --all -g -y
 ```
 
 Install only selected skills:
 
 ```bash
-npx skills add Ubiquiti-UID/flow-cawplan-skill --skill cawplan-ticket-create -g
+npx skills add cawcut/skill-cawplan --skill cawplan-ticket-create -g
 ```
 
 Update to latest:
@@ -30,7 +30,7 @@ npx skills update
 **Option B — `./setup` (from a cloned repo)**
 
 ```bash
-git clone git@github.com:Ubiquiti-UID/flow-cawplan-skill.git
+git clone git@github.com:cawcut/skill-cawplan.git
 cd flow-cawplan-skill
 ./setup
 ```

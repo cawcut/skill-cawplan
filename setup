@@ -247,7 +247,7 @@ else
   AGENT="$(detect_agent)"
   if [ "${AGENT}" = "unknown" ]; then
     warn "Could not auto-detect agent."
-    info "Re-run with --agent claude|cursor|codex, --all, or use: gh skill install Ubiquiti-UID/flow-cawplan-skill"
+    info "Re-run with --agent claude|cursor|codex, --all, or use: gh skill install cawcut/skill-cawplan"
     exit 1
   fi
   AGENTS=("${AGENT}")
@@ -268,7 +268,7 @@ Next: cawplan auth login    (if not done)
       /cawplan-product-report show UniFi Access status report for last week
 
 Alternative install (skills only, no CLI):
-  gh skill install Ubiquiti-UID/flow-cawplan-skill --agent <agent> --scope user
+  gh skill install cawcut/skill-cawplan --agent <agent> --scope user
 EOF
 else
   exit 1

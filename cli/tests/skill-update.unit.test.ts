@@ -6,7 +6,7 @@ describe("buildSkillsAddArgs", () => {
         expect(buildSkillsAddArgs()).toEqual([
             "skills",
             "add",
-            "Ubiquiti-UID/flow-cawplan-skill",
+            "cawcut/skill-cawplan",
             "-a",
             "cursor",
             "claude-code",

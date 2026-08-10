@@ -58,7 +58,7 @@ export function registerSkillCommand(program: Command): void {
             } catch (err) {
                 console.error(`Error: ${(err as Error).message}`);
                 console.error(
-                    "If HTTPS cloning failed, try: npx skills add git@github.com:Ubiquiti-UID/flow-cawplan-skill.git -a cursor claude-code codex -g -y"
+                    "If HTTPS cloning failed, try: npx skills add git@github.com:cawcut/skill-cawplan.git -a cursor claude-code codex -g -y"
                 );
                 process.exit(1);
             }
