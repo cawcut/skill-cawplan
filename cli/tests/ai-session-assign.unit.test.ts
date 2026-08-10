@@ -14,7 +14,7 @@ const mappings = [
         product_id: "prod-cawplan",
         product_name: "CawPlan",
         repo_name: "flow-cawplan-skill",
-        repo_url: "https://github.com/Ubiquiti-UID/flow-cawplan-skill",
+        repo_url: "https://github.com/cawcut/skill-cawplan",
     },
     {
         product_id: "prod-core",
@@ -26,14 +26,14 @@ const mappings = [
 
 describe("assignment repo matching", () => {
     test("repoKeys includes full path and short repo name", () => {
-        expect(repoKeys("Ubiquiti-UID/flow-cawplan-skill")).toEqual([
-            "ubiquiti-uid/flow-cawplan-skill",
+        expect(repoKeys("cawcut/skill-cawplan")).toEqual([
+            "cawcut/skill-cawplan",
             "flow-cawplan-skill",
         ]);
     });
 
     test("repoNameFromGitHubUrl returns short repo name without .git suffix", () => {
-        expect(repoNameFromGitHubUrl("https://github.com/Ubiquiti-UID/flow-cawplan-skill.git")).toBe(
+        expect(repoNameFromGitHubUrl("https://github.com/cawcut/skill-cawplan.git")).toBe(
             "flow-cawplan-skill"
         );
     });
@@ -53,7 +53,7 @@ describe("assignment repo matching", () => {
                 project: "support-F58B-1780495021764",
                 repos_touched: [
                     {
-                        repo: "Ubiquiti-UID/flow-cawplan-skill",
+                        repo: "cawcut/skill-cawplan",
                         files: 1,
                         added: 0,
                         deleted: 0,
@@ -68,7 +68,7 @@ describe("assignment repo matching", () => {
     test("sessionRepoCandidateKeys merges project and repos_touched keys", () => {
         const keys = sessionRepoCandidateKeys({
             project: "uid.core-product",
-            repos_touched: [{repo: "Ubiquiti-UID/flow-cawplan-skill", files: 1, added: 0, deleted: 0}],
+            repos_touched: [{repo: "cawcut/skill-cawplan", files: 1, added: 0, deleted: 0}],
         });
         expect(keys.has("uid.core-product")).toBe(true);
         expect(keys.has("flow-cawplan-skill")).toBe(true);
@@ -90,7 +90,7 @@ describe("assignment repo matching", () => {
                 {
                     product_id: "prod-cawplan",
                     product_name: "CawPlan",
-                    repo_url: "https://github.com/Ubiquiti-UID/flow-cawplan-skill",
+                    repo_url: "https://github.com/cawcut/skill-cawplan",
                 },
             ]
         );
@@ -101,7 +101,7 @@ describe("assignment repo matching", () => {
         expect(
             canonicalRepoNameFromMapping({
                 repo_name: "Custom Display Label",
-                repo_url: "https://github.com/Ubiquiti-UID/flow-cawplan-skill",
+                repo_url: "https://github.com/cawcut/skill-cawplan",
             })
         ).toBe("flow-cawplan-skill");
     });
@@ -114,7 +114,7 @@ describe("assignment repo matching", () => {
                     product_id: "prod-cawplan",
                     product_name: "CawPlan",
                     repo_name: "Custom Display Label",
-                    repo_url: "https://github.com/Ubiquiti-UID/flow-cawplan-skill",
+                    repo_url: "https://github.com/cawcut/skill-cawplan",
                 },
             ]
         );

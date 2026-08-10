@@ -178,7 +178,8 @@ export function registerTicketsCommand(program: Command): void {
     .description("Create a version ticket. Use --product/--version for name-based resolution (no prior lookup needed).")
     .option("--product <name>", "Product name (resolves to product_id automatically)")
     .option("--ver <name>", "Version name e.g. 4.3.1 (resolves to version_id automatically)")
-    .requiredOption("--description <text>", "Ticket description")
+    .requiredOption("--description <text>", "Ticket title/summary (server description field; not page body/remarks)")
+    .option("--remarks <html>", "Ticket page body/remarks (HTML supported)")
     .option("--type <type>", "Ticket type: FEATURE|BUGFIX")
     .option("--priority <p>", "Priority: LOW|MEDIUM|HIGH|CRITICAL")
     .option("--status <key>", "Status key")
@@ -211,6 +212,7 @@ export function registerTicketsCommand(program: Command): void {
       const versionId = await resolveVersionId(productId, rawVersion);
 
       const body: Record<string, unknown> = { description: opts.description };
+      if (opts.remarks !== undefined) body.remarks = opts.remarks;
       if (opts.type) body.type = opts.type;
       if (opts.priority) body.priority = opts.priority;
       if (opts.status) body.status = opts.status;
@@ -243,7 +245,8 @@ export function registerTicketsCommand(program: Command): void {
     .command("create-backlog [product_id]")
     .description("Create a backlog ticket (not assigned to any version). Use --product for name-based resolution.")
     .option("--product <name>", "Product name (resolves to product_id automatically)")
-    .requiredOption("--description <text>", "Ticket description")
+    .requiredOption("--description <text>", "Ticket title/summary (server description field; not page body/remarks)")
+    .option("--remarks <html>", "Ticket page body/remarks (HTML supported)")
     .option("--type <type>", "Ticket type: FEATURE|BUGFIX")
     .option("--priority <p>", "Priority: LOW|MEDIUM|HIGH|CRITICAL")
     .option("--status <key>", "Status key")
@@ -268,6 +271,7 @@ export function registerTicketsCommand(program: Command): void {
       ]);
 
       const body: Record<string, unknown> = { description: opts.description };
+      if (opts.remarks !== undefined) body.remarks = opts.remarks;
       if (opts.type) body.type = opts.type;
       if (opts.priority) body.priority = opts.priority;
       if (opts.status) body.status = opts.status;
@@ -301,7 +305,8 @@ export function registerTicketsCommand(program: Command): void {
     .option("--status <key>", "Status key")
     .option("--progress_comment <text>", "Progress comment")
     .option("--priority <p>", "Priority")
-    .option("--description <text>", "Description")
+    .option("--description <text>", "Ticket title/summary (server description field; not page body/remarks)")
+    .option("--remarks <html>", "Ticket page body/remarks (HTML supported)")
     .option("--comment <text>", "Comment")
     .option("--parent_id <id>", "Parent ticket ID")
     .option("--due_date <date>", "Due date YYYY-MM-DD")
@@ -314,6 +319,7 @@ export function registerTicketsCommand(program: Command): void {
       if (opts.progress_comment !== undefined) body.progress_comment = opts.progress_comment;
       if (opts.priority) body.priority = opts.priority;
       if (opts.description !== undefined) body.description = opts.description;
+      if (opts.remarks !== undefined) body.remarks = opts.remarks;
       if (opts.comment !== undefined) body.comment = opts.comment;
       if (opts.parent_id) body.parent_id = opts.parent_id;
       if (opts.due_date) body.due_date = opts.due_date;

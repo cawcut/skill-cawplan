@@ -24,7 +24,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ubiquiti-UID/flow-cawplan-skill.git",
+    "url": "git+https://github.com/cawcut/skill-cawplan.git",
     "directory": "cli"
   },
   "scripts": {

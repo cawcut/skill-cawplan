@@ -2069,7 +2069,7 @@ describe("src lib collect daily aggregator", () => {
       files_changed: 2,
       files_added: 3,
       files_deleted: 4,
-      repos_touched: [{ repo: "Ubiquiti-UID/flow-cawplan-skill", files: 2, added: 3, deleted: 4 }],
+      repos_touched: [{ repo: "cawcut/skill-cawplan", files: 2, added: 3, deleted: 4 }],
       message_stats: { user: 1, assistant: 1, tool_calls: 0 },
       human_inputs: [
         {
@@ -2124,7 +2124,7 @@ describe("src lib collect daily aggregator", () => {
       files_changed: 2,
       files_added: 3,
       files_deleted: 4,
-      repos_touched: [{ repo: "Ubiquiti-UID/flow-cawplan-skill", files: 2, added: 3, deleted: 4 }],
+      repos_touched: [{ repo: "cawcut/skill-cawplan", files: 2, added: 3, deleted: 4 }],
     });
     expect(apiSession).not.toHaveProperty("human_inputs");
     expect(daily.human_inputs).toHaveLength(1);

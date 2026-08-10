@@ -3,7 +3,7 @@ import {spawn} from "node:child_process";
 const SKILLS_ADD_ARGS = [
     "skills",
     "add",
-    "Ubiquiti-UID/flow-cawplan-skill",
+    "cawcut/skill-cawplan",
     "-a",
     "cursor",
     "claude-code",

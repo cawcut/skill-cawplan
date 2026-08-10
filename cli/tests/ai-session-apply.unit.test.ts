@@ -48,7 +48,7 @@ describe("applyProductRepoMappingToProject", () => {
                 session_id: "s2",
                 session_name: "Two",
                 session_title: "Two",
-                project: "Ubiquiti-UID/flow-cawplan-skill",
+                project: "cawcut/skill-cawplan",
                 cwd: "/tmp",
                 time_range: {display: "", timezone: "UTC", start: "2026-06-24T10:00:00.000Z"},
                 model_usage: {},
@@ -65,7 +65,7 @@ describe("applyProductRepoMappingToProject", () => {
             product_id: "prod-cawplan",
             product_name: "CawPlan",
             repo_name: "flow-cawplan-skill",
-            repo_url: "https://github.com/Ubiquiti-UID/flow-cawplan-skill",
+            repo_url: "https://github.com/cawcut/skill-cawplan",
         });
 
         expect(updated).toBe(2);
@@ -102,7 +102,7 @@ describe("applyProductRepoMappingToProject", () => {
             product_id: "prod-cawplan",
             product_name: "CawPlan",
             repo_name: "CawPlan Skill Display Name",
-            repo_url: "https://github.com/Ubiquiti-UID/flow-cawplan-skill",
+            repo_url: "https://github.com/cawcut/skill-cawplan",
         });
 
         expect(daily.sessions[0].project).toBe("flow-cawplan-skill");

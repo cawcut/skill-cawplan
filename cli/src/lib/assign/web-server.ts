@@ -22,7 +22,7 @@ import type {DailyApiJson} from "../collect/types.js";
 
 const localAssignmentHost = "127.0.0.1";
 const ASSIGNMENT_SERVER_TIMEOUT_MS = 10 * 60 * 1000;
-const assetNames = new Set(["model-gpt.png", "model-claude.png", "model-cursor.png"]);
+const assetNames = new Set(["model-gpt.png", "model-claude.png", "model-cursor.png", "model-deepseek.png"]);
 
 interface TicketAssignmentWarning {
     file?: string;

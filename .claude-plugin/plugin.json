@@ -7,7 +7,7 @@
     "url": "https://app.cawplan.com/"
   },
   "homepage": "https://app.cawplan.com/",
-  "repository": "https://github.com/Ubiquiti-UID/flow-cawplan-skill",
+  "repository": "https://github.com/cawcut/skill-cawplan",
   "license": "MIT",
   "keywords": [
     "cawplan",

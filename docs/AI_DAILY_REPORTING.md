@@ -9,7 +9,7 @@ Reports include local AI coding sessions, token usage, estimated or actual costs
 
 ```bash
 # Install
-npx skills add Ubiquiti-UID/flow-cawplan-skill -a cursor claude-code codex -g -y
+npx skills add cawcut/skill-cawplan -a cursor claude-code codex -g -y
 
 # Update
 cawplan skill update
@@ -83,7 +83,7 @@ The next `/cawplan-coding-commit` report will automatically link the session to 
 The `npx skills add` uses HTTPS by default. If cloning fails, try SSH:
 
 ```bash
-npx skills add git@github.com:Ubiquiti-UID/flow-cawplan-skill.git -a cursor claude-code codex -g -y
+npx skills add git@github.com:cawcut/skill-cawplan.git -a cursor claude-code codex -g -y
 ```
 
 ### Authentication Expires
