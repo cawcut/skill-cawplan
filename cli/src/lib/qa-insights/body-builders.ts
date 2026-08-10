@@ -20,6 +20,10 @@ import {
   FIVE_FIELD_KEYS,
   FORBIDDEN_WRITE_BODY_KEYS,
   TESTPOINT_BODY_KEYS,
+  type ImportPreviewSource,
+  type ImportSourceType,
+  type InlineCaseDraft,
+  type SectionStrategy,
   type TestPointDraft,
 } from "./types.js";
 
@@ -186,4 +190,128 @@ export function buildModuleTreeNodeBody(input: {
       ? null
       : normalizeField(rawParent);
   return { parent_id: parentId, name };
+}
+
+export interface BuildTestrailImportPreviewBodyInput {
+  sourceType: ImportSourceType;
+  requirementId?: string;
+  versionId?: string;
+  suiteId?: number;
+  versionName?: string;
+  sectionStrategy?: SectionStrategy;
+  fixedSectionId?: number;
+  cases?: InlineCaseDraft[];
+}
+
+function valueByNames<T>(body: Record<string, unknown>, snakeKey: string, camelKey: string): T | undefined {
+  return (body[snakeKey] ?? body[camelKey]) as T | undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  return typeof value === "number" ? String(value) : normalizeField(value);
+}
+
+function normalizePriority(value: unknown): string | undefined {
+  return optionalString(value)?.toUpperCase();
+}
+
+function normalizeInlineCaseItem(item: unknown, index: number): InlineCaseDraft {
+  const raw = assertPlainObject(item, `cases[${index}]`);
+  const title = normalizeField(raw.title);
+  if (!title) {
+    throw new BodyValidationError(`cases[${index}] requires a non-empty title`);
+  }
+  return {
+    test_point_id: valueByNames<string>(raw, "test_point_id", "testPointId"),
+    requirement_id: valueByNames<string>(raw, "requirement_id", "requirementId"),
+    title,
+    group: normalizeField(raw.group),
+    module_tree_node_id: valueByNames<string>(raw, "module_tree_node_id", "moduleTreeNodeId"),
+    tags: Array.isArray(raw.tags) ? (raw.tags as string[]) : undefined,
+    priority: normalizePriority(valueByNames<unknown>(raw, "priority", "priority")),
+    importance: optionalString(valueByNames<unknown>(raw, "importance", "importance")),
+    version_name: valueByNames<string>(raw, "version_name", "versionName"),
+    preconditions: valueByNames<string>(raw, "preconditions", "preconditions"),
+    steps: Array.isArray(raw.steps) ? (raw.steps as InlineCaseDraft["steps"]) : undefined,
+    automation_type: valueByNames<string | null>(raw, "automation_type", "automationType"),
+    automation_result: valueByNames<string | null>(raw, "automation_result", "automationResult"),
+    source_case_key: valueByNames<string>(raw, "source_case_key", "sourceCaseKey"),
+    content_hash: valueByNames<string>(raw, "content_hash", "contentHash"),
+  };
+}
+
+export function buildTestrailImportPreviewBody(
+  input: BuildTestrailImportPreviewBodyInput,
+): Record<string, unknown> {
+  const source: ImportPreviewSource = { type: input.sourceType };
+  if (input.sourceType === "REQUIREMENT") {
+    if (!input.requirementId?.trim()) {
+      throw new BodyValidationError("REQUIREMENT source requires --requirement-id");
+    }
+    source.requirement_id = input.requirementId.trim();
+  } else if (input.sourceType === "VERSION") {
+    if (!input.versionId?.trim()) {
+      throw new BodyValidationError("VERSION source requires --version-id (BE: not implemented yet)");
+    }
+    source.version_id = input.versionId.trim();
+  } else if (input.sourceType === "INLINE") {
+    if (!input.cases?.length) {
+      throw new BodyValidationError("INLINE source requires cases in --body/--body-file");
+    }
+  }
+
+  const body: Record<string, unknown> = { source };
+  if (input.suiteId !== undefined) body.suite_id = input.suiteId;
+  if (input.versionName) body.version_name = input.versionName;
+  if (input.sectionStrategy) body.section_strategy = input.sectionStrategy;
+  if (input.fixedSectionId !== undefined) body.fixed_section_id = input.fixedSectionId;
+  if (input.sourceType === "INLINE" && input.cases) {
+    body.cases = input.cases.map((item, index) => normalizeInlineCaseItem(item, index));
+  }
+  return body;
+}
+
+export function buildTestrailImportExecuteBody(
+  previewId: string,
+  confirm: boolean,
+): Record<string, unknown> {
+  const id = previewId.trim();
+  if (!id) throw new BodyValidationError("--preview-id is required");
+  return { preview_id: id, confirm };
+}
+
+/** Merge a parsed JSON body over CLI flags (flags win when set). */
+export function mergeTestrailImportPreviewBody(
+  parsed: unknown,
+  flags: BuildTestrailImportPreviewBodyInput,
+): Record<string, unknown> {
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new BodyValidationError("testrail import preview body must be a JSON object");
+  }
+  const fromFile = parsed as Record<string, unknown>;
+  const source = (fromFile.source as Record<string, unknown> | undefined) ?? {};
+  const sourceType = (flags.sourceType ?? source.type) as ImportSourceType | undefined;
+  if (!sourceType) {
+    throw new BodyValidationError("source.type is required (--source-type or body.source.type)");
+  }
+
+  const casesFromBody = Array.isArray(fromFile.cases)
+    ? (fromFile.cases as InlineCaseDraft[])
+    : undefined;
+
+  return buildTestrailImportPreviewBody({
+    sourceType,
+    requirementId:
+      flags.requirementId ?? valueByNames<string>(source, "requirement_id", "requirementId"),
+    versionId: flags.versionId ?? valueByNames<string>(source, "version_id", "versionId"),
+    suiteId: flags.suiteId ?? valueByNames<number>(fromFile, "suite_id", "suiteId"),
+    versionName: flags.versionName ?? valueByNames<string>(fromFile, "version_name", "versionName"),
+    sectionStrategy:
+      flags.sectionStrategy ??
+      valueByNames<SectionStrategy>(fromFile, "section_strategy", "sectionStrategy"),
+    fixedSectionId:
+      flags.fixedSectionId ?? valueByNames<number>(fromFile, "fixed_section_id", "fixedSectionId"),
+    cases: flags.cases ?? casesFromBody,
+  });
 }

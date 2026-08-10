@@ -27,6 +27,7 @@ import { ApiError } from "../http.js";
 import {
   isApiSuccess,
   isFailureInvalidInput,
+  isTestrailBusinessCode,
   parseApiEnvelope,
   type ParsedEnvelope,
 } from "./api-codes.js";
@@ -73,6 +74,14 @@ function envelopeFromErrorBody(body: unknown): ParsedEnvelope {
  */
 export function classifyFailureEnvelope(envelope: ParsedEnvelope): QAInsightsError {
   const { code, msg } = envelope;
+
+  if (isTestrailBusinessCode(code)) {
+    return {
+      type: "testrail",
+      message: msg || code || "TestRail integration failure",
+      api_code: code,
+    };
+  }
 
   if (isFailureInvalidInput(code) && messageMatches(msg, NOT_FOUND_MSG_PATTERNS)) {
     return {
