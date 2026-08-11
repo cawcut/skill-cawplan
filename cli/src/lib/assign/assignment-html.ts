@@ -146,6 +146,16 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     .filter-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
     select.filter-select { height: 30px; padding: 0 26px 0 8px; font-size: 13px; width: auto; border: 1px solid var(--border); border-radius: var(--r4); background: var(--bg); cursor: pointer; color: var(--text-01); transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
     select.filter-select.has-value { border-color: var(--uBlue-06); color: var(--uBlue-06); background: var(--uBlue-01); }
+    .bulk-actions { display: none; position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; align-items: center; gap: 6px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r8); background: var(--bg); box-shadow: var(--shadow-superlow); }
+    .bulk-actions.active { display: flex; }
+    .bulk-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-02); white-space: nowrap; }
+    input.bulk-select { width: 14px; height: 14px; flex-shrink: 0; accent-color: var(--uBlue-06); cursor: pointer; border: none; padding: 0; }
+    input.bulk-product { width: 180px; height: 30px; font-size: 12px; }
+    .bulk-ticket-picker { min-width: 180px; }
+    .bulk-actions .ticket-menu { top: auto; bottom: calc(100% + 4px); }
+    button.bulk-btn { height: 32px; padding: 0 14px; font-size: 13px; font-weight: 600; background: var(--uBlue-06); color: #fff; border: 1px solid var(--uBlue-06); }
+    button.bulk-btn:hover:not(:disabled) { background: hsl(214,100%,46%); border-color: hsl(214,100%,46%); }
+    .select-cell { width: 36px; text-align: center; vertical-align: middle; padding-left: 12px; padding-right: 0; }
     .unassigned-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: var(--text-01); user-select: none; }
     input.unassigned-cb { width: 14px; height: 14px; flex-shrink: 0; accent-color: var(--uBlue-06); cursor: pointer; border: none; padding: 0; }
     .required { color: var(--red-06); }
@@ -205,6 +215,13 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
                 <option value="">Product</option>
               </select>
             </div>
+            <div class="bulk-actions">
+              <span class="bulk-label" id="bulk-count">0 selected</span>
+              <input class="bulk-product" id="bulk-product" list="product-list" placeholder="Bulk product" />
+              <button class="bulk-btn" id="bulk-apply-product" type="button">Apply product</button>
+              <div class="bulk-ticket-picker" id="bulk-ticket-picker"></div>
+              <button class="bulk-btn" id="bulk-add-ticket" type="button">Add ticket</button>
+            </div>
             <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
               <label class="unassigned-label"><input type="checkbox" id="filter-unassigned" class="unassigned-cb" /> Unassigned product</label>
             </div>
@@ -213,12 +230,13 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
           <div class="table-wrap">
             <table>
               <colgroup>
+                <col style="width:20px" />
                 <col style="width:140px" />
                 <col style="width:180px" />
                 <col style="width:82px" />
-                <col style="width:52px" />
+                <col style="width:40px" />
                 <col style="width:76px" />
-                <col style="width:140px" />
+                <col style="width:80px" />
                 <col style="width:140px" />
                 <col style="width:260px" />
                 <col style="width:120px" />
@@ -226,6 +244,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
               </colgroup>
               <thead>
                 <tr>
+                  <th class="select-cell"><input type="checkbox" id="bulk-select-visible" class="bulk-select" aria-label="Select visible sessions" /></th>
                   <th>Session</th>
                   <th>Input</th>
                   <th>Lines</th>
@@ -239,7 +258,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
                 </tr>
               </thead>
               <tbody id="rows">
-                <tr><td colspan="10" style="text-align:center;padding:40px 16px;color:rgba(0,0,0,.35);">Loading sessions...</td></tr>
+                <tr><td colspan="11" style="text-align:center;padding:40px 16px;color:rgba(0,0,0,.35);">Loading sessions...</td></tr>
               </tbody>
             </table>
           </div>
@@ -721,6 +740,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     }
 
     function syncRowTickets(row) {
+      if (!row) return;
       const entry = entryForRow(row);
       const session = entry && entry.report.sessions.find((s) => s.session_id === row.dataset.sessionId);
       const picker = row.querySelector('.ticket-picker');
@@ -728,6 +748,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     }
 
     function addTicketFromRow(row) {
+      if (!row) return;
       const input = row.querySelector('.ticket-add');
       const picker = row.querySelector('.ticket-picker');
       if (!input || !picker) return;
@@ -736,6 +757,138 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
         input.value = '';
         syncRowTickets(row);
       }
+    }
+
+    function addTicketFromPicker(picker) {
+      const input = picker && picker.querySelector('.ticket-add');
+      if (!input) return;
+      if (addTicketOption(picker, input.value)) input.value = '';
+    }
+
+    function wireTicketPicker(picker, row) {
+      picker.querySelector('.ticket-trigger').addEventListener('click', (event) => {
+        if (picker.classList.contains('disabled')) return;
+        if (event.target.closest('.ticket-link')) return;
+        if (event.target.closest('.ticket-remove')) return;
+        setTicketMenuOpen(picker, picker.querySelector('.ticket-menu').classList.contains('hidden'));
+      });
+      picker.querySelector('.ticket-trigger').addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        if (picker.classList.contains('disabled')) return;
+        setTicketMenuOpen(picker, picker.querySelector('.ticket-menu').classList.contains('hidden'));
+      });
+      picker.addEventListener('change', (event) => {
+        if (picker.classList.contains('disabled')) return;
+        if (!event.target.classList.contains('ticket-option-cb')) return;
+        renderTicketTags(picker);
+        syncRowTickets(row);
+      });
+      picker.addEventListener('click', (event) => {
+        if (picker.classList.contains('disabled')) return;
+        if (event.target.closest('.ticket-link')) return;
+        const remove = event.target.closest('.ticket-remove');
+        if (!remove) return;
+        event.stopPropagation();
+        const ticket = remove.dataset.ticket;
+        const checkbox = Array.from(picker.querySelectorAll('.ticket-option-cb')).find((option) => option.value === ticket);
+        if (checkbox) checkbox.checked = false;
+        renderTicketTags(picker);
+        syncRowTickets(row);
+      });
+      picker.querySelector('.ticket-add').addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        if (row) addTicketFromRow(row);
+        else addTicketFromPicker(picker);
+      });
+      picker.querySelector('.ticket-add').addEventListener('blur', () => {
+        if (row) addTicketFromRow(row);
+        else addTicketFromPicker(picker);
+      });
+    }
+
+    function renderBulkTicketPicker() {
+      const container = document.getElementById('bulk-ticket-picker');
+      const previous = selectedTicketDisplayIds(container.querySelector('.ticket-picker'));
+      container.innerHTML = ticketPickerHtml({ticket_display_ids: previous});
+      const picker = container.querySelector('.ticket-picker');
+      picker.classList.add('bulk-ticket-picker-control');
+      wireTicketPicker(picker, null);
+    }
+
+    function selectedRows() {
+      return Array.from(document.querySelectorAll('tbody tr')).filter((row) => row.querySelector('.session-select:checked'));
+    }
+
+    function updateBulkUi() {
+      const checkboxes = Array.from(document.querySelectorAll('.session-select'));
+      const selected = checkboxes.filter((checkbox) => checkbox.checked);
+      const selectVisible = document.getElementById('bulk-select-visible');
+      const bulkActions = document.querySelector('.bulk-actions');
+      document.getElementById('bulk-count').textContent = selected.length + ' selected';
+      selectVisible.checked = checkboxes.length > 0 && selected.length === checkboxes.length;
+      selectVisible.indeterminate = selected.length > 0 && selected.length < checkboxes.length;
+      bulkActions.classList.toggle('active', selected.length > 0);
+    }
+
+    function setBulkStatus(message, className = 'status') {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = message;
+      statusEl.className = className;
+    }
+
+    function applyBulkProduct() {
+      const rows = selectedRows();
+      if (rows.length === 0) {
+        setBulkStatus('Select at least one session first.', 'status status-warning');
+        return;
+      }
+      const input = document.getElementById('bulk-product');
+      const product = findProduct(input.value);
+      if (!product) {
+        setBulkStatus('Choose a valid product before applying.', 'status status-error');
+        input.focus();
+        return;
+      }
+      rows.forEach((row) => {
+        setRowProduct(row, product);
+        validateProductRow(row);
+      });
+      setBulkStatus('Applied product to ' + rows.length + ' session(s).');
+    }
+
+    function addBulkTicket() {
+      const rows = selectedRows();
+      if (rows.length === 0) {
+        setBulkStatus('Select at least one session first.', 'status status-warning');
+        return;
+      }
+      const bulkPicker = document.querySelector('#bulk-ticket-picker .ticket-picker');
+      const tickets = [...new Set(selectedTicketDisplayIds(bulkPicker))];
+      if (tickets.length === 0) {
+        setBulkStatus('Choose or add at least one ticket before applying.', 'status status-error');
+        bulkPicker.querySelector('.ticket-add').focus();
+        return;
+      }
+      let applied = 0;
+      let added = 0;
+      rows.forEach((row) => {
+        const picker = row.querySelector('.ticket-picker');
+        if (!picker || picker.classList.contains('disabled')) return;
+        const existing = new Set(selectedTicketDisplayIds(picker));
+        tickets.forEach((ticket) => {
+          if (!existing.has(ticket)) added += 1;
+          ensureTicketOption(picker, ticket, true);
+        });
+        renderTicketTags(picker);
+        syncRowTickets(row);
+        applied += 1;
+      });
+      setBulkStatus(
+        'Added ' + added + ' ticket assignment(s) to ' + applied + ' session(s).' +
+        (applied < rows.length ? ' Some rows need a product first.' : '')
+      );
     }
 
     function clearTicketWarnings() {
@@ -937,7 +1090,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       const tbody = document.getElementById('rows');
       const entries = rowEntries();
       if (entries.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px 16px;"><span class="muted">No sessions match the current filters.</span></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px 16px;"><span class="muted">No sessions match the current filters.</span></td></tr>';
       } else {
       tbody.innerHTML = entries.map(({file, date, report, session: s}) => {
         const title = s.session_title || s.session_name || s.session_id;
@@ -946,6 +1099,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
         const productValue = currentProduct ? currentProduct.product_name : (s.product_name || '');
         const selectedRepo = selectedRepoForSession(s);
         return '<tr data-file="' + escapeHtml(file) + '" data-session-id="' + escapeHtml(s.session_id) + '">' +
+          '<td class="select-cell"><input class="session-select bulk-select" type="checkbox" aria-label="Select session" /></td>' +
           '<td><div class="session-title"' + cwdTitle + '>' + escapeHtml(title) + '</div></td>' +
           '<td class="input-cell">' + humanInputsHtml(report, s) + '</td>' +
           '<td class="lines-cell">' + sessionLinesText(s) + '</td>' +
@@ -978,6 +1132,9 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
         el.addEventListener('change', () => addLinkedRepoFromRow(tr));
         el.addEventListener('blur', () => addLinkedRepoFromRow(tr));
       });
+      document.querySelectorAll('.session-select').forEach((el) => {
+        el.addEventListener('change', () => updateBulkUi());
+      });
       document.querySelectorAll('.repo-picker').forEach((picker) => {
         const row = picker.closest('tr');
         const repo = row.querySelector('.repo');
@@ -1008,46 +1165,10 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
           setRepoMenuOpen(picker, false);
         });
       });
-      document.querySelectorAll('.ticket-picker').forEach((picker) => {
-        picker.querySelector('.ticket-trigger').addEventListener('click', (event) => {
-          if (picker.classList.contains('disabled')) return;
-          if (event.target.closest('.ticket-link')) return;
-          if (event.target.closest('.ticket-remove')) return;
-          setTicketMenuOpen(picker, picker.querySelector('.ticket-menu').classList.contains('hidden'));
-        });
-        picker.querySelector('.ticket-trigger').addEventListener('keydown', (event) => {
-          if (event.key !== 'Enter' && event.key !== ' ') return;
-          event.preventDefault();
-          if (picker.classList.contains('disabled')) return;
-          setTicketMenuOpen(picker, picker.querySelector('.ticket-menu').classList.contains('hidden'));
-        });
-        picker.addEventListener('change', (event) => {
-          if (picker.classList.contains('disabled')) return;
-          if (!event.target.classList.contains('ticket-option-cb')) return;
-          renderTicketTags(picker);
-          syncRowTickets(picker.closest('tr'));
-        });
-        picker.addEventListener('click', (event) => {
-          if (picker.classList.contains('disabled')) return;
-          if (event.target.closest('.ticket-link')) return;
-          const remove = event.target.closest('.ticket-remove');
-          if (!remove) return;
-          event.stopPropagation();
-          const ticket = remove.dataset.ticket;
-          const checkbox = Array.from(picker.querySelectorAll('.ticket-option-cb')).find((option) => option.value === ticket);
-          if (checkbox) checkbox.checked = false;
-          renderTicketTags(picker);
-          syncRowTickets(picker.closest('tr'));
-        });
+      document.querySelectorAll('tbody .ticket-picker').forEach((picker) => {
+        wireTicketPicker(picker, picker.closest('tr'));
       });
-      document.querySelectorAll('.ticket-add').forEach((el) => {
-        el.addEventListener('keydown', (event) => {
-          if (event.key !== 'Enter') return;
-          event.preventDefault();
-          addTicketFromRow(el.closest('tr'));
-        });
-        el.addEventListener('blur', () => addTicketFromRow(el.closest('tr')));
-      });
+      updateBulkUi();
     }
 
     async function load() {
@@ -1065,6 +1186,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       showAssignedSessions = true;
       updateFilterUi();
       render();
+      renderBulkTicketPicker();
       document.addEventListener('click', (event) => {
         document.querySelectorAll('.repo-picker').forEach((picker) => {
           if (!picker.contains(event.target)) setRepoMenuOpen(picker, false);
@@ -1093,6 +1215,14 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
         updateFilterUi();
         render();
       });
+      document.getElementById('bulk-select-visible').addEventListener('change', (event) => {
+        document.querySelectorAll('.session-select').forEach((checkbox) => {
+          checkbox.checked = event.target.checked;
+        });
+        updateBulkUi();
+      });
+      document.getElementById('bulk-apply-product').addEventListener('click', () => applyBulkProduct());
+      document.getElementById('bulk-add-ticket').addEventListener('click', () => addBulkTicket());
     }
 
     async function save() {
