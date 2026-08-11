@@ -17,6 +17,7 @@ import {applyProductRepoMappingToProject} from "./apply.js";
 import {assignmentReportPayload, readDailyReports, writeDailyReport} from "./report-io.js";
 import {assertAllSessionsHaveProduct, findSessionById} from "./session-checks.js";
 import {resolveTicketContexts, ticketContextIsResolved} from "../ai-session/ticket-context.js";
+import {setCachedAssignmentTicketRefsFromSession} from "../collect/assignment-ticket-cache.js";
 import type {AssignmentReport, ProductRepoMapping, WebAssignment} from "./types.js";
 import type {DailyApiJson} from "../collect/types.js";
 
@@ -281,6 +282,9 @@ async function applyBatchWebAssignments(
         }
         assertAllSessionsHaveProduct(report.daily);
         writeDailyReport(report.file, report.daily);
+        for (const session of report.daily.sessions) {
+            setCachedAssignmentTicketRefsFromSession(session);
+        }
         savedFiles.push(report.file);
     }
     return {assignedSessions, files: savedFiles};

@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { mkdtemp, mkdir, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { Command } from "commander";
 import { cawplanRequest, ApiError } from "../src/lib/http";
 import { registerConfigCommand } from "../src/commands/config";
+import { applyTicketRefsToSessions } from "../src/lib/ai-session/ticket-context";
+import {
+  getCachedAssignmentTicketRefs,
+  setCachedAssignmentTicketRefsFromSession,
+} from "../src/lib/collect/assignment-ticket-cache";
 import {
   deleteCredentials,
   getCredentialsPath,
@@ -520,6 +525,124 @@ describe("src lib collect cost currency", () => {
     expect("ticket_contexts" in daily.sessions[0]!).toBe(false);
     expect("ticket_ids" in daily.human_inputs[0]!).toBe(false);
     expect("ticket_contexts" in daily.human_inputs[0]!).toBe(false);
+  });
+
+  test("applies ticket refs only for matching session product", async () => {
+    const sessions: SessionData[] = [
+      {
+        schema: "2.0",
+        date: "2026-08-11",
+        agent: "cursor-gui",
+        session_id: "shared-session",
+        session_name: "Shared session",
+        project: "repo-a",
+        product_id: "product-a",
+        cwd: "/repo-a",
+        time_range: { display: "10:00", timezone: "UTC" },
+        model_usage: {},
+        usage_breakdown: [],
+        files_changed: 0,
+        repos_touched: [],
+        message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+        human_inputs: [{
+          category: "direction",
+          content: "继续昨天的工作",
+          session_agent: "cursor-gui",
+          files_changed: 0,
+          lines_added: 0,
+          lines_deleted: 0,
+        }],
+      },
+      {
+        schema: "2.0",
+        date: "2026-08-11",
+        agent: "cursor-gui",
+        session_id: "other-session",
+        session_name: "Other session",
+        project: "repo-b",
+        product_id: "product-b",
+        cwd: "/repo-b",
+        time_range: { display: "11:00", timezone: "UTC" },
+        model_usage: {},
+        usage_breakdown: [],
+        files_changed: 0,
+        repos_touched: [],
+        message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+      },
+    ];
+
+    const applied = await applyTicketRefsToSessions(
+      sessions,
+      [["CAWP-1", "CAWP-2"], ["CAWP-1"]],
+      async () => [
+        { ticket_id: "ticket-a", ticket_display_id: "CAWP-1", product_id: "product-a" },
+        { ticket_id: "ticket-b", ticket_display_id: "CAWP-2", product_id: "product-b" },
+      ],
+    );
+
+    expect(applied).toBe(1);
+    expect(sessions[0]?.ticket_ids).toEqual(["ticket-a"]);
+    expect(sessions[0]?.ticket_display_ids).toEqual(["CAWP-1"]);
+    expect(sessions[1]?.ticket_ids).toBeUndefined();
+  });
+
+  test("caches assignment ticket refs by session for later collection", () => {
+    setCachedAssignmentTicketRefsFromSession({
+      schema: "2.0",
+      date: "2026-08-10",
+      agent: "cursor-gui",
+      session_id: "shared-session",
+      session_name: "Shared session",
+      project: "repo-a",
+      product_id: "product-a",
+      cwd: "/repo-a",
+      time_range: { display: "10:00", timezone: "UTC" },
+      model_usage: {},
+      usage_breakdown: [],
+      files_changed: 0,
+      repos_touched: [],
+      message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+      ticket_ids: ["ticket-a"],
+      ticket_display_ids: ["CAWP-1"],
+    });
+
+    expect(getCachedAssignmentTicketRefs("shared-session")).toEqual({
+      product_id: "product-a",
+      ticket_ids: ["ticket-a"],
+      ticket_display_ids: ["CAWP-1"],
+      date: "2026-08-10",
+    });
+  });
+
+  test("prunes expired assignment ticket refs from cache file", async () => {
+    const now = Date.now();
+    const cachePath = process.env.CAWPLAN_CACHE_PATH!;
+    await writeFile(cachePath, JSON.stringify({
+      version: 1,
+      entries: {
+        "ai-session:assignment-ticket-refs:expired-session": {
+          fetched_at: now - 31 * 24 * 60 * 60 * 1000,
+          data: { ticket_ids: ["ticket-old"], ticket_display_ids: ["CAWP-OLD"] },
+        },
+        "ai-session:assignment-ticket-refs:fresh-session": {
+          fetched_at: now - 24 * 60 * 60 * 1000,
+          data: { ticket_ids: ["ticket-new"], ticket_display_ids: ["CAWP-NEW"] },
+        },
+      },
+    }));
+
+    expect(getCachedAssignmentTicketRefs("fresh-session")).toEqual({
+      product_id: undefined,
+      ticket_ids: ["ticket-new"],
+      ticket_display_ids: ["CAWP-NEW"],
+      date: undefined,
+    });
+
+    const store = JSON.parse(await readFile(cachePath, "utf-8")) as {
+      entries: Record<string, unknown>;
+    };
+    expect(store.entries["ai-session:assignment-ticket-refs:expired-session"]).toBeUndefined();
+    expect(store.entries["ai-session:assignment-ticket-refs:fresh-session"]).toBeDefined();
   });
 
   test("filters sessions whose human inputs only run cawplan coding commit", () => {

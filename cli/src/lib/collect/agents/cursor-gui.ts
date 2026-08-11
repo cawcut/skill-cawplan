@@ -1520,16 +1520,16 @@ function parseBubbleSession(
             continue;
         }
 
-        const ts = parseTsValue(data["createdAt"] ?? data["created_at"] ?? data["timestamp"]);
-        if (!ts || !isTimestampOnLocalDate(ts, filterDate)) continue;
-
         const type = data["type"];
         const text = bubbleText(data);
+        const extracted = type === 1 ? extractHumanInputText(text) : "";
+
+        const ts = parseTsValue(data["createdAt"] ?? data["created_at"] ?? data["timestamp"]);
+        if (!ts || !isTimestampOnLocalDate(ts, filterDate)) continue;
         touchActivity(ts);
 
         if (type === 1) {
             userCount++;
-            const extracted = extractHumanInputText(text);
             const norm = extracted.slice(0, 200);
             if (extracted && extracted.length <= 1500 && !seenInput.has(norm)) {
                 seenInput.add(norm);
