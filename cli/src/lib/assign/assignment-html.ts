@@ -123,7 +123,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     .ticket-link:hover { text-decoration: underline; }
     .ticket-remove { border: 0; background: transparent; color: var(--uBlue-07); width: 14px; height: 14px; padding: 0; font-size: 12px; line-height: 14px; justify-content: center; }
     .ticket-placeholder { color: var(--text-03); font-size: 12px; }
-    .ticket-menu { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; right: 0; min-width: 220px; padding: 8px; border: 1px solid var(--border); border-radius: var(--r8); background: var(--bg); box-shadow: var(--shadow-superlow); }
+    .ticket-menu { position: absolute; z-index: 80; top: calc(100% + 4px); left: 0; right: 0; min-width: 220px; padding: 8px; border: 1px solid var(--border); border-radius: var(--r8); background: var(--bg); box-shadow: var(--shadow-superlow); }
     .ticket-picker.drop-up .ticket-menu { top: auto; bottom: calc(100% + 4px); }
     .ticket-options { max-height: 144px; overflow: auto; display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
     .ticket-option { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: var(--r4); color: var(--text-01); cursor: pointer; }
@@ -173,7 +173,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     .repo-trigger:disabled { background: var(--bg); color: var(--text-03); cursor: not-allowed; }
     .repo-trigger-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .repo-trigger-arrow { color: var(--text-03); flex-shrink: 0; }
-    .repo-menu { position: absolute; z-index: 25; top: calc(100% + 4px); left: 0; right: 0; min-width: 260px; max-height: 260px; overflow: hidden; padding: 6px; border: 1px solid var(--border); border-radius: var(--r8); background: var(--bg); box-shadow: var(--shadow-superlow); }
+    .repo-menu { position: absolute; z-index: 80; top: calc(100% + 4px); left: 0; right: 0; min-width: 260px; max-height: 260px; overflow: hidden; padding: 6px; border: 1px solid var(--border); border-radius: var(--r8); background: var(--bg); box-shadow: var(--shadow-superlow); }
     input.repo-search { height: 28px; margin-bottom: 6px; border-radius: 6px; background: var(--bg-subtle); font-size: 12px; }
     input.repo-search:focus { background: var(--bg); }
     .repo-options { max-height: 212px; overflow: auto; }
@@ -498,9 +498,64 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       picker.querySelector('.repo-options').innerHTML = repoOptionsHtml(productId, selected, search ? search.value : '');
     }
 
+    function resetFloatingMenu(menu, scrollEl) {
+      menu.style.position = '';
+      menu.style.left = '';
+      menu.style.right = '';
+      menu.style.top = '';
+      menu.style.bottom = '';
+      menu.style.width = '';
+      menu.style.maxHeight = '';
+      if (scrollEl) scrollEl.style.maxHeight = '';
+    }
+
+    function positionFloatingMenu(picker, menu, trigger, desiredHeight, minWidth, scrollEl, reservedHeight) {
+      const wasHidden = menu.classList.contains('hidden');
+      const previousVisibility = menu.style.visibility;
+      if (wasHidden) {
+        menu.classList.remove('hidden');
+        menu.style.visibility = 'hidden';
+      }
+      const measuredHeight = Math.min(desiredHeight, Math.max(64, menu.scrollHeight || desiredHeight));
+      if (wasHidden) {
+        menu.classList.add('hidden');
+        menu.style.visibility = previousVisibility;
+      }
+
+      const rect = trigger.getBoundingClientRect();
+      const margin = 8;
+      const gap = 4;
+      const boundaryBottom = window.innerHeight - margin;
+      const spaceBelow = boundaryBottom - rect.bottom - gap;
+      const available = Math.max(64, Math.min(measuredHeight, spaceBelow));
+      const top = rect.bottom + gap;
+      const left = Math.max(margin, Math.min(rect.left, window.innerWidth - minWidth - margin));
+      const width = Math.max(rect.width, minWidth);
+
+      picker.classList.remove('drop-up');
+      menu.style.position = 'fixed';
+      menu.style.left = left + 'px';
+      menu.style.right = 'auto';
+      menu.style.top = top + 'px';
+      menu.style.bottom = 'auto';
+      menu.style.width = width + 'px';
+      menu.style.maxHeight = available + 'px';
+      if (scrollEl) {
+        scrollEl.style.maxHeight = Math.max(64, available - reservedHeight) + 'px';
+      }
+    }
+
     function setRepoMenuOpen(picker, open) {
-      picker.querySelector('.repo-menu').classList.toggle('hidden', !open);
-      if (open) setTimeout(() => picker.querySelector('.repo-search')?.focus(), 0);
+      const menu = picker.querySelector('.repo-menu');
+      const options = picker.querySelector('.repo-options');
+      if (open) {
+        positionFloatingMenu(picker, menu, picker.querySelector('.repo-trigger'), 260, 260, options, 48);
+        setTimeout(() => picker.querySelector('.repo-search')?.focus(), 0);
+      } else {
+        picker.classList.remove('drop-up');
+        resetFloatingMenu(menu, options);
+      }
+      menu.classList.toggle('hidden', !open);
     }
 
     function refreshRepoOptionsForProduct(productId) {
@@ -914,27 +969,20 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
 
     function setTicketMenuOpen(picker, open) {
       const menu = picker.querySelector('.ticket-menu');
+      const options = picker.querySelector('.ticket-options');
       if (open) {
         const trigger = picker.querySelector('.ticket-trigger');
-        const rect = trigger.getBoundingClientRect();
-        const tableCard = picker.closest('.table-card');
-        const cardRect = tableCard ? tableCard.getBoundingClientRect() : null;
-        const actions = document.querySelector('.actions');
-        const actionsRect = actions ? actions.getBoundingClientRect() : null;
-        const boundaryTop = Math.max(0, cardRect ? cardRect.top : 0);
-        const boundaryBottom = Math.min(
-          window.innerHeight,
-          cardRect ? cardRect.bottom : window.innerHeight,
-          actionsRect ? actionsRect.top - 8 : window.innerHeight
-        );
-        const menuHeight = 220;
-        const spaceBelow = boundaryBottom - rect.bottom;
-        const spaceAbove = rect.top - boundaryTop;
-        picker.classList.toggle('drop-up', spaceBelow < menuHeight && spaceAbove > spaceBelow);
+        positionFloatingMenu(picker, menu, trigger, 220, 220, options, 58);
       } else {
         picker.classList.remove('drop-up');
+        resetFloatingMenu(menu, options);
       }
       menu.classList.toggle('hidden', !open);
+    }
+
+    function closeAllMenus() {
+      document.querySelectorAll('.repo-picker').forEach((picker) => setRepoMenuOpen(picker, false));
+      document.querySelectorAll('.ticket-picker').forEach((picker) => setTicketMenuOpen(picker, false));
     }
 
     function sessionLinesText(session) {
@@ -1209,6 +1257,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
           if (!picker.contains(event.target)) setTicketMenuOpen(picker, false);
         });
       });
+      window.addEventListener('resize', closeAllMenus);
       document.getElementById('status').textContent = isMultiReport() ? 'Ready: ' + reports.length + ' report(s)' : 'Ready';
       document.getElementById('search-input').addEventListener('input', (e) => {
         searchQuery = String(e.target.value || '').trim().toLowerCase();
