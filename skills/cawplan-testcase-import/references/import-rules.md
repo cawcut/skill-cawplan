@@ -6,8 +6,10 @@
 |------|------------|
 | 只跳过、不覆盖 | preview 中 `SKIP` 不向 SQA 提供「强制更新」选项 |
 | refs 幂等 | `cawplan:req_xxx;cawplan:tp_xxx;cawplan:case_xxx` — 只在完整用例级身份命中时 SKIP |
+| 数据源选择 | 已有展开后的测试用例时必须用 `INLINE`；只有测试点、没有用例明细时才用 `REQUIREMENT` |
 | Suite 门禁 | preview 前必须确认 `suite_id` 属于当前 Product 绑定的 TestRail Project；不通过则停止，不调用 preview/import |
 | Version 门禁 | 用户明确指定导入版本时，preview 前必须写入 `version_name`；用例内版本冲突时先确认，不调用 preview/import |
+| AUTO_BY_GROUP | Suite 下使用两层 Section：Requirement `summary` 父 Section → TestPoint `group` 子 Section |
 | T1 priority 映射 | `P0→CRITICAL`、`P1→HIGH`、`P2→MEDIUM`、`P3/P4/P5/更低→LOW`；不得原样传 `P1` 到 preview |
 | Milestone/Plan | A1 不涉及；A2 每次新建 |
 | 自动化 Case | `automation_type` / `automation_result` 任一有值即写入自动化字段 |
@@ -38,6 +40,22 @@
 | `automation_type` / `automation_result` | `custom_automation__*` | 有值才写 |
 | `tags` | `label_id` | 未实现，不作为验收承诺 |
 
+## AUTO_BY_GROUP Section 层级
+
+默认 `section_strategy=AUTO_BY_GROUP` 时，后端与 T1 Test Suites 的 `Requirement → group → TestPoint` 对齐：
+
+```text
+Suite
+└── {requirement.summary}
+    ├── {group A}
+    └── 未分组
+```
+
+- `REQUIREMENT` 源：后端通过 `requirement_id` 读取 Requirement summary，按 TestPoint group 创建子 Section。
+- `INLINE` 源：必须尽量携带 `requirement_id`，后端按 `requirement_id` 分组并加载 summary；缺失时退化为 group 顶级 Section，并返回 `MISSING_REQUIREMENT_ID` warning。
+- preview 展示时优先使用 `target_section_path`；没有时用 `target_parent_section_name / target_section_name` 拼接。
+- 新增 `section_creates` 需让 SQA 确认命名；已导入 Case 不迁移 Section，重复导入仍 SKIP。
+
 ## TestPoint 一对多导入约束
 
 - 一个 `test_point_id` 可展开为多条 TestRail Case，`test_point_id` 不能单独作为 SKIP / 幂等键。
@@ -47,10 +65,13 @@
 
 ## T1 用例数据转换
 
+- 如果输入是 T1 已生成的 case data（JSON / 表格 / 当前会话用例表），必须走 `source.type=INLINE`，不得先尝试 `REQUIREMENT`。
+- `REQUIREMENT` 源只适用于没有展开 case 明细的 Requirement/TestPoint；它可能按 1 TestPoint = 1 Case 直展，不适合一个 TestPoint 对应多条 TestCase 的场景。
 - T1 输入字段为 camelCase 时，写入 preview body 前必须转为 snake_case。
 - `testPointId` → `test_point_id`；`requirementId` → `requirement_id`；`moduleTreeNodeId` → `module_tree_node_id`。
 - `tag` → `tags: [tag]`。
 - T1 的 `steps[]` 与 `expected[]` 按下标合并为 `{ "content", "expected" }`。
+- 保留 `requirement_id` 与 `group`，供 AUTO_BY_GROUP 创建 `summary → group` 两层 Section。
 - `priority` 映射：`P0=CRITICAL`、`P1=HIGH`、`P2=MEDIUM`、`P3=LOW`；`P4`、`P5` 或任何大于 `P3` 的 `P{n}` 都映射为 `LOW`。
 - 无法识别的 priority 值必须先向用户确认，不得原样发送到 preview。
 
@@ -58,6 +79,7 @@
 
 - preview 前必须先执行 `mappings get` 校验 Suite；如果用户指定的 `suite_id` 不在当前 Product 映射的 Project 下，直接向用户报错并停止，不能发起 preview。
 - preview 前必须确认 `version_name`：用户对话中指定版本时，REQUIREMENT 源使用 `--version-name`，INLINE 源写入 body 顶层和每条 `cases[]`；若 case 内已有不同版本，先让用户确认正确版本。
+- preview 表必须展示 Section 路径，优先使用 `target_section_path`，以便确认用例落到正确的 `Requirement summary / group` 下。
 - `action=FAIL`：必须修正数据后重新 preview，不得 execute
 - `section_creates`：将新建 TestRail Section，需 SQA 确认命名
 - `warnings`：展示但不阻断（除非伴随 FAIL）

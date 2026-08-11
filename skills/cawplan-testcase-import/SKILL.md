@@ -1,5 +1,5 @@
 ---
-version: 0.2.3
+version: 0.2.5
 name: cawplan-testcase-import
 description: |
   Import QA test cases from CawPlan (Requirement/TestPoint or INLINE session cases) into TestRail with preview-first workflow.
@@ -41,8 +41,15 @@ cawplan skill check
 
 | 优先级 | 类型 | 条件 |
 |--------|------|------|
-| 1 | `INLINE` | 本会话已生成并逐步确认的用例表（含 `title`、`steps`、`group`、`test_point_id`） |
-| 2 | `REQUIREMENT` | Requirement 门户链接 `/product/{product_id}/qa-insights/test-suites/requirements/{requirement_id}` |
+| 1 | `INLINE` | 本会话/用户输入中已经有展开后的测试用例（含 `title`、`steps`/`expected`、`group`、`test_point_id`/`testPointId`） |
+| 2 | `REQUIREMENT` | 只有 Requirement/TestPoint 已归档、但当前上下文**没有**展开后的测试用例时才使用 |
+
+**数据源强制判定**：
+
+- 如果当前会话刚通过 `cawplan-testpoint-generate` 或其他 T1 流程生成了测试用例，必须使用 `source.type=INLINE`，将已生成的 case data 写入 `cases[]` 后 preview。
+- 如果用户直接提供了 T1 生成的 JSON / 表格 / Excel 转换结果，只要其中包含 case 级 `title` 与 `steps`/`expected`，也必须使用 `INLINE`。
+- 不得在已有展开用例时先尝试 `source.type=REQUIREMENT`。`REQUIREMENT` 源会由后端从 TestPoint 直展，适用于「只有测试点、没有测试用例」的场景；它可能退化为 1 TestPoint = 1 Case，不适合一个 TestPoint 展开多个 TestCase 的会话产物。
+- 若不确定上下文中是否已有测试用例，先向用户确认「是否使用上面已生成的用例明细导入」，不要默认走 `REQUIREMENT`。
 
 **VERSION 批量导入**：后端尚未实现（`source.type=VERSION`）→ 勿使用。
 
@@ -87,6 +94,8 @@ cawplan qa-insights testrail mappings get <product_id>
 
 `importance` 无法识别时后端会跳过该字段；不要编造 TestRail option id。
 
+`AUTO_BY_GROUP` 是默认 Section 策略。后端会在 Suite 下创建/复用两层 Section：父 Section = T1 Requirement `summary`（为空时按 ticket / 描述 / id 兜底），子 Section = TestPoint `group`（为空时为 `未分组`）。INLINE 源必须尽量携带 `requirement_id`，否则后端无法加载 Requirement summary，会退化为仅 `group` 顶级 Section 并返回 `MISSING_REQUIREMENT_ID` warning。
+
 同一 `test_point_id` 可对应多条 TestRail Case。生成 INLINE JSON 时，若同一 TestPoint 展开多条用例，必须为每条用例提供稳定且不同的 `source_case_key`；未提供时后端会使用 `content_hash` 作为用例级 `case_identity`。不得把 `cawplan:req_*;cawplan:tp_*` 作为唯一幂等 refs。
 
 ### 2.2 T1 用例数据转换规则
@@ -96,6 +105,7 @@ cawplan qa-insights testrail mappings get <product_id>
 - 字段名转为 snake_case：`testPointId` → `test_point_id`，`requirementId` → `requirement_id`，`moduleTreeNodeId` → `module_tree_node_id`。
 - `tag` 转为 `tags: [tag]`；已有 `tags[]` 时保留数组。
 - T1 的 `steps[]` 字符串数组与 `expected[]` 字符串数组按下标合并为 TestRail Separate Steps：`{ "content": steps[i], "expected": expected[i] || "" }`。
+- 必须保留 `requirement_id` 与 `group`：`AUTO_BY_GROUP` 依赖 `requirement_id` 获取父 Section summary，并用 `group` 创建子 Section。
 - `priority` 必须按下表转换后再写入 preview body，不得把 `P0` / `P1` / `P2` / `P3` / `P4` / `P5` 原样传给后端：
 
 | T1 `priority` | TestRail `priority` |
@@ -121,9 +131,11 @@ cawplan qa-insights testrail mappings get <product_id>
 
 ### 3. 导入预览（必须）
 
-**REQUIREMENT 源**（后端从 TestPoint 展开；若 T1 仅有测试点无步骤，需先在同会话生成 INLINE cases 再导入）：
+**REQUIREMENT 源**（仅当当前上下文没有展开后的测试用例时使用）：
 
 执行 preview 前，先完成 §2 的 Suite 门禁、§2.2 的 T1 用例数据转换与 §2.3 的 Version 写入门禁；任一校验未通过时不得运行以下命令。
+
+如果当前会话已存在展开后的测试用例（尤其一个 `test_point_id` 对应多条 Case），停止使用本命令，改走下方 INLINE 源。
 
 ```bash
 cawplan qa-insights testrail import preview <product_id> \
@@ -133,7 +145,7 @@ cawplan qa-insights testrail import preview <product_id> \
   --version-name "<release_version>"
 ```
 
-**INLINE 源**（推荐：T1 会话内已展开步骤的用例）：
+**INLINE 源**（当前会话已有测试用例时必须使用）：
 
 将用例写入临时 JSON（`cases[]` 结构见 API 契约 §3.1），并在 body 中使用已通过 §2 校验的 `suite_id`、已通过 §2.2 转换后的字段以及已通过 §2.3 确认的 `version_name`，然后：
 
@@ -143,11 +155,13 @@ cawplan qa-insights testrail import preview <product_id> --body-file /tmp/import
 
 **向 SQA 展示预览表**（不得省略）：
 
-| # | 标题 | action | section | skip_reason | warnings |
-|---|------|--------|---------|------------|----------|
-| … | … | CREATE/SKIP/FAIL | … | MAPPING_EXISTS / REFS_EXISTS | … |
+| # | 标题 | action | section_path | skip_reason | warnings |
+|---|------|--------|--------------|------------|----------|
+| … | … | CREATE/SKIP/FAIL | `Requirement summary / group` | MAPPING_EXISTS / REFS_EXISTS | … |
 
 汇总 `summary.to_create` / `to_skip` / `to_fail`；若有 `to_fail > 0` 或 `section_creates` 需新建 Section → **停止**，修正后重新 preview。
+
+展示 Section 时优先读 `target_section_path`；若缺失，则用 `target_parent_section_name + target_section_name` 拼出两层路径。若出现 `MISSING_REQUIREMENT_ID` warning，需告知 SQA 该 INLINE case 缺少 `requirement_id`，Section 将不能按 Requirement summary 归档。
 
 保存 stdout 中的 `preview_id`（或 `api.data.preview_id`）。
 
@@ -157,6 +171,7 @@ cawplan qa-insights testrail import preview <product_id> --body-file /tmp/import
 
 - 接受「只跳过、不覆盖」策略（已存在映射的 Case 不会 update）
 - 接受 `to_create` 条数与新 Section 创建
+- 接受 `AUTO_BY_GROUP` 的 Section 路径（Requirement summary → group）
 - `version_name` / Suite 正确
 
 未获确认 → **不得** execute。
@@ -220,9 +235,9 @@ cawplan qa-insights testrail jobs get <product_id> <job_id>
 
 ## 与 T1 Skill 衔接
 
-推荐路径：**同一会话** `cawplan-testpoint-generate` → 展开步骤为用例表 → `cawplan-testcase-import`（INLINE preview → execute）。
+推荐路径：**同一会话** `cawplan-testpoint-generate` → 展开步骤为用例表 → `cawplan-testcase-import`（必须走 INLINE preview → execute）。
 
-Requirement 直导（`REQUIREMENT` 源）依赖后端从 TestPoint 展开；若步骤为空，退回 INLINE 路径。
+Requirement 直导（`REQUIREMENT` 源）仅用于尚未生成 case 明细的 Requirement/TestPoint；一旦会话中已经生成 case 明细，必须走 INLINE，避免 1 TestPoint = 1 Case 的直展逻辑覆盖掉「1 TestPoint → 多 TestCase」的真实用例范围。
 
 ---
 

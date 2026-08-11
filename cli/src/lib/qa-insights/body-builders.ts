@@ -20,6 +20,7 @@ import {
   FIVE_FIELD_KEYS,
   FORBIDDEN_WRITE_BODY_KEYS,
   TESTPOINT_BODY_KEYS,
+  type ImportStepDraft,
   type ImportPreviewSource,
   type ImportSourceType,
   type InlineCaseDraft,
@@ -213,7 +214,68 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function normalizePriority(value: unknown): string | undefined {
-  return optionalString(value)?.toUpperCase();
+  const priority = optionalString(value)?.toUpperCase();
+  if (!priority) return undefined;
+
+  const t1Match = priority.match(/^P(\d+)$/);
+  if (t1Match) {
+    const level = Number(t1Match[1]);
+    if (level === 0) return "CRITICAL";
+    if (level === 1) return "HIGH";
+    if (level === 2) return "MEDIUM";
+    return "LOW";
+  }
+
+  if (["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(priority)) {
+    return priority;
+  }
+
+  throw new BodyValidationError(
+    `Unsupported priority "${String(value)}"; use LOW/MEDIUM/HIGH/CRITICAL or T1 P0/P1/P2/P3+`,
+  );
+}
+
+function normalizeTags(raw: Record<string, unknown>, index: number): string[] | undefined {
+  const tags = raw.tags ?? raw.tag;
+  if (tags === undefined || tags === null) return undefined;
+
+  const values = Array.isArray(tags) ? tags : [tags];
+  return values.map((tag, tagIndex) => {
+    const normalized = optionalString(tag);
+    if (!normalized) {
+      throw new BodyValidationError(`cases[${index}].tags[${tagIndex}] must be a non-empty string`);
+    }
+    return normalized;
+  });
+}
+
+function normalizeSteps(raw: Record<string, unknown>, index: number): ImportStepDraft[] | undefined {
+  const steps = raw.steps;
+  if (!Array.isArray(steps)) return undefined;
+
+  const expected = raw.expected;
+  const expectedItems = Array.isArray(expected) ? expected : undefined;
+
+  return steps.map((step, stepIndex) => {
+    if (typeof step === "string") {
+      return {
+        content: normalizeField(step),
+        expected: expectedItems ? normalizeField(expectedItems[stepIndex]) : "",
+      };
+    }
+
+    if (step !== null && typeof step === "object" && !Array.isArray(step)) {
+      const item = step as Record<string, unknown>;
+      return {
+        content: normalizeField(item.content),
+        expected: normalizeField(item.expected),
+      };
+    }
+
+    throw new BodyValidationError(
+      `cases[${index}].steps[${stepIndex}] must be a string or { content, expected } object`,
+    );
+  });
 }
 
 function normalizeInlineCaseItem(item: unknown, index: number): InlineCaseDraft {
@@ -228,12 +290,12 @@ function normalizeInlineCaseItem(item: unknown, index: number): InlineCaseDraft 
     title,
     group: normalizeField(raw.group),
     module_tree_node_id: valueByNames<string>(raw, "module_tree_node_id", "moduleTreeNodeId"),
-    tags: Array.isArray(raw.tags) ? (raw.tags as string[]) : undefined,
+    tags: normalizeTags(raw, index),
     priority: normalizePriority(valueByNames<unknown>(raw, "priority", "priority")),
     importance: optionalString(valueByNames<unknown>(raw, "importance", "importance")),
     version_name: valueByNames<string>(raw, "version_name", "versionName"),
     preconditions: valueByNames<string>(raw, "preconditions", "preconditions"),
-    steps: Array.isArray(raw.steps) ? (raw.steps as InlineCaseDraft["steps"]) : undefined,
+    steps: normalizeSteps(raw, index),
     automation_type: valueByNames<string | null>(raw, "automation_type", "automationType"),
     automation_result: valueByNames<string | null>(raw, "automation_result", "automationResult"),
     source_case_key: valueByNames<string>(raw, "source_case_key", "sourceCaseKey"),
@@ -284,7 +346,7 @@ export function buildTestrailImportExecuteBody(
 /** Merge a parsed JSON body over CLI flags (flags win when set). */
 export function mergeTestrailImportPreviewBody(
   parsed: unknown,
-  flags: BuildTestrailImportPreviewBodyInput,
+  flags: Partial<BuildTestrailImportPreviewBodyInput>,
 ): Record<string, unknown> {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new BodyValidationError("testrail import preview body must be a JSON object");
