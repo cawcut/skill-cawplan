@@ -32,12 +32,11 @@ export function saveCache(store: CacheStore): void {
   }
 }
 
-export function getCache(key: string, refresh: boolean): unknown | undefined {
+export function getCache(key: string, refresh: boolean, ttlMs = getCacheTtlMs()): unknown | undefined {
   if (refresh) return undefined;
   const store = loadCache();
   const entry = store.entries[key];
   if (!entry) return undefined;
-  const ttlMs = getCacheTtlMs();
   if (Date.now() - entry.fetched_at > ttlMs) return undefined;
   return entry.data;
 }
@@ -46,6 +45,20 @@ export function setCache(key: string, data: unknown): void {
   const store = loadCache();
   store.entries[key] = { fetched_at: Date.now(), data };
   saveCache(store);
+}
+
+export function pruneCacheEntries(keyPrefix: string, ttlMs: number): number {
+  const store = loadCache();
+  const now = Date.now();
+  let removed = 0;
+  for (const [key, entry] of Object.entries(store.entries)) {
+    if (!key.startsWith(keyPrefix)) continue;
+    if (now - entry.fetched_at <= ttlMs) continue;
+    delete store.entries[key];
+    removed += 1;
+  }
+  if (removed > 0) saveCache(store);
+  return removed;
 }
 
 export function clearCache(): void {
@@ -101,10 +114,6 @@ export async function getCacheScope(): Promise<string> {
     if (typeof userId === "string" && userId.trim()) {
       return `${base}:oauth:${shortHash(userId)}`;
     }
-  }
-
-  if (credentials?.apiKey) {
-    return `${base}:api-key:${shortHash(credentials.apiKey)}`;
   }
 
   return `${base}:anonymous`;

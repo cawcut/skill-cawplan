@@ -53,7 +53,7 @@ export function getProductEnvConfig(envName: string): EnvConfig {
 function getSelectedEnvName(): string {
   const product = loadProductConfig();
   const userConfig = readUserConfigSync();
-  return process.env.CAWPLAN_ENV ?? userConfig?.env ?? product.defaultEnv;
+  return userConfig?.env ?? product.defaultEnv;
 }
 
 function loadEnvConfig(): EnvConfig {
@@ -69,26 +69,18 @@ function loadEnvConfig(): EnvConfig {
 
 /**
  * API base URL for the cawplan backend.
- * Priority: CAWPLAN_BASE_URL env var > CAWPLAN_ENV profile > ~/.cawplan/config.json > products.json.
+ * Priority: ~/.cawplan/config.json > products.json.
  */
 export function getApiBase(): string {
-  const userConfig = readUserConfigSync();
-  if (process.env.CAWPLAN_BASE_URL) return process.env.CAWPLAN_BASE_URL;
-  if (process.env.CAWPLAN_ENV) return loadEnvConfig().apiBase;
-
-  return userConfig?.baseUrl ?? loadEnvConfig().apiBase;
+  return loadEnvConfig().apiBase;
 }
 
 /**
  * Portal (web app) base URL.
- * Priority: CAWPLAN_PORTAL_URL env var > CAWPLAN_ENV profile > ~/.cawplan/config.json > products.json.
+ * Priority: ~/.cawplan/config.json > products.json.
  */
 export function getPortalBase(): string {
-  const userConfig = readUserConfigSync();
-  if (process.env.CAWPLAN_PORTAL_URL) return process.env.CAWPLAN_PORTAL_URL;
-  if (process.env.CAWPLAN_ENV) return loadEnvConfig().portalBase;
-
-  return userConfig?.portalUrl ?? loadEnvConfig().portalBase;
+  return loadEnvConfig().portalBase;
 }
 
 /**

@@ -3,7 +3,6 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
 export interface Credentials {
-  apiKey?: string;
   accessToken?: string;
   refreshToken?: string;
   /** Unix timestamp (seconds) when access token expires */
@@ -72,7 +71,6 @@ export async function readCredentials(): Promise<Credentials | null> {
     const parsed = JSON.parse(raw) as Partial<Credentials>;
     // Return whatever fields are present; no required fields check
     return withAccessTokenIdentity({
-      apiKey: parsed.apiKey,
       accessToken: parsed.accessToken,
       refreshToken: parsed.refreshToken,
       expire: parsed.expire,

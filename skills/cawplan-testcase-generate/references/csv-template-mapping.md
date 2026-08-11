@@ -17,7 +17,7 @@
 | 3 | Priority | Critical/High/Medium/Low | A3 内部推 P0–P3,脚本映射 |
 | 4 | Tag | 原样继承父测试点标签 | A2 测试点 |
 | 5 | Group | 原样继承父测试点分组 | A2 测试点 |
-| 6 | TestPointTitle | 父测试点自足标题,原样引用 | A2 测试点 |
+| 6 | TestPointTitle | 父测试点自足标题,原样引用;**不得**为 `同上` 或省略 | A2 测试点 / `cases[].testPointTitle` |
 | 7 | Preconditions | 各自前置,多条 `1.\n2.`;不去重合并 | A3(详情级) |
 | 8 | Step description | 操作步骤,一步一行 | A3 展开 |
 | 9 | Expected Result | 与 Step 同行一一对应 | A3 展开 |
@@ -55,5 +55,6 @@
 - ❌ 加模板外的列(如"设计方法""回归类型"):模板无列位,不扩。
 - ❌ 脚本生成/补全/改写任何内容:脚本只摆格子,内容全部来自上游 A3 定稿(红线 0 硬墙)。
 - ❌ TestPointId 为空的行(孤儿用例):每条必有非空父测试点 id。
+- ❌ TestPointTitle 为 `同上`、省略或预览缩写:数据层必须每行完整父测试点全称。
 - ❌ 带 BOM / 用非标准手拼转义 / 行尾非 CRLF。
 - ❌ 用 CaseId 当稳定主键或回写库:它是份内现算序号,不落库。

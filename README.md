@@ -19,8 +19,6 @@ cawplan auth status
 cawplan products list --search "UniFi Access"
 ```
 
-For CI or headless use: `cawplan auth configure` (API key).
-
 ## Skills
 
 | # | Skill | Invoke | Description |
@@ -62,5 +60,4 @@ Use `/cawplan-ticket-context` before or during ticket work so the next `/cawplan
 
 - `Not authenticated` → run `cawplan auth login`
 - `Session expired` → run `cawplan auth login`
-- `API Key invalid` → run `cawplan auth configure`
 - Browser did not open → copy the printed URL and open it manually

@@ -305,6 +305,8 @@ export function registerTicketsCommand(program: Command): void {
     .option("--status <key>", "Status key")
     .option("--progress_comment <text>", "Progress comment")
     .option("--priority <p>", "Priority")
+    .option("--target_version_id <id>", "Move ticket to target version ID")
+    .option("--target-ver <name>", "Move ticket to target version name (resolves to version_id automatically)")
     .option("--description <text>", "Ticket title/summary (server description field; not page body/remarks)")
     .option("--remarks <html>", "Ticket page body/remarks (HTML supported)")
     .option("--comment <text>", "Comment")
@@ -315,9 +317,12 @@ export function registerTicketsCommand(program: Command): void {
     .option("--expected_version <n>", "Optimistic lock version")
     .action(async (productId: string, versionId: string, ticketId: string, opts) => {
       const body: Record<string, unknown> = {};
+      const targetVersionId = opts.target_version_id
+        ?? (opts.targetVer ? await resolveVersionId(productId, opts.targetVer) : undefined);
       if (opts.status) body.status = opts.status;
       if (opts.progress_comment !== undefined) body.progress_comment = opts.progress_comment;
       if (opts.priority) body.priority = opts.priority;
+      if (targetVersionId) body.version_id = targetVersionId;
       if (opts.description !== undefined) body.description = opts.description;
       if (opts.remarks !== undefined) body.remarks = opts.remarks;
       if (opts.comment !== undefined) body.comment = opts.comment;

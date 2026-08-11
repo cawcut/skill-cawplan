@@ -3,15 +3,10 @@ import { resolve } from "node:path";
 import { getApiBase } from "./products.js";
 
 /**
- * API base URL. Reads from products.json (env selected by CAWPLAN_ENV),
- * overridable via CAWPLAN_BASE_URL for advanced use / debugging.
+ * API base URL. Reads from ~/.cawplan/config.json or products.json.
  */
 export function getBaseUrl(): string {
   return getApiBase();
-}
-
-export function getApiKey(): string | undefined {
-  return process.env.CAWPLAN_API_KEY;
 }
 
 export function getCachePath(): string {

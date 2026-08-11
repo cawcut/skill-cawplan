@@ -1,4 +1,4 @@
-import { getBaseUrl, getApiKey } from "./config.js";
+import { getBaseUrl } from "./config.js";
 import {
   readCredentials,
   writeCredentials,
@@ -29,7 +29,6 @@ export interface RequestOptions {
 
 interface AuthContext {
   header: string;
-  kind: "oauth" | "apiKey";
   credentials: Credentials | null;
 }
 
@@ -113,7 +112,6 @@ async function resolveAuthContext(): Promise<AuthContext | null> {
   if (creds?.accessToken && !isAccessTokenExpired(creds)) {
     return {
       header: `Bearer ${creds.accessToken}`,
-      kind: "oauth",
       credentials: creds,
     };
   }
@@ -124,23 +122,12 @@ async function resolveAuthContext(): Promise<AuthContext | null> {
       const refreshed = await refreshStoredAccessToken(creds);
       return {
         header: `Bearer ${refreshed.accessToken}`,
-        kind: "oauth",
         credentials: refreshed.credentials,
       };
     } catch (err) {
       refreshError = err;
-      // Fall through to API key if configured.
+      // Continue below so the refresh error can be surfaced consistently.
     }
-  }
-
-  // Priority 3: API key from credentials file or env var
-  const apiKey = creds?.apiKey ?? getApiKey();
-  if (apiKey) {
-    return {
-      header: apiKey,
-      kind: "apiKey",
-      credentials: creds,
-    };
   }
 
   if (refreshError) {
@@ -182,7 +169,7 @@ export async function cawplanRequest(options: RequestOptions): Promise<unknown> 
 
   let auth = await resolveAuthContext();
   if (!auth) {
-      console.error("Not authenticated. Run: cawplan auth login (or: cawplan auth configure)");
+      console.error("Not authenticated. Run: cawplan auth login");
       process.exit(1);
   }
 
@@ -203,24 +190,19 @@ export async function cawplanRequest(options: RequestOptions): Promise<unknown> 
   let payload = await readResponsePayload(res);
 
   if (res.status === 401) {
-    if (auth.kind === "oauth") {
-      try {
-        const refreshed = await refreshStoredAccessToken(auth.credentials ?? {});
-        auth = {
-          header: `Bearer ${refreshed.accessToken}`,
-          kind: "oauth",
-          credentials: refreshed.credentials,
-        };
-        res = await fetchWithAuth(auth.header);
-        payload = await readResponsePayload(res);
-        if (res.status === 401) {
-          throw new ApiError("Session expired. Run: cawplan auth login", 401, payload);
-        }
-      } catch {
+    try {
+      const refreshed = await refreshStoredAccessToken(auth.credentials ?? {});
+      auth = {
+        header: `Bearer ${refreshed.accessToken}`,
+        credentials: refreshed.credentials,
+      };
+      res = await fetchWithAuth(auth.header);
+      payload = await readResponsePayload(res);
+      if (res.status === 401) {
         throw new ApiError("Session expired. Run: cawplan auth login", 401, payload);
       }
-    } else {
-      throw new ApiError("API Key invalid. Run: cawplan auth configure", 401, payload);
+    } catch {
+      throw new ApiError("Session expired. Run: cawplan auth login", 401, payload);
     }
   }
 
