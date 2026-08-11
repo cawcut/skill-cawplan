@@ -1623,6 +1623,54 @@ describe("src lib collect daily aggregator", () => {
     expect(bySession["cursor-session-2"]?.humanInputApiCalls).toEqual({0: 1, 1: 1});
   });
 
+  test("uses daily incremental input estimate for Cursor human-input attribution", () => {
+    const windows = buildCursorAttributionWindows(
+      [
+        {
+          session_id: "cursor-long-session",
+          agent: "cursor-gui",
+          time_range: {start: "2026-07-20T02:00:00.000Z", display: "10:00 - 18:00"},
+          human_inputs: [
+            {
+              content: "1234567890123456789012345678901234567890",
+              start_time: "2026-08-03T02:00:00.000Z",
+              end_time: "2026-08-03T02:05:00.000Z",
+            },
+          ],
+        },
+      ],
+      "2026-08-03"
+    );
+
+    const bySession = aggregateCursorUsageBySession(
+      [
+        {
+          timestamp: "2026-08-03T02:02:00.000Z",
+          model: "gpt-5.5-medium",
+          tokenUsage: {
+            inputTokens: 100_000,
+            outputTokens: 25,
+            cacheReadTokens: 400_000,
+            cacheWriteTokens: 10_000,
+          },
+          chargedCents: 123,
+        },
+      ],
+      "2026-08-03",
+      windows
+    );
+
+    expect(bySession["cursor-long-session"]?.modelUsage["gpt-5.5-medium"]).toMatchObject({
+      api_calls: 1,
+      input_tokens: 10,
+      output_tokens: 25,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cost: 1.23,
+      token_source: "dashboard API cost + daily incremental token estimate",
+    });
+  });
+
   test("clusters dashboard usage events into billing bursts", () => {
     const bursts = clusterUsageEventsIntoBursts(
       [

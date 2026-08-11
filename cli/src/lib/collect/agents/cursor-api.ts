@@ -27,6 +27,7 @@ import {calculateCost, COST_CURRENCY} from "../pricing.js";
 const PAGE_SIZE = 500;
 const DEFAULT_CURSOR_API_TIMEOUT_MS = 30_000;
 const MAX_ASSIGN_DISTANCE_MS = 2 * 60 * 60 * 1000; // 2h
+const CHARS_PER_TOKEN = 4;
 /** Gap between dashboard usage events that starts a new billing burst. */
 export const BILLING_BURST_GAP_MS = 5 * 60 * 1000;
 /** Keep composer exact times when attributed billing events are within this span. */
@@ -338,6 +339,7 @@ interface AttributionWindow {
     startMs: number;
     endMs: number;
     humanInputIndex?: number;
+    incrementalInputTokens?: number;
 }
 
 export interface SessionUsageAttribution {
@@ -353,6 +355,12 @@ function parseIsoMs(value?: string | null): number | null {
     return Number.isNaN(ms) ? null : ms;
 }
 
+function estimateIncrementalInputTokens(input: {content?: unknown}): number | undefined {
+    const content = typeof input.content === "string" ? input.content.trim() : "";
+    if (!content) return undefined;
+    return Math.max(1, Math.ceil(content.length / CHARS_PER_TOKEN));
+}
+
 /**
  * Build attribution windows from human-input prompt times when available.
  * Each prompt owns API events from its start until the next prompt (half-open interval).
@@ -364,6 +372,7 @@ export function buildCursorAttributionWindows(
         agent: string;
         time_range: { start?: string; display: string };
         human_inputs?: Array<{
+            content?: unknown;
             start_time?: string | null;
             end_time?: string | null;
             session_time?: string | null;
@@ -380,22 +389,29 @@ export function buildCursorAttributionWindows(
                 index,
                 startMs: parseIsoMs(h.start_time ?? h.session_time),
                 endMs: parseIsoMs(h.end_time),
+                incrementalInputTokens: estimateIncrementalInputTokens(h),
             }))
-            .filter((p): p is { index: number; startMs: number; endMs: number | null } => p.startMs != null)
+            .filter((p): p is { index: number; startMs: number; endMs: number | null; incrementalInputTokens: number | undefined } => p.startMs != null)
             .sort((a, b) => a.startMs - b.startMs);
 
         if (prompts.length > 0) {
             // Bursts with identical startMs share one window; last index in the burst is credited.
-            const segments: Array<{ startMs: number; humanInputIndex: number; endMsHint: number | null }> = [];
+            const segments: Array<{ startMs: number; humanInputIndex: number; endMsHint: number | null; incrementalInputTokens?: number }> = [];
             for (const p of prompts) {
                 const last = segments[segments.length - 1];
                 if (last && last.startMs === p.startMs) {
                     last.humanInputIndex = p.index;
+                    last.incrementalInputTokens = p.incrementalInputTokens;
                     if (p.endMs != null && (last.endMsHint == null || p.endMs > last.endMsHint)) {
                         last.endMsHint = p.endMs;
                     }
                 } else {
-                    segments.push({startMs: p.startMs, humanInputIndex: p.index, endMsHint: p.endMs});
+                    segments.push({
+                        startMs: p.startMs,
+                        humanInputIndex: p.index,
+                        endMsHint: p.endMs,
+                        incrementalInputTokens: p.incrementalInputTokens,
+                    });
                 }
             }
 
@@ -419,6 +435,7 @@ export function buildCursorAttributionWindows(
                     startMs: seg.startMs,
                     endMs,
                     humanInputIndex: seg.humanInputIndex,
+                    incrementalInputTokens: seg.incrementalInputTokens,
                 });
             }
             continue;
@@ -511,6 +528,7 @@ export function aggregateCursorUsageBySession(
     const perSession = new Map<string, Map<string, ModelUsageEntry>>();
     const humanInputCosts = new Map<string, Record<number, number>>();
     const humanInputApiCalls = new Map<string, Record<number, number>>();
+    const creditedIncrementalInput = new Set<string>();
 
     for (const event of events) {
         const tsMs = parseEventTimestampMs(event);
@@ -525,6 +543,27 @@ export function aggregateCursorUsageBySession(
         const tokenUsage = (event["tokenUsage"] as Record<string, unknown> | undefined) ?? {};
         const chargedCents = Number(event["chargedCents"] ?? 0);
         const costUsd = chargedCents / 100;
+        const rawInputTokens = Number(tokenUsage["inputTokens"] ?? 0);
+        const rawCacheReadTokens = Number(tokenUsage["cacheReadTokens"] ?? 0);
+        const rawCacheWriteTokens = Number(tokenUsage["cacheWriteTokens"] ?? 0);
+        const usesIncrementalInputEstimate =
+            window.humanInputIndex != null &&
+            typeof window.incrementalInputTokens === "number";
+        const promptCreditKey = usesIncrementalInputEstimate
+            ? `${sid}:${window.humanInputIndex}`
+            : "";
+        const inputTokens = usesIncrementalInputEstimate
+            ? (
+                creditedIncrementalInput.has(promptCreditKey)
+                    ? 0
+                    : rawInputTokens > 0
+                        ? Math.min(rawInputTokens, window.incrementalInputTokens!)
+                        : window.incrementalInputTokens!
+            )
+            : rawInputTokens;
+        const cacheReadTokens = usesIncrementalInputEstimate ? 0 : rawCacheReadTokens;
+        const cacheWriteTokens = usesIncrementalInputEstimate ? 0 : rawCacheWriteTokens;
+        if (usesIncrementalInputEstimate) creditedIncrementalInput.add(promptCreditKey);
 
         if (!perSession.has(sid)) perSession.set(sid, new Map());
         const byModel = perSession.get(sid)!;
@@ -537,17 +576,21 @@ export function aggregateCursorUsageBySession(
                 cache_creation_input_tokens: 0,
                 cost: 0,
                 currency: COST_CURRENCY,
-                note: "dashboard API human-input window attribution",
-                token_source: "dashboard_api",
+                note: usesIncrementalInputEstimate
+                    ? "Cursor Dashboard cost with daily incremental input token estimate"
+                    : "dashboard API human-input window attribution",
+                token_source: usesIncrementalInputEstimate
+                    ? "dashboard API cost + daily incremental token estimate"
+                    : "dashboard_api",
             });
         }
 
         const entry = byModel.get(model)!;
         entry.api_calls += 1;
-        entry.input_tokens += Number(tokenUsage["inputTokens"] ?? 0);
+        entry.input_tokens += inputTokens;
         entry.output_tokens += Number(tokenUsage["outputTokens"] ?? 0);
-        entry.cache_read_input_tokens += Number(tokenUsage["cacheReadTokens"] ?? 0);
-        entry.cache_creation_input_tokens += Number(tokenUsage["cacheWriteTokens"] ?? 0);
+        entry.cache_read_input_tokens += cacheReadTokens;
+        entry.cache_creation_input_tokens += cacheWriteTokens;
         (entry as { cost: number }).cost += costUsd;
 
         if (window.humanInputIndex != null) {
