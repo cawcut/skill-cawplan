@@ -974,6 +974,10 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       return cost > 0 ? '$' + cost.toFixed(2) : 'Cost unknown';
     }
 
+    function sessionTitleTooltip(session) {
+      return 'Cost: $' + sessionCost(session).toFixed(2) + '\\nCWD: ' + String(session.cwd || '');
+    }
+
     function rowMatchesFilters(entry, session) {
       if (!shouldShowSession(session)) return false;
       const product = products.find((p) => p.product_id === session.product_id);
@@ -1094,13 +1098,13 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       } else {
       tbody.innerHTML = entries.map(({file, date, report, session: s}) => {
         const title = s.session_title || s.session_name || s.session_id;
-        const cwdTitle = ' title="cwd: &quot;' + escapeHtml(s.cwd || '') + '&quot;"';
+        const titleTooltip = ' title="' + escapeHtml(sessionTitleTooltip(s)) + '"';
         const currentProduct = products.find((p) => p.product_id === s.product_id);
         const productValue = currentProduct ? currentProduct.product_name : (s.product_name || '');
         const selectedRepo = selectedRepoForSession(s);
         return '<tr data-file="' + escapeHtml(file) + '" data-session-id="' + escapeHtml(s.session_id) + '">' +
           '<td class="select-cell"><input class="session-select bulk-select" type="checkbox" aria-label="Select session" /></td>' +
-          '<td><div class="session-title"' + cwdTitle + '>' + escapeHtml(title) + '</div></td>' +
+          '<td><div class="session-title"' + titleTooltip + '>' + escapeHtml(title) + '</div></td>' +
           '<td class="input-cell">' + humanInputsHtml(report, s) + '</td>' +
           '<td class="lines-cell">' + sessionLinesText(s) + '</td>' +
           '<td class="num-cell">' + escapeHtml(s.files_changed ?? 0) + '</td>' +
