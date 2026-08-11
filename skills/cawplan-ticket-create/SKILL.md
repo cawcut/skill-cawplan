@@ -2,10 +2,10 @@
 version: 0.2.6
 name: cawplan-ticket-create
 description: |
-  Create a new CawPlan ticket (version-scoped or backlog) with title/summary, optional HTML remarks, assignee, and priority.
+  Create a new CawPlan ticket (version-scoped by default, or backlog only after user confirmation) with title/summary, optional HTML remarks, assignee, and priority.
   Use when: the user asks to create, file, or add a ticket, issue, bug, or task in CawPlan.
   NOT for: updating existing tickets, searching tickets, critical issues, or release planning.
-argument-hint: "[product, version (optional), ticket title/summary, remarks, type, priority, assignee]"
+argument-hint: "[product, version, ticket title/summary, remarks, type, priority, assignee; backlog only if user cannot provide version]"
 allowed-tools: Bash
 ---
 
@@ -34,7 +34,7 @@ cawplan tickets create-version \
   --assignee <email>
 ```
 
-**Backlog ticket** (no version specified):
+**Backlog ticket** (fallback only when the user cannot provide a version or explicitly asks for backlog):
 ```bash
 cawplan tickets create-backlog \
   --product "<product name>" \
@@ -55,7 +55,9 @@ For API Key auth, omit `--reporter`.
 
 - Default type to `FEATURE`; use `BUGFIX` only when the user says bug, defect, or issue.
 - Default priority to `MEDIUM` when not specified.
-- If the user did not specify a version, use `create-backlog` and tell the user: "This ticket was created as a backlog item and is not assigned to any version."
+- If the user did not specify a version, ask one clarifying question for the target version before creating the ticket.
+- Do not create a backlog ticket by default. Use `create-backlog` only when the user explicitly asks for backlog/no version, or after they confirm they cannot provide a version.
+- When creating a backlog ticket, tell the user: "This ticket was created as a backlog item and is not assigned to any version."
 - Do not guess the ticket title/summary. Ask one clarifying question if it is missing.
 - Use `--remarks` for the ticket page body; it supports HTML. Omit it when the user only provides a title/summary.
 - If the CLI reports multiple matches for a product or version, ask the user to disambiguate.
