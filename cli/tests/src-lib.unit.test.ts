@@ -3,7 +3,9 @@ import { mkdtemp, mkdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
+import { Command } from "commander";
 import { cawplanRequest, ApiError } from "../src/lib/http";
+import { registerConfigCommand } from "../src/commands/config";
 import {
   deleteCredentials,
   getCredentialsPath,
@@ -241,6 +243,33 @@ describe("src lib products", () => {
 
     expect(getApiBase()).toBe("https://core-api-gw.uid.dev.ui.com/core-product");
     expect(getPortalBase()).toBe("https://core-web-product.uid.dev.ui.com");
+  });
+
+  test("empty config env falls back to default profile", async () => {
+    await writeFile(getConfigPath(), JSON.stringify({ env: "" }));
+
+    expect(await readUserConfig()).toEqual({});
+    expect(getApiBase()).toBe("https://api.cawplan.com/core-product");
+    expect(getPortalBase()).toBe("https://app.cawplan.com");
+  });
+
+  test("null config env falls back to default profile", async () => {
+    await writeFile(getConfigPath(), JSON.stringify({ env: null }));
+
+    expect(await readUserConfig()).toEqual({});
+    expect(getApiBase()).toBe("https://api.cawplan.com/core-product");
+    expect(getPortalBase()).toBe("https://app.cawplan.com");
+  });
+
+  test("config env command sets selected profile", async () => {
+    const program = new Command();
+    program.exitOverride();
+    registerConfigCommand(program);
+
+    await program.parseAsync(["node", "cawplan", "config", "env", "proto"], { from: "node" });
+
+    expect(await readUserConfig()).toEqual({ env: "proto" });
+    expect(getApiBase()).toBe("https://core-api-gw.uid.dev.ui.com/core-product");
   });
 });
 

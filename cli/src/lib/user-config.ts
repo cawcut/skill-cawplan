@@ -41,9 +41,10 @@ function normalizeLocalMappings(mappings?: LocalProductMapping[]): LocalProductM
 
 function normalizeConfig(parsed: Partial<UserConfig>): UserConfig {
   const localMapping = normalizeLocalMappings(parsed.local_mapping);
+  const env = typeof parsed.env === "string" && parsed.env.trim() ? parsed.env.trim() : undefined;
 
   return {
-    env: parsed.env,
+    ...(env ? { env } : {}),
     ...(localMapping && localMapping.length > 0 ? { local_mapping: localMapping } : {}),
   };
 }

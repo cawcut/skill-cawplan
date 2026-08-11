@@ -40,7 +40,7 @@ All skills route through `cawplan`. Do not call CawPlan HTTP APIs directly from 
 |---------|------------|
 | Auth | `cawplan auth login` (OAuth) |
 | Credentials | `~/.cawplan/credentials.json`, mode `0600` |
-| Environment | `~/.cawplan/config.json` `env=prd|proto|local` |
+| Environment | `cawplan config env prd|proto|local` writes `~/.cawplan/config.json` |
 | Raw escape hatch | `cawplan api <method> <path>` |
 
 ## Development
