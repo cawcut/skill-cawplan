@@ -101,6 +101,13 @@ function readAssignmentAsset(name: string): Buffer | null {
     return null;
 }
 
+function assignmentAssetContentType(name: string): string {
+    const lower = name.toLowerCase();
+    if (lower.endsWith(".svg")) return "image/svg+xml";
+    if (lower.endsWith(".png")) return "image/png";
+    return "application/octet-stream";
+}
+
 function readRequestBody(req: IncomingMessage): Promise<string> {
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
@@ -332,12 +339,13 @@ export async function startAssignmentWebServer(reports: AssignmentReport[], batc
                 }
 
                 if (req.method === "GET" && url.pathname.startsWith("/assets/")) {
-                    const asset = readAssignmentAsset(url.pathname.slice("/assets/".length));
+                    const assetName = url.pathname.slice("/assets/".length);
+                    const asset = readAssignmentAsset(assetName);
                     if (!asset) {
                         sendJson(res, 404, {error: "asset not found"});
                         return;
                     }
-                    sendBinary(res, 200, asset, "image/png");
+                    sendBinary(res, 200, asset, assignmentAssetContentType(assetName));
                     return;
                 }
 
