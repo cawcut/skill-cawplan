@@ -50,6 +50,8 @@ From each ticket, use **only** `description` and `remarks` (no separate title �
 
 Track source per fact (user text / ticket / screenshot; multiple screenshots by upload order). **Five fields must read as finalized requirements**, not evidence notes: state facts directly and **never** name, cite, or allude to which input they came from — regardless of wording or punctuation. If sources contradict, mention the conflict once in the open-questions list only.
 
+**Numeric cross-source check** (before drafting fields): screenshot tooltips, on-screen error copy, and body/ticket text that carry **numbers or thresholds** (duration, size, count, resolution cap, etc.) are all material. **Cross-check** them — do not adopt one source and ignore another. If values **conflict**, or **match numerically but likely refer to different scopes** (e.g. per-slot tooltip vs cumulative total; current model pair vs full model set), → **存疑** (step 5 — numeric collision + **数值限制型存疑** ①–④). **Do not** default-ignore cross-app / cross-client numbers — if scope is unclear, **需澄清** with judgment clues (e.g. body says SD2.0=15s but another app reports 2s — is that in scope?). Clues may name tooltip / error copy / body in 存疑 only — **not** in five fields.
+
 ### 3. Produce the five-field draft
 
 Present exactly these five fields, in this order, as **section headings** (not a table):
@@ -87,7 +89,7 @@ Present exactly these five fields, in this order, as **section headings** (not a
 |------|----------|
 | **跨场景 · 必填拦截** | `（惯例推断）必填项未满足或校验未通过时应拦截提交并给出明确提示` |
 | **跨场景 · 删除确认** | `（惯例推断）破坏性或删除操作应经二次确认后方可执行` |
-| **跨场景 · 上限拦截** | `（惯例推断）超出长度或数量上限的输入应被拦截并给出明确提示` |
+| **跨场景 · 上限拦截** | `（惯例推断）超出长度或数量上限的输入应被拦截并给出明确提示`（**仅**用户可键入的自由输入或可增删的计数项 —— 文件自带属性见 step 5 判据 1 ④） |
 | **跨场景 · 格式校验** | `（惯例推断）有格式约束的字段应校验格式，不符时应拦截并给出明确提示（具体规则以产品规范为准）` |
 | **跨场景 · 一致性校验** | `（惯例推断）需二次确认的输入应与原输入一致，不一致时应拦截提交并给出明确提示` |
 | **跨场景 · 失败反馈** | `（惯例推断）操作失败时应有明确失败反馈` |
@@ -164,6 +166,12 @@ If over 15 characters and not yet shortened:
 
 **范围**：每次**首次出稿**跑一轮。step 6 的 SQA 修订轮**不重跑**，除非 SQA 明确要求重新分析。
 
+**数值与上限补充自检**（与回捞并列，仍不呈现）：
+
+3. **判据 1 ④ 误套**：若 `constraints` 含文件时长 / 大小 / 分辨率 / 码率等**文件自带属性**上限，字段中**不得**出现 ④「超出长度或数量上限的**输入**…」惯例推断行 —— 素材写了 → 无标记事实；素材没写 → 退回 step 3，不套 ④。
+4. **数值限制型存疑**：`constraints` 触发 step 5 **数值限制型存疑** 时，存疑清单**不得**为「无存疑项」—— ①–④ 逐项扫描，未写死者必须列出。
+5. **多来源数值对撞**：素材中截图 tooltip / 报错文案 / 正文均出现过数值时，是否已在存疑中处理不一致或口径差异？漏了 → 补存疑（step 2 **Numeric cross-source check**）。
+
 ### 5. Attach the open-questions list
 
 > **存疑清单不落库**：归档 body 只有五字段 + `summary`（+ `ticket_id`），下游 **A2 / A3 看不到存疑清单**。存在性已确定的维度**不得**只写在这里 —— 见 Rules **总则**。
@@ -174,7 +182,31 @@ After the five fields and display summary, add an **存疑清单**. Classify eac
 - **待确认** — **维度存在性不确定**（判据 1 第二类）或 **weak** inference / screenshot ambiguity（未写入字段者）。**只问维度本身，不预设产品策略 / 具体答案 / 实现方向**（红线 0）；问法**带判断线索**、不带答案。**Forbidden** if the same claim already appears under `（惯例推断）` / `（界面推断）` in the five fields.
   - ✓ `待确认：邮箱在系统中不存在时的提示方式（是否区分「邮箱未注册」与「邮件已发送」，依产品策略）` —— 问到维度即止。
   - ✗ `待确认：应统一提示以防邮箱枚举` —— 替产品预设了安全策略，素材未提。
-- **需澄清** — scope or flow ambiguity (multiple reasonable implementations); state your interpretation for SQA to confirm.
+- **需澄清** — scope or flow ambiguity (multiple reasonable implementations); state your interpretation for SQA to confirm. Also: **numeric interpretation** ambiguities from step 5 **数值限制型存疑** ①–④ (boundary inclusivity, rounding, counting scope, limit-value source).
+
+**数值限制型存疑（强制逐项 — 存疑侧规则，不产生新 `（惯例推断）` 字段行）**:
+
+When **`constraints`** contains **restrictive** measurable limits — e.g. 最大 / 上限 / 不超过 / 至少 / 限制 / 超限 / 不得超过 — involving duration, count, size, length, resolution cap, quantity cap, etc.:
+
+**Trigger scope**: **`constraints` only** — **do not** trigger from `out_of_scope`, `normal_expectation` result descriptions (e.g. 「导出时长与所选挡位一致」), or **enum inventories without a cap** (e.g. 「支持 480P/720P/1080P/4K」with no 「不得超过」 semantics).
+
+**Mandatory scan** — for each of ①–④ below, if material has **not** nailed that item, add **需澄清** or **需补充** (mapping below). **Skip items already explicit in material.** If **all four** are explicit → 无存疑项 is allowed. If **any** item is open → **forbidden** to output **无存疑项**. This checklist overrides the general 「只列关键缺口」relaxation for numeric-limit requirements.
+
+| # | Question (only when not explicit in material) | Typical class |
+|---|-----------------------------------------------|---------------|
+| ① | 边界含不含等于（≤ 还是 &lt;，恰好等于限制值是否放行） | **需澄清** |
+| ② | 取整 / 精度口径（如 14.9s / 15.0s / 15.4s；毫秒还是取整到秒）。**连续量**（时长、大小、比例）优先；**纯整数计数**仅在素材暗示小数/四舍五入时才列 | **需澄清** |
+| ③ | 单位与统计口径（单文件上限 vs 同类型累计总时长；是否并存、是否都校验） | **需澄清** |
+| ④ | 限制值来源（固定清单 vs 按当前模型 / 节点 / 客户端动态下发） | **需澄清**（多种合理解读）；字段已有方向仅缺完整清单 → **需补充** |
+
+After step 2 **Numeric cross-source check** finds collision or scope mismatch → use this section to expand ①–④; do not duplicate the same gap twice.
+
+**Examples**:
+- ✓ **需澄清**：tooltip 写「Max Duration 15s」而正文写 SD2.0 累计 15s —— 15s 是单槽上限、同类型累计上限，还是两者并存且都校验？
+- ✓ **需澄清**：正文 SD2.0=15s、SD2.5=30s，另一 app 报错「Video exceeds 2 seconds」—— 2s 是否同属本需求校验口径？限制值是否按模型 / 节点动态下发、SD2.0/2.5 是否为全集？
+- ✗ **需澄清**：时长限制怎么算？（无线索，违反「问法带判断线索」）
+
+**多来源数值对撞（存疑归类）**: complements step 2 — when tooltip / error copy / body numbers **conflict** or **likely differ in scope**, → 存疑 (clues allowed in 存疑 only). Then expand per ①–④ above. Cross-app numbers: **do not** silently adopt or ignore.
 
 **判据 1 — 维度存在性（先判存在性，再判取值）**:
 
@@ -184,7 +216,14 @@ After the five fields and display summary, add an **存疑清单**. Classify eac
   1. 必填校验（存在必填输入项或表单提交时）
   2. 格式校验（存在有格式约束的字段时）
   3. 确认 / 重复输入的一致性（存在二次输入或确认类字段时，如 Confirm Password）
-  4. 长度或数量上限（存在自由输入或可累加数量时；纯枚举选择器不适用）
+  4. 长度或数量上限（存在**自由输入**或可累加数量时；纯枚举选择器不适用）
+     - **自由输入** = user-typable text or numbers in a field.
+     - **可累加数量** = user add/remove countable items (e.g. attachment slots, line items).
+     - **Not ④**: file-intrinsic attributes — duration, file size, resolution, bitrate, etc. User action may be upload/replace only; the limit is on the **file**, not on typed input.
+     - **File-attribute limits**: material states the limit → write as **material fact** (no marker) in `constraints`; material omits the limit → **需补充** only — **never** apply ④ fixed phrasing.
+     - ✗ **反例**：上传视频**文件时长**超限 → 套 ④「超出长度或数量上限的**输入**…」（文件属性 ≠ 用户输入；用户仅上传/替换，不键入时长）
+     - ✓ **正例**：注册页用户名/密码**键入**长度上限 → ④ 门槛满足 → `（惯例推断）` + 需补充具体数值
+     - ✓ **正例**：最多 5 个附件槽位（用户可增删**计数项**）→ ④ 门槛满足（计数项，非单文件属性）
   5. 破坏性或删除操作的二次确认（存在删除或不可逆操作时）
   6. 提交失败须有明确反馈（存在提交或远程操作时）
   7. 操作成功须有明确反馈（存在提交或远程操作时）
@@ -223,7 +262,7 @@ After the five fields and display summary, add an **存疑清单**. Classify eac
 
 只列 **五字段未承担** 且影响测试设计的关键缺口 — not every unmentioned item。「未承担」按**内容**判：维度已写进字段但**具体取值**仍缺，该取值即属未承担，可列 `需补充`（不与字段重复，见总判据）。
 
-If there are truly no open questions, say **无存疑项** — do not pad the list.
+If there are truly no open questions, say **无存疑项** — do not pad the list. **Exception**: when step 5 **数值限制型存疑** triggered and any of ①–④ remains open → **无存疑项** is forbidden (see mandatory scan above).
 
 The list is advisory only: **do not** auto-edit the five fields or archive based on it. SQA decides.
 
@@ -293,6 +332,27 @@ Ask inline **only** when a fundamental gap blocks drafting (e.g. "what is this f
 > - ✗ `输出比例须与所选平台一致`（丢失三类比例及平台映射，A2 无法生成分类验证点）
 > - ✗ `分辨率须与所选分辨率一致`（丢失 480P/720P/1080P/4K 四档）
 > - ✗ `文案/字幕/配音须与所选语言一致`（丢失九种语言清单，A2 无法规划多语言验证）
+
+**Walkthrough — omni to video material duration (numeric limits; no ④ misuse; cross-source collision)**:
+
+> **约束与规则**：
+> - Omni to Video 生成前须校验素材时长：Audio 与 Video **分类型**分别累计总时长，不得超过当前所选模型的限制值（素材写明：SD2.0=15s，SD2.5=30s）
+> - 超限时须拦截并给出明确提示
+>
+> **正常预期行为**：
+> - 各类型素材累计总时长在限制内时，可正常进入生成流程
+>
+> **不测范围**：（素材未提及）
+>
+> **存疑**：
+> - **需澄清**：上传槽 tooltip「Max Duration 15s」与正文「SD2.0 累计 15s」—— 15s 是单槽上限、同类型累计上限，还是两者并存且都校验？
+> - **需澄清**：正文 SD2.0=15s、SD2.5=30s，另一 app 报错「Video exceeds 2 seconds」—— 2s 是否同属本需求校验口径？限制值是否按模型 / 节点动态下发、SD2.0/2.5 是否为全集？
+> - **需澄清**：累计 15s 时，恰好 15.0s（或 14.9s / 15.4s）是否放行？按秒还是毫秒、如何取整？
+>
+> **反例（禁止）**:
+> - ✗ `（惯例推断）超出长度或数量上限的输入应被拦截并给出明确提示`（文件时长是文件属性，非用户键入；④ 门槛不满足 —— 超限规则已由素材事实承担）
+> - ✗ **无存疑项**（存在 tooltip / 跨 app 数值与正文口径未闭合，且 ①–④ 有未写死项）
+> - ✗ 只采 tooltip 15s、忽略正文累计 15/30 或另一 app 的 2s 报错（违反 step 2 **Numeric cross-source check**）
 
 ### 6. Revise from SQA feedback
 
@@ -481,7 +541,7 @@ When Table B routes here (no bound, or SQA confirms另建 / different requiremen
 
 > 上次归档结果不明且服务端未发现相同记录，将**重试创建**同一条 Requirement（**不是另建第二条**）。约束/正常预期中含 **（惯例推断）** / **（界面推断）** 项，请核对。确认？
 
-If open-questions list still has unresolved **需补充** (product-specific concrete values) or unverified **（惯例推断）** / **（界面推断）** bullets SQA may want to fix first, add a soft note — remind only; do not block.
+If open-questions list still has unresolved **需补充** (product-specific concrete values), **需澄清** from **数值限制型存疑** ①–④ (boundary / precision / counting scope / limit-value source), or unverified **（惯例推断）** / **（界面推断）** bullets SQA may want to fix first, add a soft note — e.g. 「存疑清单中仍有未闭合的数值口径项，归档后 A2 可能缺边界/统计口径用例；可先修订五字段或确认后再归档」— remind only; do not block.
 
 Wait for SQA confirmation. **Do not POST** without it.
 
@@ -504,6 +564,8 @@ When Table B routes here (bound + snapshot diff shows changes).
 **PATCH read-back** (must state update, not create):
 
 > 将**更新** Requirement【`bound_requirement_id`】（**不是新建**），变动字段：【列出变动的中文字段名，如「约束与规则」「展示摘要」】。约束/正常预期中含 **（惯例推断）** / **（界面推断）** 项，请核对。确认？
+
+Same soft note as **11a** when unresolved **需补充** / **数值限制型存疑** 需澄清 / unverified inferred bullets remain — remind only; do not block.
 
 Wait for SQA confirmation. **Do not PATCH** without it.
 

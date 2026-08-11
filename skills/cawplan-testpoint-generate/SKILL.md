@@ -80,11 +80,14 @@ Before enumerating axes, **read the file** (do not rely on memory or hardcoded a
 
 ### 5. Generate test points (no write)
 
-**Axis traversal (fixed order — only traversal order;三态适用性判断不变)**:
+**Axis traversal (fixed order — A/B 与 C/D 三态纪律不同，见下)**:
 
 After reading `references/coverage-dimensions.md`, walk **variation axes** in **A → B → C → D** group order (within each group, top-to-bottom as listed). Do not jump randomly between groups.
 
 For each axis, judge三态: **覆盖** / **不适用（静默跳过）** / **拿不准（进存疑清单）**. Path types (`正向` / `异常` / `逆向` / `边界`) **label only** — not axes for cross-multiply.
+
+- **A/B 组变化轴**（`输入类型` / `状态迁移` / `角色权限` / `来源入口`）：维持原三态 — 笃定不适用 → **静默跳过**；拿不准 → 存疑清单。
+- **C/D 组技术轴**（`幂等` / `并发` / `一致性` / `存量兼容` / `环境兼容` / `性能` / `安全审计` / `可观测`）：**默认存疑兜底** — 仅当五字段能**正面证明**该轴不适用（对照 `coverage-dimensions.md` §二.1 形态门槛表）→ **静默跳过**；否则即便倾向判「不适用」，也须在存疑清单留一行：`〔X 轴〕判为本次不测（原因：…）/ 是否需覆盖，请确认`（仍受红线 0：方向性表述，不编造具体次数/文案/阈值/错误码，不因此生成测点）。多根 C/D 轴指向同一缺口时，按 step 5 结构型存疑合并规则并成一行。
 
 **Generate → prune → dedup → closure checks**:
 
@@ -101,14 +104,16 @@ For each axis, judge三态: **覆盖** / **不适用（静默跳过）** / **拿
      - **Purpose**: for each **already applicable** variation axis, check whether **stretch / non-baseline key values** on that same axis are missing — not whether the axis was touched at all.
      - **「已适用」** (must meet **at least one**; do not infer applicability after the fact):
        1. This batch already has a draft row whose primary tag is that axis; or
-       2. Generation judged the axis **覆盖** or **拿不准**; or
+       2. Generation judged the axis **覆盖** or **拿不准** (A/B 轴的拿不准；**C/D 轴「判为本次不测」类存疑不算已适用**); or
        3. (a)/(b) already maps a rule to that axis (including 基本盘四轴 judged applicable).
      - **基本盘标配首条取值不归 (c)** — first baseline on `异常` / `边界` (wrong credentials, empty required field, boundary card from five fields) is handled in step 1 / (a); **do not** 存疑 those as "B/C 未覆盖".
      - **Check**: for each applicable axis, compare draft coverage against that axis's **展开追问（取值提示）** column in `coverage-dimensions.md`. If a **明显常见** **stretch** key value **directly relevant to this requirement's shape** is not covered (no standalone row **and** verification goal not already covered per step 3) → one 存疑 line: `〔X 轴已测 A，B/C 未覆盖〕` + suggest补测试点或请确认. **Do not** force-generate stretch values.
      - **明显常见**: anchor on 展开追问 only — no ad-hoc enumeration. Must be **directly relevant** to this requirement's inputs / constraints / states / technical shape. E.g. requirement mentions popup blocking and a row covers it → weak-net / disconnect / timeout on the same axis may enter 存疑; if the requirement does not involve multi-client, do **not** auto-raise old-app / resolution sub-items just because another value on the axis was tested.
-     - **Bounds**: applies only to axes already judged applicable — **笃定不适用 axes stay silent**; do not use (c) to drag in `幂等` / `并发` / `环境兼容` on pure UI features. Value-level, **not** a per-value checkbox matrix. **Stretch** missing values → 存疑 by default, not force-generate. **宁少不宁多** — edge or stretch values stay out. Merge with structural 存疑 (step 5) when the same gap would appear twice.
+     - **Bounds**: applies only to axes already judged applicable — **A/B 笃定不适用 axes stay silent**; **C/D 八轴未正面证明不适用者已在遍历阶段进存疑，不得用 (c) 再拖入**。Do not use (c) to drag in C/D axes on features where they were only scope-confirmed as out-of-test. Value-level, **not** a per-value checkbox matrix. **Stretch** missing values → 存疑 by default, not force-generate. **宁少不宁多** — edge or stretch values stay out. Merge with structural 存疑 (step 5) when the same gap would appear twice.
      - **Example** (illustration only — not limited to `环境兼容`): `环境兼容` row covers popup blocking but not disconnect / timeout → 存疑 to补 or confirm scope.
-   - **All other axes**: unchanged —笃定不适用仍静默; axes neither explicitly written nor judged applicable by shape → no statement, no generation, no 存疑 for axis or value omission.
+   - **All other axes**:
+     - **A/B 组**：笃定不适用仍静默；既未明写、又未按形态判适用 → 不陈述、不生成、不为轴或取值遗漏进存疑。
+     - **C/D 八轴**：已在轴遍历时按 §二.1 处理（正面证明不适用 → 静默；否则默认存疑兜底）。closure 此处不为 C/D 轴重复开缺口。
 5. **Structural 存疑 self-check** (结构型 only — **no** lexical keyword triggers):
    - When the five fields state a **rule or type difference** but not its **failure / exception / boundary behavior** (e.g. "AD Video/Story 不提供入口" — menu hidden vs click error?), add 存疑 for SQA to confirm.
    - **Forbidden** as sole triggers: vague wording like `正常` / `正确` / `合理` / `若干` — 宁少不宁多.
@@ -180,7 +185,7 @@ Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s
 3. **Compare draft against each A-layer item**. On a hit:
    - **Direction-clear universal baseline** (title needs only directional assertions per **红线 0**) → **add test-point row(s)**; merge into the formal list indistinguishably from §5 rows — **no source marking**; **re-group and re-number** as needed.
    - **Specific value / implementation unclear**, or a **B 层** theme → **add 存疑** (at most one line per B-layer theme); do **not** invent coverage or pretend covered.
-   - All supplements obey **红线 0**, no coverage matrix, **宁少不宁多**, **笃定不适用 → silent**. Self-critique补 rows must obey **granularity rules** §2.
+   - All supplements obey **红线 0**, no coverage matrix, **宁少不宁多**. **A 层模式项**笃定不适用 → silent；**C/D 八轴**按 §5 存疑兜底，自审不得用「笃定不适用」把 C/D 轴静默掉。Self-critique补 rows must obey **granularity rules** §2.
 
 4. **Hard rules** (non-negotiable):
    - **Internal only, one version to SQA**: 生成初稿 → 自审补漏 → **only then** §7 present. **Forbidden**: show draft first, then a revised version; SQA sees **one** table set.
@@ -335,7 +340,7 @@ Refresh binding + stubs before each generate. Rebind clears all. After successfu
 
 **五字段（节选）**：workflow 项目 Duplicate；入口为项目卡片更多菜单；正常预期为生成副本、列表可见、新窗口打开；约束含仅 workflow 类型、他人分享不可复制、命名 `Copy of xxx`、125 字符上限、素材一并复制、Free plan 50 个上限等。
 
-**判轴（节选）**：`输入类型`/`角色权限`（他人分享只读）/`边界`（50 上限、125 字符）/`存量兼容`（重名允许）— 不适用轴如 `并发` 对只读分享场景可静默或进存疑。
+**判轴（节选）**：`输入类型`/`角色权限`（他人分享只读）/`边界`（50 上限、125 字符）→ **覆盖**；`幂等`（Duplicate 有写入）→ **覆盖**；`一致性`（副本列表可见）→ 正向测点 1.1 已体现。**C/D 其余轴**：`并发`（50 上限计数）、`存量兼容`（改动既有 workflow 能力）、`环境兼容`（Web 客户端）等五字段未正面排除 → **进存疑**（合并一行，非静默）；`性能`/`可观测`/`安全审计` 同理，除非 §二.1 形态门槛可正面证明不适用。
 
 **批内去重示例**：已有「Free plan 达 50 个 workflow 时 Duplicate 应提示超限」→ 不再单独生成「第 51 次点击 Duplicate 仍提示超限」（同验证目标，仅状态不同）。
 
@@ -347,8 +352,12 @@ Refresh binding + stubs before each generate. Rebind clears all. After successfu
 |------|------|------|
 | 1.1 | 本人拥有的 workflow 项目点击 Duplicate 后应在列表出现名为「Copy of 原项目名」的副本 | `正向` |
 | 1.2 | Free plan 账号已有 50 个 workflow 时再 Duplicate 应提示超过最大限制且无法复制 | `边界` |
+| 1.3 | 连续快速点击 Duplicate 应仅创建一份副本 | `幂等` |
 
-**存疑（一条）**：约束未明确 AD Video / Story 类型是否隐藏 Duplicate 入口——建议在需求 `out_of_scope` 标明，或确认 UI 层入口不可见即可。
+**存疑（两条，不同缺口不合并）**：
+
+1. 约束未明确 AD Video / Story 类型是否隐藏 Duplicate 入口——建议在需求 `out_of_scope` 标明，或确认 UI 层入口不可见即可。
+2. 〔并发/存量兼容/环境兼容〕Duplicate 涉及创建写入、plan 上限计数与 Web 客户端，判为本次不测（原因：五字段未写明并发/存量/弱网范围）/ 是否需覆盖，请确认。
 
 ## Walkthrough example (login — baseline vs 红线 0)
 
