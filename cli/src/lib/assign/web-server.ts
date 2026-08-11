@@ -17,12 +17,13 @@ import {applyProductRepoMappingToProject} from "./apply.js";
 import {assignmentReportPayload, readDailyReports, writeDailyReport} from "./report-io.js";
 import {assertAllSessionsHaveProduct, findSessionById} from "./session-checks.js";
 import {resolveTicketContexts, ticketContextIsResolved} from "../ai-session/ticket-context.js";
+import {setCachedAssignmentTicketRefsFromSession} from "../collect/assignment-ticket-cache.js";
 import type {AssignmentReport, ProductRepoMapping, WebAssignment} from "./types.js";
 import type {DailyApiJson} from "../collect/types.js";
 
 const localAssignmentHost = "127.0.0.1";
 const ASSIGNMENT_SERVER_TIMEOUT_MS = 10 * 60 * 1000;
-const assetNames = new Set(["model-gpt.png", "model-claude.png", "model-cursor.png", "model-deepseek.png"]);
+const assetNames = new Set(["model-gpt.png", "model-claude.png", "model-cursor.png", "model-deepseek.svg"]);
 
 interface TicketAssignmentWarning {
     file?: string;
@@ -99,6 +100,13 @@ function readAssignmentAsset(name: string): Buffer | null {
         if (existsSync(path)) return readFileSync(path);
     }
     return null;
+}
+
+function assignmentAssetContentType(name: string): string {
+    const lower = name.toLowerCase();
+    if (lower.endsWith(".svg")) return "image/svg+xml";
+    if (lower.endsWith(".png")) return "image/png";
+    return "application/octet-stream";
 }
 
 function readRequestBody(req: IncomingMessage): Promise<string> {
@@ -274,6 +282,9 @@ async function applyBatchWebAssignments(
         }
         assertAllSessionsHaveProduct(report.daily);
         writeDailyReport(report.file, report.daily);
+        for (const session of report.daily.sessions) {
+            setCachedAssignmentTicketRefsFromSession(session);
+        }
         savedFiles.push(report.file);
     }
     return {assignedSessions, files: savedFiles};
@@ -332,12 +343,13 @@ export async function startAssignmentWebServer(reports: AssignmentReport[], batc
                 }
 
                 if (req.method === "GET" && url.pathname.startsWith("/assets/")) {
-                    const asset = readAssignmentAsset(url.pathname.slice("/assets/".length));
+                    const assetName = url.pathname.slice("/assets/".length);
+                    const asset = readAssignmentAsset(assetName);
                     if (!asset) {
                         sendJson(res, 404, {error: "asset not found"});
                         return;
                     }
-                    sendBinary(res, 200, asset, "image/png");
+                    sendBinary(res, 200, asset, assignmentAssetContentType(assetName));
                     return;
                 }
 

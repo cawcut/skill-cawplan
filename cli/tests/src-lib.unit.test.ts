@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { mkdtemp, mkdir, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
+import { Command } from "commander";
 import { cawplanRequest, ApiError } from "../src/lib/http";
+import { registerConfigCommand } from "../src/commands/config";
+import { applyTicketRefsToSessions } from "../src/lib/ai-session/ticket-context";
+import {
+  getCachedAssignmentTicketRefs,
+  setCachedAssignmentTicketRefsFromSession,
+} from "../src/lib/collect/assignment-ticket-cache";
 import {
   deleteCredentials,
   getCredentialsPath,
@@ -51,10 +58,6 @@ import type { SessionData } from "../src/lib/collect/types";
 
 let originalFetch: typeof fetch;
 let tmpDir: string;
-let originalApiKey: string | undefined;
-let originalBaseUrl: string | undefined;
-let originalPortalUrl: string | undefined;
-let originalEnv: string | undefined;
 let originalCredentialsPath: string | undefined;
 let originalConfigPath: string | undefined;
 let originalCachePath: string | undefined;
@@ -71,10 +74,6 @@ function unsignedJwt(payload: Record<string, unknown>): string {
 
 beforeEach(async () => {
   originalFetch = globalThis.fetch;
-  originalApiKey = process.env.CAWPLAN_API_KEY;
-  originalBaseUrl = process.env.CAWPLAN_BASE_URL;
-  originalPortalUrl = process.env.CAWPLAN_PORTAL_URL;
-  originalEnv = process.env.CAWPLAN_ENV;
   originalCredentialsPath = process.env.CAWPLAN_CREDENTIALS_PATH;
   originalConfigPath = process.env.CAWPLAN_CONFIG_PATH;
   originalCachePath = process.env.CAWPLAN_CACHE_PATH;
@@ -85,28 +84,12 @@ beforeEach(async () => {
   process.env.CAWPLAN_CREDENTIALS_PATH = join(tmpDir, "credentials.json");
   process.env.CAWPLAN_CONFIG_PATH = join(tmpDir, "config.json");
   process.env.CAWPLAN_CACHE_PATH = join(tmpDir, "cache.json");
-  process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
-  delete process.env.CAWPLAN_PORTAL_URL;
-  delete process.env.CAWPLAN_ENV;
-  delete process.env.CAWPLAN_API_KEY;
   delete process.env.CODEX_HOME;
   delete process.env.CURSOR_HOME;
 });
 
 afterEach(async () => {
   globalThis.fetch = originalFetch;
-
-  if (originalApiKey === undefined) delete process.env.CAWPLAN_API_KEY;
-  else process.env.CAWPLAN_API_KEY = originalApiKey;
-
-  if (originalBaseUrl === undefined) delete process.env.CAWPLAN_BASE_URL;
-  else process.env.CAWPLAN_BASE_URL = originalBaseUrl;
-
-  if (originalPortalUrl === undefined) delete process.env.CAWPLAN_PORTAL_URL;
-  else process.env.CAWPLAN_PORTAL_URL = originalPortalUrl;
-
-  if (originalEnv === undefined) delete process.env.CAWPLAN_ENV;
-  else process.env.CAWPLAN_ENV = originalEnv;
 
   if (originalCredentialsPath === undefined) delete process.env.CAWPLAN_CREDENTIALS_PATH;
   else process.env.CAWPLAN_CREDENTIALS_PATH = originalCredentialsPath;
@@ -229,78 +212,83 @@ describe("src lib products", () => {
     );
   });
 
-  test("apiBaseUsesGatewayPrefix follows CAWPLAN_BASE_URL", () => {
-    process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
+  test("apiBaseUsesGatewayPrefix follows selected env profile", async () => {
+    await writeUserConfig({ env: "prd" });
     expect(apiBaseUsesGatewayPrefix()).toBe(true);
 
-    process.env.CAWPLAN_BASE_URL = "http://localhost";
+    await writeUserConfig({ env: "local" });
     expect(apiBaseUsesGatewayPrefix()).toBe(false);
   });
 
-  test("uses ~/.cawplan config when env vars are not set", async () => {
-    delete process.env.CAWPLAN_BASE_URL;
-    delete process.env.CAWPLAN_PORTAL_URL;
-    delete process.env.CAWPLAN_ENV;
-
+  test("uses ~/.cawplan env config", async () => {
     await writeUserConfig({
       env: "local",
-      baseUrl: "http://configured-api",
-      portalUrl: "http://configured-portal",
     });
 
     expect(getConfigPath()).toBe(join(tmpDir, "config.json"));
     expect(await readUserConfig()).toEqual({
       env: "local",
-      baseUrl: "http://configured-api",
-      portalUrl: "http://configured-portal",
     });
-    expect(getApiBase()).toBe("http://configured-api");
-    expect(getPortalBase()).toBe("http://configured-portal");
+    expect(getApiBase()).toBe("http://localhost");
+    expect(getPortalBase()).toBe("http://localhost:5173");
   });
 
-  test("environment variables override ~/.cawplan config", async () => {
+  test("falls back to default env when config is empty", async () => {
     await writeUserConfig({
-      env: "local",
-      baseUrl: "http://configured-api",
-      portalUrl: "http://configured-portal",
     });
 
-    process.env.CAWPLAN_BASE_URL = "https://env-api/core-product";
-    process.env.CAWPLAN_PORTAL_URL = "https://env-portal";
-
-    expect(getApiBase()).toBe("https://env-api/core-product");
-    expect(getPortalBase()).toBe("https://env-portal");
+    expect(getApiBase()).toBe("https://api.cawplan.com/core-product");
+    expect(getPortalBase()).toBe("https://app.cawplan.com");
   });
 
-  test("CAWPLAN_ENV selects a profile before stored URLs", async () => {
-    delete process.env.CAWPLAN_BASE_URL;
-    delete process.env.CAWPLAN_PORTAL_URL;
+  test("config env selects a profile when stored URLs are not set", async () => {
     await writeUserConfig({
-      env: "local",
-      baseUrl: "http://configured-api",
-      portalUrl: "http://configured-portal",
+      env: "proto",
     });
-
-    process.env.CAWPLAN_ENV = "proto";
 
     expect(getApiBase()).toBe("https://core-api-gw.uid.dev.ui.com/core-product");
     expect(getPortalBase()).toBe("https://core-web-product.uid.dev.ui.com");
   });
+
+  test("empty config env falls back to default profile", async () => {
+    await writeFile(getConfigPath(), JSON.stringify({ env: "" }));
+
+    expect(await readUserConfig()).toEqual({});
+    expect(getApiBase()).toBe("https://api.cawplan.com/core-product");
+    expect(getPortalBase()).toBe("https://app.cawplan.com");
+  });
+
+  test("null config env falls back to default profile", async () => {
+    await writeFile(getConfigPath(), JSON.stringify({ env: null }));
+
+    expect(await readUserConfig()).toEqual({});
+    expect(getApiBase()).toBe("https://api.cawplan.com/core-product");
+    expect(getPortalBase()).toBe("https://app.cawplan.com");
+  });
+
+  test("config env command sets selected profile", async () => {
+    const program = new Command();
+    program.exitOverride();
+    registerConfigCommand(program);
+
+    await program.parseAsync(["node", "cawplan", "config", "env", "proto"], { from: "node" });
+
+    expect(await readUserConfig()).toEqual({ env: "proto" });
+    expect(getApiBase()).toBe("https://core-api-gw.uid.dev.ui.com/core-product");
+  });
 });
 
 describe("src lib auth-state", () => {
-  test("treats env API key as authenticated", async () => {
-    process.env.CAWPLAN_API_KEY = "cwpu_api_test_key_value";
+  test("reports none when no OAuth credentials exist", async () => {
     await deleteCredentials();
 
     const state = await getAuthState();
-    expect(state.hasApiKey).toBe(true);
-    expect(state.active).toBe("apiKey");
+    expect(state.hasOAuth).toBe(false);
+    expect(state.active).toBe("none");
   });
 
   test("prefers OAuth when access token is still valid", async () => {
     await writeCredentials({
-      apiKey: "file-key",
       accessToken: "access",
       refreshToken: "refresh",
       expire: Math.floor(Date.now() / 1000) + 3600,
@@ -313,9 +301,13 @@ describe("src lib auth-state", () => {
 
 describe("src lib credentials", () => {
   test("writes credentials with 0600 permissions", async () => {
-    await writeCredentials({ apiKey: "test-key" });
+    await writeCredentials({
+      accessToken: "test-access",
+      refreshToken: "test-refresh",
+      expire: Math.floor(Date.now() / 1000) + 3600,
+    });
 
-    expect((await readCredentials())?.apiKey).toBe("test-key");
+    expect((await readCredentials())?.accessToken).toBe("test-access");
     expect(getCredentialsPath()).toBe(join(tmpDir, "credentials.json"));
 
     const mode = (await stat(getCredentialsPath())).mode & 0o777;
@@ -345,12 +337,12 @@ describe("src lib cache", () => {
     expect(first).not.toBe(second);
   });
 
-  test("falls back to API key scope when no OAuth token exists", async () => {
-    await writeCredentials({ apiKey: "cwpu_api_test_key_value" });
+  test("uses anonymous scope when no OAuth token exists", async () => {
+    await deleteCredentials();
 
     const scope = await getCacheScope();
 
-    expect(scope).toContain(":api-key:");
+    expect(scope).toContain(":anonymous");
   });
 });
 
@@ -535,6 +527,124 @@ describe("src lib collect cost currency", () => {
     expect("ticket_contexts" in daily.human_inputs[0]!).toBe(false);
   });
 
+  test("applies ticket refs only for matching session product", async () => {
+    const sessions: SessionData[] = [
+      {
+        schema: "2.0",
+        date: "2026-08-11",
+        agent: "cursor-gui",
+        session_id: "shared-session",
+        session_name: "Shared session",
+        project: "repo-a",
+        product_id: "product-a",
+        cwd: "/repo-a",
+        time_range: { display: "10:00", timezone: "UTC" },
+        model_usage: {},
+        usage_breakdown: [],
+        files_changed: 0,
+        repos_touched: [],
+        message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+        human_inputs: [{
+          category: "direction",
+          content: "继续昨天的工作",
+          session_agent: "cursor-gui",
+          files_changed: 0,
+          lines_added: 0,
+          lines_deleted: 0,
+        }],
+      },
+      {
+        schema: "2.0",
+        date: "2026-08-11",
+        agent: "cursor-gui",
+        session_id: "other-session",
+        session_name: "Other session",
+        project: "repo-b",
+        product_id: "product-b",
+        cwd: "/repo-b",
+        time_range: { display: "11:00", timezone: "UTC" },
+        model_usage: {},
+        usage_breakdown: [],
+        files_changed: 0,
+        repos_touched: [],
+        message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+      },
+    ];
+
+    const applied = await applyTicketRefsToSessions(
+      sessions,
+      [["CAWP-1", "CAWP-2"], ["CAWP-1"]],
+      async () => [
+        { ticket_id: "ticket-a", ticket_display_id: "CAWP-1", product_id: "product-a" },
+        { ticket_id: "ticket-b", ticket_display_id: "CAWP-2", product_id: "product-b" },
+      ],
+    );
+
+    expect(applied).toBe(1);
+    expect(sessions[0]?.ticket_ids).toEqual(["ticket-a"]);
+    expect(sessions[0]?.ticket_display_ids).toEqual(["CAWP-1"]);
+    expect(sessions[1]?.ticket_ids).toBeUndefined();
+  });
+
+  test("caches assignment ticket refs by session for later collection", () => {
+    setCachedAssignmentTicketRefsFromSession({
+      schema: "2.0",
+      date: "2026-08-10",
+      agent: "cursor-gui",
+      session_id: "shared-session",
+      session_name: "Shared session",
+      project: "repo-a",
+      product_id: "product-a",
+      cwd: "/repo-a",
+      time_range: { display: "10:00", timezone: "UTC" },
+      model_usage: {},
+      usage_breakdown: [],
+      files_changed: 0,
+      repos_touched: [],
+      message_stats: { user: 1, assistant: 1, tool_calls: 0 },
+      ticket_ids: ["ticket-a"],
+      ticket_display_ids: ["CAWP-1"],
+    });
+
+    expect(getCachedAssignmentTicketRefs("shared-session")).toEqual({
+      product_id: "product-a",
+      ticket_ids: ["ticket-a"],
+      ticket_display_ids: ["CAWP-1"],
+      date: "2026-08-10",
+    });
+  });
+
+  test("prunes expired assignment ticket refs from cache file", async () => {
+    const now = Date.now();
+    const cachePath = process.env.CAWPLAN_CACHE_PATH!;
+    await writeFile(cachePath, JSON.stringify({
+      version: 1,
+      entries: {
+        "ai-session:assignment-ticket-refs:expired-session": {
+          fetched_at: now - 31 * 24 * 60 * 60 * 1000,
+          data: { ticket_ids: ["ticket-old"], ticket_display_ids: ["CAWP-OLD"] },
+        },
+        "ai-session:assignment-ticket-refs:fresh-session": {
+          fetched_at: now - 24 * 60 * 60 * 1000,
+          data: { ticket_ids: ["ticket-new"], ticket_display_ids: ["CAWP-NEW"] },
+        },
+      },
+    }));
+
+    expect(getCachedAssignmentTicketRefs("fresh-session")).toEqual({
+      product_id: undefined,
+      ticket_ids: ["ticket-new"],
+      ticket_display_ids: ["CAWP-NEW"],
+      date: undefined,
+    });
+
+    const store = JSON.parse(await readFile(cachePath, "utf-8")) as {
+      entries: Record<string, unknown>;
+    };
+    expect(store.entries["ai-session:assignment-ticket-refs:expired-session"]).toBeUndefined();
+    expect(store.entries["ai-session:assignment-ticket-refs:fresh-session"]).toBeDefined();
+  });
+
   test("filters sessions whose human inputs only run cawplan coding commit", () => {
     const noHumanInputSession: SessionData = {
       schema: "2.0",
@@ -686,8 +796,8 @@ describe("src lib collect cost currency", () => {
 });
 
 describe("src lib oauth", () => {
-  test("builds consent URL with public code query params for polling", () => {
-    process.env.CAWPLAN_PORTAL_URL = "https://core-web-product.uid.dev.ui.com";
+  test("builds consent URL with public code query params for polling", async () => {
+    await writeUserConfig({ env: "proto" });
 
     const url = buildConsentUrl("code-123");
     const parsed = new URL(url);
@@ -713,7 +823,7 @@ describe("src lib oauth", () => {
   });
 
   test("prints OAuth verification validity in login prompt", async () => {
-    process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
+    await writeUserConfig({ env: "proto" });
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     let callCount = 0;
     globalThis.fetch = async () => {
@@ -756,7 +866,7 @@ describe("src lib oauth", () => {
   });
 
   test("starts OAuth login and returns code with private polling token", async () => {
-    process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
+    await writeUserConfig({ env: "proto" });
     const calls: string[] = [];
     globalThis.fetch = async (_url, init) => {
       calls.push(String(init?.body));
@@ -784,7 +894,7 @@ describe("src lib oauth", () => {
   });
 
   test("polls OAuth exchange until browser consent completes", async () => {
-    process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
+    await writeUserConfig({ env: "proto" });
     const calls: string[] = [];
     globalThis.fetch = async (_url, init) => {
       calls.push(String(init?.body));
@@ -821,6 +931,7 @@ describe("src lib oauth", () => {
 
 describe("src lib http", () => {
   test("refreshes OAuth token and retries once on API 401", async () => {
+    await writeUserConfig({ env: "proto" });
     await writeCredentials({
       accessToken: "old-access",
       refreshToken: "refresh-token",
@@ -867,12 +978,12 @@ describe("src lib http", () => {
       undefined,
       "Bearer new-access",
     ]);
-    expect(calls[1].url).toBe("https://api.test/core-product/api/v1/cli/oauth/refresh");
+    expect(calls[1].url).toBe("https://core-api-gw.uid.dev.ui.com/core-product/api/v1/cli/oauth/refresh");
     expect(calls[1].body).toBe(JSON.stringify({ refresh_token: "refresh-token" }));
     expect((await readCredentials())?.accessToken).toBe("new-access");
   });
 
-  test("surfaces refresh failure when no API key fallback is configured", async () => {
+  test("surfaces refresh failure", async () => {
     await writeCredentials({
       accessToken: "old-access",
       refreshToken: "expired-refresh-token",
@@ -917,27 +1028,6 @@ describe("src lib http", () => {
     );
   });
 
-  test("reports API key invalid on API-key 401", async () => {
-    process.env.CAWPLAN_API_KEY = "bad-key";
-    await deleteCredentials();
-
-    globalThis.fetch = async () =>
-      new Response(JSON.stringify({ code: "INVALID_API_KEY" }), {
-        status: 401,
-        headers: { "content-type": "application/json" },
-      });
-
-    await expect(
-      cawplanRequest({ method: "GET", path: "/api/v1/public/openapi/products" }),
-    ).rejects.toThrow("API Key invalid. Run: cawplan auth configure");
-
-    try {
-      await cawplanRequest({ method: "GET", path: "/api/v1/public/openapi/products" });
-    } catch (err) {
-      expect(err).toBeInstanceOf(ApiError);
-      expect((err as ApiError).status).toBe(401);
-    }
-  });
 });
 
 describe("src lib collect cursor cli", () => {
@@ -1621,6 +1711,54 @@ describe("src lib collect daily aggregator", () => {
     expect(bySession["cursor-session-2"]?.modelUsage["gpt-5.5-medium"]?.cost).toBeCloseTo(0.3);
     expect(bySession["cursor-session-2"]?.humanInputCosts).toEqual({0: 0.1, 1: 0.2});
     expect(bySession["cursor-session-2"]?.humanInputApiCalls).toEqual({0: 1, 1: 1});
+  });
+
+  test("uses daily incremental input estimate for Cursor human-input attribution", () => {
+    const windows = buildCursorAttributionWindows(
+      [
+        {
+          session_id: "cursor-long-session",
+          agent: "cursor-gui",
+          time_range: {start: "2026-07-20T02:00:00.000Z", display: "10:00 - 18:00"},
+          human_inputs: [
+            {
+              content: "1234567890123456789012345678901234567890",
+              start_time: "2026-08-03T02:00:00.000Z",
+              end_time: "2026-08-03T02:05:00.000Z",
+            },
+          ],
+        },
+      ],
+      "2026-08-03"
+    );
+
+    const bySession = aggregateCursorUsageBySession(
+      [
+        {
+          timestamp: "2026-08-03T02:02:00.000Z",
+          model: "gpt-5.5-medium",
+          tokenUsage: {
+            inputTokens: 100_000,
+            outputTokens: 25,
+            cacheReadTokens: 400_000,
+            cacheWriteTokens: 10_000,
+          },
+          chargedCents: 123,
+        },
+      ],
+      "2026-08-03",
+      windows
+    );
+
+    expect(bySession["cursor-long-session"]?.modelUsage["gpt-5.5-medium"]).toMatchObject({
+      api_calls: 1,
+      input_tokens: 10,
+      output_tokens: 25,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cost: 1.23,
+      token_source: "dashboard API cost + daily incremental token estimate",
+    });
   });
 
   test("clusters dashboard usage events into billing bursts", () => {

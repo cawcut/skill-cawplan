@@ -146,6 +146,16 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     .filter-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
     select.filter-select { height: 30px; padding: 0 26px 0 8px; font-size: 13px; width: auto; border: 1px solid var(--border); border-radius: var(--r4); background: var(--bg); cursor: pointer; color: var(--text-01); transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
     select.filter-select.has-value { border-color: var(--uBlue-06); color: var(--uBlue-06); background: var(--uBlue-01); }
+    .bulk-actions { display: none; position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; align-items: center; gap: 6px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r8); background: var(--bg); box-shadow: var(--shadow-superlow); }
+    .bulk-actions.active { display: flex; }
+    .bulk-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-02); white-space: nowrap; }
+    input.bulk-select { width: 14px; height: 14px; flex-shrink: 0; accent-color: var(--uBlue-06); cursor: pointer; border: none; padding: 0; }
+    input.bulk-product { width: 180px; height: 30px; font-size: 12px; }
+    .bulk-ticket-picker { min-width: 180px; }
+    .bulk-actions .ticket-menu { top: auto; bottom: calc(100% + 4px); }
+    button.bulk-btn { height: 32px; padding: 0 14px; font-size: 13px; font-weight: 600; background: var(--uBlue-06); color: #fff; border: 1px solid var(--uBlue-06); }
+    button.bulk-btn:hover:not(:disabled) { background: hsl(214,100%,46%); border-color: hsl(214,100%,46%); }
+    .select-cell { width: 36px; text-align: center; vertical-align: middle; padding-left: 12px; padding-right: 0; }
     .unassigned-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: var(--text-01); user-select: none; }
     input.unassigned-cb { width: 14px; height: 14px; flex-shrink: 0; accent-color: var(--uBlue-06); cursor: pointer; border: none; padding: 0; }
     .required { color: var(--red-06); }
@@ -163,7 +173,10 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     .repo-trigger:disabled { background: var(--bg); color: var(--text-03); cursor: not-allowed; }
     .repo-trigger-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .repo-trigger-arrow { color: var(--text-03); flex-shrink: 0; }
-    .repo-menu { position: absolute; z-index: 25; top: calc(100% + 4px); left: 0; right: 0; min-width: 260px; max-height: 224px; overflow: auto; padding: 6px; border: 1px solid var(--border); border-radius: var(--r8); background: var(--bg); box-shadow: var(--shadow-superlow); }
+    .repo-menu { position: absolute; z-index: 25; top: calc(100% + 4px); left: 0; right: 0; min-width: 260px; max-height: 260px; overflow: hidden; padding: 6px; border: 1px solid var(--border); border-radius: var(--r8); background: var(--bg); box-shadow: var(--shadow-superlow); }
+    input.repo-search { height: 28px; margin-bottom: 6px; border-radius: 6px; background: var(--bg-subtle); font-size: 12px; }
+    input.repo-search:focus { background: var(--bg); }
+    .repo-options { max-height: 212px; overflow: auto; }
     .repo-option { width: 100%; min-height: 30px; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: var(--r4); background: transparent; color: var(--text-01); font-size: 12px; font-weight: 400; text-align: left; }
     .repo-option:hover { background: var(--bg-subtle); }
     .repo-option.selected { background: var(--uBlue-01); color: var(--uBlue-07); }
@@ -202,6 +215,13 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
                 <option value="">Product</option>
               </select>
             </div>
+            <div class="bulk-actions">
+              <span class="bulk-label" id="bulk-count">0 selected</span>
+              <input class="bulk-product" id="bulk-product" list="product-list" placeholder="Bulk product" />
+              <button class="bulk-btn" id="bulk-apply-product" type="button">Apply product</button>
+              <div class="bulk-ticket-picker" id="bulk-ticket-picker"></div>
+              <button class="bulk-btn" id="bulk-add-ticket" type="button">Add ticket</button>
+            </div>
             <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
               <label class="unassigned-label"><input type="checkbox" id="filter-unassigned" class="unassigned-cb" /> Unassigned product</label>
             </div>
@@ -210,12 +230,13 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
           <div class="table-wrap">
             <table>
               <colgroup>
+                <col style="width:20px" />
                 <col style="width:140px" />
                 <col style="width:180px" />
                 <col style="width:82px" />
-                <col style="width:52px" />
+                <col style="width:40px" />
                 <col style="width:76px" />
-                <col style="width:140px" />
+                <col style="width:80px" />
                 <col style="width:140px" />
                 <col style="width:260px" />
                 <col style="width:120px" />
@@ -223,6 +244,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
               </colgroup>
               <thead>
                 <tr>
+                  <th class="select-cell"><input type="checkbox" id="bulk-select-visible" class="bulk-select" aria-label="Select visible sessions" /></th>
                   <th>Session</th>
                   <th>Input</th>
                   <th>Lines</th>
@@ -236,7 +258,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
                 </tr>
               </thead>
               <tbody id="rows">
-                <tr><td colspan="10" style="text-align:center;padding:40px 16px;color:rgba(0,0,0,.35);">Loading sessions...</td></tr>
+                <tr><td colspan="11" style="text-align:center;padding:40px 16px;color:rgba(0,0,0,.35);">Loading sessions...</td></tr>
               </tbody>
             </table>
           </div>
@@ -258,7 +280,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       gpt: '/assets/model-gpt.png',
       claude: '/assets/model-claude.png',
       cursor: '/assets/model-cursor.png',
-      deepseek: '/assets/model-deepseek.png',
+      deepseek: '/assets/model-deepseek.svg',
     };
     const CAWPLAN_PORTAL_BASE = ${JSON.stringify(normalizedPortalBase)};
 
@@ -361,26 +383,40 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       return mapping;
     }
 
+    function repoDisplayLabel(mapping) {
+      const raw = String(mapping.repo_url || mapping.repo_name || '').trim();
+      if (!raw) return '';
+      try {
+        const url = new URL(raw);
+        return url.pathname.replace(/^\\//, '').replace(/\\.git$/, '') || raw;
+      } catch {
+        return raw.replace(/^https?:\\/\\/github\\.com\\//i, '').replace(/\\.git$/, '');
+      }
+    }
+
     function repoOptions(productId, selectedRepo) {
       const opts = mappings
         .filter((m) => m.product_id === productId && m.repo_name)
         .sort((a, b) => String(a.repo_name).localeCompare(String(b.repo_name)))
         .map((m) => '<option value="' + escapeHtml(m.repo_name) + '"' +
           (m.repo_name === selectedRepo ? ' selected' : '') + '>' +
-          escapeHtml(m.repo_url || m.repo_name) + '</option>');
+          escapeHtml(repoDisplayLabel(m)) + '</option>');
       opts.unshift('<option value="">No repository; assign product only</option>');
       opts.push('<option value="__link__">No repository; link one</option>');
       return opts.join('');
     }
 
-    function repoOptionItems(productId) {
+    function repoOptionItems(productId, query = '') {
+      const needle = String(query || '').trim().toLowerCase();
       const items = mappings
         .filter((m) => m.product_id === productId && m.repo_name)
         .sort((a, b) => String(a.repo_name).localeCompare(String(b.repo_name)))
         .map((m) => ({
           value: m.repo_name,
-          label: m.repo_url || m.repo_name,
-        }));
+          label: repoDisplayLabel(m),
+          search: [repoDisplayLabel(m), m.repo_name, m.repo_url].filter(Boolean).join(' ').toLowerCase(),
+        }))
+        .filter((item) => !needle || item.search.includes(needle));
       items.unshift({value: '', label: 'No repository; assign product only'});
       items.push({value: '__link__', label: 'No repository; link one'});
       return items;
@@ -390,21 +426,25 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       return (repoOptionItems(productId).find((item) => item.value === value) || repoOptionItems(productId)[0]).label;
     }
 
-    function repoPickerHtml(productId, selectedRepo) {
-      const selected = selectedRepo || '';
-      const label = repoLabel(productId, selected);
-      const options = repoOptionItems(productId).map((item) =>
+    function repoOptionsHtml(productId, selected, query = '') {
+      return repoOptionItems(productId, query).map((item) =>
         '<button class="repo-option' + (item.value === selected ? ' selected' : '') + '" type="button" data-value="' + escapeHtml(item.value) + '">' +
           '<span class="repo-option-check">' + (item.value === selected ? '✓' : '') + '</span>' +
           '<span class="repo-option-label">' + escapeHtml(item.label) + '</span>' +
         '</button>'
       ).join('');
+    }
+
+    function repoPickerHtml(productId, selectedRepo) {
+      const selected = selectedRepo || '';
+      const label = repoLabel(productId, selected);
+      const options = repoOptionsHtml(productId, selected);
       return '<div class="repo-picker">' +
         '<button class="repo-trigger" type="button">' +
           '<span class="repo-trigger-label">' + escapeHtml(label) + '</span>' +
           '<span class="repo-trigger-arrow">▾</span>' +
         '</button>' +
-        '<div class="repo-menu hidden">' + options + '</div>' +
+        '<div class="repo-menu hidden"><input class="repo-search" type="search" placeholder="Search repo" autocomplete="off" /><div class="repo-options">' + options + '</div></div>' +
       '</div>';
     }
 
@@ -452,18 +492,15 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       const selected = repo.value || '';
       const label = repoLabel(productId, selected);
       const trigger = picker.querySelector('.repo-trigger');
+      const search = picker.querySelector('.repo-search');
       trigger.disabled = repo.disabled;
       picker.querySelector('.repo-trigger-label').textContent = label;
-      picker.querySelector('.repo-menu').innerHTML = repoOptionItems(productId).map((item) =>
-        '<button class="repo-option' + (item.value === selected ? ' selected' : '') + '" type="button" data-value="' + escapeHtml(item.value) + '">' +
-          '<span class="repo-option-check">' + (item.value === selected ? '✓' : '') + '</span>' +
-          '<span class="repo-option-label">' + escapeHtml(item.label) + '</span>' +
-        '</button>'
-      ).join('');
+      picker.querySelector('.repo-options').innerHTML = repoOptionsHtml(productId, selected, search ? search.value : '');
     }
 
     function setRepoMenuOpen(picker, open) {
       picker.querySelector('.repo-menu').classList.toggle('hidden', !open);
+      if (open) setTimeout(() => picker.querySelector('.repo-search')?.focus(), 0);
     }
 
     function refreshRepoOptionsForProduct(productId) {
@@ -672,13 +709,10 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
         : '<span class="ticket-placeholder">Select tickets</span>';
     }
 
-    function addTicketOption(picker, value) {
-      const ticket = ticketDisplayIdFromInput(value);
-      if (!ticket) return false;
+    function ensureTicketOption(picker, ticket, checked) {
       const existing = Array.from(picker.querySelectorAll('.ticket-option-cb') || []).find((option) => option.value === ticket);
       if (existing) {
-        existing.checked = true;
-        renderTicketTags(picker);
+        if (checked) existing.checked = true;
         return true;
       }
       const options = picker.querySelector('.ticket-options');
@@ -687,16 +721,26 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       const label = document.createElement('div');
       label.className = 'ticket-option';
       label.innerHTML = '<label class="ticket-option-choice">' +
-        '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '" checked />' +
+        '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '"' + (checked ? ' checked' : '') + ' />' +
         '<span class="ticket-option-label">' + escapeHtml(ticket) + '</span>' +
         '</label>' +
         ticketOpenLinkHtml(ticket);
       options.appendChild(label);
+      return true;
+    }
+
+    function addTicketOption(picker, value) {
+      const ticket = ticketDisplayIdFromInput(value);
+      if (!ticket) return false;
+      document.querySelectorAll('.ticket-picker').forEach((candidate) => {
+        ensureTicketOption(candidate, ticket, candidate === picker);
+      });
       renderTicketTags(picker);
       return true;
     }
 
     function syncRowTickets(row) {
+      if (!row) return;
       const entry = entryForRow(row);
       const session = entry && entry.report.sessions.find((s) => s.session_id === row.dataset.sessionId);
       const picker = row.querySelector('.ticket-picker');
@@ -704,6 +748,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     }
 
     function addTicketFromRow(row) {
+      if (!row) return;
       const input = row.querySelector('.ticket-add');
       const picker = row.querySelector('.ticket-picker');
       if (!input || !picker) return;
@@ -712,6 +757,138 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
         input.value = '';
         syncRowTickets(row);
       }
+    }
+
+    function addTicketFromPicker(picker) {
+      const input = picker && picker.querySelector('.ticket-add');
+      if (!input) return;
+      if (addTicketOption(picker, input.value)) input.value = '';
+    }
+
+    function wireTicketPicker(picker, row) {
+      picker.querySelector('.ticket-trigger').addEventListener('click', (event) => {
+        if (picker.classList.contains('disabled')) return;
+        if (event.target.closest('.ticket-link')) return;
+        if (event.target.closest('.ticket-remove')) return;
+        setTicketMenuOpen(picker, picker.querySelector('.ticket-menu').classList.contains('hidden'));
+      });
+      picker.querySelector('.ticket-trigger').addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        if (picker.classList.contains('disabled')) return;
+        setTicketMenuOpen(picker, picker.querySelector('.ticket-menu').classList.contains('hidden'));
+      });
+      picker.addEventListener('change', (event) => {
+        if (picker.classList.contains('disabled')) return;
+        if (!event.target.classList.contains('ticket-option-cb')) return;
+        renderTicketTags(picker);
+        syncRowTickets(row);
+      });
+      picker.addEventListener('click', (event) => {
+        if (picker.classList.contains('disabled')) return;
+        if (event.target.closest('.ticket-link')) return;
+        const remove = event.target.closest('.ticket-remove');
+        if (!remove) return;
+        event.stopPropagation();
+        const ticket = remove.dataset.ticket;
+        const checkbox = Array.from(picker.querySelectorAll('.ticket-option-cb')).find((option) => option.value === ticket);
+        if (checkbox) checkbox.checked = false;
+        renderTicketTags(picker);
+        syncRowTickets(row);
+      });
+      picker.querySelector('.ticket-add').addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        if (row) addTicketFromRow(row);
+        else addTicketFromPicker(picker);
+      });
+      picker.querySelector('.ticket-add').addEventListener('blur', () => {
+        if (row) addTicketFromRow(row);
+        else addTicketFromPicker(picker);
+      });
+    }
+
+    function renderBulkTicketPicker() {
+      const container = document.getElementById('bulk-ticket-picker');
+      const previous = selectedTicketDisplayIds(container.querySelector('.ticket-picker'));
+      container.innerHTML = ticketPickerHtml({ticket_display_ids: previous});
+      const picker = container.querySelector('.ticket-picker');
+      picker.classList.add('bulk-ticket-picker-control');
+      wireTicketPicker(picker, null);
+    }
+
+    function selectedRows() {
+      return Array.from(document.querySelectorAll('tbody tr')).filter((row) => row.querySelector('.session-select:checked'));
+    }
+
+    function updateBulkUi() {
+      const checkboxes = Array.from(document.querySelectorAll('.session-select'));
+      const selected = checkboxes.filter((checkbox) => checkbox.checked);
+      const selectVisible = document.getElementById('bulk-select-visible');
+      const bulkActions = document.querySelector('.bulk-actions');
+      document.getElementById('bulk-count').textContent = selected.length + ' selected';
+      selectVisible.checked = checkboxes.length > 0 && selected.length === checkboxes.length;
+      selectVisible.indeterminate = selected.length > 0 && selected.length < checkboxes.length;
+      bulkActions.classList.toggle('active', selected.length > 0);
+    }
+
+    function setBulkStatus(message, className = 'status') {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = message;
+      statusEl.className = className;
+    }
+
+    function applyBulkProduct() {
+      const rows = selectedRows();
+      if (rows.length === 0) {
+        setBulkStatus('Select at least one session first.', 'status status-warning');
+        return;
+      }
+      const input = document.getElementById('bulk-product');
+      const product = findProduct(input.value);
+      if (!product) {
+        setBulkStatus('Choose a valid product before applying.', 'status status-error');
+        input.focus();
+        return;
+      }
+      rows.forEach((row) => {
+        setRowProduct(row, product);
+        validateProductRow(row);
+      });
+      setBulkStatus('Applied product to ' + rows.length + ' session(s).');
+    }
+
+    function addBulkTicket() {
+      const rows = selectedRows();
+      if (rows.length === 0) {
+        setBulkStatus('Select at least one session first.', 'status status-warning');
+        return;
+      }
+      const bulkPicker = document.querySelector('#bulk-ticket-picker .ticket-picker');
+      const tickets = [...new Set(selectedTicketDisplayIds(bulkPicker))];
+      if (tickets.length === 0) {
+        setBulkStatus('Choose or add at least one ticket before applying.', 'status status-error');
+        bulkPicker.querySelector('.ticket-add').focus();
+        return;
+      }
+      let applied = 0;
+      let added = 0;
+      rows.forEach((row) => {
+        const picker = row.querySelector('.ticket-picker');
+        if (!picker || picker.classList.contains('disabled')) return;
+        const existing = new Set(selectedTicketDisplayIds(picker));
+        tickets.forEach((ticket) => {
+          if (!existing.has(ticket)) added += 1;
+          ensureTicketOption(picker, ticket, true);
+        });
+        renderTicketTags(picker);
+        syncRowTickets(row);
+        applied += 1;
+      });
+      setBulkStatus(
+        'Added ' + added + ' ticket assignment(s) to ' + applied + ' session(s).' +
+        (applied < rows.length ? ' Some rows need a product first.' : '')
+      );
     }
 
     function clearTicketWarnings() {
@@ -740,9 +917,19 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       if (open) {
         const trigger = picker.querySelector('.ticket-trigger');
         const rect = trigger.getBoundingClientRect();
+        const tableCard = picker.closest('.table-card');
+        const cardRect = tableCard ? tableCard.getBoundingClientRect() : null;
+        const actions = document.querySelector('.actions');
+        const actionsRect = actions ? actions.getBoundingClientRect() : null;
+        const boundaryTop = Math.max(0, cardRect ? cardRect.top : 0);
+        const boundaryBottom = Math.min(
+          window.innerHeight,
+          cardRect ? cardRect.bottom : window.innerHeight,
+          actionsRect ? actionsRect.top - 8 : window.innerHeight
+        );
         const menuHeight = 220;
-        const spaceBelow = window.innerHeight - rect.bottom;
-        const spaceAbove = rect.top;
+        const spaceBelow = boundaryBottom - rect.bottom;
+        const spaceAbove = rect.top - boundaryTop;
         picker.classList.toggle('drop-up', spaceBelow < menuHeight && spaceAbove > spaceBelow);
       } else {
         picker.classList.remove('drop-up');
@@ -795,6 +982,10 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     function sessionCostText(session) {
       const cost = sessionCost(session);
       return cost > 0 ? '$' + cost.toFixed(2) : 'Cost unknown';
+    }
+
+    function sessionTitleTooltip(session) {
+      return 'Cost: $' + sessionCost(session).toFixed(2) + '\\nCWD: ' + String(session.cwd || '');
     }
 
     function rowMatchesFilters(entry, session) {
@@ -913,16 +1104,17 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       const tbody = document.getElementById('rows');
       const entries = rowEntries();
       if (entries.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px 16px;"><span class="muted">No sessions match the current filters.</span></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px 16px;"><span class="muted">No sessions match the current filters.</span></td></tr>';
       } else {
       tbody.innerHTML = entries.map(({file, date, report, session: s}) => {
         const title = s.session_title || s.session_name || s.session_id;
-        const cwdTitle = ' title="cwd: &quot;' + escapeHtml(s.cwd || '') + '&quot;"';
+        const titleTooltip = ' title="' + escapeHtml(sessionTitleTooltip(s)) + '"';
         const currentProduct = products.find((p) => p.product_id === s.product_id);
         const productValue = currentProduct ? currentProduct.product_name : (s.product_name || '');
         const selectedRepo = selectedRepoForSession(s);
         return '<tr data-file="' + escapeHtml(file) + '" data-session-id="' + escapeHtml(s.session_id) + '">' +
-          '<td><div class="session-title"' + cwdTitle + '>' + escapeHtml(title) + '</div></td>' +
+          '<td class="select-cell"><input class="session-select bulk-select" type="checkbox" aria-label="Select session" /></td>' +
+          '<td><div class="session-title"' + titleTooltip + '>' + escapeHtml(title) + '</div></td>' +
           '<td class="input-cell">' + humanInputsHtml(report, s) + '</td>' +
           '<td class="lines-cell">' + sessionLinesText(s) + '</td>' +
           '<td class="num-cell">' + escapeHtml(s.files_changed ?? 0) + '</td>' +
@@ -954,6 +1146,9 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
         el.addEventListener('change', () => addLinkedRepoFromRow(tr));
         el.addEventListener('blur', () => addLinkedRepoFromRow(tr));
       });
+      document.querySelectorAll('.session-select').forEach((el) => {
+        el.addEventListener('change', () => updateBulkUi());
+      });
       document.querySelectorAll('.repo-picker').forEach((picker) => {
         const row = picker.closest('tr');
         const repo = row.querySelector('.repo');
@@ -967,54 +1162,27 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
           if (repo.disabled) return;
           setRepoMenuOpen(picker, picker.querySelector('.repo-menu').classList.contains('hidden'));
         });
+        picker.querySelector('.repo-search').addEventListener('input', () => {
+          const product = findProduct(row.querySelector('.product').value);
+          picker.querySelector('.repo-options').innerHTML = repoOptionsHtml(
+            product ? product.product_id : '',
+            repo.value || '',
+            picker.querySelector('.repo-search').value
+          );
+        });
         picker.addEventListener('click', (event) => {
           const option = event.target.closest('.repo-option');
           if (!option) return;
           repo.value = option.dataset.value || '';
+          picker.querySelector('.repo-search').value = '';
           updateRepoUrlInput(row);
           setRepoMenuOpen(picker, false);
         });
       });
-      document.querySelectorAll('.ticket-picker').forEach((picker) => {
-        picker.querySelector('.ticket-trigger').addEventListener('click', (event) => {
-          if (picker.classList.contains('disabled')) return;
-          if (event.target.closest('.ticket-link')) return;
-          if (event.target.closest('.ticket-remove')) return;
-          setTicketMenuOpen(picker, picker.querySelector('.ticket-menu').classList.contains('hidden'));
-        });
-        picker.querySelector('.ticket-trigger').addEventListener('keydown', (event) => {
-          if (event.key !== 'Enter' && event.key !== ' ') return;
-          event.preventDefault();
-          if (picker.classList.contains('disabled')) return;
-          setTicketMenuOpen(picker, picker.querySelector('.ticket-menu').classList.contains('hidden'));
-        });
-        picker.addEventListener('change', (event) => {
-          if (picker.classList.contains('disabled')) return;
-          if (!event.target.classList.contains('ticket-option-cb')) return;
-          renderTicketTags(picker);
-          syncRowTickets(picker.closest('tr'));
-        });
-        picker.addEventListener('click', (event) => {
-          if (picker.classList.contains('disabled')) return;
-          if (event.target.closest('.ticket-link')) return;
-          const remove = event.target.closest('.ticket-remove');
-          if (!remove) return;
-          event.stopPropagation();
-          const ticket = remove.dataset.ticket;
-          const checkbox = Array.from(picker.querySelectorAll('.ticket-option-cb')).find((option) => option.value === ticket);
-          if (checkbox) checkbox.checked = false;
-          renderTicketTags(picker);
-          syncRowTickets(picker.closest('tr'));
-        });
+      document.querySelectorAll('tbody .ticket-picker').forEach((picker) => {
+        wireTicketPicker(picker, picker.closest('tr'));
       });
-      document.querySelectorAll('.ticket-add').forEach((el) => {
-        el.addEventListener('keydown', (event) => {
-          if (event.key !== 'Enter') return;
-          event.preventDefault();
-          addTicketFromRow(el.closest('tr'));
-        });
-        el.addEventListener('blur', () => addTicketFromRow(el.closest('tr')));
-      });
+      updateBulkUi();
     }
 
     async function load() {
@@ -1032,6 +1200,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       showAssignedSessions = true;
       updateFilterUi();
       render();
+      renderBulkTicketPicker();
       document.addEventListener('click', (event) => {
         document.querySelectorAll('.repo-picker').forEach((picker) => {
           if (!picker.contains(event.target)) setRepoMenuOpen(picker, false);
@@ -1060,6 +1229,14 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
         updateFilterUi();
         render();
       });
+      document.getElementById('bulk-select-visible').addEventListener('change', (event) => {
+        document.querySelectorAll('.session-select').forEach((checkbox) => {
+          checkbox.checked = event.target.checked;
+        });
+        updateBulkUi();
+      });
+      document.getElementById('bulk-apply-product').addEventListener('click', () => applyBulkProduct());
+      document.getElementById('bulk-add-ticket').addEventListener('click', () => addBulkTicket());
     }
 
     async function save() {

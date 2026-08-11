@@ -23,8 +23,10 @@ import {
 import {buildDailyApiJson} from "./aggregators/daily.js";
 import {SessionData} from "./types.js";
 import {findLocalProductMappingForDir} from "../user-config.js";
+import {getCachedAssignmentTicketRefs} from "./assignment-ticket-cache.js";
 import {
     applyHumanInputTicketRefsToSessions,
+    applyTicketRefsToSessions,
     normalizeSessionTicketIdsToUniqueIds,
 } from "../ai-session/ticket-context.js";
 
@@ -301,6 +303,18 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
 
     logger.step("Enrich Cursor GUI fallback context", () => enrichCursorGuiFallbackContext(sessions));
     logger.step("Normalize session repository context", () => normalizeSessionRepoContext(sessions));
+    const assignmentTicketRefsBySession = sessions.map((session) => getCachedAssignmentTicketRefs(session.session_id));
+    let assignmentTicketLinks = 0;
+    try {
+        assignmentTicketLinks = await applyTicketRefsToSessions(
+            sessions,
+            assignmentTicketRefsBySession.map((cached) =>
+                cached ? [...cached.ticket_display_ids, ...cached.ticket_ids] : []
+            )
+        );
+    } catch (e) {
+        console.warn(`Warning: assignment ticket cache linking: ${(e as Error).message}`);
+    }
     logger.log("Apply human input ticket refs to sessions...");
     let humanInputTicketLinks = 0;
     try {
@@ -310,10 +324,10 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
     }
     try {
         const normalized = await normalizeSessionTicketIdsToUniqueIds(sessions);
-        logger.log(`Applied ${humanInputTicketLinks} human input ticket link(s); normalized ${normalized} display ID(s).`);
+        logger.log(`Applied ${assignmentTicketLinks} assignment-cache ticket link(s), ${humanInputTicketLinks} human input ticket link(s); normalized ${normalized} display ID(s).`);
     } catch (e) {
         console.warn(`Warning: ticket context normalization: ${(e as Error).message}`);
-        logger.log(`Applied ${humanInputTicketLinks} human input ticket link(s).`);
+        logger.log(`Applied ${assignmentTicketLinks} assignment-cache ticket link(s), ${humanInputTicketLinks} human input ticket link(s).`);
     }
 
     // Fetch Cursor API exact usage data

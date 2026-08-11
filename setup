@@ -155,7 +155,6 @@ if [ "${SKIP_AUTH}" -eq 0 ]; then
   else
     warn "Not authenticated or cawplan not available."
     info "Run: cawplan auth login"
-    info "For CI/headless use: cawplan auth configure"
     info "Then re-run this script (or pass --skip-auth)."
     exit 1
   fi

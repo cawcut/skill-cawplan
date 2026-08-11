@@ -8,8 +8,8 @@ import { writeCredentials } from "../src/lib/credentials";
 
 let originalFetch: typeof fetch;
 let originalCwd: string;
-let originalBaseUrl: string | undefined;
 let originalCredentialsPath: string | undefined;
+let originalConfigPath: string | undefined;
 let tmpDir: string;
 
 function unsignedJwt(payload: Record<string, unknown>): string {
@@ -86,16 +86,20 @@ async function runSessionBackfill(dateFrom: string, dateTo: string, args: string
   await program.parseAsync(["node", "cawplan", "session", "backfill", "--from", dateFrom, "--to", dateTo, ...args], { from: "node" });
 }
 
+function openApiPath(url: URL): string {
+  return url.pathname.replace(/^\/core-product/, "");
+}
+
 beforeEach(async () => {
   originalFetch = globalThis.fetch;
   originalCwd = process.cwd();
-  originalBaseUrl = process.env.CAWPLAN_BASE_URL;
   originalCredentialsPath = process.env.CAWPLAN_CREDENTIALS_PATH;
+  originalConfigPath = process.env.CAWPLAN_CONFIG_PATH;
 
   tmpDir = await mkdtemp(join(tmpdir(), "cawplan-backfill-test-"));
   process.chdir(tmpDir);
-  process.env.CAWPLAN_BASE_URL = "https://api.test";
   process.env.CAWPLAN_CREDENTIALS_PATH = join(tmpDir, "credentials.json");
+  process.env.CAWPLAN_CONFIG_PATH = join(tmpDir, "config.json");
 
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-06-02T12:00:00.000Z"));
@@ -111,11 +115,11 @@ afterEach(async () => {
   process.chdir(originalCwd);
   vi.useRealTimers();
 
-  if (originalBaseUrl === undefined) delete process.env.CAWPLAN_BASE_URL;
-  else process.env.CAWPLAN_BASE_URL = originalBaseUrl;
-
   if (originalCredentialsPath === undefined) delete process.env.CAWPLAN_CREDENTIALS_PATH;
   else process.env.CAWPLAN_CREDENTIALS_PATH = originalCredentialsPath;
+
+  if (originalConfigPath === undefined) delete process.env.CAWPLAN_CONFIG_PATH;
+  else process.env.CAWPLAN_CONFIG_PATH = originalConfigPath;
 
   await rm(tmpDir, { recursive: true, force: true });
 });
@@ -129,9 +133,10 @@ describe("session report and backfill", () => {
     const reportQueryResponses: unknown[] = [];
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(input.toString());
+      const pathname = openApiPath(url);
       const method = init?.method ?? "GET";
 
-      if (method === "POST" && url.pathname === "/api/v1/public/openapi/ai-session-usage/reports") {
+      if (method === "POST" && pathname === "/api/v1/public/openapi/ai-session-usage/reports") {
         const body = JSON.parse(String(init?.body ?? "{}")) as { date?: string };
         uploadedDates.push(String(body.date));
         return new Response(JSON.stringify({ code: "SUCCESS", data: { date: body.date } }), {
@@ -140,7 +145,7 @@ describe("session report and backfill", () => {
         });
       }
 
-      if (method === "GET" && url.pathname === "/api/v1/public/openapi/ai-session-usage/reports") {
+      if (method === "GET" && pathname === "/api/v1/public/openapi/ai-session-usage/reports") {
         const response = {
           code: "SUCCESS",
           data: {
@@ -160,14 +165,14 @@ describe("session report and backfill", () => {
         });
       }
 
-      if (method === "GET" && url.pathname === "/api/v1/public/openapi/ai-session-usage/product-repo") {
+      if (method === "GET" && pathname === "/api/v1/public/openapi/ai-session-usage/product-repo") {
         return new Response(JSON.stringify({ code: "SUCCESS", data: [] }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
       }
 
-      return new Response(JSON.stringify({ message: `unexpected ${method} ${url.pathname}` }), {
+      return new Response(JSON.stringify({ message: `unexpected ${method} ${pathname}` }), {
         status: 500,
         headers: { "content-type": "application/json" },
       });
@@ -187,9 +192,10 @@ describe("session report and backfill", () => {
     const reportQueryResponses: unknown[] = [];
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(input.toString());
+      const pathname = openApiPath(url);
       const method = init?.method ?? "GET";
 
-      if (method === "POST" && url.pathname === "/api/v1/public/openapi/ai-session-usage/reports") {
+      if (method === "POST" && pathname === "/api/v1/public/openapi/ai-session-usage/reports") {
         const body = JSON.parse(String(init?.body ?? "{}")) as { date?: string };
         uploadedDates.push(String(body.date));
         return new Response(JSON.stringify({ code: "SUCCESS", data: { date: body.date } }), {
@@ -198,7 +204,7 @@ describe("session report and backfill", () => {
         });
       }
 
-      if (method === "GET" && url.pathname === "/api/v1/public/openapi/ai-session-usage/reports") {
+      if (method === "GET" && pathname === "/api/v1/public/openapi/ai-session-usage/reports") {
         const response = {
           code: "SUCCESS",
           data: {
@@ -218,14 +224,14 @@ describe("session report and backfill", () => {
         });
       }
 
-      if (method === "GET" && url.pathname === "/api/v1/public/openapi/ai-session-usage/product-repo") {
+      if (method === "GET" && pathname === "/api/v1/public/openapi/ai-session-usage/product-repo") {
         return new Response(JSON.stringify({ code: "SUCCESS", data: [] }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
       }
 
-      return new Response(JSON.stringify({ message: `unexpected ${method} ${url.pathname}` }), {
+      return new Response(JSON.stringify({ message: `unexpected ${method} ${pathname}` }), {
         status: 500,
         headers: { "content-type": "application/json" },
       });
@@ -245,9 +251,10 @@ describe("session report and backfill", () => {
     const reportQueryResponses: unknown[] = [];
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(input.toString());
+      const pathname = openApiPath(url);
       const method = init?.method ?? "GET";
 
-      if (method === "POST" && url.pathname === "/api/v1/public/openapi/ai-session-usage/reports") {
+      if (method === "POST" && pathname === "/api/v1/public/openapi/ai-session-usage/reports") {
         const body = JSON.parse(String(init?.body ?? "{}")) as { date?: string };
         uploadedDates.push(String(body.date));
         return new Response(JSON.stringify({ code: "SUCCESS", data: { date: body.date } }), {
@@ -256,7 +263,7 @@ describe("session report and backfill", () => {
         });
       }
 
-      if (method === "GET" && url.pathname === "/api/v1/public/openapi/ai-session-usage/reports") {
+      if (method === "GET" && pathname === "/api/v1/public/openapi/ai-session-usage/reports") {
         const response = {
           code: "SUCCESS",
           data: {
@@ -276,7 +283,7 @@ describe("session report and backfill", () => {
         });
       }
 
-      return new Response(JSON.stringify({ message: `unexpected ${method} ${url.pathname}` }), {
+      return new Response(JSON.stringify({ message: `unexpected ${method} ${pathname}` }), {
         status: 500,
         headers: { "content-type": "application/json" },
       });

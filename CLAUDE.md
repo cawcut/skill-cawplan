@@ -38,9 +38,9 @@ All skills route through `cawplan`. Do not call CawPlan HTTP APIs directly from 
 
 | Concern | Convention |
 |---------|------------|
-| Auth | `cawplan auth login` (OAuth) or `cawplan auth configure` (API key) |
+| Auth | `cawplan auth login` (OAuth) |
 | Credentials | `~/.cawplan/credentials.json`, mode `0600` |
-| Environment | `CAWPLAN_ENV=prd|proto`; overrides via `CAWPLAN_BASE_URL` / `CAWPLAN_PORTAL_URL` |
+| Environment | `cawplan config env prd|proto|local` writes `~/.cawplan/config.json` |
 | Raw escape hatch | `cawplan api <method> <path>` |
 
 ## Development

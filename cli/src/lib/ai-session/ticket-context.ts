@@ -2,6 +2,7 @@ import {cawplanRequest} from "../http.js";
 import {resolveApiPath} from "../products.js";
 import {extractList} from "./helpers.js";
 import type {AiSessionTicketContext, DailyApiJson, HumanInput, SessionData} from "../collect/types.js";
+import {buildScopedCacheKey, getCache, setCache} from "../cache.js";
 
 interface TicketSearchItem {
     unique_id?: string;
@@ -51,6 +52,14 @@ export async function resolveTicketContexts(refs: string[]): Promise<AiSessionTi
     const uniqueRefs = [...new Set(refs.map((ref) => ref.trim()).filter(Boolean))];
     if (uniqueRefs.length === 0) throw new Error("at least one ticket ref is required");
 
+    const cacheKey = await buildScopedCacheKey("ai-session:ticket-contexts:v1", {
+        refs: uniqueRefs.join(","),
+    });
+    const cached = getCache(cacheKey, false);
+    if (Array.isArray(cached)) {
+        return cached as AiSessionTicketContext[];
+    }
+
     const displayIds = [...new Set(uniqueRefs.map(ticketDisplayIdFromRef).filter(Boolean) as string[])];
     const uniqueIds = uniqueRefs.filter((ref) => !ticketDisplayIdFromRef(ref));
     const body: Record<string, unknown> = {};
@@ -71,11 +80,13 @@ export async function resolveTicketContexts(refs: string[]): Promise<AiSessionTi
         .filter((item) => item.unique_id)
         .map((item) => [String(item.unique_id), item]));
 
-    return uniqueRefs.map((ref) => {
+    const contexts = uniqueRefs.map((ref) => {
         const displayId = ticketDisplayIdFromRef(ref);
         const item = displayId ? byDisplayId.get(displayId) : byUniqueId.get(ref);
         return ticketContextFromSearchItem(item ?? {}, ref);
     });
+    setCache(cacheKey, contexts);
+    return contexts;
 }
 
 function appendUnique(values: string[] | undefined, value: string): string[] {
@@ -139,6 +150,21 @@ function displayRefsFromText(text: string): string[] {
     return uniqueStrings(refs);
 }
 
+export function extractTicketRefsFromText(text: string): string[] {
+    const refs: string[] = [];
+    for (const match of text.matchAll(ticketFieldPattern)) {
+        const key = String(match[1] ?? "").toLowerCase();
+        const value = match[2] ?? "";
+        if (key.startsWith("ticket_display")) {
+            refs.push(...displayRefsFromText(value));
+        } else {
+            refs.push(...splitTicketValues(value));
+        }
+    }
+    refs.push(...displayRefsFromText(text));
+    return uniqueStrings(refs);
+}
+
 function humanInputText(input: HumanInput): string {
     return [
         input.content,
@@ -157,17 +183,7 @@ function extractTicketRefsFromHumanInput(input: HumanInput): string[] {
         refs.push(...splitTicketValues(record[key]).flatMap(displayRefsFromText));
     }
 
-    const text = humanInputText(input);
-    for (const match of text.matchAll(ticketFieldPattern)) {
-        const key = String(match[1] ?? "").toLowerCase();
-        const value = match[2] ?? "";
-        if (key.startsWith("ticket_display")) {
-            refs.push(...displayRefsFromText(value));
-        } else {
-            refs.push(...splitTicketValues(value));
-        }
-    }
-    refs.push(...displayRefsFromText(text));
+    refs.push(...extractTicketRefsFromText(humanInputText(input)));
 
     return uniqueStrings(refs);
 }
@@ -176,12 +192,13 @@ export function extractTicketRefsFromHumanInputs(inputs: HumanInput[] | undefine
     return [...new Set((inputs ?? []).flatMap(extractTicketRefsFromHumanInput))];
 }
 
-export async function applyHumanInputTicketRefsToSessions(
+export async function applyTicketRefsToSessions(
     sessions: SessionData[],
+    refsBySession: string[][],
     resolveContexts: (refs: string[]) => Promise<AiSessionTicketContext[]> = resolveTicketContexts
 ): Promise<number> {
-    const refsBySession = sessions.map((session) => extractTicketRefsFromHumanInputs(session.human_inputs));
-    const allRefs = [...new Set(refsBySession.flat())];
+    const normalizedRefsBySession = refsBySession.map(uniqueStrings);
+    const allRefs = [...new Set(normalizedRefsBySession.flat())];
     if (allRefs.length === 0) return 0;
 
     const contexts = await resolveContexts(allRefs);
@@ -197,17 +214,29 @@ export async function applyHumanInputTicketRefsToSessions(
 
     let applied = 0;
     for (let i = 0; i < sessions.length; i++) {
-        const refs = refsBySession[i]!;
+        const refs = normalizedRefsBySession[i] ?? [];
         const sessionContexts = refs
             .map((ref) => contextByRef.get(ref))
             .filter((context): context is AiSessionTicketContext => Boolean(context))
-            .filter(ticketContextIsResolved);
+            .filter(ticketContextIsResolved)
+            .filter((context) => ticketContextMatchesSessionProduct(sessions[i]!, context));
         if (sessionContexts.length === 0) continue;
         const before = sessions[i]!.ticket_ids?.length ?? 0;
         sessions[i] = attachContextsToSession(sessions[i]!, sessionContexts);
         applied += Math.max((sessions[i]!.ticket_ids?.length ?? 0) - before, 0);
     }
     return applied;
+}
+
+export async function applyHumanInputTicketRefsToSessions(
+    sessions: SessionData[],
+    resolveContexts: (refs: string[]) => Promise<AiSessionTicketContext[]> = resolveTicketContexts
+): Promise<number> {
+    return applyTicketRefsToSessions(
+        sessions,
+        sessions.map((session) => extractTicketRefsFromHumanInputs(session.human_inputs)),
+        resolveContexts
+    );
 }
 
 export async function normalizeSessionTicketIdsToUniqueIds(

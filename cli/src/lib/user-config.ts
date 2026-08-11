@@ -10,8 +10,6 @@ export interface LocalProductMapping {
 
 export interface UserConfig {
   env?: string;
-  baseUrl?: string;
-  portalUrl?: string;
   local_mapping?: LocalProductMapping[];
 }
 
@@ -43,11 +41,10 @@ function normalizeLocalMappings(mappings?: LocalProductMapping[]): LocalProductM
 
 function normalizeConfig(parsed: Partial<UserConfig>): UserConfig {
   const localMapping = normalizeLocalMappings(parsed.local_mapping);
+  const env = typeof parsed.env === "string" && parsed.env.trim() ? parsed.env.trim() : undefined;
 
   return {
-    env: parsed.env,
-    baseUrl: parsed.baseUrl,
-    portalUrl: parsed.portalUrl,
+    ...(env ? { env } : {}),
     ...(localMapping && localMapping.length > 0 ? { local_mapping: localMapping } : {}),
   };
 }
