@@ -51,9 +51,6 @@ import type { SessionData } from "../src/lib/collect/types";
 
 let originalFetch: typeof fetch;
 let tmpDir: string;
-let originalBaseUrl: string | undefined;
-let originalPortalUrl: string | undefined;
-let originalEnv: string | undefined;
 let originalCredentialsPath: string | undefined;
 let originalConfigPath: string | undefined;
 let originalCachePath: string | undefined;
@@ -70,9 +67,6 @@ function unsignedJwt(payload: Record<string, unknown>): string {
 
 beforeEach(async () => {
   originalFetch = globalThis.fetch;
-  originalBaseUrl = process.env.CAWPLAN_BASE_URL;
-  originalPortalUrl = process.env.CAWPLAN_PORTAL_URL;
-  originalEnv = process.env.CAWPLAN_ENV;
   originalCredentialsPath = process.env.CAWPLAN_CREDENTIALS_PATH;
   originalConfigPath = process.env.CAWPLAN_CONFIG_PATH;
   originalCachePath = process.env.CAWPLAN_CACHE_PATH;
@@ -83,24 +77,12 @@ beforeEach(async () => {
   process.env.CAWPLAN_CREDENTIALS_PATH = join(tmpDir, "credentials.json");
   process.env.CAWPLAN_CONFIG_PATH = join(tmpDir, "config.json");
   process.env.CAWPLAN_CACHE_PATH = join(tmpDir, "cache.json");
-  process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
-  delete process.env.CAWPLAN_PORTAL_URL;
-  delete process.env.CAWPLAN_ENV;
   delete process.env.CODEX_HOME;
   delete process.env.CURSOR_HOME;
 });
 
 afterEach(async () => {
   globalThis.fetch = originalFetch;
-
-  if (originalBaseUrl === undefined) delete process.env.CAWPLAN_BASE_URL;
-  else process.env.CAWPLAN_BASE_URL = originalBaseUrl;
-
-  if (originalPortalUrl === undefined) delete process.env.CAWPLAN_PORTAL_URL;
-  else process.env.CAWPLAN_PORTAL_URL = originalPortalUrl;
-
-  if (originalEnv === undefined) delete process.env.CAWPLAN_ENV;
-  else process.env.CAWPLAN_ENV = originalEnv;
 
   if (originalCredentialsPath === undefined) delete process.env.CAWPLAN_CREDENTIALS_PATH;
   else process.env.CAWPLAN_CREDENTIALS_PATH = originalCredentialsPath;
@@ -223,59 +205,39 @@ describe("src lib products", () => {
     );
   });
 
-  test("apiBaseUsesGatewayPrefix follows CAWPLAN_BASE_URL", () => {
-    process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
+  test("apiBaseUsesGatewayPrefix follows selected env profile", async () => {
+    await writeUserConfig({ env: "prd" });
     expect(apiBaseUsesGatewayPrefix()).toBe(true);
 
-    process.env.CAWPLAN_BASE_URL = "http://localhost";
+    await writeUserConfig({ env: "local" });
     expect(apiBaseUsesGatewayPrefix()).toBe(false);
   });
 
-  test("uses ~/.cawplan config when env vars are not set", async () => {
-    delete process.env.CAWPLAN_BASE_URL;
-    delete process.env.CAWPLAN_PORTAL_URL;
-    delete process.env.CAWPLAN_ENV;
-
+  test("uses ~/.cawplan env config", async () => {
     await writeUserConfig({
       env: "local",
-      baseUrl: "http://configured-api",
-      portalUrl: "http://configured-portal",
     });
 
     expect(getConfigPath()).toBe(join(tmpDir, "config.json"));
     expect(await readUserConfig()).toEqual({
       env: "local",
-      baseUrl: "http://configured-api",
-      portalUrl: "http://configured-portal",
     });
-    expect(getApiBase()).toBe("http://configured-api");
-    expect(getPortalBase()).toBe("http://configured-portal");
+    expect(getApiBase()).toBe("http://localhost");
+    expect(getPortalBase()).toBe("http://localhost:5173");
   });
 
-  test("environment variables override ~/.cawplan config", async () => {
+  test("falls back to default env when config is empty", async () => {
     await writeUserConfig({
-      env: "local",
-      baseUrl: "http://configured-api",
-      portalUrl: "http://configured-portal",
     });
 
-    process.env.CAWPLAN_BASE_URL = "https://env-api/core-product";
-    process.env.CAWPLAN_PORTAL_URL = "https://env-portal";
-
-    expect(getApiBase()).toBe("https://env-api/core-product");
-    expect(getPortalBase()).toBe("https://env-portal");
+    expect(getApiBase()).toBe("https://api.cawplan.com/core-product");
+    expect(getPortalBase()).toBe("https://app.cawplan.com");
   });
 
-  test("CAWPLAN_ENV selects a profile before stored URLs", async () => {
-    delete process.env.CAWPLAN_BASE_URL;
-    delete process.env.CAWPLAN_PORTAL_URL;
+  test("config env selects a profile when stored URLs are not set", async () => {
     await writeUserConfig({
-      env: "local",
-      baseUrl: "http://configured-api",
-      portalUrl: "http://configured-portal",
+      env: "proto",
     });
-
-    process.env.CAWPLAN_ENV = "proto";
 
     expect(getApiBase()).toBe("https://core-api-gw.uid.dev.ui.com/core-product");
     expect(getPortalBase()).toBe("https://core-web-product.uid.dev.ui.com");
@@ -682,8 +644,8 @@ describe("src lib collect cost currency", () => {
 });
 
 describe("src lib oauth", () => {
-  test("builds consent URL with public code query params for polling", () => {
-    process.env.CAWPLAN_PORTAL_URL = "https://core-web-product.uid.dev.ui.com";
+  test("builds consent URL with public code query params for polling", async () => {
+    await writeUserConfig({ env: "proto" });
 
     const url = buildConsentUrl("code-123");
     const parsed = new URL(url);
@@ -709,7 +671,7 @@ describe("src lib oauth", () => {
   });
 
   test("prints OAuth verification validity in login prompt", async () => {
-    process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
+    await writeUserConfig({ env: "proto" });
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     let callCount = 0;
     globalThis.fetch = async () => {
@@ -752,7 +714,7 @@ describe("src lib oauth", () => {
   });
 
   test("starts OAuth login and returns code with private polling token", async () => {
-    process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
+    await writeUserConfig({ env: "proto" });
     const calls: string[] = [];
     globalThis.fetch = async (_url, init) => {
       calls.push(String(init?.body));
@@ -780,7 +742,7 @@ describe("src lib oauth", () => {
   });
 
   test("polls OAuth exchange until browser consent completes", async () => {
-    process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
+    await writeUserConfig({ env: "proto" });
     const calls: string[] = [];
     globalThis.fetch = async (_url, init) => {
       calls.push(String(init?.body));
@@ -817,6 +779,7 @@ describe("src lib oauth", () => {
 
 describe("src lib http", () => {
   test("refreshes OAuth token and retries once on API 401", async () => {
+    await writeUserConfig({ env: "proto" });
     await writeCredentials({
       accessToken: "old-access",
       refreshToken: "refresh-token",
@@ -863,7 +826,7 @@ describe("src lib http", () => {
       undefined,
       "Bearer new-access",
     ]);
-    expect(calls[1].url).toBe("https://api.test/core-product/api/v1/cli/oauth/refresh");
+    expect(calls[1].url).toBe("https://core-api-gw.uid.dev.ui.com/core-product/api/v1/cli/oauth/refresh");
     expect(calls[1].body).toBe(JSON.stringify({ refresh_token: "refresh-token" }));
     expect((await readCredentials())?.accessToken).toBe("new-access");
   });
