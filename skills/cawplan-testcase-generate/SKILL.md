@@ -155,7 +155,13 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 - Default first pass: **title-state Markdown tables grouped by Group** (not CSV). **父测试点**列是拆分账核心：同一父测试点连出 N 行 = 逐项拆对；只出 1 行 = 可能错合；空 = 孤儿。
 - **Preview table columns ≠ CSV 12 columns** — preview is for human review; export column layout follows `assets/testcase-template.csv`. 预览层的 `同上` 是显示缩写；`cases[].testPointTitle` 与导出 JSON 始终保留全称（见下「预览呈现格式」）。
 - **预览一律按 Group 分块**（Title / Partial / Full 均适用；**即使仅 1 个 Group 也必须分块**，禁止单组平铺）：每个 Group 一块，块首为 `### {Group名}`；块内表列固定为 `#` / `用例标题` / `优先级` / `父测试点`。**禁止**在块内再加「分组」列（分组已由块标题表达）。分块仅影响 Markdown 布局，**不**决定 SQA 点名展开哪些条。
-- **父测试点列「同上」**（块内、按行序）：某行父测试点与**本块内上一行**相同时写 `同上`；每个父测试点在本块内**首行**写全称。连续多行 `同上` 表示同一父测试点拆出多条用例。
+- **父测试点列「同上」**（**仅** Markdown 预览显示层；`cases[].testPointTitle` 与 §8 导出**永远全称**，见下条）：
+  1. **块首行强制全称**：每个 `### {Group名}` 块内表格的**第一行**，父测试点列**必须写全称**，**禁止** `同上`（块内无上一条用例可比）。
+  2. **「同上」触发条件（须同时满足）**：
+     - 本行**不是**该块表格首行；
+     - 本行 `cases[].testPointTitle` 与**本块内紧邻上一行**的 `testPointTitle` **逐字完全相同**（比的是父测试点列字符串本身，**不是**用例标题、**不是**主题相似、**不是**全局 `#` 序号）。
+  3. **块边界归零**：每个新 Group 块开始时，**不得**延续上一块的「同上」链；跨块**禁止** `同上` 或「同第 N 条」。
+  4. **禁止写法**：预览中不得出现「同第 N 条」；连续多行 `同上` 仅表示**同一父测试点**在本块内拆出多条用例。
 - **与 CSV 导出无关（重要）**：上述分块与 `同上` **仅**作用于对话内 Markdown 预览。§8 导出时 interim JSON / CSV **每行**仍填完整 `testPointTitle` 与 `group`（12 列照常），**绝不**出现 `同上` 或省略。`cases[]` 内存真相源始终完整；预览只是渲染层缩写。
 
 #### 预览呈现格式（Markdown only — 不影响 §8 导出）
@@ -169,8 +175,10 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 - Detail three columns (**Preconditions / Step / Expected**) are **always generated together** per case (all or none).
 - When expanding steps, follow `references/testcase-writing-spec.md` **「步骤粒度」**节: **after an action, if there is an observable page jump or state change → separate step**; do not merge cross-page / cross-state actions into one sentence. Same-page setup with no intermediate observable result may merge (不为拆而拆). Granularity SQA tuned on some rows → on Full expand, apply the same rules to the rest.
 
-**Preview self-check** (light inline hints when generating/updating preview — **do not block** expand):
+**Preview self-check** (when generating/updating preview):
 
+- **块首行写了 `同上`（硬修，非提示）**：逻辑上必错、无误报空间。渲染前若发现某 Group 块表格首行父测试点列为 `同上`（或「同第 N 条」）→ **不得**留 `⚠` 也不交付该预览；**当场**用该行 `cases[].testPointTitle` **全称**写回父测试点列，再输出预览。**do not block** expand 的其余项仍适用。
+- 父测试点列为 `同上`，但本行 `cases[].testPointTitle` ≠ 本块内紧邻上一行 `cases[].testPointTitle`（逐字）→ inline `⚠同上引用错误`（软提示，不阻断）
 - Step contains verification verbs (验证/检查/确认) → inline `⚠疑似预期混入步骤`
 - `step` line count ≠ `expected` line count → inline `⚠步骤/预期不配对`
 - Expected contains source-doubtful concrete values → inline `⚠具体值待核` (红线 0 backstop)
@@ -212,7 +220,7 @@ AI produces an **export-time snapshot** of current `cases[]` as interim JSON; `e
 | `requirementTitle` | For filename (`<title>_<timestamp>.csv`) |
 | `title` | Case title |
 | `priority` | P0–P3 (or English — script maps) |
-| `tag`, `group`, `testPointTitle` | Inherit from parent test point |
+| `tag`, `group`, `testPointTitle` | Inherit from parent test point; **`testPointTitle` 必须全称，禁止 `同上` 或省略** |
 | `testPointId`, `requirementId` | From GET — **required under archived main path** |
 | `moduleTreeNodeId` | From GET five fields; empty + 存疑 if missing |
 | `preconditions` | string or string[]; title-only tier → omit or empty |
@@ -288,6 +296,25 @@ Title-state preview (illustrative — even a single Group uses one block):
 | # | 用例标题 | 优先级 | 父测试点 |
 |---|---------|--------|---------|
 | 1 | 错误账号或密码点击 Sign In 应失败并给出明确提示 | P1 | 错误账号或密码登录应失败并给出明确提示 |
+
+**多 Group 时父测试点「同上」**（块边界归零 + 块首行全称 — illustrative）：
+
+### 素材时长基础校验
+
+| # | 用例标题 | 优先级 | 父测试点 |
+|---|---------|--------|---------|
+| 3 | 上传超可用时长的 Video 应被拦截并提示 | P1 | 上传超过当前可用时长的 Audio 或 Video 素材应被拦截并提示(文案以实现为准) |
+
+### 类型与节点独立性
+
+| # | 用例标题 | 优先级 | 父测试点 |
+|---|---------|--------|---------|
+| 4 | 节点 A 上传 Audio 后仅重算该类型可用时长 | P1 | 同一节点内 Audio 与 Video 时长限制应独立计算,互不影响 |
+| 5 | 节点 A 上传 Video 后仅重算该类型可用时长 | P1 | 同上 |
+
+- #4 是新块**首行** → 父测试点**必须全称**（禁止 `同上`，即使 #3 在上一块末行）。
+- #5 与 #4 的 `testPointTitle` **逐字相同** → 父测试点列可写 `同上`。
+- 跨块**禁止**让 #4 写 `同上` 指向 #3（那是跨组误用）。
 
 `cases[]` in memory (illustrative — **not** an export file):
 
