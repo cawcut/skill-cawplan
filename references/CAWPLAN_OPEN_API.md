@@ -3,10 +3,8 @@
 ## Base
 - Auth:
     - Interactive CLI: `Authorization: Bearer <accessToken>` from `cawplan auth login`.
-    - CI/headless integration: API key from `cawplan auth configure` or `CAWPLAN_API_KEY`.
 - Notes:
     - `cawplan-cli` OAuth access tokens are identified by token source and checked against the user's RBAC scope on supported OpenAPI routes.
-    - API-key callers keep the external integration permission model.
 ### Local Caching (CLI)
 - Cache file: `~/.cawplan/cache.json` (override with `CAWPLAN_CACHE_PATH`)
 - TTL: `CAWPLAN_CACHE_TTL_HOURS` (default 12)

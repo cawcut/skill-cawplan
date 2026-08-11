@@ -60,7 +60,7 @@ Get your own email for `--reporter`:
 ```bash
 cawplan auth status   # shows authenticated email
 ```
-For API Key auth, omit `--reporter`.
+OAuth login is required before creating tickets.
 
 ## Rules
 

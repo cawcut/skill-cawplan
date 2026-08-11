@@ -17,4 +17,4 @@ Smoke test after install:
 /cawplan-product-report show UniFi Access status report for last week
 ```
 
-If auth is not needed (CI/headless): `cawplan auth configure` instead of `cawplan auth login`.
+Authenticate with `cawplan auth login` before running CawPlan commands.

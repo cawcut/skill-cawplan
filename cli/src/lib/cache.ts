@@ -103,10 +103,6 @@ export async function getCacheScope(): Promise<string> {
     }
   }
 
-  if (credentials?.apiKey) {
-    return `${base}:api-key:${shortHash(credentials.apiKey)}`;
-  }
-
   return `${base}:anonymous`;
 }
 

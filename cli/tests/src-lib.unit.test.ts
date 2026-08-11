@@ -51,7 +51,6 @@ import type { SessionData } from "../src/lib/collect/types";
 
 let originalFetch: typeof fetch;
 let tmpDir: string;
-let originalApiKey: string | undefined;
 let originalBaseUrl: string | undefined;
 let originalPortalUrl: string | undefined;
 let originalEnv: string | undefined;
@@ -71,7 +70,6 @@ function unsignedJwt(payload: Record<string, unknown>): string {
 
 beforeEach(async () => {
   originalFetch = globalThis.fetch;
-  originalApiKey = process.env.CAWPLAN_API_KEY;
   originalBaseUrl = process.env.CAWPLAN_BASE_URL;
   originalPortalUrl = process.env.CAWPLAN_PORTAL_URL;
   originalEnv = process.env.CAWPLAN_ENV;
@@ -88,16 +86,12 @@ beforeEach(async () => {
   process.env.CAWPLAN_BASE_URL = "https://api.test/core-product";
   delete process.env.CAWPLAN_PORTAL_URL;
   delete process.env.CAWPLAN_ENV;
-  delete process.env.CAWPLAN_API_KEY;
   delete process.env.CODEX_HOME;
   delete process.env.CURSOR_HOME;
 });
 
 afterEach(async () => {
   globalThis.fetch = originalFetch;
-
-  if (originalApiKey === undefined) delete process.env.CAWPLAN_API_KEY;
-  else process.env.CAWPLAN_API_KEY = originalApiKey;
 
   if (originalBaseUrl === undefined) delete process.env.CAWPLAN_BASE_URL;
   else process.env.CAWPLAN_BASE_URL = originalBaseUrl;
@@ -289,18 +283,16 @@ describe("src lib products", () => {
 });
 
 describe("src lib auth-state", () => {
-  test("treats env API key as authenticated", async () => {
-    process.env.CAWPLAN_API_KEY = "cwpu_api_test_key_value";
+  test("reports none when no OAuth credentials exist", async () => {
     await deleteCredentials();
 
     const state = await getAuthState();
-    expect(state.hasApiKey).toBe(true);
-    expect(state.active).toBe("apiKey");
+    expect(state.hasOAuth).toBe(false);
+    expect(state.active).toBe("none");
   });
 
   test("prefers OAuth when access token is still valid", async () => {
     await writeCredentials({
-      apiKey: "file-key",
       accessToken: "access",
       refreshToken: "refresh",
       expire: Math.floor(Date.now() / 1000) + 3600,
@@ -313,9 +305,13 @@ describe("src lib auth-state", () => {
 
 describe("src lib credentials", () => {
   test("writes credentials with 0600 permissions", async () => {
-    await writeCredentials({ apiKey: "test-key" });
+    await writeCredentials({
+      accessToken: "test-access",
+      refreshToken: "test-refresh",
+      expire: Math.floor(Date.now() / 1000) + 3600,
+    });
 
-    expect((await readCredentials())?.apiKey).toBe("test-key");
+    expect((await readCredentials())?.accessToken).toBe("test-access");
     expect(getCredentialsPath()).toBe(join(tmpDir, "credentials.json"));
 
     const mode = (await stat(getCredentialsPath())).mode & 0o777;
@@ -345,12 +341,12 @@ describe("src lib cache", () => {
     expect(first).not.toBe(second);
   });
 
-  test("falls back to API key scope when no OAuth token exists", async () => {
-    await writeCredentials({ apiKey: "cwpu_api_test_key_value" });
+  test("uses anonymous scope when no OAuth token exists", async () => {
+    await deleteCredentials();
 
     const scope = await getCacheScope();
 
-    expect(scope).toContain(":api-key:");
+    expect(scope).toContain(":anonymous");
   });
 });
 
@@ -872,7 +868,7 @@ describe("src lib http", () => {
     expect((await readCredentials())?.accessToken).toBe("new-access");
   });
 
-  test("surfaces refresh failure when no API key fallback is configured", async () => {
+  test("surfaces refresh failure", async () => {
     await writeCredentials({
       accessToken: "old-access",
       refreshToken: "expired-refresh-token",
@@ -917,27 +913,6 @@ describe("src lib http", () => {
     );
   });
 
-  test("reports API key invalid on API-key 401", async () => {
-    process.env.CAWPLAN_API_KEY = "bad-key";
-    await deleteCredentials();
-
-    globalThis.fetch = async () =>
-      new Response(JSON.stringify({ code: "INVALID_API_KEY" }), {
-        status: 401,
-        headers: { "content-type": "application/json" },
-      });
-
-    await expect(
-      cawplanRequest({ method: "GET", path: "/api/v1/public/openapi/products" }),
-    ).rejects.toThrow("API Key invalid. Run: cawplan auth configure");
-
-    try {
-      await cawplanRequest({ method: "GET", path: "/api/v1/public/openapi/products" });
-    } catch (err) {
-      expect(err).toBeInstanceOf(ApiError);
-      expect((err as ApiError).status).toBe(401);
-    }
-  });
 });
 
 describe("src lib collect cursor cli", () => {

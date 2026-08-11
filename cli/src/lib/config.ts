@@ -10,10 +10,6 @@ export function getBaseUrl(): string {
   return getApiBase();
 }
 
-export function getApiKey(): string | undefined {
-  return process.env.CAWPLAN_API_KEY;
-}
-
 export function getCachePath(): string {
   return process.env.CAWPLAN_CACHE_PATH ?? resolve(homedir(), ".cawplan", "cache.json");
 }

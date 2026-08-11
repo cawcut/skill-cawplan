@@ -2,7 +2,7 @@
 #
 # QA Insights write-command smoke test — MANUAL, LOCAL ONLY.
 #
-#   Requires: cawplan auth login (OAuth or API key) before running.
+#   Requires: cawplan auth login before running.
 #   Scope:    ONLY the test product below. Never point this at another product.
 #   CI:       This script must NOT be wired into GitHub Actions (OQ#7).
 #
