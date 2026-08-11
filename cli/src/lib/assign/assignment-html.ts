@@ -280,7 +280,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       gpt: '/assets/model-gpt.png',
       claude: '/assets/model-claude.png',
       cursor: '/assets/model-cursor.png',
-      deepseek: '/assets/model-deepseek.png',
+      deepseek: '/assets/model-deepseek.svg',
     };
     const CAWPLAN_PORTAL_BASE = ${JSON.stringify(normalizedPortalBase)};
 
