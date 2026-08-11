@@ -917,9 +917,19 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       if (open) {
         const trigger = picker.querySelector('.ticket-trigger');
         const rect = trigger.getBoundingClientRect();
+        const tableCard = picker.closest('.table-card');
+        const cardRect = tableCard ? tableCard.getBoundingClientRect() : null;
+        const actions = document.querySelector('.actions');
+        const actionsRect = actions ? actions.getBoundingClientRect() : null;
+        const boundaryTop = Math.max(0, cardRect ? cardRect.top : 0);
+        const boundaryBottom = Math.min(
+          window.innerHeight,
+          cardRect ? cardRect.bottom : window.innerHeight,
+          actionsRect ? actionsRect.top - 8 : window.innerHeight
+        );
         const menuHeight = 220;
-        const spaceBelow = window.innerHeight - rect.bottom;
-        const spaceAbove = rect.top;
+        const spaceBelow = boundaryBottom - rect.bottom;
+        const spaceAbove = rect.top - boundaryTop;
         picker.classList.toggle('drop-up', spaceBelow < menuHeight && spaceAbove > spaceBelow);
       } else {
         picker.classList.remove('drop-up');
