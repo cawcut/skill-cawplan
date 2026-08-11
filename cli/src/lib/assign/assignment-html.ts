@@ -163,7 +163,10 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
     .repo-trigger:disabled { background: var(--bg); color: var(--text-03); cursor: not-allowed; }
     .repo-trigger-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .repo-trigger-arrow { color: var(--text-03); flex-shrink: 0; }
-    .repo-menu { position: absolute; z-index: 25; top: calc(100% + 4px); left: 0; right: 0; min-width: 260px; max-height: 224px; overflow: auto; padding: 6px; border: 1px solid var(--border); border-radius: var(--r8); background: var(--bg); box-shadow: var(--shadow-superlow); }
+    .repo-menu { position: absolute; z-index: 25; top: calc(100% + 4px); left: 0; right: 0; min-width: 260px; max-height: 260px; overflow: hidden; padding: 6px; border: 1px solid var(--border); border-radius: var(--r8); background: var(--bg); box-shadow: var(--shadow-superlow); }
+    input.repo-search { height: 28px; margin-bottom: 6px; border-radius: 6px; background: var(--bg-subtle); font-size: 12px; }
+    input.repo-search:focus { background: var(--bg); }
+    .repo-options { max-height: 212px; overflow: auto; }
     .repo-option { width: 100%; min-height: 30px; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: var(--r4); background: transparent; color: var(--text-01); font-size: 12px; font-weight: 400; text-align: left; }
     .repo-option:hover { background: var(--bg-subtle); }
     .repo-option.selected { background: var(--uBlue-01); color: var(--uBlue-07); }
@@ -361,26 +364,40 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       return mapping;
     }
 
+    function repoDisplayLabel(mapping) {
+      const raw = String(mapping.repo_url || mapping.repo_name || '').trim();
+      if (!raw) return '';
+      try {
+        const url = new URL(raw);
+        return url.pathname.replace(/^\\//, '').replace(/\\.git$/, '') || raw;
+      } catch {
+        return raw.replace(/^https?:\\/\\/github\\.com\\//i, '').replace(/\\.git$/, '');
+      }
+    }
+
     function repoOptions(productId, selectedRepo) {
       const opts = mappings
         .filter((m) => m.product_id === productId && m.repo_name)
         .sort((a, b) => String(a.repo_name).localeCompare(String(b.repo_name)))
         .map((m) => '<option value="' + escapeHtml(m.repo_name) + '"' +
           (m.repo_name === selectedRepo ? ' selected' : '') + '>' +
-          escapeHtml(m.repo_url || m.repo_name) + '</option>');
+          escapeHtml(repoDisplayLabel(m)) + '</option>');
       opts.unshift('<option value="">No repository; assign product only</option>');
       opts.push('<option value="__link__">No repository; link one</option>');
       return opts.join('');
     }
 
-    function repoOptionItems(productId) {
+    function repoOptionItems(productId, query = '') {
+      const needle = String(query || '').trim().toLowerCase();
       const items = mappings
         .filter((m) => m.product_id === productId && m.repo_name)
         .sort((a, b) => String(a.repo_name).localeCompare(String(b.repo_name)))
         .map((m) => ({
           value: m.repo_name,
-          label: m.repo_url || m.repo_name,
-        }));
+          label: repoDisplayLabel(m),
+          search: [repoDisplayLabel(m), m.repo_name, m.repo_url].filter(Boolean).join(' ').toLowerCase(),
+        }))
+        .filter((item) => !needle || item.search.includes(needle));
       items.unshift({value: '', label: 'No repository; assign product only'});
       items.push({value: '__link__', label: 'No repository; link one'});
       return items;
@@ -390,21 +407,25 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       return (repoOptionItems(productId).find((item) => item.value === value) || repoOptionItems(productId)[0]).label;
     }
 
-    function repoPickerHtml(productId, selectedRepo) {
-      const selected = selectedRepo || '';
-      const label = repoLabel(productId, selected);
-      const options = repoOptionItems(productId).map((item) =>
+    function repoOptionsHtml(productId, selected, query = '') {
+      return repoOptionItems(productId, query).map((item) =>
         '<button class="repo-option' + (item.value === selected ? ' selected' : '') + '" type="button" data-value="' + escapeHtml(item.value) + '">' +
           '<span class="repo-option-check">' + (item.value === selected ? '✓' : '') + '</span>' +
           '<span class="repo-option-label">' + escapeHtml(item.label) + '</span>' +
         '</button>'
       ).join('');
+    }
+
+    function repoPickerHtml(productId, selectedRepo) {
+      const selected = selectedRepo || '';
+      const label = repoLabel(productId, selected);
+      const options = repoOptionsHtml(productId, selected);
       return '<div class="repo-picker">' +
         '<button class="repo-trigger" type="button">' +
           '<span class="repo-trigger-label">' + escapeHtml(label) + '</span>' +
           '<span class="repo-trigger-arrow">▾</span>' +
         '</button>' +
-        '<div class="repo-menu hidden">' + options + '</div>' +
+        '<div class="repo-menu hidden"><input class="repo-search" type="search" placeholder="Search repo" autocomplete="off" /><div class="repo-options">' + options + '</div></div>' +
       '</div>';
     }
 
@@ -452,18 +473,15 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       const selected = repo.value || '';
       const label = repoLabel(productId, selected);
       const trigger = picker.querySelector('.repo-trigger');
+      const search = picker.querySelector('.repo-search');
       trigger.disabled = repo.disabled;
       picker.querySelector('.repo-trigger-label').textContent = label;
-      picker.querySelector('.repo-menu').innerHTML = repoOptionItems(productId).map((item) =>
-        '<button class="repo-option' + (item.value === selected ? ' selected' : '') + '" type="button" data-value="' + escapeHtml(item.value) + '">' +
-          '<span class="repo-option-check">' + (item.value === selected ? '✓' : '') + '</span>' +
-          '<span class="repo-option-label">' + escapeHtml(item.label) + '</span>' +
-        '</button>'
-      ).join('');
+      picker.querySelector('.repo-options').innerHTML = repoOptionsHtml(productId, selected, search ? search.value : '');
     }
 
     function setRepoMenuOpen(picker, open) {
       picker.querySelector('.repo-menu').classList.toggle('hidden', !open);
+      if (open) setTimeout(() => picker.querySelector('.repo-search')?.focus(), 0);
     }
 
     function refreshRepoOptionsForProduct(productId) {
@@ -973,10 +991,19 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
           if (repo.disabled) return;
           setRepoMenuOpen(picker, picker.querySelector('.repo-menu').classList.contains('hidden'));
         });
+        picker.querySelector('.repo-search').addEventListener('input', () => {
+          const product = findProduct(row.querySelector('.product').value);
+          picker.querySelector('.repo-options').innerHTML = repoOptionsHtml(
+            product ? product.product_id : '',
+            repo.value || '',
+            picker.querySelector('.repo-search').value
+          );
+        });
         picker.addEventListener('click', (event) => {
           const option = event.target.closest('.repo-option');
           if (!option) return;
           repo.value = option.dataset.value || '';
+          picker.querySelector('.repo-search').value = '';
           updateRepoUrlInput(row);
           setRepoMenuOpen(picker, false);
         });
