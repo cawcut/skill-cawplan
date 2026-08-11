@@ -672,13 +672,10 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
         : '<span class="ticket-placeholder">Select tickets</span>';
     }
 
-    function addTicketOption(picker, value) {
-      const ticket = ticketDisplayIdFromInput(value);
-      if (!ticket) return false;
+    function ensureTicketOption(picker, ticket, checked) {
       const existing = Array.from(picker.querySelectorAll('.ticket-option-cb') || []).find((option) => option.value === ticket);
       if (existing) {
-        existing.checked = true;
-        renderTicketTags(picker);
+        if (checked) existing.checked = true;
         return true;
       }
       const options = picker.querySelector('.ticket-options');
@@ -687,11 +684,20 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       const label = document.createElement('div');
       label.className = 'ticket-option';
       label.innerHTML = '<label class="ticket-option-choice">' +
-        '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '" checked />' +
+        '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '"' + (checked ? ' checked' : '') + ' />' +
         '<span class="ticket-option-label">' + escapeHtml(ticket) + '</span>' +
         '</label>' +
         ticketOpenLinkHtml(ticket);
       options.appendChild(label);
+      return true;
+    }
+
+    function addTicketOption(picker, value) {
+      const ticket = ticketDisplayIdFromInput(value);
+      if (!ticket) return false;
+      document.querySelectorAll('.ticket-picker').forEach((candidate) => {
+        ensureTicketOption(candidate, ticket, candidate === picker);
+      });
       renderTicketTags(picker);
       return true;
     }
