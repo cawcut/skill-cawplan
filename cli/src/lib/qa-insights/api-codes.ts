@@ -14,6 +14,26 @@
 export const API_CODE_SUCCESS = "SUCCESS";
 export const API_CODE_FAILURE_INVALID_INPUT = "FAILURE_INVALID_INPUT";
 
+/** QA Testing / TestRail business codes (see qa-testing-api.md §3). */
+export const API_CODE_TESTRAIL_UNAVAILABLE = "TESTRAIL_UNAVAILABLE";
+export const API_CODE_TESTRAIL_NOT_CONFIGURED = "TESTRAIL_NOT_CONFIGURED";
+export const API_CODE_PRODUCT_TESTRAIL_URL_MISSING = "PRODUCT_TESTRAIL_URL_MISSING";
+export const API_CODE_SUITE_NOT_IN_PROJECT = "SUITE_NOT_IN_PROJECT";
+export const API_CODE_PREVIEW_EXPIRED = "PREVIEW_EXPIRED";
+export const API_CODE_CONFIRMATION_REQUIRED = "CONFIRMATION_REQUIRED";
+export const API_CODE_JOB_NOT_CANCELLABLE = "JOB_NOT_CANCELLABLE";
+
+const TESTRAIL_CODES = new Set([
+  API_CODE_TESTRAIL_UNAVAILABLE,
+  API_CODE_TESTRAIL_NOT_CONFIGURED,
+  API_CODE_PRODUCT_TESTRAIL_URL_MISSING,
+  API_CODE_SUITE_NOT_IN_PROJECT,
+]);
+
+export function isTestrailBusinessCode(code: string | undefined | null): boolean {
+  return typeof code === "string" && TESTRAIL_CODES.has(code);
+}
+
 export interface ParsedEnvelope {
   code: string;
   msg: string;

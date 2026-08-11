@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { readFile } from "node:fs/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import { cawplanRequest } from "../lib/http.js";
 import { parseApiEnvelope, batchReturnedCount } from "../lib/qa-insights/api-codes.js";
 import {
@@ -7,6 +8,9 @@ import {
   buildModuleTreeNodeBody,
   buildRequirementCreateBody,
   buildTestPointBatchBody,
+  buildTestrailImportExecuteBody,
+  buildTestrailImportPreviewBody,
+  mergeTestrailImportPreviewBody,
   validateRequirementPatchBody,
 } from "../lib/qa-insights/body-builders.js";
 import { buildEnvelope, buildReadEnvelope, emitEnvelopeAndExit, emitReadEnvelopeAndExit } from "../lib/qa-insights/envelope.js";
@@ -18,10 +22,12 @@ import {
   reconcileTestPoints,
 } from "../lib/qa-insights/reconcile-testpoints.js";
 import type {
+  ImportSourceType,
   QAInsightsMeta,
   QAInsightsReadEnvelope,
   QAInsightsWriteEnvelope,
   RequirementRow,
+  SectionStrategy,
 } from "../lib/qa-insights/types.js";
 
 /**
@@ -40,6 +46,7 @@ import type {
  */
 
 const API_BASE = "/api/v1/public/openapi/product";
+const INTERNAL_PRODUCT_API_BASE = "/api/v1/product";
 
 /** Injectable for tests; defaults to the real HTTP client. */
 export type RequestFn = typeof cawplanRequest;
@@ -96,6 +103,15 @@ async function readJsonInput(
       `${label}: input is not valid JSON — ${(err as Error).message}`,
     );
   }
+}
+
+async function readOptionalJsonInput(
+  bodyFile: string | undefined,
+  inlineBody: string | undefined,
+  label: string,
+): Promise<unknown | undefined> {
+  if (!bodyFile && !inlineBody) return undefined;
+  return readJsonInput(bodyFile, inlineBody, label);
 }
 
 /** Validation failures never reach the network. */
@@ -674,13 +690,322 @@ export async function runTestPointsReconcile(
 }
 
 // ---------------------------------------------------------------------------
+// TestRail integration (T2) — A1 import
+// ---------------------------------------------------------------------------
+
+function testrailApiPath(productId: string, suffix: string): string {
+  return `${INTERNAL_PRODUCT_API_BASE}/${productId}/qa/testrail${suffix}`;
+}
+
+async function performTestrailPost(options: {
+  request: RequestFn;
+  path: string;
+  body: Record<string, unknown>;
+  command: string;
+  meta: QAInsightsMeta;
+  isWrite: boolean;
+}): Promise<QAInsightsWriteEnvelope> {
+  const { request, path, body, command, meta, isWrite } = options;
+  let payload: unknown;
+  try {
+    payload = await request({ method: "POST", path, body });
+  } catch (err) {
+    const mapped = mapCawplanRequestError(err, { isWrite });
+    return buildEnvelope({
+      outcome: mapped.outcome,
+      command,
+      meta,
+      post_body: body,
+      error: mapped.error,
+    });
+  }
+
+  const parsed = parseApiEnvelope(payload);
+  const failure = mapEnvelopeFailure(payload);
+  if (failure) {
+    return buildEnvelope({
+      outcome: failure.outcome,
+      command,
+      meta,
+      api: { code: parsed.code, msg: parsed.msg, data: parsed.data },
+      post_body: body,
+      error: failure.error,
+    });
+  }
+
+  return buildEnvelope({
+    outcome: "SUCCESS",
+    command,
+    meta,
+    api: { code: parsed.code, msg: parsed.msg, data: parsed.data },
+    post_body: body,
+  });
+}
+
+export async function runTestrailMappingsGet(
+  productId: string,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail mappings get";
+  const meta: QAInsightsMeta = { product_id: productId, dry_run: false };
+  const emit = emitter(deps);
+
+  const read = await performRead({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/mappings"),
+    command,
+    meta,
+  });
+  if (read.envelope) return emit(read.envelope);
+
+  return emit(
+    buildEnvelope({
+      outcome: "SUCCESS",
+      command,
+      meta,
+      api: { code: "SUCCESS", msg: "success", data: read.data },
+    }),
+  );
+}
+
+export interface TestrailImportPreviewOptions {
+  bodyFile?: string;
+  body?: string;
+  sourceType?: ImportSourceType;
+  requirementId?: string;
+  versionId?: string;
+  suiteId?: number;
+  versionName?: string;
+  sectionStrategy?: SectionStrategy;
+  fixedSectionId?: number;
+  dryRun?: boolean;
+}
+
+export async function runTestrailImportPreview(
+  productId: string,
+  opts: TestrailImportPreviewOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail import preview";
+  const meta: QAInsightsMeta = { product_id: productId, dry_run: Boolean(opts.dryRun) };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    const parsed = await readOptionalJsonInput(opts.bodyFile, opts.body, "testrail import preview");
+    if (parsed !== undefined) {
+      body = mergeTestrailImportPreviewBody(parsed, {
+        sourceType: opts.sourceType as ImportSourceType,
+        requirementId: opts.requirementId,
+        versionId: opts.versionId,
+        suiteId: opts.suiteId,
+        versionName: opts.versionName,
+        sectionStrategy: opts.sectionStrategy,
+        fixedSectionId: opts.fixedSectionId,
+      });
+    } else {
+      if (!opts.sourceType) {
+        return emit(
+          validationEnvelope(
+            command,
+            meta,
+            new BodyValidationError("--source-type or --body-file is required"),
+          ),
+        );
+      }
+      body = buildTestrailImportPreviewBody({
+        sourceType: opts.sourceType,
+        requirementId: opts.requirementId,
+        versionId: opts.versionId,
+        suiteId: opts.suiteId,
+        versionName: opts.versionName,
+        sectionStrategy: opts.sectionStrategy,
+        fixedSectionId: opts.fixedSectionId,
+      });
+    }
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/import/preview"),
+    body,
+    command,
+    meta,
+    isWrite: false,
+  });
+  const previewData = envelope.api?.data as { preview_id?: string; previewId?: string } | undefined;
+  const previewId = previewData?.preview_id ?? previewData?.previewId;
+  if (previewId) meta.preview_id = previewId;
+  return emit(envelope);
+}
+
+export interface TestrailImportExecuteOptions {
+  previewId: string;
+  confirm?: boolean;
+  dryRun?: boolean;
+}
+
+export async function runTestrailImportExecute(
+  productId: string,
+  opts: TestrailImportExecuteOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail import execute";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    preview_id: opts.previewId,
+    dry_run: Boolean(opts.dryRun),
+  };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    body = buildTestrailImportExecuteBody(opts.previewId, Boolean(opts.confirm));
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  if (!opts.confirm) {
+    return emit(
+      buildEnvelope({
+        outcome: "FAILURE",
+        command,
+        meta,
+        post_body: body,
+        error: {
+          type: "validation",
+          message: "testrail import execute requires --confirm (safety gate; preview must be reviewed first)",
+          api_code: "CONFIRMATION_REQUIRED",
+        },
+      }),
+    );
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/import/execute"),
+    body,
+    command,
+    meta,
+    isWrite: true,
+  });
+
+  const data = envelope.api?.data as { job_id?: string; jobId?: string; status?: string } | undefined;
+  const jobId = data?.job_id ?? data?.jobId;
+  if (jobId) meta.job_id = jobId;
+  return emit(envelope);
+}
+
+export async function runTestrailJobGet(
+  productId: string,
+  jobId: string,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail jobs get";
+  const meta: QAInsightsMeta = { product_id: productId, job_id: jobId, dry_run: false };
+  const emit = emitter(deps);
+
+  const read = await performRead({
+    request: requester(deps),
+    path: testrailApiPath(productId, `/jobs/${jobId}`),
+    command,
+    meta,
+  });
+  if (read.envelope) return emit(read.envelope);
+
+  return emit(
+    buildEnvelope({
+      outcome: "SUCCESS",
+      command,
+      meta,
+      api: { code: "SUCCESS", msg: "success", data: read.data },
+    }),
+  );
+}
+
+const TERMINAL_JOB_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
+
+export interface TestrailJobPollOptions {
+  intervalMs?: number;
+  timeoutMs?: number;
+}
+
+export async function runTestrailJobPoll(
+  productId: string,
+  jobId: string,
+  opts: TestrailJobPollOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail jobs poll";
+  const meta: QAInsightsMeta = { product_id: productId, job_id: jobId, dry_run: false };
+  const emit = emitter(deps);
+  const intervalMs = opts.intervalMs ?? 3000;
+  const timeoutMs = opts.timeoutMs ?? 600_000;
+  const started = Date.now();
+
+  while (true) {
+    const read = await performRead({
+      request: requester(deps),
+      path: testrailApiPath(productId, `/jobs/${jobId}`),
+      command,
+      meta,
+    });
+    if (read.envelope) return emit(read.envelope);
+
+    const data = read.data as { status?: string } | undefined;
+    const status = data?.status ?? "UNKNOWN";
+    if (TERMINAL_JOB_STATUSES.has(status)) {
+      return emit(
+        buildEnvelope({
+          outcome: status === "COMPLETED" ? "SUCCESS" : "FAILURE",
+          command,
+          meta,
+          api: { code: "SUCCESS", msg: "success", data: read.data },
+          error:
+            status !== "COMPLETED"
+              ? { type: "api", message: `TestRail import job ended with status ${status}` }
+              : undefined,
+        }),
+      );
+    }
+
+    if (Date.now() - started >= timeoutMs) {
+      return emit(
+        buildEnvelope({
+          outcome: "UNKNOWN",
+          command,
+          meta,
+          api: { code: "SUCCESS", msg: "success", data: read.data },
+          error: {
+            type: "transport",
+            message: `job poll timed out after ${timeoutMs}ms; last status=${status}`,
+          },
+        }),
+      );
+    }
+
+    await sleep(intervalMs);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
 export function registerQAInsightsCommand(program: Command): void {
   const qa = program
     .command("qa-insights")
-    .description("QA Insights Test Suites: module tree, requirements, test points");
+    .description("QA Insights: T1 test suites and T2 TestRail integration");
 
   const moduleTree = qa.command("module-tree").description("Module tree operations");
   const node = moduleTree.command("node").description("Module tree node operations");
@@ -755,5 +1080,55 @@ export function registerQAInsightsCommand(program: Command): void {
     .requiredOption("--batch-size <n>", "Number of test points in the batch")
     .action((productId: string, requirementId: string, opts) =>
       runTestPointsReconcile(productId, requirementId, opts),
+    );
+
+  const testrail = qa.command("testrail").description("TestRail integration operations (T2)");
+  testrail
+    .command("mappings")
+    .description("TestRail mapping configuration")
+    .command("get <product_id>")
+    .description("Get Product TestRail mappings (suite, sections, templates)")
+    .action((productId: string) => runTestrailMappingsGet(productId));
+
+  const testrailImport = testrail.command("import").description("TestRail case import (A1)");
+  testrailImport
+    .command("preview <product_id>")
+    .description("Preview import plan (no TestRail writes)")
+    .option("--body-file <path>", "Full preview request JSON")
+    .option("--body <json>", "Inline preview request JSON")
+    .option("--source-type <type>", "REQUIREMENT | INLINE | VERSION")
+    .option("--requirement-id <id>", "Required when source-type=REQUIREMENT")
+    .option("--version-id <id>", "Required when source-type=VERSION (BE not implemented)")
+    .option("--suite-id <n>", "TestRail suite id", (v: string) => Number(v))
+    .option("--version-name <name>", "Value for TestRail custom_case_version")
+    .option(
+      "--section-strategy <strategy>",
+      "AUTO_BY_GROUP | MAP_BY_MODULE | FIXED_SECTION",
+    )
+    .option("--fixed-section-id <n>", "Required for FIXED_SECTION", (v: string) => Number(v))
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, opts) => runTestrailImportPreview(productId, opts));
+
+  testrailImport
+    .command("execute <product_id>")
+    .description("Execute a confirmed import preview")
+    .requiredOption("--preview-id <id>", "preview_id from import preview response")
+    .option("--confirm", "Required safety gate — must be set to execute")
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, opts) => runTestrailImportExecute(productId, opts));
+
+  const testrailJobs = testrail.command("jobs").description("Async TestRail jobs");
+  testrailJobs
+    .command("get <product_id> <job_id>")
+    .description("Get job status and result")
+    .action((productId: string, jobId: string) => runTestrailJobGet(productId, jobId));
+
+  testrailJobs
+    .command("poll <product_id> <job_id>")
+    .description("Poll job until COMPLETED/FAILED/CANCELLED or timeout")
+    .option("--interval-ms <n>", "Poll interval in ms", (v: string) => Number(v))
+    .option("--timeout-ms <n>", "Max wait in ms (default 600000)", (v: string) => Number(v))
+    .action((productId: string, jobId: string, opts) =>
+      runTestrailJobPoll(productId, jobId, opts),
     );
 }

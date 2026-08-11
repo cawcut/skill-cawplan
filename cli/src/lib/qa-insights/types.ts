@@ -27,7 +27,8 @@ export type QAInsightsErrorType =
   | "validation"
   | "auth"
   | "not_found"
-  | "feature_disabled";
+  | "feature_disabled"
+  | "testrail";
 
 export type ReconcileStrategy = "five_field_strong_match" | "testpoint_count";
 
@@ -123,6 +124,8 @@ export interface QAInsightsMeta {
   product_id: string;
   requirement_id?: string;
   module_tree_node_id?: string;
+  job_id?: string;
+  preview_id?: string;
   dry_run: boolean;
 }
 
@@ -152,4 +155,37 @@ export interface QAInsightsReadEnvelope {
   data?: unknown;
   error?: QAInsightsError;
   meta: QAInsightsMeta;
+}
+
+export type ImportSourceType = "REQUIREMENT" | "INLINE" | "VERSION";
+
+export interface ImportPreviewSource {
+  type: ImportSourceType;
+  requirement_id?: string;
+  version_id?: string;
+}
+
+export type SectionStrategy = "AUTO_BY_GROUP" | "MAP_BY_MODULE" | "FIXED_SECTION";
+
+export interface ImportStepDraft {
+  content: string;
+  expected: string;
+}
+
+export interface InlineCaseDraft {
+  test_point_id?: string;
+  requirement_id?: string;
+  title: string;
+  group?: string;
+  module_tree_node_id?: string;
+  tags?: string[];
+  priority?: string;
+  importance?: string;
+  version_name?: string;
+  preconditions?: string;
+  steps?: ImportStepDraft[];
+  automation_type?: string | null;
+  automation_result?: string | null;
+  source_case_key?: string;
+  content_hash?: string;
 }
