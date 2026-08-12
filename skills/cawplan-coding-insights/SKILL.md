@@ -2,8 +2,8 @@
 version: 0.2.6
 name: cawplan-coding-insights
 description: |
-  Show AI coding usage insights: cost, tokens, session activity, and breakdowns by member, model, agent, project, product, or prompt quality.
-  Use when: the user asks about coding costs, AI usage stats, team session activity, model spend, agent usage, prompt quality, or productivity metrics.
+  Show AI coding usage insights: cost, tokens, session activity, and breakdowns by member, model, agent, project, product, or prompt quality. Also finds who on a Team (CawPlan product line) hasn't submitted their daily coding report for a given day or range.
+  Use when: the user asks about coding costs, AI usage stats, team session activity, model spend, agent usage, prompt quality, productivity metrics, or which team members haven't submitted/committed a coding report.
   NOT for: submitting reports, creating tickets, product health metrics, or release tracking.
 argument-hint: "[date range, member, product, model, agent, dimension]"
 allowed-tools: Bash
@@ -186,6 +186,43 @@ cawplan session human-inputs \
 ```bash
 cawplan session conversation --entry-id <entry_id>
 ```
+
+---
+
+### Team Submission Gap ("who hasn't submitted")
+
+"Team" here means a CawPlan **product line** (`cawplan product-lines ...` — the CLI's own `init` prompt literally calls this "Select CawPlan Team"). "Coding commit" means an uploaded AI daily session report (`cawplan-coding-commit`), not a git commit.
+
+There is no direct "who's on this team" API — only the reverse (`session user-products`: products assigned to *one* user). Building the roster means checking every user, which is expensive. Be upfront about the cost before running it.
+
+1. Resolve the Team name to a `product_line_id` (page and match by name client-side, same as `cawplan-product-report`'s Team workflow):
+   ```bash
+   cawplan product-lines list --page_size 100
+   ```
+   Ask the user to disambiguate if more than one name matches.
+
+2. Resolve the team's products:
+   ```bash
+   cawplan products list --product_line_id <product_line_id>
+   ```
+
+3. Build the roster. Page through every user, then check each one's assigned products:
+   ```bash
+   cawplan users list --page_size 100
+   cawplan session user-products --user-id <user_id>   # once per user
+   ```
+   Keep a user only if at least one returned product is in the team's product set (step 2). **This is one call per workspace user.** If `users list` returns more than ~30 people, stop and tell the user the exact call count, then **wait for an explicit go-ahead** before firing them — a heads-up notice is not enough, this needs a yes/no. Offer narrowing scope (e.g. a smaller team) as the alternative.
+
+4. Resolve the target date the same way as the rest of this skill (`today="$(date +%F)"`, or the exact date/range the user gave — don't pass a literal "today" string). Find who actually submitted in that window — session data only exists because someone ran the `cawplan-coding-commit` upload flow (there's no passive/automatic collection in this CLI), so a `user_id` appearing here means they submitted, not just "was active":
+   ```bash
+   cawplan session product-by-member --product-id <pid> --date <date> --page_size 100
+   # or --date-from/--date-to for a range; page through if a product has more submitters than one page
+   ```
+   Run once per product from step 2; `session by-member`'s response shape (`member`, `user_id`, `user_display_name`, per `references/CAWPLAN_OPEN_API.md`) is a direct join to the same `user_id` as `users list` — not a fuzzy name match. Union the `user_id`s across all results — this is the "submitted" set.
+
+5. **Diff**: roster (step 3) minus submitted (step 4) = who hasn't submitted for that window. Report by `user_display_name`.
+
+Caveat to state alongside the result: `session user-products` returns products a workspace admin has configured as assigned to that user — it is a config record, not a usage record. Someone who should be on this team but was never configured with a product assignment won't appear in the roster at all, so this workflow can't flag that specific gap (it will look like they don't exist rather than like they're missing a submission).
 
 ---
 
