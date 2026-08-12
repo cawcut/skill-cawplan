@@ -3,9 +3,9 @@ version: 0.2.6
 name: cawplan-testcase-generate
 description: |
   Expand archived test points into executable test cases: Markdown title-state preview first, expand steps on demand, export team CSV when SQA actively requests after review (read-only — does not write to CawPlan).
-  Use when: generating test cases (preview first), expanding executable steps in Markdown preview, exporting CSV when SQA asks to export, or hot handoff after A2 ("按上面的生成用例", "generate test cases from above", or similar); cold handoff via Requirement portal link or requirement_id.
+  Use when: generating test cases (preview first), expanding executable steps in Markdown preview, exporting CSV when SQA asks to export, or hot handoff after A2 ("按上面的生成用例", "generate test cases from above", or similar); cold handoff via Requirement link or requirement_id.
   NOT for: test-point coverage outlines (use `cawplan-testpoint-generate`); requirement analysis or archiving (use `cawplan-requirement-analyze`); viewing or editing archived test points in Test Suites (web UI); unarchived five-field drafts only (archive via A1 first).
-argument-hint: "[Requirement portal link or requirement_id, '生成测试用例', '按上面的生成用例' / 'generate test cases from above']"
+argument-hint: "[Requirement link or requirement_id, '生成测试用例', '按上面的生成用例' / 'generate test cases from above']"
 allowed-tools: Bash
 ---
 
@@ -31,7 +31,7 @@ On each **generate test cases** request, resolve the target in this order (**fal
 
 | Step | Condition | Action |
 |------|-----------|--------|
-| **P1** | Explicit reference (portal URL / `requirement_id` / switch) | **Cold handoff** — rebind |
+| **P1** | Explicit reference (Requirement link / `requirement_id` / switch) | **Cold handoff** — rebind |
 | **P2** | Hot-handoff phrasing matches **and** **valid binding** (`product_id` + `requirement_id` both present) | **Hot handoff** — use session binding |
 | **P3** | Requirement **draft** in session but **no** valid `requirement_id` (not saved) | → **框3「需求还没保存」** below |
 | **兜底** | No link, no valid binding, no draft | → **框1「锁定 Requirement」** below |
@@ -55,7 +55,7 @@ On each **generate test cases** request, resolve the target in this order (**fal
 | `header` | 锁定 Requirement |
 | `question` | 生成用例前，先确定是哪条 Requirement？ |
 | option 1 · `label` | 已有 Requirement 链接 |
-| option 1 · `description` | 选这个，把链接发我 |
+| option 1 · `description` | 选这个，把 Requirement 链接发我 |
 | option 2 · `label` | 没有 Requirement |
 | option 2 · `description` | 马上生成并保存到 CawPlan |
 
@@ -64,14 +64,14 @@ On each **generate test cases** request, resolve the target in this order (**fal
 ```text
 锁定 Requirement
 生成用例前，先确定是哪条 Requirement？
-1. 已有 Requirement 链接 —— 选这个，把链接发我
+1. 已有 Requirement 链接 —— 选这个，把 Requirement 链接发我
 2. 没有 Requirement —— 马上生成并保存到 CawPlan
-请回复序号，或直接粘贴链接、或直接说你想怎么做。
+请回复序号，或直接粘贴 Requirement 链接、或直接说你想怎么做。
 ```
 
 **落点**：
 
-- 选「已有 Requirement 链接」→ **请对方发链接**；拿到后（下条消息或工具自动 Other 框粘贴）→ Portal 解析（见下）；无法解析 → 复述两项 / 请重选。
+- 选「已有 Requirement 链接」→ **请对方发 Requirement 链接**；拿到 Requirement 链接后（下条消息或工具自动 Other 框粘贴）→ Portal 解析（见下）；无法解析 → 复述两项 / 请重选。
 - 选「没有 Requirement」→ 会话写 `resume_intent = testcase`，读 `cawplan-requirement-analyze` skill 接力。
 
 #### 框3 · 需求还没保存
@@ -122,7 +122,7 @@ On each **generate test cases** request, resolve the target in this order (**fal
 - Extract `product_id` + `requirement_id` from the string only.
 - **Forbidden**: `cawplan api GET {url}`, HTTP fetch, or any request to the portal path.
 
-**Only `requirement_id`, missing `product_id`**: ask for `product_id` or a full portal link.
+**Only `requirement_id`, missing `product_id`**: ask for `product_id` or a full Requirement link.
 
 **Rebind** replaces whole context. One active Requirement at a time.
 

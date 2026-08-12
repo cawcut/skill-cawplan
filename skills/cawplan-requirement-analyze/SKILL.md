@@ -22,7 +22,7 @@ cawplan skill check
 
 ### 1. Collect requirement material
 
-**入口路由前置检查（先判此项，再收素材）** — SQA 的意图是**延续 / 修改一条已归档的 Requirement**（给出 requirement `id`、portal 链接，或说「接着上次那条改」）？
+**入口路由前置检查（先判此项，再收素材）** — SQA 的意图是**延续 / 修改一条已归档的 Requirement**（给出 requirement `id`、Requirement 链接，或说「接着上次那条改」）？
 
 - **是** → 走 step 10 **Cold handoff** 载入服务端五字段作为草稿基线，**不要从头重分析**。理由：归档比对（`reconcile` strong match 与 `requirements update` 的 snapshot diff）是 **trim 后逐字节精确比对**，从头重分析必然产生措辞漂移，会让 reconcile 误判 `no_match`（重复建单风险）或 PATCH 误报变更键。
 - **否**（新需求分析）→ 继续本步收集素材。
@@ -676,7 +676,7 @@ Your part is to feed them the right inputs: the probe / `--desired` come from th
 
 **Fixed phrasing**: use the step 3 table sentences for inferred bullets — **no synonym rewrites**. Reworded bullets read as changed text and stop matching an earlier archive.
 
-**Cold handoff** (SQA provides a requirement `id`, portal link, or asks to continue an existing Requirement):
+**Cold handoff** (SQA provides a requirement `id`, Requirement link, or asks to continue an existing Requirement):
 
 ```bash
 cawplan api GET /api/v1/public/openapi/product/<product_id>/qa/requirements --query "module_tree_node_id=<node_id>"
@@ -873,7 +873,7 @@ After a create or update returns `outcome: SUCCESS`, report **only fields presen
 
 - Requirement `id` from `api.data.id` — set `bound_requirement_id` and refresh `five_field_snapshot`, `summary_snapshot`, and `ticket_id_snapshot` (step 10).
 - For an **update**, state clearly that the existing Requirement was **updated**, not newly created.
-- **`url`**: return `api.data.url` exactly as returned — portal deep link (e.g. `/product/.../qa-insights/test-suites/requirements/{id}`); prepend portal base to open in browser. **Never** construct `url` or pass it to `cawplan api`.
+- **Requirement 链接** (`url`): return `api.data.url` exactly as returned; prepend portal base to open in browser. **Present to SQA with label `Requirement 链接`** (not 「链接」). **Never** construct `url` or pass it to `cawplan api`.
 - **展示摘要** (`summary`) from `api.data.summary`, or `-` when it is `null`.
 - Product name and `product_id`.
 - Module-tree node name and `module_tree_node_id`.

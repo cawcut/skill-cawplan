@@ -3,9 +3,9 @@ version: 0.2.6
 name: cawplan-testpoint-generate
 description: |
   Generate test-point coverage outlines from an archived CawPlan Requirement (five fields), with an open-questions list, and batch-archive test points after SQA confirmation.
-  Use when: an archived Requirement needs test points or a coverage outline; cold handoff (Requirement portal link or id); hot handoff after A1 archive ("generate test points for this requirement"); incremental test-point supplements on an existing Requirement.
+  Use when: an archived Requirement needs test points or a coverage outline; cold handoff (Requirement link or id); hot handoff after A1 archive ("generate test points for this requirement"); incremental test-point supplements on an existing Requirement.
   NOT for: structuring or archiving Requirements (use `cawplan-requirement-analyze`); expanding test points into step-by-step cases or Excel (A3); viewing or editing archived test points or review in Test Suites (use the web UI); unarchived five-field drafts only (archive via A1 first).
-argument-hint: "[Requirement portal link or requirement_id, or 'continue the requirement just archived']"
+argument-hint: "[Requirement link or requirement_id, or 'continue the requirement just archived']"
 allowed-tools: Bash
 ---
 
@@ -25,7 +25,7 @@ On each **generate test points** request, resolve the target in this order (**fa
 
 | Step | Condition | Action |
 |------|-----------|--------|
-| **P1** | This message has an explicit reference (portal URL / `requirement_id` / switch to another Requirement) | **Cold handoff** — rebind; ignore prior session binding |
+| **P1** | This message has an explicit reference (Requirement link / `requirement_id` / switch to another Requirement) | **Cold handoff** — rebind; ignore prior session binding |
 | **P2** | Hot-handoff phrasing matches **and** session has **valid binding** (`product_id` + `requirement_id` both present) | **Hot handoff** — use current session binding |
 | **P3** | Session has a requirement **draft** (five-field draft from analysis) but **no** valid `requirement_id` (not saved yet) | → **框2「需求还没保存」** below. **Do not** call APIs or show a test-point table |
 | **兜底** | None of the above (no link, no valid binding, no draft) | → **框1「锁定 Requirement」** below |
@@ -36,7 +36,7 @@ On each **generate test points** request, resolve the target in this order (**fa
 
 #### 框1 · 锁定 Requirement（入口 / 兜底）
 
-**触发**：上表 **兜底**（无链接 / 无有效 binding / 无草稿）。P1 或有效 P2 → **不弹**。
+**触发**：上表 **兜底**（无 Requirement 链接 / 无有效 binding / 无草稿）。P1 或有效 P2 → **不弹**。
 
 **禁止**在选项中出现「用刚归档那条」（属有效 P2 热交接，自动走）。
 
@@ -47,7 +47,7 @@ On each **generate test points** request, resolve the target in this order (**fa
 | `header` | 锁定 Requirement |
 | `question` | 生成测试点前，先确定是哪条 Requirement？ |
 | option 1 · `label` | 已有 Requirement 链接 |
-| option 1 · `description` | 选这个，把链接发我 |
+| option 1 · `description` | 选这个，把 Requirement 链接发我 |
 | option 2 · `label` | 没有 Requirement |
 | option 2 · `description` | 马上生成并保存到 CawPlan |
 
@@ -56,19 +56,19 @@ On each **generate test points** request, resolve the target in this order (**fa
 ```text
 锁定 Requirement
 生成测试点前，先确定是哪条 Requirement？
-1. 已有 Requirement 链接 —— 选这个，把链接发我
+1. 已有 Requirement 链接 —— 选这个，把 Requirement 链接发我
 2. 没有 Requirement —— 马上生成并保存到 CawPlan
-请回复序号，或直接粘贴链接、或直接说你想怎么做。
+请回复序号，或直接粘贴 Requirement 链接、或直接说你想怎么做。
 ```
 
 **落点**：
 
-- 选「已有 Requirement 链接」→ **请对方发链接**（一句即可）；拿到链接后（下条消息，或工具自动 Other 框里直接粘贴）→ 按下方 **Portal URL** 规则解析（只解析、不 fetch）；仅 `requirement_id` 缺 `product_id` → 用大白话追问补 `product_id` 或完整链接。无法解析为链接 → 复述两项，请重选或补链接。
+- 选「已有 Requirement 链接」→ **请对方发 Requirement 链接**（一句即可）；拿到 Requirement 链接后（下条消息，或工具自动 Other 框里直接粘贴）→ 按下方 **Portal URL** 规则解析（只解析、不 fetch）；仅 `requirement_id` 缺 `product_id` → 用大白话追问补 `product_id` 或完整 Requirement 链接。无法解析为 Requirement 链接 → 复述两项，请重选或补 Requirement 链接。
 - 选「没有 Requirement」→ 读 `cawplan-requirement-analyze` skill，按 **跨 skill 接力**：会话写 `resume_intent = testpoint`；有草稿则跳过分析直达归档闸，无草稿则从收素材开始。
 
 #### 框2 · 需求还没保存
 
-**触发**：上表 **P3**（有需求草稿、无 `requirement_id`）。有效热交接 / 已给链接 → **不弹**。
+**触发**：上表 **P3**（有需求草稿、无 `requirement_id`）。有效热交接 / 已给 Requirement 链接 → **不弹**。
 
 **优先 AskUserQuestion**（**仅两个点选项**；Other 行由工具自动追加，**勿定义**）：
 
@@ -104,7 +104,7 @@ On each **generate test points** request, resolve the target in this order (**fa
 - Extract `product_id` + `requirement_id` from the string only.
 - **Forbidden**: `cawplan api GET {url}`, HTTP fetch, or any request to the portal path.
 
-**Only `requirement_id`, missing `product_id`**: ask for `product_id` or a full portal link. **Do not** guess the product or scan product lists.
+**Only `requirement_id`, missing `product_id`**: ask for `product_id` or a full Requirement link. **Do not** guess the product or scan product lists.
 
 **Rebind** replaces the whole context (`product_id`, `requirement_id`, five fields, test-point stubs). One active Requirement at a time. Same `requirement_id` as current binding = refresh same row, not rebind. Contradictory messages (new URL + "还是刚才那条") → ask; do not guess.
 
@@ -371,9 +371,9 @@ Branch on `outcome`:
 | `FAILURE` | Report `error.message` honestly (§9.6). `validation` = the body was built wrong; fix and resend. Do **not** fake success, do **not** blind-retry |
 | `UNKNOWN` | The batch may or may not have landed. **Never re-archive on a guess** → §10 |
 
-**Success receipt (§9.5)** — **only place SQA sees a count**. One short line. Use **`N` = `body.test_points.length`** (or response `test_points.length` on SUCCESS), e.g. `已归档 N 条到 Requirement〔标题〕下`. Requirement display name: `summary` → truncate `function_description` → `requirement_id`. If refresh returned a non-empty `url`, append it as-is on the same line or the next line. **If `url` is missing or null, say nothing about links** — never construct portal URLs, never note that `url` was unavailable.
+**Success receipt (§9.5)** — **only place SQA sees a count**. One short line. Use **`N` = `body.test_points.length`** (or response `test_points.length` on SUCCESS), e.g. `已归档 N 条到 Requirement〔标题〕下`. Requirement display name: `summary` → truncate `function_description` → `requirement_id`. If refresh returned a non-empty `url`, append with label **`Requirement 链接`** (not 「链接」) on the same line or the next line. **If `url` is missing or null, say nothing about links** — never construct portal URLs, never note that `url` was unavailable.
 
-**Forbidden in success receipt**: per-row tables; title lists; `id` lists; re-generated or summarized titles; any line about missing `url` (e.g. "未返回 url"/"无法附链接"); **apology or post-hoc recount explanations** (e.g. "之前误算成 13 条").
+**Forbidden in success receipt**: per-row tables; title lists; `id` lists; re-generated or summarized titles; any line about missing `url` (e.g. "未返回 url"/"无法附 Requirement 链接"); **apology or post-hoc recount explanations** (e.g. "之前误算成 13 条").
 
 On failure → report `error.message` (and `api.code` / `api.msg` when present) honestly (§9.6). Do not fake success or blind-retry.
 
