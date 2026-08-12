@@ -75,9 +75,9 @@ There is no team-scoped activity endpoint — `product-activity get` only takes 
    ```bash
    cawplan tickets search --product_line_ids <product_line_id> --start_date YYYY-MM-DD --end_date YYYY-MM-DD --page_size 100 --page_num 1
    ```
-   - For "last N days" asks, compute exact `--start_date`/`--end_date` (today minus N days) rather than guessing a `time_range` token — the documented `time_range` vocabulary (`1d`/`1w`/`1m`/`3m`/`6m`/`1y`, per other endpoints in `references/CAWPLAN_OPEN_API.md`) has no confirmed "N days" token and this endpoint's own docs don't list examples.
-   - Reserve `--time_range` for when the user's own words already match that vocabulary ("this week" → `1w`, "this month" → `1m`).
-   - Page through with `--page_num` until a page returns fewer than `--page_size` results — don't report counts from page 1 alone if the team has more tickets than one page.
+   - For "last N days" asks, either compute exact `--start_date`/`--end_date` (today minus N days) or pass `--time_range <N>d` directly — `tickets search`'s `time_range` accepts any `<number>[dwmy]` value (e.g. `7d`, `2w`), not just the `1d`/`1w`/`1m`/`3m`/`6m`/`1y` examples shown elsewhere.
+   - Reserve `--time_range` with a word-based unit for when the user's own words already match it ("this week" → `1w`, "this month" → `1m`).
+   - The response is a `CommonPageResp` (`data`, `page_num`, `page_size`, `total`) — page through while `page_num * page_size < total`, the same rule used in `cawplan-my-work`/`cawplan-ux-tracking` for this identical shape. Don't stop on a page that happens to come back full without checking `total` first.
 
 3. Optionally, resolve which products make up the team (for a per-product breakdown only if asked):
    ```bash

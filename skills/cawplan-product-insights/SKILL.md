@@ -40,7 +40,7 @@ cawplan skill check
 
    **Critical issues** (active blockers and incidents):
    ```bash
-   cawplan critical list --product_id <product_id>
+   cawplan critical list <product_id>
    ```
 
 ## Output

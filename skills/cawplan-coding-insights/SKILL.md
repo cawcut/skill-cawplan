@@ -199,7 +199,7 @@ There is no direct "who's on this team" API — only the reverse (`session user-
    ```bash
    cawplan product-lines list --page_size 100
    ```
-   Ask the user to disambiguate if more than one name matches.
+   Ask the user to disambiguate if more than one name matches. If no name matches at all, say so and ask for the correct Team name rather than guessing the closest one.
 
 2. Resolve the team's products:
    ```bash
@@ -215,8 +215,8 @@ There is no direct "who's on this team" API — only the reverse (`session user-
 
 4. Resolve the target date the same way as the rest of this skill (`today="$(date +%F)"`, or the exact date/range the user gave — don't pass a literal "today" string). Find who actually submitted in that window — session data only exists because someone ran the `cawplan-coding-commit` upload flow (there's no passive/automatic collection in this CLI), so a `user_id` appearing here means they submitted, not just "was active":
    ```bash
-   cawplan session product-by-member --product-id <pid> --date <date> --page_size 100
-   # or --date-from/--date-to for a range; page through if a product has more submitters than one page
+   cawplan session product-by-member --product-id <pid> --date <date> --page-size 100
+   # or --from/--to for a range; page through if a product has more submitters than one page
    ```
    Run once per product from step 2; `session by-member`'s response shape (`member`, `user_id`, `user_display_name`, per `references/CAWPLAN_OPEN_API.md`) is a direct join to the same `user_id` as `users list` — not a fuzzy name match. Union the `user_id`s across all results — this is the "submitted" set.
 

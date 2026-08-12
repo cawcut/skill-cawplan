@@ -19,11 +19,11 @@ cawplan skill check
 
 ## Background
 
-Tickets have a real `ux` field with three values: `NOT_REQUIRED`, `PENDING`, `READY`. "Needs UX" means `ux = PENDING` — `NOT_REQUIRED` means this ticket was never flagged as needing UX at all, and `READY` means UX is done. Never treat `NOT_REQUIRED` as "needs UX" — that's the opposite of what it means.
+Tickets have a real `ux` field with three values: `NOT_REQUIRED`, `PENDING`, `READY` (documented in `references/CAWPLAN_OPEN_API.md` under "VersionTicket fields of note"). "Needs UX" means `ux = PENDING` — `NOT_REQUIRED` means this ticket was never flagged as needing UX at all, and `READY` means UX is done. Never treat `NOT_REQUIRED` as "needs UX" — that's the opposite of what it means.
 
 This field is only present on the full ticket record returned by `cawplan tickets search` / `tickets get` — it is **not** on `tickets poll`'s lightweight shape, so this skill uses `search`, not `poll`, unlike `cawplan-plan-track`.
 
-`tickets search` requires `--time_range` or `--start_date`+`--end_date` (no exemption for `--version_ids`/`--product_line_ids`/`--priority` alone). Since "needs UX" queries want every matching ticket regardless of age, use a deliberately maximal window rather than guessing a narrower one that could silently drop older tickets:
+`tickets search` requires `--time_range` or `--start_date`+`--end_date` (no exemption for `--version_ids`/`--product_line_ids`/`--priority` alone) — see `references/CAWPLAN_OPEN_API.md`'s "Canonical workaround for 'every matching ticket regardless of age' queries." Since "needs UX" queries want every matching ticket, use the maximal-window option from that section rather than guessing a narrower one that could silently drop older tickets:
 ```
 --start_date 2000-01-01 --end_date <today>
 ```
@@ -36,7 +36,7 @@ State this window choice to the user once, so it's clear the query isn't missing
 | Input | Flow |
 |---|---|
 | A specific product + version ("这个版本需要UX跟进的ticket") | **A — Version scope** |
-| A specific product, no version given, not framed by priority or team | **A — Version scope**, but ask the user whether they mean a specific version or all versions of the product (all-versions falls through to Workflow B's product-only pattern, `--product_ids` with no `--version_ids`) |
+| A specific product, no version given, not framed by priority or team | **A — Version scope**, but ask the user whether they mean a specific version or all versions of the product — "all versions" runs Workflow A step 2 with `--product_ids` and no `--version_ids`, **no priority filter added** (that's Workflow B's filter, not applicable here just because the version was dropped) |
 | High-priority + no specific version, or explicitly cross-version | **B — Priority scope** |
 | A Team / product line ("某个team尚未提供UX的清单") | **C — Team scope** |
 
@@ -52,6 +52,8 @@ State this window choice to the user once, so it's clear the query isn't missing
    cawplan tickets search --version_ids <version_id> --start_date 2000-01-01 --end_date <today> --page_size 100 --page_num 1
    ```
    Page through fully (see Pagination above). Keep only results where `ux == "PENDING"`.
+
+   For "all versions of this product" (per Entry Routing), drop `--version_ids` and use `--product_ids <product_id>` instead — everything else in this step is unchanged, and no priority filter is added just because there's no version.
 
 ## Workflow B — Priority scope
 

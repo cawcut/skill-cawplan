@@ -19,7 +19,7 @@ cawplan skill check
 
 ## Important CLI constraint — read before writing any ticket-fetch command
 
-`cawplan tickets search` **requires** `--time_range` or `--start_date`+`--end_date` unless you're doing an exact `--unique_ids`/`--display_ids`/`--parent_ids` lookup — `--version_ids`/`--product_ids`/`--priority`/`--type` alone do **not** satisfy this and the command exits with an error before it even calls the API. Release tracking needs tickets regardless of how long ago they were touched, so **this skill does not use `tickets search` for version-wide ticket lists** — it uses `tickets poll` instead, which has no time window at all. `tickets poll` in turn does **not** accept `--version_ids` (only `--product_ids`/`--product_line_ids`) — filter down to the target version client-side from its response's `version_id` field. Don't reintroduce a bare `tickets search --version_ids ...` call anywhere in this skill; it will fail.
+`cawplan tickets search` **requires** `--time_range` or `--start_date`+`--end_date` unless you're doing an exact `--unique_ids`/`--display_ids`/`--parent_ids` lookup — `--version_ids`/`--product_ids`/`--priority`/`--type` alone do **not** satisfy this and the command exits with an error before it even calls the API (see `references/CAWPLAN_OPEN_API.md`'s "Canonical workaround for 'every matching ticket regardless of age' queries" — this skill picks that section's option 2). Release tracking needs tickets regardless of how long ago they were touched, so **this skill does not use `tickets search` for version-wide ticket lists** — it uses `tickets poll` instead, which has no time window at all. `tickets poll` in turn does **not** accept `--version_ids` (only `--product_ids`/`--product_line_ids`) — filter down to the target version client-side from its response's `version_id` field. Don't reintroduce a bare `tickets search --version_ids ...` call anywhere in this skill; it will fail.
 
 ## Workflow
 
@@ -27,7 +27,7 @@ cawplan skill check
    ```bash
    cawplan products list --search "<product name>"
    ```
-   Keep the `product_line_id` (or nested `product_line.unique_id` — check the actual field name in the response) from this record.
+   If more than one product matches, list the candidates (name + `product_id`) and ask the user to pick — do not guess. Keep the `product_line_id` (or nested `product_line.unique_id` — check the actual field name in the response) from this record.
 
 2. Resolve version name to `version_id` (skip if already known):
    ```bash
@@ -56,7 +56,7 @@ cawplan skill check
    ```bash
    cawplan tickets poll --product_ids <product_id> --status <every key from step 4, comma-separated> --page_size 200 --page_num 1
    ```
-   Page through with `--page_num` if the product has more tickets than one page. This returns tickets across *every* version of the product (poll has no version filter) — filter the results client-side to `version_id == <target version_id>` to get this version's set (per the API reference, poll's response includes `version_id` per ticket precisely so this filtering is possible). Keep both the version-filtered set and the full unfiltered set in memory: steps 6-12 work off the version-filtered set, but step 11 (blocking check) can save a lookup by checking the unfiltered set first when a blocking ticket belongs to a different version. Each result already carries `status`, `priority`, `type`, `assignees`, `updated_at`, `version_id` — steps 6-12 are pure filters over this one dataset, no further ticket-list fetches needed except step 11's relation calls.
+   Page through with `--page_num` if the product has more tickets than one page. This returns tickets across *every* version of the product (poll has no version filter) — filter the results client-side to `version_id == <target version_id>` to get this version's set (per the API reference, poll's response includes `version_id` per ticket precisely so this filtering is possible). Keep both the version-filtered set and the full unfiltered set in memory: steps 6-12 work off the version-filtered set, but step 10 (blocking check) can save a lookup by checking the unfiltered set first when a blocking ticket belongs to a different version. Each result already carries `status`, `priority`, `type`, `assignees`, `updated_at`, `version_id` — steps 6-12 are pure filters over this one dataset, no further ticket-list fetches needed except step 10's relation calls.
 
 6. **Unresolved Critical bugs** (only when the user asks about release risk / blockers — skip for a plain progress check): CawPlan tickets have no separate "Blocker" priority; treat `priority=CRITICAL` as the "Blocker" tier. From step 5's version-filtered set: `type=BUGFIX`, `priority=CRITICAL`, status category (step 4's map) not `COMPLETE`/`CANCELED`.
 

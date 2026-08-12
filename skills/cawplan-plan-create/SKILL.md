@@ -30,6 +30,7 @@ cawplan skill check
    ```bash
    cawplan products list --search "<product name>"
    ```
+   If more than one product matches, list the candidates (name + `product_id`) and ask the user to pick — do not guess. This applies whether reached from Workflow A or Workflow B.
 
 2. Create the version:
    ```bash
@@ -54,7 +55,7 @@ CawPlan has no effort-estimate or story-point field anywhere in the ticket schem
    ```bash
    cawplan backlog list <product_id> --page_size 100
    ```
-   Page through fully — a partial backlog list makes dedup unreliable, not just incomplete. Keep each result's `unique_id` (not `display_id` — the display ID is for showing to the user, the API calls need `unique_id`), plus its current `type`/`priority`, for steps 4 and 6.
+   Page through fully — a partial backlog list makes dedup unreliable, not just incomplete. The response is a `CommonPageResp` (`data`, `page_num`, `page_size`, `total`); keep incrementing `page_num` while `page_num * page_size < total`, don't stop after one page just because it came back full. Keep each result's `unique_id` (not `display_id` — the display ID is for showing to the user, the API calls need `unique_id`), plus its current `type`/`priority`, for steps 4 and 6.
 3. Extract candidate work items from the pasted OKRs/goals — one ticket per distinct goal/initiative the text actually states. Don't invent scope, sub-tasks, or acceptance criteria that aren't in the source text; if a goal is too vague to turn into a concrete ticket, list it as a question for the user instead of guessing.
 4. **Dedupe against the backlog** for each candidate, by meaning, not exact string match:
    - Strong match (the backlog item is clearly the same piece of work) → don't create a duplicate ticket. Plan to move the existing backlog ticket into the new version instead (see step 6); carry over its existing `unique_id`, `type`, and `priority` from step 2 — a moved ticket's preview row reflects what it actually is today, not Workflow A's FEATURE/MEDIUM defaults (those only apply to genuinely new tickets).
