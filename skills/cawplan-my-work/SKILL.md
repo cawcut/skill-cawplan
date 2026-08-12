@@ -2,8 +2,8 @@
 version: 0.2.6
 name: cawplan-my-work
 description: |
-  Show the current user's own CawPlan work: tickets and critical issues assigned to them, grouped by product line, product, and version, as a single priority-sorted open-ticket list, or as a list of their own tickets that got reopened with the reason, optionally narrowed to one project/version.
-  Use when: the user asks what's on their plate, their current tasks, "my tickets", "my open tickets by priority", "my work", their tasks for a specific project/version, or which of their tickets got reopened and why, without giving a ticket ID or asking to search/filter broadly across other people.
+  Show the current user's own CawPlan work: tickets and critical issues assigned to them, grouped by product line, product, and version, as a single priority-sorted open-ticket list, as a list of their own tickets that got reopened with the reason, their tickets' linked repo PRs/commits, or tickets that have a linked PR/commit but whose status hasn't moved forward — optionally narrowed to one project/version.
+  Use when: the user asks what's on their plate, their current tasks, "my tickets", "my open tickets by priority", "my work", their tasks for a specific project/version, which of their tickets got reopened and why, what PRs/commits are linked to today's tickets, or which tickets already have a PR/commit but the ticket status wasn't updated — without giving a ticket ID or asking to search/filter broadly across other people.
   NOT for: another person's tasks, searching/filtering tickets by arbitrary criteria (use ad-hoc `cawplan tickets search`), creating or updating tickets, or release tracking.
 argument-hint: "[optional: product/version to narrow to]"
 allowed-tools: Bash
@@ -46,6 +46,19 @@ cawplan skill check
    - As a labeling aid only, resolve each distinct product line's statuses (`cawplan product-lines statuses <product_line_id>`) to check whether the ticket's status right after a reopen transition has "reopen" in its `display_name` — if so you can call it out as "reopened" by name in the report; if not (e.g. it went straight back to `in_progress` or `TESTING`), it's still a reopen per the history transition, just report the actual status name instead of assuming there's a dedicated label for it.
    - For each reopen event, report the timestamp and actor from that history entry if present, and the reason: use the history entry's own comment if the API returns one on status-change events *and it's plausibly about that specific transition* (a general free-text comment field that isn't tied to the transition shouldn't be presented as if it explains the reopen); otherwise fall back to the ticket's `progress_comment` and label it explicitly as "latest progress note, not necessarily the reopen reason" rather than presenting it as if it directly explains the reopen. If neither exists, say the reason wasn't recorded — do not infer a reason from the ticket title or description. If the `tickets history` call itself fails or returns nothing, treat that ticket the same as "no reopen found," not as evidence of a missing reason.
 
+7. **My tickets' linked repo PRs/commits** (only when asked — "today's tickets with their PR/commits", "整理我当天任务涉及的tickets和PR/commit"): tickets carry a `links` array (`platform`, `url`, `title`, `external_id`) that can hold GitHub PR/commit URLs — `todos`/`poll` don't return this field, only the full ticket record does, so this step uses `tickets search` instead of steps 1-6's `todos` call.
+   ```bash
+   cawplan tickets search --assignees <user_id> --start_date <date> --end_date <date> --page_size 100 --page_num 1
+   ```
+   Default `<date>`-`<date>` to today for both start and end unless the user asked for a different day/range; treat `end_date` as inclusive of the whole day unless a result set proves otherwise. This endpoint's date filter isn't documented as filtering on `created_at` vs `updated_at` — treat it as an assumption (most likely `updated_at`, matching "tickets active in this window"), and say so if the returned set looks inconsistent with what the user expects.
+   `platform` on a link isn't a reliable fixed value — the same manually-added GitHub link can show up as `platform: "LINK"` — so classify by the `url` itself: contains `/pull/` → PR, contains `/commit/` → commit, otherwise report it as a plain link with its `title`. A ticket with an empty `links` array has no repo links; say so rather than omitting it from the report.
+   Page through using the response's `total`/`page_num`/`page_size` fields (keep fetching while `page_num * page_size < total`) rather than assuming one page of 100 covers everything.
+
+8. **Ticket has a PR/commit linked but status hasn't moved** (only when asked — "哪些ticket已经有PR/commit但状态还没更新"): reuse step 7's fetch mechanism (`tickets search`, needs the full record for `links`) and its pagination rule. Scope: if the user names a product/version, use `--product_ids`/`--version_ids` in place of `--assignees`; if they explicitly say "my"/自己的, use `--assignees <user_id>`. If they specify neither (a bare "which tickets have a PR/commit but no status update"), default to your own tickets (`--assignees <user_id>`) — this skill's whole scope is the current user's work — but say plainly that you defaulted to "your tickets" and that they can ask again scoped to a specific product/version if they meant something broader. Use a wide date window (`--start_date 2000-01-01 --end_date <today>`, same convention as `cawplan-ux-tracking`) since a stale ticket by definition hasn't been touched recently — a narrow "today" window would systematically miss the exact tickets this is looking for.
+   - A ticket "has a PR/commit" when any of its `links` has a `url` containing `/pull/` or `/commit/` — either one counts, since an open PR (not yet merged into a commit reference) is just as much a sign of active code work as a bare commit link.
+   - "Status hasn't updated" means its `status_display.category` (or resolve via `product-lines statuses` if `status_display` isn't present in the response) is still `UNSTARTED` or `STARTED` — a ticket already at `TESTING`/`COMPLETE` has clearly progressed, even if nobody manually closed the loop on the PR/commit link.
+   - Report each qualifying ticket with the PR/commit link(s) found (and whether each is a PR or a commit, same classification as step 7) and its current status, so the user can judge whether the ticket genuinely needs a status bump.
+
 ## Output
 
 - Group by product line → product → version, matching the API's own grouping — don't re-flatten it into one undifferentiated list, **unless step 5 ran**, in which case present the single priority-sorted list instead (still showing product/version per row).
@@ -55,6 +68,8 @@ cawplan skill check
 - If step 3 narrowed the scope, say what it was narrowed to before listing results.
 - If there's genuinely nothing assigned, say so plainly rather than returning an empty section with no comment.
 - If step 6 ran: one entry per reopened ticket (display ID, title, reopened-at, reopened-by if known, reason or "not recorded"). If none of your tickets were reopened, say so explicitly rather than showing an empty list.
+- If step 7 ran: one entry per ticket in the fetched window, its PRs/commits/other links (or "no repo links"); note the date-field assumption once, not per ticket.
+- If step 8 ran: one entry per qualifying ticket — display ID, title, current status, and the PR/commit link(s) that triggered the flag. If none qualify, say so explicitly.
 
 ## References
 
