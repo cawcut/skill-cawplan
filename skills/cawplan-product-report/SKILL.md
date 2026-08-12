@@ -73,10 +73,10 @@ There is no team-scoped activity endpoint — `product-activity get` only takes 
 
 2. Fetch ticket changes across the whole team — this is the ticket-change data the report is built from:
    ```bash
-   cawplan tickets search --product_line_ids <product_line_id> --start_date YYYY-MM-DD --end_date YYYY-MM-DD --page_size 100 --page_num 1
+   cawplan tickets search --product_line_ids <product_line_id> --start_date 2000-01-01 --end_date <today> --updated_start_date YYYY-MM-DD --updated_end_date YYYY-MM-DD --page_size 100 --page_num 1
    ```
-   - For "last N days" asks, either compute exact `--start_date`/`--end_date` (today minus N days) or pass `--time_range <N>d` directly — `tickets search`'s `time_range` accepts any `<number>[dwmy]` value (e.g. `7d`, `2w`), not just the `1d`/`1w`/`1m`/`3m`/`6m`/`1y` examples shown elsewhere.
-   - Reserve `--time_range` with a word-based unit for when the user's own words already match it ("this week" → `1w`, "this month" → `1m`).
+   - **Use `--updated_start_date`/`--updated_end_date` for the report window, not `--start_date`/`--end_date`** — the latter filter ticket *creation* time, not last-changed time (see `references/CAWPLAN_OPEN_API.md`), so on their own they'd miss a ticket created earlier that was actually completed/progressed inside the window — silently understating "what changed." `--start_date`/`--end_date` still has to be passed (the endpoint requires a created_at window or `--time_range`), so pin it to a maximal range (`2000-01-01` to today, the same workaround `cawplan-ux-tracking` uses) so it doesn't itself narrow results — `--updated_start_date`/`--updated_end_date` does the actual filtering. A ticket created inside the window is still caught (its `updated_at` starts equal to `created_at`), so this is a strict superset of the old created_at-only behavior, not a narrower one.
+   - For "last N days" asks, compute the exact `--updated_start_date`/`--updated_end_date` (today minus N days) client-side — `time_range` only applies to the created_at pair, not the updated_at pair.
    - The response is a `CommonPageResp` (`data`, `page_num`, `page_size`, `total`) — page through while `page_num * page_size < total`, the same rule used in `cawplan-my-work`/`cawplan-ux-tracking` for this identical shape. Don't stop on a page that happens to come back full without checking `total` first.
 
 3. Optionally, resolve which products make up the team (for a per-product breakdown only if asked):
@@ -97,9 +97,9 @@ Same ticket-change approach as Workflow B, scoped to one person instead of a who
 
 2. Fetch their ticket changes in the period:
    ```bash
-   cawplan tickets search --assignees <user_id> --start_date YYYY-MM-DD --end_date YYYY-MM-DD --page_size 100 --page_num 1
+   cawplan tickets search --assignees <user_id> --start_date 2000-01-01 --end_date <today> --updated_start_date YYYY-MM-DD --updated_end_date YYYY-MM-DD --page_size 100 --page_num 1
    ```
-   If the user also scoped to a product/version, add `--product_ids <id>` / `--version_ids <id>` (resolve the same way as Workflow A step 1). Apply the same date-computation and pagination rules as Workflow B step 2 (compute exact dates for "last N days," page through fully).
+   If the user also scoped to a product/version, add `--product_ids <id>` / `--version_ids <id>` (resolve the same way as Workflow A step 1). Apply the same `--updated_start_date`/`--updated_end_date`-over-`--start_date`/`--end_date` rule, date-computation, and pagination rules as Workflow B step 2 — a ticket assigned to this member long ago but only completed inside the window must not be missed just because it wasn't *created* inside it.
 
 ## Output
 
