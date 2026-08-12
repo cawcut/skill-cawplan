@@ -2,8 +2,8 @@
 version: 0.2.6
 name: cawplan-coding-insights
 description: |
-  Show AI coding usage insights: cost, tokens, session activity, and breakdowns by member, model, agent, project, product, or prompt quality. Also finds who on a Team (CawPlan product line) hasn't submitted their daily coding report for a given day or range.
-  Use when: the user asks about coding costs, AI usage stats, team session activity, model spend, agent usage, prompt quality, productivity metrics, or which team members haven't submitted/committed a coding report.
+  Show AI coding usage insights: cost, tokens, session activity, and breakdowns by member, model, agent, project, product, or prompt quality. Also finds who on a Team (CawPlan product line) hasn't submitted their daily coding report, rolls up a Team's cost, flags high-cost/low-diff sessions, and flags a member's cost growth.
+  Use when: the user asks about coding costs, AI usage stats, team session activity, model spend, agent usage, prompt quality, productivity metrics, which team members haven't submitted/committed a coding report, a Team's total coding cost, sessions with disproportionately high cost vs code changed, or whether someone's coding cost has grown notably.
   NOT for: submitting reports, creating tickets, product health metrics, or release tracking.
 argument-hint: "[date range, member, product, model, agent, dimension]"
 allowed-tools: Bash
@@ -223,6 +223,47 @@ There is no direct "who's on this team" API — only the reverse (`session user-
 5. **Diff**: roster (step 3) minus submitted (step 4) = who hasn't submitted for that window. Report by `user_display_name`.
 
 Caveat to state alongside the result: `session user-products` returns products a workspace admin has configured as assigned to that user — it is a config record, not a usage record. Someone who should be on this team but was never configured with a product assignment won't appear in the roster at all, so this workflow can't flag that specific gap (it will look like they don't exist rather than like they're missing a submission).
+
+---
+
+### Team Cost Rollup
+
+There's no `product_line_id` parameter on any `session` cost command — only `--product-id`. Roll it up yourself:
+
+1. Resolve the Team to `product_line_id` and its products, same as Team Submission Gap steps 1-2.
+2. For each product:
+   ```bash
+   cawplan session product-overview --product-id <pid> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
+   cawplan session product-by-model --product-id <pid> --from <YYYY-MM-DD> --to <YYYY-MM-DD>   # only if the user asked for a model breakdown
+   ```
+3. Sum cost/tokens across products for the total. For the model breakdown, sum matching model names across products rather than reporting per-product tables, unless the user asked to see it per-product. If the summed by-model total doesn't match the `product-overview` total (e.g. a model bucket the by-model endpoint doesn't categorize), report both numbers rather than silently picking one — don't assume they'll always reconcile.
+
+This is one or two calls per product on the team — mention the count if the team has an unusually large number of products, same spirit as the roster-cost warning above (though this is normally much cheaper than the per-user roster walk).
+
+---
+
+### Cost/Diff Anomaly Detection ("high cost, low diff")
+
+Uploaded reports carry `files_changed` / `files_added` / `files_deleted` per session alongside cost — this flags sessions where the two are out of proportion.
+
+1. Determine scope from the request:
+   - **A member** → `cawplan session member-detail --member <git-username>` — check the response for whether it accepts/returns a date range; if it doesn't, say the check covers that member's full available history, not just "recent," rather than silently implying it's date-scoped.
+   - **A product** → `cawplan session product-sessions --product-id <id>` (add `--from`/`--to` if the API's date filters apply; check the actual response for the exact field names since this hasn't been run against live data yet — confirm `files_changed` is present before relying on it)
+   - **The whole workspace** → same cost/scale problem as Team Submission Gap: `cawplan session members` then `member-detail` per member. Apply the identical rule — tell the user the call count and get an explicit go-ahead before firing more than ~30 calls.
+2. Don't invent a fixed cost or diff threshold (e.g. "cost > $50") — the org's normal range is unknown to you. Instead, rank the fetched sessions by cost descending and by `files_changed` ascending, and surface whichever sessions sit disproportionately in both directions at once — with small result sets (roughly under ~10 sessions) don't force a strict quartile cutoff, since it can mechanically exclude an obvious outlier by a hair; use the ranking as a guide and flag the standout(s) with their numbers shown, noting when a flagged session narrowly misses a strict quartile cut. State that the flagging is relative to the fetched set, not an absolute cutoff, and show the actual cost/files_changed numbers so the user can judge for themselves.
+3. Don't treat a session with zero files_changed as automatically suspicious without checking — legitimate non-coding sessions (planning, research, review-only) can have real cost and no diff. Say what the session's `session_name`/project looks like alongside the numbers rather than just flagging it as an anomaly.
+
+---
+
+### Cost Growth Detection (member)
+
+1. Resolve the member (same pattern as other member-scoped views in this skill).
+2. Pick two comparable, non-overlapping periods of equal length. Default to "last 30 days" vs. "the 30 days before that" if the user doesn't specify; cap the total lookback at 3 months unless they explicitly ask for more.
+   ```bash
+   cawplan session user-trend --user-id <user_id> --from <period1_start> --to <period1_end>
+   cawplan session user-trend --user-id <user_id> --from <period2_start> --to <period2_end>
+   ```
+3. Compute percent change in cost between the two periods. Report the actual number (e.g. "+340% vs. the prior period, $42 → $185") rather than a vague "significant increase" — don't apply your own judgment threshold for what counts as "growth"; state the number and let the user decide if it's notable. If the prior period's cost was $0, percent change is undefined — report the raw before/after numbers ("$0 → $X, new activity this period") instead of computing a percentage or dividing by zero.
 
 ---
 
