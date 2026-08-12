@@ -192,11 +192,24 @@ export function extractTicketRefsFromHumanInputs(inputs: HumanInput[] | undefine
     return [...new Set((inputs ?? []).flatMap(extractTicketRefsFromHumanInput))];
 }
 
+export interface ApplyTicketRefsOptions {
+    /**
+     * Reject a resolved ticket whose product doesn't match the session's product.
+     * Defaults to true: explicit/cached ref sources (assignment-ticket-cache) should
+     * never silently cross products. Human-input-inferred refs are lower confidence
+     * and are surfaced for web review regardless of product match (see
+     * applyHumanInputTicketRefsToSessions), so that caller opts out.
+     */
+    requireProductMatch?: boolean;
+}
+
 export async function applyTicketRefsToSessions(
     sessions: SessionData[],
     refsBySession: string[][],
-    resolveContexts: (refs: string[]) => Promise<AiSessionTicketContext[]> = resolveTicketContexts
+    resolveContexts: (refs: string[]) => Promise<AiSessionTicketContext[]> = resolveTicketContexts,
+    options: ApplyTicketRefsOptions = {}
 ): Promise<number> {
+    const requireProductMatch = options.requireProductMatch ?? true;
     const normalizedRefsBySession = refsBySession.map(uniqueStrings);
     const allRefs = [...new Set(normalizedRefsBySession.flat())];
     if (allRefs.length === 0) return 0;
@@ -219,7 +232,7 @@ export async function applyTicketRefsToSessions(
             .map((ref) => contextByRef.get(ref))
             .filter((context): context is AiSessionTicketContext => Boolean(context))
             .filter(ticketContextIsResolved)
-            .filter((context) => ticketContextMatchesSessionProduct(sessions[i]!, context));
+            .filter((context) => !requireProductMatch || ticketContextMatchesSessionProduct(sessions[i]!, context));
         if (sessionContexts.length === 0) continue;
         const before = sessions[i]!.ticket_ids?.length ?? 0;
         sessions[i] = attachContextsToSession(sessions[i]!, sessionContexts);
@@ -235,7 +248,8 @@ export async function applyHumanInputTicketRefsToSessions(
     return applyTicketRefsToSessions(
         sessions,
         sessions.map((session) => extractTicketRefsFromHumanInputs(session.human_inputs)),
-        resolveContexts
+        resolveContexts,
+        {requireProductMatch: false}
     );
 }
 
