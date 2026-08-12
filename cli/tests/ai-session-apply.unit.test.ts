@@ -29,7 +29,7 @@ describe("applyProductRepoMappingToProject", () => {
                 session_id: "s1",
                 session_name: "One",
                 session_title: "One",
-                project: "flow-cawplan-skill",
+                project: "skill-cawplan",
                 cwd: "/tmp",
                 time_range: {display: "", timezone: "UTC", start: "2026-06-24T09:00:00.000Z"},
                 model_usage: {},
@@ -64,15 +64,15 @@ describe("applyProductRepoMappingToProject", () => {
         const updated = applyProductRepoMappingToProject(daily, daily.sessions[0], {
             product_id: "prod-cawplan",
             product_name: "CawPlan",
-            repo_name: "flow-cawplan-skill",
+            repo_name: "skill-cawplan",
             repo_url: "https://github.com/cawcut/skill-cawplan",
         });
 
         expect(updated).toBe(2);
         expect(daily.sessions[0].product_id).toBe("prod-cawplan");
         expect(daily.sessions[1].product_id).toBe("prod-cawplan");
-        expect(daily.sessions[0].project).toBe("flow-cawplan-skill");
-        expect(daily.sessions[1].project).toBe("flow-cawplan-skill");
+        expect(daily.sessions[0].project).toBe("skill-cawplan");
+        expect(daily.sessions[1].project).toBe("skill-cawplan");
     });
 
     test("uses repo_url short name for session.project when repo_name was customized", () => {
@@ -105,7 +105,7 @@ describe("applyProductRepoMappingToProject", () => {
             repo_url: "https://github.com/cawcut/skill-cawplan",
         });
 
-        expect(daily.sessions[0].project).toBe("flow-cawplan-skill");
+        expect(daily.sessions[0].project).toBe("skill-cawplan");
     });
 
     test("applies product-only mapping without repo fields", () => {

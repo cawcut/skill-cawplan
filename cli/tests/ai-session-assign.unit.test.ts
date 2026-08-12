@@ -13,7 +13,7 @@ const mappings = [
     {
         product_id: "prod-cawplan",
         product_name: "CawPlan",
-        repo_name: "flow-cawplan-skill",
+        repo_name: "skill-cawplan",
         repo_url: "https://github.com/cawcut/skill-cawplan",
     },
     {
@@ -28,23 +28,23 @@ describe("assignment repo matching", () => {
     test("repoKeys includes full path and short repo name", () => {
         expect(repoKeys("cawcut/skill-cawplan")).toEqual([
             "cawcut/skill-cawplan",
-            "flow-cawplan-skill",
+            "skill-cawplan",
         ]);
     });
 
     test("repoNameFromGitHubUrl returns short repo name without .git suffix", () => {
         expect(repoNameFromGitHubUrl("https://github.com/cawcut/skill-cawplan.git")).toBe(
-            "flow-cawplan-skill"
+            "skill-cawplan"
         );
     });
 
     test("findMappingForSession matches session.project short name", () => {
         const mapping = findMappingForSession(
-            {project: "flow-cawplan-skill", repos_touched: []},
+            {project: "skill-cawplan", repos_touched: []},
             mappings
         );
         expect(mapping?.product_id).toBe("prod-cawplan");
-        expect(mapping?.repo_name).toBe("flow-cawplan-skill");
+        expect(mapping?.repo_name).toBe("skill-cawplan");
     });
 
     test("findMappingForSession matches repos_touched when project is unrelated", () => {
@@ -62,7 +62,7 @@ describe("assignment repo matching", () => {
             },
             mappings
         );
-        expect(mapping?.repo_name).toBe("flow-cawplan-skill");
+        expect(mapping?.repo_name).toBe("skill-cawplan");
     });
 
     test("sessionRepoCandidateKeys merges project and repos_touched keys", () => {
@@ -71,7 +71,7 @@ describe("assignment repo matching", () => {
             repos_touched: [{repo: "cawcut/skill-cawplan", files: 1, added: 0, deleted: 0}],
         });
         expect(keys.has("uid.core-product")).toBe(true);
-        expect(keys.has("flow-cawplan-skill")).toBe(true);
+        expect(keys.has("skill-cawplan")).toBe(true);
         expect(findMappingForSession({project: "uid.core-product", repos_touched: []}, mappings)?.repo_name).toBe(
             "uid.core-product"
         );
@@ -85,7 +85,7 @@ describe("assignment repo matching", () => {
 
     test("findMappingForSession matches mapping.repo_url when repo_name differs", () => {
         const mapping = findMappingForSession(
-            {project: "flow-cawplan-skill", repos_touched: []},
+            {project: "skill-cawplan", repos_touched: []},
             [
                 {
                     product_id: "prod-cawplan",
@@ -103,12 +103,12 @@ describe("assignment repo matching", () => {
                 repo_name: "Custom Display Label",
                 repo_url: "https://github.com/cawcut/skill-cawplan",
             })
-        ).toBe("flow-cawplan-skill");
+        ).toBe("skill-cawplan");
     });
 
     test("findMappingForSession matches session.project against customized repo_name via repo_url", () => {
         const mapping = findMappingForSession(
-            {project: "flow-cawplan-skill", repos_touched: []},
+            {project: "skill-cawplan", repos_touched: []},
             [
                 {
                     product_id: "prod-cawplan",
@@ -124,7 +124,7 @@ describe("assignment repo matching", () => {
     test("findMappingForSession warns when multiple mappings match", () => {
         const warnings: string[] = [];
         const mapping = findMappingForSession(
-            {project: "flow-cawplan-skill", repos_touched: []},
+            {project: "skill-cawplan", repos_touched: []},
             [
                 mappings[0],
                 {...mappings[0], product_id: "prod-dup"},
@@ -179,10 +179,13 @@ describe("assignment repo matching", () => {
             human_inputs: [],
         };
 
-        const updated = autoAssignAllFromMappings(daily, mappings);
+        // Mock the git remote resolver instead of relying on the real checkout's
+        // origin remote — this test is specifically about "folder name differs
+        // from git repo name", not about whatever repo this suite happens to run in.
+        const updated = autoAssignAllFromMappings(daily, mappings, () => "cawcut/skill-cawplan");
 
         expect(updated).toBe(1);
-        expect(daily.sessions[0]?.project).toBe("flow-cawplan-skill");
+        expect(daily.sessions[0]?.project).toBe("skill-cawplan");
         expect(daily.sessions[0]?.product_id).toBe("prod-cawplan");
     });
 

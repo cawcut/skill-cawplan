@@ -13,8 +13,12 @@ import {
 import {writeDailyReport} from "./report-io.js";
 import type {ProductRepoMapping, ProductRepoSelection} from "./types.js";
 
-export function autoAssignAllFromMappings(daily: DailyApiJson, mappings: ProductRepoMapping[]): number {
-    normalizeSessionRepoContext(daily.sessions);
+export function autoAssignAllFromMappings(
+    daily: DailyApiJson,
+    mappings: ProductRepoMapping[],
+    resolveRepo?: Parameters<typeof normalizeSessionRepoContext>[1]
+): number {
+    normalizeSessionRepoContext(daily.sessions, resolveRepo);
 
     let matched = 0;
     for (const [index, session] of daily.sessions.entries()) {
