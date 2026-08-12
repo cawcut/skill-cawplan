@@ -282,7 +282,6 @@ Structure the response based on what was requested:
 
 ## Notes
 
-- All endpoints are **prd-only**. The proto environment returns 404.
 - `by-product` requires product-repo mappings to be configured (`cawplan session product-repos`).
 - `product-*` commands require a product `unique_id`, not a name.
 
