@@ -23,6 +23,8 @@ Tickets have a real `ux` field with three values: `NOT_REQUIRED`, `PENDING`, `RE
 
 This field is only present on the full ticket record returned by `cawplan tickets search` / `tickets get` — it is **not** on `tickets poll`'s lightweight shape, so this skill uses `search`, not `poll`, unlike `cawplan-plan-track`.
 
+A ticket can sit at `ux == "PENDING"` while the ticket itself is already done or closed — the `ux` field isn't automatically cleared when a ticket reaches a terminal status, so a stale `PENDING` on an otherwise-finished ticket doesn't mean UX work is actually still owed. Every workflow below excludes tickets whose `status_display.category` (already present inline on each `tickets search` result, no extra lookup needed) is `COMPLETE` or `CANCELED` — the same terminal-category exclusion `cawplan-plan-track` uses for its own staleness check. Match on `status_display.category`, not on the ticket's status *key*/display name (e.g. don't string-match "done"/"closed") — status keys are configured per product line and aren't a fixed set, but the category taxonomy is.
+
 `tickets search` requires `--time_range` or `--start_date`+`--end_date` (no exemption for `--version_ids`/`--product_line_ids`/`--priority` alone) — see `references/CAWPLAN_OPEN_API.md`'s "Canonical workaround for 'every matching ticket regardless of age' queries." Since "needs UX" queries want every matching ticket, use the maximal-window option from that section rather than guessing a narrower one that could silently drop older tickets:
 ```
 --start_date 2000-01-01 --end_date <today>
@@ -51,7 +53,7 @@ State this window choice to the user once, so it's clear the query isn't missing
    ```bash
    cawplan tickets search --version_ids <version_id> --start_date 2000-01-01 --end_date <today> --page_size 100 --page_num 1
    ```
-   Page through fully (see Pagination above). Keep only results where `ux == "PENDING"`.
+   Page through fully (see Pagination above). Keep only results where `ux == "PENDING"` **and** `status_display.category` is not `COMPLETE`/`CANCELED` (see Background).
 
    For "all versions of this product" (per Entry Routing), drop `--version_ids` and use `--product_ids <product_id>` instead — everything else in this step is unchanged, and no priority filter is added just because there's no version.
 
@@ -62,7 +64,7 @@ State this window choice to the user once, so it's clear the query isn't missing
    ```bash
    cawplan tickets search --priority CRITICAL,HIGH --start_date 2000-01-01 --end_date <today> --page_size 100 --page_num 1 [--product_ids <id>] [--version_ids <id>]
    ```
-   Page through fully (see Pagination above). Keep only results where `ux == "PENDING"`, and sort by priority `CRITICAL` → `HIGH` (same ordering as Workflow C) — the framing is "high-priority," so lead with the higher one.
+   Page through fully (see Pagination above). Keep only results where `ux == "PENDING"` **and** `status_display.category` is not `COMPLETE`/`CANCELED` (see Background), and sort by priority `CRITICAL` → `HIGH` (same ordering as Workflow C) — the framing is "high-priority," so lead with the higher one.
 
 ## Workflow C — Team scope
 
@@ -71,13 +73,14 @@ State this window choice to the user once, so it's clear the query isn't missing
    ```bash
    cawplan tickets search --product_line_ids <product_line_id> --start_date 2000-01-01 --end_date <today> --page_size 100 --page_num 1
    ```
-   Page through fully (see Pagination above). Keep only results where `ux == "PENDING"`. Sort by priority `CRITICAL` → `HIGH` → `MEDIUM` → `LOW` (the scenario this covers explicitly asks for high-to-low ordering).
+   Page through fully (see Pagination above). Keep only results where `ux == "PENDING"` **and** `status_display.category` is not `COMPLETE`/`CANCELED` (see Background). Sort by priority `CRITICAL` → `HIGH` → `MEDIUM` → `LOW` (the scenario this covers explicitly asks for high-to-low ordering).
 
 ## Output
 
 - One row per matching ticket: display ID, title, type, priority, product/version, assignee.
 - Workflow B/C: sorted by priority descending, as above.
 - State the search window used (`2000-01-01` to today) once, so the user knows this isn't a "recent activity" view — it's every ticket currently marked `ux = PENDING`, regardless of when it was last touched.
+- Also mention once that tickets already `COMPLETE`/`CANCELED` are excluded even if their `ux` field still reads `PENDING` — this is a real filter that changes the result set, not an implementation detail to hide.
 - If nothing matches, say so plainly — don't return an empty table with no comment.
 
 ## References
