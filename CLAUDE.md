@@ -27,7 +27,8 @@ flow-cawplan-skill/
 │   ├── cawplan-coding-commit/
 │   ├── cawplan-ticket-context/
 │   ├── cawplan-coding-insights/
-│   └── cawplan-my-work/
+│   ├── cawplan-my-work/
+│   └── cawplan-ux-tracking/
 ├── .claude-plugin/
 ├── .cursor-plugin/
 └── .codex-plugin/
