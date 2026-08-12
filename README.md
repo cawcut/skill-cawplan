@@ -34,6 +34,7 @@ cawplan products list --search "UniFi Access"
 | 9 | `cawplan-requirement-analyze` | `/cawplan-requirement-analyze` | Analyze requirement inputs into five fields and archive a Requirement to QA Insights |
 | 10 | `cawplan-testpoint-generate` | `/cawplan-testpoint-generate` | Generate test-point coverage outlines from archived Requirements and batch-archive after SQA confirmation |
 | 11 | `cawplan-testcase-generate` | `/cawplan-testcase-generate` | Expand archived test points into executable test cases and export CSV (read-only, no CawPlan write) |
+| 12 | `cawplan-my-work` | `/cawplan-my-work` | Show your own tickets and critical issues, grouped by product line/product/version |
 
 ## Quick Reference
 
@@ -50,6 +51,7 @@ cawplan products list --search "UniFi Access"
 | 9 | Analyze and archive a requirement | `/cawplan-requirement-analyze analyze this ticket CAWP-04606 into five fields` |
 | 10 | Generate test points for a requirement | `/cawplan-testpoint-generate generate test points for requirement 019fb63e-d5ad-7cb7-8b5f-761ceeb50c0a` |
 | 11 | Generate test cases and export CSV | `/cawplan-testcase-generate 按上面的生成用例` |
+| 12 | See my own tasks | `/cawplan-my-work what's on my plate for UniFi Access 4.1.10?` |
 
 More examples: `COOKBOOK.md`.
 
