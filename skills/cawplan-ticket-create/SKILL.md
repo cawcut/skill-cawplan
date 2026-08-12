@@ -43,6 +43,8 @@ If a product is provided but no version is provided:
    ```
 3. Show the user the in-progress versions (`status`/`state` such as `IN_PROGRESS`, `INPROGRESS`, or display text "In Progress") and ask them to choose one. Include a "Backlog / no version" option only as a fallback when the user cannot provide a version.
 
+**Confirm before creating** — even for an explicit single-ticket ask with product/version already given: state the resolved Product, Version (or "Backlog"), Title, Type, Priority, and Assignee (or `-`) back to the user and get an explicit go-ahead before running the create command below. Ticket creation isn't reversible from this CLI (no `tickets delete`), so don't skip this because the request already sounded final.
+
 **Version ticket** (scoped to a specific version):
 ```bash
 cawplan tickets create-version \
