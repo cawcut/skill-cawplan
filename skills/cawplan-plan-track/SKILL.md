@@ -2,8 +2,8 @@
 version: 0.2.6
 name: cawplan-plan-track
 description: |
-  Track CawPlan release progress for a version: ticket completion, risk level, open items, target release dates, unresolved Critical-priority bugs, features not yet at QA Testing, what's Ready for QA/QA Testing, descope suggestions, and what's blocking QA testing.
-  Use when: the user asks to track a release, check release progress, review open tickets for a version, assess release/delay risk, ask what to descope, ask what's Ready for QA / in QA Testing for a version, or ask what's blocking QA testing for a version.
+  Track CawPlan release progress for a version: ticket completion, risk level, open items, target release dates, unresolved Critical-priority bugs, features not yet at QA Testing, what's Ready for QA/QA Testing, descope suggestions, what's blocking QA testing, assignee overload, per-QA pending counts, and tickets stale for more than N days.
+  Use when: the user asks to track a release, check release progress, review open tickets for a version, assess release/delay risk, ask what to descope, ask what's Ready for QA / in QA Testing for a version, ask what's blocking QA testing, ask if any assignee has too many high-priority issues piled up, ask how many tickets each QA still has to verify, or ask which tickets haven't been fixed in over N days.
   NOT for: creating versions or tickets, product-wide metrics dashboards not scoped to a version, user activity summaries, or open-ended critical-issue search across products (use `cawplan critical search` directly for that).
 argument-hint: "[product name or ID, version name or ID]"
 allowed-tools: Bash
@@ -85,9 +85,23 @@ cawplan skill check
    ```
    For each `relation_type=BLOCKED_BY` relation, resolve the blocking ticket's own status: reuse it if already fetched in an earlier step (5/6/7/9), otherwise look it up with `cawplan tickets get <product_id> <version_id> <ticket_id>` — don't assume it's resolved just because you haven't seen it yet. Report only the ones whose status category (step 6) is not `COMPLETE`/`CANCELED`. This can be several calls (one per in-testing ticket, plus one per unresolved blocker not already known) — if there are many, tell the user you're scoping to in-testing tickets only rather than silently sampling.
 
+10. **Assignee overload** (only when asked — "is anyone overloaded", "who has too many high-priority issues"): open, high-priority work concentrated on one person.
+    ```bash
+    cawplan tickets search --version_ids <version_id> --priority CRITICAL,HIGH
+    ```
+    Exclude results whose status category (step 6's map) is `COMPLETE`/`CANCELED` — only open work counts as a pile-up. A ticket can have multiple `assignees`; count it once per assignee, not once total. If a ticket has no assignees at all, don't drop it — report it separately as "unassigned" the same way step 11 does; an open high-priority ticket nobody owns is worth surfacing on its own. Group by assignee and sort by count descending. If two or more assignees tie for the highest count, report all of them as joint-top — don't arbitrarily pick one. Don't invent a "this counts as overloaded" cutoff (e.g. "3+ is too many") — team capacity norms aren't something you know; report the actual counts per assignee and let the user judge, calling out the top of the ranking (all tied entries, if any) as the most likely answer to "who."
+
+11. **Per-QA pending count** (only when asked — "how many does each QA still have to verify"): reuse step 7's Ready-for-QA/QA-Testing list if it already ran this turn; otherwise fetch it fresh (step 7's query). Group by `assignees` the same way as step 10 (count once per assignee on multi-assignee tickets) and report a count per person. If a ticket in this list has no assignee, report it separately as unassigned rather than dropping it or attributing it to nobody silently.
+
+12. **Tickets stale for more than N days** (only when asked — "what hasn't been touched in N days"): if the user didn't give N, ask what they mean by "a long time" first rather than picking a default — there's no universal norm for what counts as stale, and there's no point fetching before you know the cutoff. Once you have N:
+    ```bash
+    cawplan tickets search --version_ids <version_id>
+    ```
+    `tickets poll`/`tickets search` return `updated_at`; there's no server-side "older than N days" filter, so filter client-side: exclude `COMPLETE`/`CANCELED`-category tickets (step 6's map — a resolved ticket that hasn't been touched since isn't "unfixed"), compute `(now - updated_at)` in days for the rest, and list those exceeding N, oldest first.
+
 ## Output
 
-Report, scoped to what the user actually asked (don't run steps 5-9 for a plain "track this release" ask):
+Report, scoped to what the user actually asked (don't run steps 5-12 for a plain "track this release" ask):
 
 - Version name, status, and risk level (with reason if MEDIUM or HIGH).
 - Completion: `X% complete (N done / M total)` (round `X` to a whole number).
@@ -98,6 +112,9 @@ Report, scoped to what the user actually asked (don't run steps 5-9 for a plain 
 - If step 7 ran: the Ready for QA / QA Testing list — display ID, type, title, assignee.
 - If step 8 ran: descope suggestions as a ranked list, each with the ticket and the one-line reason it's eligible (priority + status category) — not a restated risk_reason.
 - If step 9 ran: which in-testing tickets are blocked, by what, and the blocker's own status — or state explicitly that no in-testing ticket has an unresolved blocker.
+- If step 10 ran: assignees ranked by open high-priority ticket count, most first (all tied-for-top assignees called out together) — no "overloaded" verdict, just the ranked counts — plus an "unassigned" count if any qualifying ticket has no assignee.
+- If step 11 ran: pending-verification count per QA assignee, plus an "unassigned" bucket if any Ready-for-QA ticket has no assignee.
+- If step 12 ran: tickets older than N days (display ID, title, assignee, days since update), oldest first — or state explicitly that none exceed N days.
 
 If all tickets are complete, say so explicitly.
 
