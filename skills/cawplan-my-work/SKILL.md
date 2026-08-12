@@ -2,8 +2,8 @@
 version: 0.2.6
 name: cawplan-my-work
 description: |
-  Show the current user's own CawPlan work: tickets and critical issues assigned to them, grouped by product line, product, and version, or as a single priority-sorted open-ticket list, optionally narrowed to one project/version.
-  Use when: the user asks what's on their plate, their current tasks, "my tickets", "my open tickets by priority", "my work", or their tasks for a specific project/version, without giving a ticket ID or asking to search/filter broadly across other people.
+  Show the current user's own CawPlan work: tickets and critical issues assigned to them, grouped by product line, product, and version, as a single priority-sorted open-ticket list, or as a list of their own tickets that got reopened with the reason, optionally narrowed to one project/version.
+  Use when: the user asks what's on their plate, their current tasks, "my tickets", "my open tickets by priority", "my work", their tasks for a specific project/version, or which of their tickets got reopened and why, without giving a ticket ID or asking to search/filter broadly across other people.
   NOT for: another person's tasks, searching/filtering tickets by arbitrary criteria (use ad-hoc `cawplan tickets search`), creating or updating tickets, or release tracking.
 argument-hint: "[optional: product/version to narrow to]"
 allowed-tools: Bash
@@ -41,6 +41,11 @@ cawplan skill check
 
 5. **Priority-sorted flat list** (only when the user asks for "my open tickets by priority" / sorted-by-priority framing, rather than a project/version breakdown): flatten `tickets` across every product line/product/version into one list. This framing implies open-only even if not stated explicitly — run step 4's filtering for it. Then sort `CRITICAL` → `HIGH` → `MEDIUM` → `LOW`. Still show which product/version each ticket belongs to per row — flattening the grouping for sort order doesn't mean dropping that context.
 
+6. **My reopened tickets** (only when the user asks about reopened tickets / why something got reopened): there's no `REOPENED` status *category* (only `UNSTARTED`/`STARTED`/`TESTING`/`COMPLETE`/`CANCELED`) — reopening shows up as a status *key* whose name says so, or as a history transition backward out of a terminal category. History-scanning (bullet 2) is always the ground truth; the status-key check (bullet 1) is only a shortcut for the common case where a ticket is *currently sitting* on the reopen status — it does not replace history-scanning.
+   - Check history for every one of your tickets, regardless of current status: `cawplan tickets history <product_id> <version_id> <ticket_id>`, looking for any transition *from* a `COMPLETE`/`CANCELED`-category status *back to* a non-terminal category — each such transition is a reopen event. A ticket can have more than one; report all of them (oldest to newest), not just the latest — don't assume a ticket is reopened at most once.
+   - As a labeling aid only, resolve each distinct product line's statuses (`cawplan product-lines statuses <product_line_id>`) to check whether the ticket's status right after a reopen transition has "reopen" in its `display_name` — if so you can call it out as "reopened" by name in the report; if not (e.g. it went straight back to `in_progress` or `TESTING`), it's still a reopen per the history transition, just report the actual status name instead of assuming there's a dedicated label for it.
+   - For each reopen event, report the timestamp and actor from that history entry if present, and the reason: use the history entry's own comment if the API returns one on status-change events *and it's plausibly about that specific transition* (a general free-text comment field that isn't tied to the transition shouldn't be presented as if it explains the reopen); otherwise fall back to the ticket's `progress_comment` and label it explicitly as "latest progress note, not necessarily the reopen reason" rather than presenting it as if it directly explains the reopen. If neither exists, say the reason wasn't recorded — do not infer a reason from the ticket title or description. If the `tickets history` call itself fails or returns nothing, treat that ticket the same as "no reopen found," not as evidence of a missing reason.
+
 ## Output
 
 - Group by product line → product → version, matching the API's own grouping — don't re-flatten it into one undifferentiated list, **unless step 5 ran**, in which case present the single priority-sorted list instead (still showing product/version per row).
@@ -49,6 +54,7 @@ cawplan skill check
 - Lead with `summary` if the response includes one **and step 3 didn't narrow the scope** — `summary` describes the full unnarrowed response, so showing it alongside a narrowed list would contradict what's actually listed. When narrowed, state counts for the narrowed slice instead (e.g. "1 ticket, 1 product-wide critical issue for UniFi Access 4.1.10").
 - If step 3 narrowed the scope, say what it was narrowed to before listing results.
 - If there's genuinely nothing assigned, say so plainly rather than returning an empty section with no comment.
+- If step 6 ran: one entry per reopened ticket (display ID, title, reopened-at, reopened-by if known, reason or "not recorded"). If none of your tickets were reopened, say so explicitly rather than showing an empty list.
 
 ## References
 
