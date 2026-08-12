@@ -2,10 +2,10 @@
 version: 0.2.6
 name: cawplan-product-report
 description: |
-  Generate a CawPlan status report over a date range: for a single product (progress, risk analysis, priority recommendations, summaries), or for a Team (CawPlan product line) — ticket-change-based completion across every product on that team.
-  Use when: the user asks for a product status report, progress report, risk summary, release readiness, or priority recommendations for a product over a date range; or asks how a Team/product line is doing, its task completion, over a date range.
+  Generate a CawPlan status report over a date range: for a single product (progress, risk analysis, priority recommendations, summaries), for a Team (CawPlan product line), or for a named member — ticket-change-based completion, in the last two cases.
+  Use when: the user asks for a product status report, progress report, risk summary, release readiness, or priority recommendations for a product over a date range; asks how a Team/product line is doing over a date range; or asks how a specific member's task completion looks over a date range (not their own — use `cawplan-my-work` for "my tasks").
   NOT for: raw activity feed, user activity, ticket creation, metrics dashboards, or critical issue lists.
-argument-hint: "[product name or ID, OR team/product-line name, start date, end date, optional version]"
+argument-hint: "[product name or ID, OR team/product-line name, OR member name/email, start date, end date, optional version]"
 allowed-tools: Bash
 ---
 
@@ -23,8 +23,9 @@ cawplan skill check
 |---|---|
 | A specific product (and optionally a version) | **A — Product report** |
 | A Team / product line ("Team A", a squad/line name, not a product name) | **B — Team report** |
+| A named member, someone other than the caller ("how's Alex doing on...") | **C — Member report** |
 
-If unsure whether a name is a product or a Team, resolve both (`products list --search`, `product-lines list`) and ask if either is ambiguous or both match.
+If unsure whether a name is a product or a Team, resolve both (`products list --search`, `product-lines list`) and ask if either is ambiguous or both match. If the user asks about their *own* task completion ("my tasks"), that's `cawplan-my-work`, not this skill.
 
 ## Workflow A — Product report
 
@@ -32,6 +33,7 @@ If unsure whether a name is a product or a Team, resolve both (`products list --
    ```bash
    cawplan products list --search "<product name>"
    ```
+   If more than one product matches, list the candidates (name + `product_id`) and ask the user to pick — do not guess. All three workflows in this skill resolve products this way.
 
 2. Resolve version name to `version_id` if the user scopes to a version:
    ```bash
@@ -82,6 +84,23 @@ There is no team-scoped activity endpoint — `product-activity get` only takes 
    cawplan products list --product_line_id <product_line_id>
    ```
 
+## Workflow C — Member report
+
+Same ticket-change approach as Workflow B, scoped to one person instead of a whole product line.
+
+1. Resolve the member to a `user_id`:
+   ```bash
+   cawplan users query --email <email>       # if the user gave an email
+   cawplan users query --keyword "<name>"    # if the user gave a name
+   ```
+   If the keyword query returns more than one person, list them (name + email) and ask which one — do not guess.
+
+2. Fetch their ticket changes in the period:
+   ```bash
+   cawplan tickets search --assignees <user_id> --start_date YYYY-MM-DD --end_date YYYY-MM-DD --page_size 100 --page_num 1
+   ```
+   If the user also scoped to a product/version, add `--product_ids <id>` / `--version_ids <id>` (resolve the same way as Workflow A step 1). Apply the same date-computation and pagination rules as Workflow B step 2 (compute exact dates for "last N days," page through fully).
+
 ## Output
 
 **Workflow A:**
@@ -98,6 +117,8 @@ There is no team-scoped activity endpoint — `product-activity get` only takes 
 - **Completion**: ticket counts by status (done vs in-progress vs not-started), by type, by priority.
 - **Notable items**: any CRITICAL/HIGH priority tickets touched in the period, and any ticket moved to a terminal status (done/canceled).
 - **Per-product breakdown**: only if step 3 ran and the user asked for it.
+
+**Workflow C:** same shape as Workflow B (Summary + Completion + Notable items), scoped to the one person's tickets — no per-product breakdown section.
 
 ## References
 
