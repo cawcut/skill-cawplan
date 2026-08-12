@@ -27,6 +27,30 @@ cawplan skill check
 - **是** → 走 step 10 **Cold handoff** 载入服务端五字段作为草稿基线，**不要从头重分析**。理由：归档比对（`reconcile` strong match 与 `requirements update` 的 snapshot diff）是 **trim 后逐字节精确比对**，从头重分析必然产生措辞漂移，会让 reconcile 误判 `no_match`（重复建单风险）或 PATCH 误报变更键。
 - **否**（新需求分析）→ 继续本步收集素材。
 
+**零素材早停（新增）** — 判定本条消息是否带有**任一**素材：用户文字、工单（URL / display ID / unique ID）、截图。
+
+- **全无** → **只**输出下方引导文案，然后 **`stop`**；**禁止**进入 step 2–5（否则会产出全「（素材未提及）」废稿）。
+- **有任一** → 继续下方 `Accept any mix of`，不弹窗。
+
+**输出纪律（零素材分支）** — 内部脚手架，**不**呈现给 SQA：
+
+- **只**输出引导文案块本身——**禁止**在其前或其后加任何说明、过渡句或复述判定过程。
+- **禁止**出现类似：「根据入口路由检查…」「当前会话没有素材…」「按照流程规则，我需要先请求素材…」「零素材早停」等字样。
+- 不要解释你在检查什么、为什么停下；SQA 只看到引导文案，与下方示例一致。
+
+引导文案（**仅此块**逐字输出给用户，保留编号列表格式）：
+
+> 想分析需求？给我下面任一样就能开始：
+> 1. 需求文字描述
+> 2. 工单链接 / 工单号
+> 3. 相关截图 / 设计稿（可多张）
+>
+> 三样都给最省事。我会先整理成完整需求给你过目。
+
+（结尾不提归档/保存。纯文字，不用 AskUserQuestion。）
+
+**边界**：只贴工单链接 = 有素材，按下方 ticket 解析；裸 issue URL 且无分析意图 → 仍走 Rules **Trigger boundary**（`cawplan-ticket-context`），不走零素材分支。
+
 Accept any mix of:
 
 - **User text** — use as-is.
@@ -280,7 +304,7 @@ The list is advisory only: **do not** auto-edit the five fields or archive based
 > - **待确认**：确认密码是否须一致（页面有 Confirm Password → 写字段）
 > - **需补充**：「不测范围」素材未提及（字段 `（素材未提及）` 占位即可）
 
-Default: deliver five fields + display summary + open-questions list in one turn. **Do not** ask repeated follow-up questions.
+Default: deliver five fields + display summary + open-questions list + step 5b tail in one turn. **Do not** ask repeated follow-up questions.
 
 Ask inline **only** when a fundamental gap blocks drafting (e.g. "what is this feature for?").
 
@@ -354,81 +378,264 @@ Ask inline **only** when a fundamental gap blocks drafting (e.g. "what is this f
 > - ✗ **无存疑项**（存在 tooltip / 跨 app 数值与正文口径未闭合，且 ①–④ 有未写死项）
 > - ✗ 只采 tooltip 15s、忽略正文累计 15/30 或另一 app 的 2s 报错（违反 step 2 **Numeric cross-source check**）
 
+### 5b. 五字段呈现尾巴（轻量引导）
+
+After the open-questions list (step 5), append **exactly one** lightweight closing line — **first draft** (steps 3–5) and **every revision re-show** (step 6) use the **same** line.
+
+引导文案（**仅此一句**，逐字输出给用户；纯文字，不用 AskUserQuestion）：
+
+> 以上是整理好的需求，你看看内容对不对。没问题就说一声「保存到 CawPlan」。
+
+**输出纪律**：
+
+- **禁止**在同一轮追加：产品名、`product_id`、模块树节点名、`module_tree_node_id`、「建议挂到…」「确认挂载」「确认归档/保存」等保存流程细节。
+- Step 6 修订轮：**重出**完整五字段 + 展示摘要 + 存疑清单 + **同一尾巴**；禁止只回「已改」。
+- 与 step 4b 一致：不告知做过漏测自检。
+
 ### 6. Revise from SQA feedback
 
 When SQA requests changes in natural language (e.g. "约束改成只限会员" or "摘要改成会员专属道具图"), apply **all** requested edits in one pass, then **re-show the complete five fields and the current display summary** — not just "done".
 
 Apply **display-summary regeneration rules** (step 4): if only the summary was edited, keep five fields and update summary; if five fields substantively changed, regenerate summary only when the old summary is no longer accurate.
 
-Re-run steps 3–5 after each revision round until SQA is satisfied or moves on to product / module-tree / archive (steps 7+ below).
+Re-run steps 3–5 + step 5b tail after each revision round until SQA is satisfied with the **field content** — **do not** enter steps 7+ until save intent is triggered（见 **保存意图闸** below）。
+
+**保存意图闸** — enter steps 7+ **only** when one of these holds:
+
+| Path | Condition |
+|------|-----------|
+| **口头** | SQA says 「保存到 CawPlan」or synonymous 「存到 CawPlan」「保存需求」 |
+| **识别兼容**（recognize, not prompt SQA to say） | `可以了`、`存吧`、`提交`、`归档` |
+| **接力入站** | Session has `resume_intent` (`testpoint` \| `testcase`) — Rules **跨 skill 接力**; **not** an A1 verbal trigger |
+
+**Do not** list `马上保存` as an A1 verbal trigger — that is A2/A3 框2 option label; it routes via `resume_intent` relay, not standalone A1 speech.
+
+Until save intent is triggered: **do not** call `products list`, **do not** `GET .../module-tree`, **do not** recommend a mount node.
+
+Display layer: five-field tail and guidance use 「保存到 CawPlan」; recognition layer may accept legacy phrases.
 
 ### 7. Resolve product
 
-Run this after the draft (five fields + display summary) is acceptable and **before** any QA Insights API calls (`.../qa/module-tree`, `.../qa/requirements`). Read-only — no writes. Do **not** call `GET/POST .../qa/...` in this step.
+**仅当「保存意图闸」已触发**后执行本步。Run this after the draft (five fields + display summary) is acceptable and **before** any QA Insights API calls (`.../qa/module-tree`, `.../qa/requirements`). Read-only — no writes. Do **not** call `GET/POST .../qa/...` in this step（`products list` 仅在本步无 Ticket 选产品分支调用）。
 
-**When ticket material was used** (step 1 already called `tickets search`):
+**Resolve order**（命中即停，不重复问、不重复列）：
+
+#### A. Ticket material（step 1 已用 ticket 作素材）
 
 - Read `product_id` from the ticket response.
-- Resolve the product **name** for display (from the same response if present, or `cawplan products list --search` with that ID context).
-- **Use it directly** — do not ask SQA to pick the product again unless `product_id` is missing.
+- Resolve the product **name** for display (from the same response if present, or `cawplan products list --search` with that ID context — **仅**补全展示名，不是让 SQA 选产品).
+- **Use it directly** — do not ask SQA to pick the product again; do not list products. Unless `product_id` is missing on the ticket → fall through to **C**.
 
-**When no ticket** (text / screenshots only):
+#### B. Session already has `product_id`
+
+(e.g. relay inbound already carried `product_id`, or SQA explicitly switched product earlier and step 7 was re-run)
+
+- **Use it directly** — do not list products for SQA to pick.
+- Product **name**: from session if present; if only `product_id` is known, you may call `cawplan products list --page_size 100` once and match `unique_id` client-side to fill the display name — **禁止** `--search`、**禁止**再列产品让 SQA 选。
+
+#### C. No ticket — list and pick（不猜、不 search、不翻页；纯文字编号列表）
+
+Text / screenshots only; no ticket in step 1; no `product_id` in session.
 
 ```bash
-cawplan products list --search "<product name SQA provides>"
+cawplan products list --page_size 100
 ```
 
-- **One match** → use its `unique_id` as `product_id`.
-- **Multiple matches** → list `name` + `unique_id` and ask SQA to choose.
-- **No match** → ask SQA for a different product name or a ticket link.
+- **One call only** — `--page_size 100` 一次拉完，**禁止**翻页、**禁止** `--search`、**禁止**从五字段推断产品名再搜。
+- Parse products from the response; map each row's `name` → `unique_id`.
+- **产品数通常 > 4** — **不用 AskUserQuestion**；**直接**输出纯文字编号列表（逐字结构，填入实际产品名）：
+
+```text
+要保存到哪个产品？回复序号即可：
+1. 【产品 name】
+2. 【产品 name】
+…
+N. 【产品 name】
+```
+
+**落点**：
+
+- SQA **回复序号**（也认 **产品名** 原文或大小写不敏感匹配）→ 取对应行的 `unique_id` 为 `product_id`，`name` 为 product name → 继续 step 8+。
+- **重复 / 没选对**（序号无效、产品名对不上、或 SQA 又说「保存」但未选产品）→ **短提示**（逐字）：`还差一步:先选个产品,回序号即可。` — 可重列同一编号列表，**不要**长篇解释或改走 search。
+- 列表为空 → 如实报告无可用产品，**stop**（无法继续保存）。
+- 返回超过 100 条时 **仍只展示本次 100 条**（不翻页）。若 SQA 称产品不在列表中 → 请提供工单链接或说明需管理员处理；**禁止**改走 `--search` 或口头「再报个产品名」老路。
 
 Keep the resolved `product_id` (and product name) in context for module-tree and archive steps. All **write** operations (new module node, archive Requirement) must use this same `product_id` — do not substitute a different product unless SQA explicitly requests a change and step 7 is re-run.
 
-### 8. Recommend module-tree node (read-only)
+### 8. 推荐挂载位置（模块树 · 闭环）
 
-After product is resolved (step 7) and the draft is accepted, fetch the module tree and help SQA pick a node. **GET only** — do **not** `POST` to create nodes in this step (that is step 9).
+**触发时机**：
+
+- **仅当**：保存意图闸已触发（step 6）、产品已确定（step 7）、进入本步时，走下方闭环。
+- **跳过**：会话已确定 `module_tree_node_id`（如接力入站已带）→ **直接用，不重问** → 带 `module_tree_node_id` 进入 step 11。
+- 本步仍在五字段尾巴之后；**不在** step 5b 出现模块树文案（见 step 5b **输出纪律**）。
+
+**读树**（本步及「看看有哪些节点」共用；GET only，创建节点前不写库）：
 
 ```bash
 cawplan api GET /api/v1/public/openapi/product/<product_id>/qa/module-tree
 ```
 
-1. Parse `data.nodes` (may be `[]` on a new product).
-2. From the five fields, **recommend** one existing node (name + `id`) where this Requirement should live.
-3. Ask SQA: "建议挂到【父路径 / 节点名】下，对吗？" SQA may confirm, pick another node by name, or say the node does not exist.
-4. If SQA names a node, search the tree by `name` (case-insensitive) and confirm the match.
-5. Keep the chosen `module_tree_node_id` in context for archive.
+Parse `data.nodes`（可能为 `[]`）。从五字段尝试推荐一个挂载节点（name + `id` + 全路径）→ `{推荐节点全路径}`。
 
-**If no suitable node exists**:
+**无推荐 / 空树**（系统给不出推荐节点，或 `data.nodes` 为 `[]`）：
 
-- Tell SQA the node is missing and that **creating it requires a separate confirmation** (step 9).
-- **Do not** call `POST .../qa/module-tree` yet.
+- **不要**留空、**不要**自由发挥、**不要**弹 ① 选位置框。
+- **直接**进〔选②〕「看看有哪些节点」树形缩进列表（空树时列表为空，仍用同一引导句）；SQA 从中选一个，或说「新建一个节点」→ 进〔选③〕。
+
+**有推荐节点** → 进 ① 选位置闭环。
+
+**整体流程（闭环）**：
+
+```
+① 选位置(框)
+     ├─「可以,放这里就行」→ 用推荐节点 → 挂上、继续归档保存
+     ├─「看看有哪些节点」→ 树形缩进列表(文字)→ 选中一个 → 用它挂上、继续归档
+     └─「新建一个节点」→ 问名字+父节点(文字)→ 确认新建(框)
+                                                   ├─「对,新建」→ 写库建节点 →〔回到 ①〕拿新建的那条当推荐,再确认一次
+                                                   └─「不对」→ 回上一步重问名字+父节点,不写库
+```
+
+关键：**新建只负责「把节点建出来」；建完不自动挂载**，而是回到「选位置」逻辑，以刚建的节点为推荐，再走一遍「放不放这里」。
+
+---
+
+#### ① 选位置（AskUserQuestion 框）
+
+**优先 AskUserQuestion**（**三个选项，仅 `label`，无 `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 选择位置 |
+| `question` | 建议放到「{推荐节点全路径}」下,可以吗? |
+| option 1 · `label` | 可以,放这里就行 |
+| option 2 · `label` | 看看有哪些节点 |
+| option 3 · `label` | 新建一个节点 |
+
+**落点**：
+
+- **可以,放这里就行** → 采用推荐节点，`module_tree_node_id` = 该节点 `id`，挂上、继续 step 11 归档保存。
+- **看看有哪些节点** → 展示节点树形列表（〔选②〕），SQA 选中一个 → 采用、`module_tree_node_id` 写入上下文、挂上、继续 step 11。
+- **新建一个节点** → 进〔选③〕问名字+父节点。
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字，填入实际全路径）：
+
+```text
+建议放到「{推荐节点全路径}」下,可以吗? 1. 可以,放这里就行 2. 看看有哪些节点 3. 新建一个节点(回序号)
+```
+
+---
+
+#### 〔选②〕看看有哪些节点（纯文字 · 树形缩进 · 全铺）
+
+- **不使用框**（节点数量不定）。
+- 用**缩进体现层级**：顶级顶格，子级逐层缩进；**全量铺开、不折叠**。
+- **序号连续、跨层级不重号**；SQA 回序号即选中（**也认节点名**）。
+- 引导句（逐字）：
+
+```text
+有哪些节点?告诉我你要哪个(回序号或节点名):
+```
+
+- 列表示例形态（序号与缩进按实际树生成；形态对齐方案）：
+
+```text
+1. Access
+   2. Login
+   3. 权限管理
+      4. 角色
+      5. 访客
+6. 项目管理
+   7. 复制
+   8. 归档
+9. 设备
+   10. 门禁
+   11. 电梯
+12. 系统设置
+```
+
+- **落点**：选中 → 采用该节点，`module_tree_node_id` 写入上下文、挂上、继续 step 11 归档保存。
+- SQA 说「新建一个节点」或节点不在列表中 → 进〔选③〕。
+
+---
+
+#### 〔选③〕新建一个节点 · 问名字+父节点（纯文字）
+
+- 引导句（逐字）：`节点名叫什么,挂在哪个父节点下?不确定可先说「看看有哪些节点」。`
+- 父节点可以是**顶级**，也可以是**任意现有节点**（层级不限）。
+- SQA 不确定父级 → 引导走〔选②〕「看看有哪些节点」浏览后再回来。
+- 名字 + 父节点都齐 → 进「确认新建」②。
+
+---
+
+#### ② 确认新建（AskUserQuestion 框 · 写库前确认闸）
+
+**优先 AskUserQuestion**（**两个选项，仅 `label`，无 `description`**）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 确认新建 |
+| `question` | 新建后位置是「{父节点全路径} → {新节点名}」,对吗? |
+| option 1 · `label` | 对,新建 |
+| option 2 · `label` | 不对 |
+
+展示**完整路径**，末端即为要新建的那节；**建议视觉上标出是新增节点**（呈现层用路径箭头与末端名体现，勿改 question 字面）。
+
+**落点**：
+
+- **对,新建** → **写库建节点**（step 9 POST）；建成后 **回到 ① 选位置**，以刚建节点全路径为 `{推荐节点全路径}`，再走一遍「放不放这里」。
+- **不对** → 回〔选③〕重问名字+父节点，**不写库**。
+
+**写库约束**：**这是唯一真正写库的一步** — 未经 SQA 明确选「对,新建」，**不许写库、不许自动确认、不许跳过**。
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+新建后位置是「{全路径}」,对吗? 1. 对,新建 2. 不对(回序号)
+```
+
+（`{全路径}` = `{父节点全路径} → {新节点名}`）
+
+---
+
+#### ③ 新建成功后 → 回到「选位置」再确认
+
+- 写库建成后，**不自动挂载**。
+- 以**新建的那条节点全路径**为推荐，**再走一遍 ① 选位置**：
+  - `question`：`建议放到「{新建节点全路径}」下,可以吗?`
+  - 选项同 ①（`可以,放这里就行` / `看看有哪些节点` / `新建一个节点`）。
+- 选「可以,放这里就行」→ 采用、`module_tree_node_id` 写入上下文、挂上、继续 step 11 归档保存。SQA 建完仍能核对，甚至再改或再建。
+
+---
+
+**通用约束**（模块选择专用）：
+
+- **框只用于**「选位置」（2–4 个固定动作）和「确认新建」（是/否）。
+- **节点列表一律纯文字树形** — 不塞进框。
+- **选项不带说明**，靠 `label` + `question` 表意。
+- **全程纯文字降级**：框不渲染时退化为编号问答，措辞与上文一致。
+- **写库前必确认**：仅「确认新建 → 对,新建」写库，且必须 SQA 明确选择。
 
 **If the API fails**: see **Failures** (Rules).
 
-### 9. Create module-tree node (write — confirm first)
+### 9. Create module-tree node（write — §8 ② 确认新建闸之后）
 
-Run only when SQA agrees the node is **missing** and wants to create it (after step 8). This **writes** to the database.
+**仅当** §8 〔选③〕名字+父节点已齐，且 SQA 在「确认新建」框选了 **对,新建** 后执行。不得在 step 8 推荐阶段、不得在 SQA 口头说「没有这个节点」时自动 POST。
 
-**Before POST**, read back once:
+**Before POST**：须已完成 §8 ②「确认新建」框且 SQA 选 **对,新建**（§8 已闸；本节不再二次读回）。
 
-> 模块树里没有「【节点名】」，将在【父节点名 / 根节点】下新建，确认？
-
-Wait for SQA confirmation. **Do not POST** without it.
-
-**After confirmation**:
+**POST**：
 
 ```bash
 cawplan qa-insights module-tree node create <product_id> \
   --parent-id <parent node id> --name "<node name>"
 ```
 
-- `--parent-id`: existing node `id`; **omit** for a new root-level node.
-- Read the JSON on stdout and branch on `outcome` (see **Command outcomes**):
-  - `SUCCESS` → save `api.data.id` as `module_tree_node_id` for archive.
-  - `FAILURE` → report `error.message`; on a depth-limit error do not retry with a deeper path.
-  - `UNKNOWN` → the node may or may not exist; **do not re-run the command** (that risks a duplicate node). Ask SQA to check Test Suites.
-
-Use the `product_id` resolved in step 7.
+- `--parent-id`：现有节点 `id`；**省略**则新建顶级节点。
+- Read JSON on stdout; branch on `outcome` (see **Command outcomes**):
+  - `SUCCESS` → 取 `api.data.id` 与名称，拼出 `{新建节点全路径}`；**不**此时写入 `module_tree_node_id` 用于归档 — **回到 §8 ③ → ①** 再确认挂载。
+  - `FAILURE` → report `error.message`；深度限制错误勿用更深路径重试。
+  - `UNKNOWN` → 节点可能已存在；**勿重复执行本命令**（避免重复节点）；请 SQA 在 Test Suites 核对。
 
 Use the `product_id` resolved in step 7.
 
@@ -501,7 +708,7 @@ While `write_outcome = UNKNOWN`, **never** re-run the write command; **never** u
 
 ### 11. Archive or update Requirement (write — confirm first)
 
-When SQA signals archive/submit intent ("可以了", "存吧", "归档", "提交", etc.), **do not write immediately**.
+When SQA signals archive/submit intent ("可以了", "存吧", "归档", "提交", "保存到 CawPlan", "存到 CawPlan", "保存需求", etc.), **do not write immediately**.
 
 **Gate** (judge **Table A before Table B**):
 
@@ -638,6 +845,13 @@ The command rejects a body containing `product_id`, `review_status`, or `is_edit
 - **Display summary**: see step 4 (展示摘要 / `summary` role). Snapshots: step 10 Store (`summary_snapshot` separate from `five_field_snapshot`).
 - **A1 API scope**: writes go through `cawplan qa-insights` (module-tree node create; requirement create / update / reconcile). Reads still use `cawplan api GET` (module tree, requirement list). **No test-point APIs.**
 - **Failures**: report `error.message` (and `api.code` / `api.msg` when present) honestly for any command failure; **never claim success when `outcome` is `FAILURE` or `UNKNOWN`**. Keep the draft (five fields + display summary); do not claim saved or updated.
+- **五字段尾巴**：出稿与修订重出均只用 step 5b 固定轻量尾巴；产品 / 模块树 / 保存确认仅在保存意图触发后（step 7+）出现。用户可见引导用「保存到 CawPlan」。Step 7 **C** 分支列产品供选 ≠ A2/A3 链接解析缺 `product_id` 时的「do not scan product lists」——后者禁止猜产品；本 skill 保存流程内无 Ticket 时 **必须** 拉列表让 SQA 选。
+- **跨 skill 接力（入站 / 出站）**:
+  - **入站**（来自「生成测试点」或「生成用例」框，且会话已有五字段草稿）：**跳过 step 1–6**，直接从 step 7（Resolve product）/ 归档闸 step 11 继续；**不得**从头重分析（措辞漂移会破坏 reconcile / snapshot diff）。入站（`resume_intent`）本身即保存意图；**不在入站前**向 SQA 重复五字段尾巴里的保存引导。
+  - **入站挂载节点**：若接力已带 `module_tree_node_id`，按方案「已确定挂载节点直接用,不重问」— 跳过 §8 选位置闭环，直接进入 step 11（归档闸照旧）。
+  - **入站冷启动**（无五字段草稿）：从 step 1 正常收素材。
+  - **出站**：归档或更新 `outcome: SUCCESS` 后，若会话存在 `resume_intent`（`testpoint` | `testcase`），回写 `product_id` + `requirement_id`（= `bound_requirement_id`），**读取并清除** `resume_intent`，回到发起方 skill 从其 **§2 refresh** 续跑；不停在本 skill 等下一条指令。
+  - 各归档/更新**确认闸照旧**——接力不绕过确认。
 
 ## Output
 
@@ -646,7 +860,10 @@ The command rejects a body containing `product_id`, `review_status`, or `is_edit
 - Full five-field draft (section headings, fixed order).
 - Display summary (展示摘要) after five fields, before open-questions list.
 - Open-questions list (三类 or **无存疑项**).
-- After SQA edits: full five-field draft + current display summary again, not a one-line acknowledgment.
+- **固定尾巴**（五字段 + 展示摘要 + 存疑之后，仅此一句，逐字）：
+  > 以上是整理好的需求，你看看内容对不对。没问题就说一声「保存到 CawPlan」。
+- **禁止**在同一轮追加产品、模块树、节点 id、保存确认问句。
+- After SQA edits: full five-field draft + current display summary + open-questions list + **同一尾巴** again, not a one-line acknowledgment.
 
 **After archive** (step 11): see **Confirmation** below.
 

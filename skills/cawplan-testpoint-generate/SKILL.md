@@ -21,13 +21,81 @@ cawplan skill check
 
 ### 1. Resolve target Requirement (entry priority)
 
-On each **generate test points** request, pick the active target in this order:
+On each **generate test points** request, resolve the target in this order (**fall through** until one row matches):
 
-| Priority | Condition | Action |
-|----------|-----------|--------|
-| 1 | This message has an explicit reference (portal URL / `requirement_id` / switch to another Requirement) | **Cold handoff** — rebind to it; ignore prior session binding |
-| 2 | No explicit reference; user says "生成测试点" / "按上面那条" / "接着刚才那条" | **Hot handoff** — use current session binding |
-| 3 | No binding; only an unarchived A1 five-field draft | **Stop** — tell SQA to archive via `cawplan-requirement-analyze` first. **Do not** call APIs or show a test-point table (no `requirement_id` for refresh) |
+| Step | Condition | Action |
+|------|-----------|--------|
+| **P1** | This message has an explicit reference (portal URL / `requirement_id` / switch to another Requirement) | **Cold handoff** — rebind; ignore prior session binding |
+| **P2** | Hot-handoff phrasing matches **and** session has **valid binding** (`product_id` + `requirement_id` both present) | **Hot handoff** — use current session binding |
+| **P3** | Session has a requirement **draft** (five-field draft from analysis) but **no** valid `requirement_id` (not saved yet) | → **框2「需求还没保存」** below. **Do not** call APIs or show a test-point table |
+| **兜底** | None of the above (no link, no valid binding, no draft) | → **框1「锁定 Requirement」** below |
+
+**P2 话术（同义，须先满足有效 binding 才走热交接）**：`生成测试点` / `补测试点` / `按上面那条` / `按上面那条生成测试点` / `接着刚才那条` 等。
+
+**有效 binding** = `product_id` and `requirement_id` both present in session. Phrasing alone without binding → **fall through** to P3 or 兜底.
+
+#### 框1 · 锁定 Requirement（入口 / 兜底）
+
+**触发**：上表 **兜底**（无链接 / 无有效 binding / 无草稿）。P1 或有效 P2 → **不弹**。
+
+**禁止**在选项中出现「用刚归档那条」（属有效 P2 热交接，自动走）。
+
+**优先 AskUserQuestion**（**仅两个点选项**；工具会自动追加 Other 自由输入行，**标题/占位不可自定义**——**不要**在 skill 里定义或手写 Other / 自由输入行）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 锁定 Requirement |
+| `question` | 生成测试点前，先确定是哪条 Requirement？ |
+| option 1 · `label` | 已有 Requirement 链接 |
+| option 1 · `description` | 选这个，把链接发我 |
+| option 2 · `label` | 没有 Requirement |
+| option 2 · `description` | 马上生成并保存到 CawPlan |
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+锁定 Requirement
+生成测试点前，先确定是哪条 Requirement？
+1. 已有 Requirement 链接 —— 选这个，把链接发我
+2. 没有 Requirement —— 马上生成并保存到 CawPlan
+请回复序号，或直接粘贴链接、或直接说你想怎么做。
+```
+
+**落点**：
+
+- 选「已有 Requirement 链接」→ **请对方发链接**（一句即可）；拿到链接后（下条消息，或工具自动 Other 框里直接粘贴）→ 按下方 **Portal URL** 规则解析（只解析、不 fetch）；仅 `requirement_id` 缺 `product_id` → 用大白话追问补 `product_id` 或完整链接。无法解析为链接 → 复述两项，请重选或补链接。
+- 选「没有 Requirement」→ 读 `cawplan-requirement-analyze` skill，按 **跨 skill 接力**：会话写 `resume_intent = testpoint`；有草稿则跳过分析直达归档闸，无草稿则从收素材开始。
+
+#### 框2 · 需求还没保存
+
+**触发**：上表 **P3**（有需求草稿、无 `requirement_id`）。有效热交接 / 已给链接 → **不弹**。
+
+**优先 AskUserQuestion**（**仅两个点选项**；Other 行由工具自动追加，**勿定义**）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 需求还没保存 |
+| `question` | 这份需求还没保存到 CawPlan，先保存再来生成测试点 |
+| option 1 · `label` | 马上保存 |
+| option 1 · `description` | 存好再接着生成测试点 |
+| option 2 · `label` | 先不保存 |
+| option 2 · `description` | 先停一下，我再看看这份需求 |
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+需求还没保存
+这份需求还没保存到 CawPlan，先保存再来生成测试点
+1. 马上保存 —— 存好再接着生成测试点
+2. 先不保存 —— 先停一下，我再看看这份需求
+请回复序号，或直接说你想怎么做。
+```
+
+**落点**：
+
+- 「马上保存」→ 读 `cawplan-requirement-analyze` skill，会话写 `resume_intent = testpoint`，走保存/归档流程（**确认闸照旧**）；`SUCCESS` 后回到本 skill **§2 refresh** 续跑。
+- 「先不保存」→ **stop**；保留草稿，不生成测试点。
+- 若 SQA 用工具自动 Other 或自由回复 → 按内容判断（换目标 / 补充说明）；无法理解则复述两项选项。
 
 **Portal URL** (parse only — never fetch):
 
@@ -39,6 +107,12 @@ On each **generate test points** request, pick the active target in this order:
 **Only `requirement_id`, missing `product_id`**: ask for `product_id` or a full portal link. **Do not** guess the product or scan product lists.
 
 **Rebind** replaces the whole context (`product_id`, `requirement_id`, five fields, test-point stubs). One active Requirement at a time. Same `requirement_id` as current binding = refresh same row, not rebind. Contradictory messages (new URL + "还是刚才那条") → ask; do not guess.
+
+### 跨 skill 接力
+
+- **出站**（框1「没有 Requirement」、框2「马上保存」）：接力前写入 `resume_intent = testpoint`。
+- **入站回归**：需求分析归档 `SUCCESS` 后，发起方从 **§2 refresh** 继续。
+- **框1「已有 Requirement 链接」解析成功** → 按 P1 冷交接继续，**不弹**框2。
 
 ### 2. Refresh before generate (always)
 
@@ -406,7 +480,7 @@ Authoritative rules live in **Workflow**; this section is navigation only. On co
 | **Archive / confirm / receipt** | §9; UNKNOWN → §10 (`testpoints reconcile`, needs `count_before` from §2) |
 | **Cross-batch dedup** | §10 (`id` stubs); batch-internal → §5 step 3 + granularity §2 |
 | **API** | Writes → `cawplan qa-insights` (§9 archive, §10 reconcile); reads → `cawplan api GET` (§2); `references/CAWPLAN_OPEN_API.md` §15 |
-| **Trigger boundary** | §1 priority 3 → A1; ticket URL without test-point intent → not this skill |
+| **Trigger boundary** | §1 决策树 P3 → 框2；兜底 → 框1；ticket URL without test-point intent → not this skill |
 | **Failures** | §9 On failure; keep drafts |
 
 ## Output & Confirmation

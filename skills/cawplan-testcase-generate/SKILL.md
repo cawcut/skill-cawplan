@@ -27,21 +27,79 @@ cawplan skill check
 
 ### 1. Resolve target Requirement (entry priority)
 
-On each **generate test cases** request, pick the active target in this order:
+On each **generate test cases** request, resolve the target in this order (**fall through**):
 
-| Priority | Condition | Action |
-|----------|-----------|--------|
-| 1 | This message has an explicit reference (portal URL / `requirement_id` / switch to another Requirement) | **Cold handoff** — rebind; ignore prior session binding |
-| 2 | No explicit reference; user says **「按上面的生成用例」** / **"generate test cases from above"** / **"expand the test points above"** / **「接着生成用例」** / **「把上面的展开成用例」** (same intent as SPEC hot handoff) | **Hot handoff** — use current session binding (`product_id` + `requirement_id` + test points if present) |
-| 3 | No binding; only an unarchived A1 five-field draft | **Stop** — tell SQA to archive via `cawplan-requirement-analyze` first |
+| Step | Condition | Action |
+|------|-----------|--------|
+| **P1** | Explicit reference (portal URL / `requirement_id` / switch) | **Cold handoff** — rebind |
+| **P2** | Hot-handoff phrasing matches **and** **valid binding** (`product_id` + `requirement_id` both present) | **Hot handoff** — use session binding |
+| **P3** | Requirement **draft** in session but **no** valid `requirement_id` (not saved) | → **框3「需求还没保存」** below |
+| **兜底** | No link, no valid binding, no draft | → **框1「锁定 Requirement」** below |
 
-**Hot handoff — unarchived branch (current version; §4.9 draft bypass not supported)**:
+**P2 话术（同义，须有效 binding）**：`按上面的生成用例` / `generate test cases from above` / `expand the test points above` / `接着生成用例` / `把上面的展开成用例` / `生成测试用例` / `展开用例` 等（与 SPEC hot handoff 同意图）。
 
-If context has test-point drafts or a table but **no valid `requirement_id`** (Requirement not archived) → **stop immediately**:
+**有效 binding** = `product_id` + `requirement_id` both present. Phrasing without binding → fall through to P3 or 兜底.
 
-> 当前版本需先归档 Requirement 才能展开用例，请先归档。
+**未归档拦截（P3 + 原 unarchived branch 合并）** — 会话有需求草稿和/或测试点草稿/表，但 **无** valid `requirement_id` → **框3「需求还没保存」**（见下）。**Do not** fall through to §2 GET（would return empty and mislead SQA toward generating test points first). Unarchived fast-path is **not** supported in this release.
 
-**Do not** fall through to cold GET (would return empty and mislead SQA toward A2). Unarchived fast-path is **not** supported in this release.
+#### 框1 · 锁定 Requirement（入口 / 兜底）
+
+**触发**：上表 **兜底**；或用户说 `生成用例` / `生成测试用例` / `展开用例` 等且消息与上下文中**无** Requirement 链接、无有效 binding、无草稿（object-unclear）。有效 P1/P2、已保存 Requirement → **不弹**。
+
+**禁止**选项「用上面出好的」（属有效 P2）。
+
+**优先 AskUserQuestion**（**仅两个点选项**；工具会自动追加 Other 自由输入行，**标题/占位不可自定义**——**不要**在 skill 里定义或手写 Other / 自由输入行）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 锁定 Requirement |
+| `question` | 生成用例前，先确定是哪条 Requirement？ |
+| option 1 · `label` | 已有 Requirement 链接 |
+| option 1 · `description` | 选这个，把链接发我 |
+| option 2 · `label` | 没有 Requirement |
+| option 2 · `description` | 马上生成并保存到 CawPlan |
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+锁定 Requirement
+生成用例前，先确定是哪条 Requirement？
+1. 已有 Requirement 链接 —— 选这个，把链接发我
+2. 没有 Requirement —— 马上生成并保存到 CawPlan
+请回复序号，或直接粘贴链接、或直接说你想怎么做。
+```
+
+**落点**：
+
+- 选「已有 Requirement 链接」→ **请对方发链接**；拿到后（下条消息或工具自动 Other 框粘贴）→ Portal 解析（见下）；无法解析 → 复述两项 / 请重选。
+- 选「没有 Requirement」→ 会话写 `resume_intent = testcase`，读 `cawplan-requirement-analyze` skill 接力。
+
+#### 框3 · 需求还没保存
+
+**触发**：上表 **P3**；或原 unarchived branch 条件（测试点草稿/表 + 无 `requirement_id`）。
+
+**优先 AskUserQuestion**（**仅两个点选项**；Other 行由工具自动追加，**勿定义**）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 需求还没保存 |
+| `question` | 这份需求还没保存到 CawPlan，先保存再来展开用例 |
+| option 1 · `label` | 马上保存 |
+| option 1 · `description` | 存好再接着展开用例 |
+| option 2 · `label` | 先不保存 |
+| option 2 · `description` | 先停一下，我再看看这份需求 |
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+需求还没保存
+这份需求还没保存到 CawPlan，先保存再来展开用例
+1. 马上保存 —— 存好再接着展开用例
+2. 先不保存 —— 先停一下，我再看看这份需求
+请回复序号，或直接说你想怎么做。
+```
+
+**落点**：「马上保存」→ 会话写 `resume_intent = testcase`，读 `cawplan-requirement-analyze` skill 走保存/归档（**确认闸照旧**），`SUCCESS` 后回 **§2 refresh**；「先不保存」→ **stop**；若 SQA 用工具自动 Other 或自由回复 → 复述 / 按说明处理。
 
 **Trigger routing** (when intent is ambiguous):
 
@@ -53,7 +111,7 @@ If context has test-point drafts or a table but **no valid `requirement_id`** (R
 
 **Anti-confusion**:
 
-- **Object unclear** ("生成用例" with no Requirement in message or context) → ask which Requirement (id or portal link). Missing `product_id` → ask; **do not** scan product lists.
+- **Object unclear** — user says `生成用例` / `生成测试用例` / `展开用例` (or equivalent) with **no** Requirement in message or context, no valid binding, no draft → **框1** above (not a bare text ask). Missing `product_id` after link parse → ask in plain language; **do not** scan product lists.
 - **Draft already exists** + vague "生成用例" again → stop and ask: **重新生成** or **在现有基础上调整/展开?** (prevent overwriting SQA-edited draft).
 - A3 **never** invents new coverage surfaces — gaps go to 存疑清单, suggest back to **A2**.
 
@@ -67,6 +125,13 @@ If context has test-point drafts or a table but **no valid `requirement_id`** (R
 **Only `requirement_id`, missing `product_id`**: ask for `product_id` or a full portal link.
 
 **Rebind** replaces whole context. One active Requirement at a time.
+
+### 跨 skill 接力
+
+- **出站**（框1「没有 Requirement」、框3「马上保存」、§3 框2「马上生成测试点」）：接力前写入 `resume_intent = testcase`。
+- **入站回归**：需求分析归档或测试点流程完成后，按 `resume_intent` 回到本 skill **§2 refresh** 续展开。
+- **框2「马上生成测试点」**：读 `cawplan-testpoint-generate` skill；该流程**只生成并呈现测试点、不自动归档**；SQA 确认归档后才回 §2 refresh。若只说「看着不错」未归档，回来仍 `test_points.length === 0`、会再弹框2 — **预期行为**。
+- **框1「已有 Requirement 链接」解析成功** → 按 P1 冷交接继续，**不弹**框3。
 
 ### 2. Refresh before expand (always)
 
@@ -96,8 +161,38 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 
 | Condition | Action |
 |-----------|--------|
-| `test_points.length === 0` | **Stop** — "该 Requirement 尚无测试点，请先用 A2 生成测试点". Do not invent cases. |
-| No valid `requirement_id` / not archived | **Stop** — "请先在 A1 归档成 Requirement 再来展开用例" |
+| `test_points.length === 0` (after §2 refresh) | → **框2「还没有测试点」** below. Do not invent cases. |
+
+#### 框2 · 还没有测试点
+
+**触发**：§2 refresh 后 `test_points.length === 0`；与 §1 未归档路径（框3）**互斥**。
+
+**优先 AskUserQuestion**（**仅两个点选项**；Other 行由工具自动追加，**勿定义**）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 还没有测试点 |
+| `question` | 这条 Requirement 还没有测试点 |
+| option 1 · `label` | 马上生成测试点 |
+| option 1 · `description` | 生成好再接着展开用例 |
+| option 2 · `label` | 先看看需求内容 |
+| option 2 · `description` | 读一遍再决定 |
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+还没有测试点
+这条 Requirement 还没有测试点
+1. 马上生成测试点 —— 生成好再接着展开用例
+2. 先看看需求内容 —— 读一遍再决定
+请回复序号，或直接说你想怎么做。
+```
+
+**落点**：
+
+- 「马上生成测试点」→ 会话写 `resume_intent = testcase`，读 `cawplan-testpoint-generate` skill；**该流程只生成并呈现测试点、不自动归档**；SQA 确认归档后，按 `resume_intent` 回 **§2 refresh** 续展开。若只说「看着不错」未归档，回来仍无测试点、会再弹框2 — **预期行为**。
+- 「先看看需求内容」→ **展示 §2 已拉取的五字段**，读完再决定。
+- 若 SQA 用工具自动 Other 或自由回复 → 复述 / 按说明处理。
 
 ### 4. Read references (on demand — do not inline into SKILL)
 
@@ -117,7 +212,7 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 **Expansion boundary (first rule)**:
 
 - Four methods expand **only on archived test points** — do not invent coverage.
-- Missing surface with no parent test point → **存疑 only**: "此面无测试点覆盖，建议回 A2 补一条后刷新重展开." **No orphan cases.**
+- Missing surface with no parent test point → **存疑 only**: "此面无测试点覆盖，回去补一条测试点后刷新重展开." **No orphan cases.**
 - Every case under the **archived main path** must have non-empty `testPointId` + parent test point — in `cases[]`, preview, and export (see §8).
 - SQA **verbally adds** a new case → same rule: must attach non-empty `testPointId` + parent test point; if none → 存疑 back to **A2**, **not** into `cases[]` / preview / export.
 
