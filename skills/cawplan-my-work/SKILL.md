@@ -19,11 +19,11 @@ cawplan skill check
 
 ## Workflow
 
-1. Resolve your own `user_id`:
+1. Resolve your own `user_id` — this is decoded from your local access token, no network call needed:
    ```bash
-   cawplan auth status                       # shows your authenticated email
-   cawplan users query --email <your-email>  # resolves email -> user_id
+   cawplan auth status
    ```
+   Read the `User ID:` line from the output. If it's missing, re-authenticate (`cawplan auth login`) rather than falling back to `cawplan users query --email` — that would spend a network call resolving something `auth status` should already have.
 
 2. Fetch your todos:
    ```bash

@@ -61,6 +61,9 @@ export function registerAuthCommand(program: Command): void {
       activeLine = state.active === "oauth" ? "Active:  OAuth" : "Active:  none";
 
       console.log(oauthLine);
+      if (creds?.user_id) {
+        console.log(`User ID: ${creds.user_id}`);
+      }
       const config = await readUserConfig();
       if (config) {
         console.log(`Config:  ${config.env ?? "default"} (${getConfigPath()})`);
