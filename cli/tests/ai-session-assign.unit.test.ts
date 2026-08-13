@@ -165,7 +165,17 @@ describe("assignment repo matching", () => {
                 session_id: "s1",
                 session_name: "One",
                 project: "local-folder-name",
-                cwd: process.cwd(),
+                // A synthetic path, not process.cwd(): normalizeSessionRepoContext also
+                // consults ~/.cawplan/config.json's real local_mapping entries (keyed by
+                // directory prefix) before the mocked git-remote resolver below even runs.
+                // On a real dev machine that file can have a mapping whose dir is a prefix
+                // of this repo's own checkout (e.g. the parent folder mapped to some
+                // product from actual day-to-day CLI use) — process.cwd() would match it
+                // and short-circuit this test's product_id to that real product before the
+                // resolver logic under test ever executes. This test is specifically about
+                // "folder name differs from git repo name", not about local_mapping state,
+                // so use a path no local machine's config could plausibly have a prefix for.
+                cwd: "/nonexistent/cawplan-test-fixture/local-folder-name",
                 time_range: {display: "", timezone: "UTC", start: "2026-06-24T09:00:00.000Z"},
                 model_usage: {},
                 usage_breakdown: [],
