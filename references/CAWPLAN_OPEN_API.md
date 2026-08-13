@@ -88,12 +88,22 @@
 
 ### Search Version Tickets
 - Endpoint: `POST /api/v1/public/openapi/tickets/search`
-- Query params: `time_range` or (`start_date` + `end_date`), `page_size`, `page_num`
+- Query params: `time_range` or (`start_date` + `end_date`), optionally also (`updated_start_date` + `updated_end_date`), `page_size`, `page_num`
 - Body: `product_ids[]`, `product_line_ids[]`, `version_ids[]`, `unique_ids[]`, `display_ids[]`, `parent_ids[]`, `type[]`, `status[]`, `priority[]`, `platform[]`, `assignees[]`, `search`
 - Notes:
     - OR within same field; AND across fields.
     - `unique_ids[]` / `display_ids[]` are exact-match lookups (Linear `fetchIssuesByIds` / global `getIssue`). When either is set, **the time window is not required** (no `time_range` / date range needed).
     - `parent_ids[]` returns **all** sub-issues of the given parents (Linear `getChildIssues`). It is a bounded relationship lookup, so it also **exempts the time window** — the full child set is returned regardless of age (a dependency-aware scheduler must not lose old children). `time_range` is therefore not required when `parent_ids[]` is set.
+- **`start_date`/`end_date` filter `created_at`, not `updated_at`** — this is easy to miss since the field name isn't in the param name. A ticket created before the window but changed (status, assignee, comments, etc.) within it will **not** show up from `start_date`/`end_date` alone, no matter how the request is otherwise scoped (product/version/assignee filters don't change this). If the actual question is "what changed in this window" (release reports, member/team activity reports) rather than "what was created in this window," that's `updated_start_date`/`updated_end_date` (below), not `start_date`/`end_date`.
+- **`updated_start_date`/`updated_end_date`** — independent, optional filter on `updated_at`. No default, not required, can be combined with `start_date`/`end_date` (AND) or used alone (pair with `start_date 2000-01-01`/today per the workaround below if you don't also want the created_at window narrowing results). `updated_at` has **no DB index** (unlike `created_at`), so keep this paired with a narrowing filter (`product_ids`, `assignees`, etc.) rather than firing it alone across a whole workspace/product line.
+- **Canonical workaround for "every matching ticket regardless of age" queries** (e.g. release health checks, UX-pending sweeps, stale-ticket detection, or "what changed" reports that need `updated_start_date`/`updated_end_date` without the `created_at` window also narrowing results): none of `--version_ids`/`--product_ids`/`--product_line_ids`/`--priority`/`--type`/`--status`/`--assignees` exempt the time window on their own. Two valid options, pick per need:
+    1. Pass a deliberately maximal window, e.g. `--start_date 2000-01-01 --end_date <today>` — use when you need a field only present on the full `VersionTicket` shape (see below), since Poll Tickets doesn't return it, or when combining with `updated_start_date`/`updated_end_date`.
+    2. Switch to **Poll Tickets** (below) instead, which has no time window at all — use when the fields you need are in Poll's lightweight shape.
+   Skills should reference this section rather than re-deriving the workaround independently.
+- **`VersionTicket` fields of note** (full shape returned by Search/Get, not by Poll):
+    - `ux`: `NOT_REQUIRED` / `PENDING` / `READY` — whether the ticket needs UX design work and where that stands. `PENDING` means UX was flagged as needed but isn't done; `NOT_REQUIRED` is the default and does **not** mean "needs UX."
+    - `links[]`: external resource links, each `{ platform, url, title, external_id }`. `platform` is free text and not a reliable discriminator in practice (e.g. a GitHub PR/commit link can show `platform: "LINK"`) — classify by inspecting `url` instead (contains `/pull/` → PR, `/commit/` → commit).
+    - `status_display.category`: the resolved workflow-status category (`UNSTARTED`/`STARTED`/`TESTING`/`COMPLETE`/`CANCELED`) for the ticket's current `status` key — same taxonomy as Get Product Line Ticket Statuses, provided inline so callers don't have to cross-reference it separately.
 
 ### Poll Tickets (daemon-friendly, no time window)
 - Endpoint: `POST /api/v1/public/openapi/tickets/poll`

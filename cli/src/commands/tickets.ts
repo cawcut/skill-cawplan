@@ -86,8 +86,10 @@ export function registerTicketsCommand(program: Command): void {
     .command("search")
     .description("Search tickets")
     .option("--time_range <range>", "Time range (e.g. 1m, 3m)")
-    .option("--start_date <date>", "Start date YYYY-MM-DD")
-    .option("--end_date <date>", "End date YYYY-MM-DD")
+    .option("--start_date <date>", "Start date YYYY-MM-DD (filters ticket creation time, not last-updated)")
+    .option("--end_date <date>", "End date YYYY-MM-DD (filters ticket creation time, not last-updated)")
+    .option("--updated_start_date <date>", "Start date YYYY-MM-DD for an independent filter on last-updated time; finds tickets changed in this window regardless of when created")
+    .option("--updated_end_date <date>", "End date YYYY-MM-DD for the last-updated filter; must be paired with --updated_start_date")
     .option("--product_ids <csv>", "Product IDs")
     .option("--product_line_ids <csv>", "Product line IDs")
     .option("--version_ids <csv>", "Version IDs")
@@ -113,13 +115,20 @@ export function registerTicketsCommand(program: Command): void {
         process.exit(1);
       }
 
+      if (opts.updated_end_date && !opts.updated_start_date) {
+        console.error("Error: --updated_end_date requires --updated_start_date");
+        process.exit(1);
+      }
+
       const flags: Record<string, string> = {};
       if (opts.time_range) flags.time_range = opts.time_range;
       if (opts.start_date) flags.start_date = opts.start_date;
       if (opts.end_date) flags.end_date = opts.end_date;
+      if (opts.updated_start_date) flags.updated_start_date = opts.updated_start_date;
+      if (opts.updated_end_date) flags.updated_end_date = opts.updated_end_date;
       if (opts.page_size) flags.page_size = opts.page_size;
       if (opts.page_num) flags.page_num = opts.page_num;
-      const query = buildQueryFromFlags(flags, ["time_range", "start_date", "end_date", "page_size", "page_num"]);
+      const query = buildQueryFromFlags(flags, ["time_range", "start_date", "end_date", "updated_start_date", "updated_end_date", "page_size", "page_num"]);
 
       const body: Record<string, unknown> = {};
       const productIds = csvToArray(opts.product_ids);

@@ -52,6 +52,14 @@
       "path": "skills/cawplan-coding-insights"
     },
     {
+      "name": "cawplan-my-work",
+      "path": "skills/cawplan-my-work"
+    },
+    {
+      "name": "cawplan-ux-tracking",
+      "path": "skills/cawplan-ux-tracking"
+    },
+    {
       "name": "cawplan-requirement-analyze",
       "path": "skills/cawplan-requirement-analyze"
     },

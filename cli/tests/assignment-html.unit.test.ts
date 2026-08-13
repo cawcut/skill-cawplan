@@ -79,8 +79,13 @@ describe("assignmentHtml - needs review filter", () => {
 describe("assignmentHtml - session column", () => {
     test("renders session title with cwd hover tooltip", () => {
         const html = assignmentHtml();
-        expect(html).toContain("const cwdTitle = ' title=\"cwd: &quot;' + escapeHtml(s.cwd || '') + '&quot;\"';");
-        expect(html).toContain("'<td><div class=\"session-title\"' + cwdTitle + '>' + escapeHtml(title) + '</div></td>'");
+        // sessionTitleTooltip() now also includes cost, not just cwd — the tooltip
+        // still surfaces cwd, so check its actual current content rather than the
+        // exact old inline expression.
+        expect(html).toContain("function sessionTitleTooltip(session)");
+        expect(html).toContain("'\\nCWD: ' + String(session.cwd || '')");
+        expect(html).toContain("const titleTooltip = ' title=\"' + escapeHtml(sessionTitleTooltip(s)) + '\"';");
+        expect(html).toContain("'<td><div class=\"session-title\"' + titleTooltip + '>' + escapeHtml(title) + '</div></td>'");
         expect(html).not.toContain("[s.agent, s.project].filter(Boolean).join(' | ')");
     });
 });
@@ -187,7 +192,9 @@ describe("assignmentHtml - tickets column", () => {
     test("supports adding tickets before saving", () => {
         const html = assignmentHtml();
         expect(html).toContain("event.key !== 'Enter'");
-        expect(html).toContain("addTicketFromRow(el.closest('tr'))");
+        // addTicketFromRow is now called with a pre-extracted `row`/`tr` variable
+        // rather than an inline `el.closest('tr')` — check the current call sites.
+        expect(html).toContain("if (row) addTicketFromRow(row);");
         expect(html).toContain("addTicketFromRow(tr);");
     });
 
@@ -212,10 +219,13 @@ describe("assignmentHtml - tickets column", () => {
         expect(html.indexOf("'<td><div class=\"repo-field\"><select class=\"repo\">")).toBeLessThan(html.indexOf("'<td class=\"tickets-cell\""));
     });
 
-    test("uses ten-column empty states", () => {
+    test("uses eleven-column empty states", () => {
         const html = assignmentHtml();
-        expect(html).toContain('colspan="10"');
-        expect(html).not.toContain('colspan="11"');
+        // A column was added to the table (now 11 <th> headers) after this test
+        // was written for 10; the empty-state colspan was correctly updated to
+        // match, this test wasn't.
+        expect(html).toContain('colspan="11"');
+        expect(html).not.toContain('colspan="10"');
         expect(html).not.toContain('colspan="12"');
     });
 
