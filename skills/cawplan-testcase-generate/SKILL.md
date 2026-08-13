@@ -3,9 +3,9 @@ version: 0.2.6
 name: cawplan-testcase-generate
 description: |
   Expand archived test points into executable test cases: Markdown title-state preview first, expand steps on demand, export team CSV when SQA actively requests after review (read-only — does not write to CawPlan).
-  Use when: generating test cases (preview first), expanding executable steps in Markdown preview, exporting CSV when SQA asks to export, or hot handoff after A2 ("按上面的生成用例", "generate test cases from above", or similar); cold handoff via Requirement portal link or requirement_id.
+  Use when: generating test cases (preview first), expanding executable steps in Markdown preview, exporting CSV when SQA asks to export, or hot handoff after A2 ("按上面的生成用例", "generate test cases from above", or similar); cold handoff via Requirement link or requirement_id.
   NOT for: test-point coverage outlines (use `cawplan-testpoint-generate`); requirement analysis or archiving (use `cawplan-requirement-analyze`); viewing or editing archived test points in Test Suites (web UI); unarchived five-field drafts only (archive via A1 first).
-argument-hint: "[Requirement portal link or requirement_id, '生成测试用例', '按上面的生成用例' / 'generate test cases from above']"
+argument-hint: "[Requirement link or requirement_id, '生成测试用例', '按上面的生成用例' / 'generate test cases from above']"
 allowed-tools: Bash
 ---
 
@@ -27,21 +27,79 @@ cawplan skill check
 
 ### 1. Resolve target Requirement (entry priority)
 
-On each **generate test cases** request, pick the active target in this order:
+On each **generate test cases** request, resolve the target in this order (**fall through**):
 
-| Priority | Condition | Action |
-|----------|-----------|--------|
-| 1 | This message has an explicit reference (portal URL / `requirement_id` / switch to another Requirement) | **Cold handoff** — rebind; ignore prior session binding |
-| 2 | No explicit reference; user says **「按上面的生成用例」** / **"generate test cases from above"** / **"expand the test points above"** / **「接着生成用例」** / **「把上面的展开成用例」** (same intent as SPEC hot handoff) | **Hot handoff** — use current session binding (`product_id` + `requirement_id` + test points if present) |
-| 3 | No binding; only an unarchived A1 five-field draft | **Stop** — tell SQA to archive via `cawplan-requirement-analyze` first |
+| Step | Condition | Action |
+|------|-----------|--------|
+| **P1** | Explicit reference (Requirement link / `requirement_id` / switch) | **Cold handoff** — rebind |
+| **P2** | Hot-handoff phrasing matches **and** **valid binding** (`product_id` + `requirement_id` both present) | **Hot handoff** — use session binding |
+| **P3** | Requirement **draft** in session but **no** valid `requirement_id` (not saved) | → **框3「需求还没保存」** below |
+| **兜底** | No link, no valid binding, no draft | → **框1「锁定 Requirement」** below |
 
-**Hot handoff — unarchived branch (current version; §4.9 draft bypass not supported)**:
+**P2 话术（同义，须有效 binding）**：`按上面的生成用例` / `generate test cases from above` / `expand the test points above` / `接着生成用例` / `把上面的展开成用例` / `生成测试用例` / `展开用例` 等（与 SPEC hot handoff 同意图）。
 
-If context has test-point drafts or a table but **no valid `requirement_id`** (Requirement not archived) → **stop immediately**:
+**有效 binding** = `product_id` + `requirement_id` both present. Phrasing without binding → fall through to P3 or 兜底.
 
-> 当前版本需先归档 Requirement 才能展开用例，请先归档。
+**未归档拦截（P3 + 原 unarchived branch 合并）** — 会话有需求草稿和/或测试点草稿/表，但 **无** valid `requirement_id` → **框3「需求还没保存」**（见下）。**Do not** fall through to §2 GET（would return empty and mislead SQA toward generating test points first). Unarchived fast-path is **not** supported in this release.
 
-**Do not** fall through to cold GET (would return empty and mislead SQA toward A2). Unarchived fast-path is **not** supported in this release.
+#### 框1 · 锁定 Requirement（入口 / 兜底）
+
+**触发**：上表 **兜底**；或用户说 `生成用例` / `生成测试用例` / `展开用例` 等且消息与上下文中**无** Requirement 链接、无有效 binding、无草稿（object-unclear）。有效 P1/P2、已保存 Requirement → **不弹**。
+
+**禁止**选项「用上面出好的」（属有效 P2）。
+
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具会自动追加 Other 自由输入行，**标题/占位不可自定义**——**不要**在 skill 里定义或手写 Other / 自由输入行）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 锁定 Requirement |
+| `question` | 生成用例前，先确定是哪条 Requirement？ |
+| option 1 · `label` | 已有 Requirement 链接 |
+| option 1 · `description` | 把链接发我 |
+| option 2 · `label` | 没有 Requirement |
+| option 2 · `description` | 马上生成并保存到 CawPlan |
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+锁定 Requirement
+生成用例前，先确定是哪条 Requirement？
+1. 已有 Requirement 链接 —— 选这个，把 Requirement 链接发我
+2. 没有 Requirement —— 马上生成并保存到 CawPlan
+请回复序号，或直接粘贴 Requirement 链接、或直接说你想怎么做。
+```
+
+**落点**：
+
+- 选「已有 Requirement 链接」→ **请对方发 Requirement 链接**；拿到 Requirement 链接后（下条消息或工具自动 Other 框粘贴）→ Portal 解析（见下）；无法解析 → 复述两项 / 请重选。
+- 选「没有 Requirement」→ 会话写 `resume_intent = testcase`，读 `cawplan-requirement-analyze` skill 接力。
+
+#### 框3 · 需求还没保存
+
+**触发**：上表 **P3**；或原 unarchived branch 条件（测试点草稿/表 + 无 `requirement_id`）。
+
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 需求还没保存 |
+| `question` | 这份需求还没保存到 CawPlan，先保存再来展开用例 |
+| option 1 · `label` | 马上保存 |
+| option 1 · `description` | 存好再接着展开用例 |
+| option 2 · `label` | 先不保存 |
+| option 2 · `description` | 先停一下，我再看看这份需求 |
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+需求还没保存
+这份需求还没保存到 CawPlan，先保存再来展开用例
+1. 马上保存 —— 存好再接着展开用例
+2. 先不保存 —— 先停一下，我再看看这份需求
+请回复序号，或直接说你想怎么做。
+```
+
+**落点**：「马上保存」→ 会话写 `resume_intent = testcase`，读 `cawplan-requirement-analyze` skill 走保存/归档（**确认闸照旧**），`SUCCESS` 后回 **§2 refresh**；「先不保存」→ **stop**；若 SQA 用工具自动 Other 或自由回复 → 复述 / 按说明处理。
 
 **Trigger routing** (when intent is ambiguous):
 
@@ -53,7 +111,7 @@ If context has test-point drafts or a table but **no valid `requirement_id`** (R
 
 **Anti-confusion**:
 
-- **Object unclear** ("生成用例" with no Requirement in message or context) → ask which Requirement (id or portal link). Missing `product_id` → ask; **do not** scan product lists.
+- **Object unclear** — user says `生成用例` / `生成测试用例` / `展开用例` (or equivalent) with **no** Requirement in message or context, no valid binding, no draft → **框1** above (not a bare text ask). Missing `product_id` after link parse → ask in plain language; **do not** scan product lists.
 - **Draft already exists** + vague "生成用例" again → stop and ask: **重新生成** or **在现有基础上调整/展开?** (prevent overwriting SQA-edited draft).
 - A3 **never** invents new coverage surfaces — gaps go to 存疑清单, suggest back to **A2**.
 
@@ -64,13 +122,20 @@ If context has test-point drafts or a table but **no valid `requirement_id`** (R
 - Extract `product_id` + `requirement_id` from the string only.
 - **Forbidden**: `cawplan api GET {url}`, HTTP fetch, or any request to the portal path.
 
-**Only `requirement_id`, missing `product_id`**: ask for `product_id` or a full portal link.
+**Only `requirement_id`, missing `product_id`**: ask for `product_id` or a full Requirement link.
 
 **Rebind** replaces whole context. One active Requirement at a time.
 
+### 跨 skill 接力
+
+- **出站**（框1「没有 Requirement」、框3「马上保存」、§3 框2「马上生成测试点」）：接力前写入 `resume_intent = testcase`。
+- **入站回归**：需求分析归档或测试点流程完成后，按 `resume_intent` 回到本 skill **§2 refresh** 续展开。
+- **框2「马上生成测试点」**：读 `cawplan-testpoint-generate` skill；该流程**只生成并呈现测试点、不自动归档**；SQA 确认归档后才回 §2 refresh。若只说「看着不错」未归档，回来仍 `test_points.length === 0`、会再弹框2 — **预期行为**。
+- **框1「已有 Requirement 链接」解析成功** → 按 P1 冷交接继续，**不弹**框3。
+
 ### 2. Refresh before expand (always)
 
-Before expanding (cold **or** hot), pull live data — **library is source of truth**:
+Before expanding (cold **or** hot), pull live data — **library is source of truth**. **Presentation**: execute §1 parse + both GETs **silently** — no SQA-facing process narration until §9 Opening line (see §9「进场静默」).
 
 ```bash
 cawplan qa-insights requirements get <product_id> <requirement_id>
@@ -96,8 +161,38 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 
 | Condition | Action |
 |-----------|--------|
-| `test_points.length === 0` | **Stop** — "该 Requirement 尚无测试点，请先用 A2 生成测试点". Do not invent cases. |
-| No valid `requirement_id` / not archived | **Stop** — "请先在 A1 归档成 Requirement 再来展开用例" |
+| `test_points.length === 0` (after §2 refresh) | → **框2「还没有测试点」** below. Do not invent cases. |
+
+#### 框2 · 还没有测试点
+
+**触发**：§2 refresh 后 `test_points.length === 0`；与 §1 未归档路径（框3）**互斥**。
+
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 还没有测试点 |
+| `question` | 这条 Requirement 还没有测试点 |
+| option 1 · `label` | 马上生成测试点 |
+| option 1 · `description` | 生成好再接着展开用例 |
+| option 2 · `label` | 先看看需求内容 |
+| option 2 · `description` | 读一遍再决定 |
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+还没有测试点
+这条 Requirement 还没有测试点
+1. 马上生成测试点 —— 生成好再接着展开用例
+2. 先看看需求内容 —— 读一遍再决定
+请回复序号，或直接说你想怎么做。
+```
+
+**落点**：
+
+- 「马上生成测试点」→ 会话写 `resume_intent = testcase`，读 `cawplan-testpoint-generate` skill；**该流程只生成并呈现测试点、不自动归档**；SQA 确认归档后，按 `resume_intent` 回 **§2 refresh** 续展开。若只说「看着不错」未归档，回来仍无测试点、会再弹框2 — **预期行为**。
+- 「先看看需求内容」→ **展示 §2 已拉取的五字段**，读完再决定。
+- 若 SQA 用工具自动 Other 或自由回复 → 复述 / 按说明处理。
 
 ### 4. Read references (on demand — do not inline into SKILL)
 
@@ -117,7 +212,7 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 **Expansion boundary (first rule)**:
 
 - Four methods expand **only on archived test points** — do not invent coverage.
-- Missing surface with no parent test point → **存疑 only**: "此面无测试点覆盖，建议回 A2 补一条后刷新重展开." **No orphan cases.**
+- Missing surface with no parent test point → **存疑 only**: "这一块没有对应的测试点,回去补一条测试点、刷新后再展开。" **No orphan cases.**
 - Every case under the **archived main path** must have non-empty `testPointId` + parent test point — in `cases[]`, preview, and export (see §8).
 - SQA **verbally adds** a new case → same rule: must attach non-empty `testPointId` + parent test point; if none → 存疑 back to **A2**, **not** into `cases[]` / preview / export.
 
@@ -129,7 +224,7 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 |------|------------------|---------|
 | **Title only** | 按 **Group 无条件分块**的多张小表（见下「预览呈现格式」）；块内列：`#` / `用例标题` / `优先级` / `父测试点`（**无「分组」列**） | 默认首轮 — "生成测试用例" |
 | **Partial** | 仅 SQA 点名那几条，打 step/expected 并排块；块标题与父测试点列遵「预览呈现格式」 | "展开第 X 条" / "先展开这 1–3 条" |
-| **Full** | 全部条目打展开块（**仅 SQA 主动说「全部展开」时**）；块标题与父测试点列遵「预览呈现格式」 | "全部展开" |
+| **Full** | 全部条目打展开块（**仅 SQA 主动说「全部展开」时**）；块标题与父测试点列遵「预览呈现格式」 | "全部展开"（**档位触发词**，见下「本批展开分流」；**不等于**免分流已表态） |
 
 **本批展开分流（Partial / Full 共用 — 看本批条数，不看池子总量）**:
 
@@ -138,19 +233,46 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
   - Partial：SQA 点名的条数（如「展开前 25 条」→ 25；「展开第 1、3、5 条」→ 3）。
   - Full：当前 `cases[]` 中**本回合尚未展开**的条数（`steps` / `expected` 仍为空或视为未展开）。
   - 与 `cases[]` 总条数、已展开条数无关 — 只数本批。
+- **硬顺序（不可跳步）**：
+  1. 识别 Partial / Full 意图 → 计算本批 `batchCount`。
+  2. `batchCount > 10` 且 SQA **未**免分流已表态？→ **只出框4，禁止铺步骤**（即使用户说了「全部展开」；**不得**因 §9 例外而跳过框4）。
+  3. 框4 选「全部铺开」/ `batchCount ≤ 10` / 免分流已表态 → 展开 Markdown 预览块 → §9 hint。
 - **`batchCount ≤ 10`**：照旧直接展开 Markdown 预览块，**不问、不停**。
-- **`batchCount > 10`** 且 SQA **未**在请求里已表态 → **先不铺步骤**，只给三选一（载体分流，非确认闸；禁「确认 / confirm / 是否继续」）：
+- **`batchCount > 10`** 且 SQA **未**在请求里已表态 → **先不铺步骤**，只给 **框4「展开方式」**（载体分流，非确认闸；禁「确认 / confirm / 是否继续」）：
 
-  > 本次要展开 N 条，在对话里会很长。你想：(a) 全部铺开（不管长短）；(b) 导出 CSV，去表格里看（按当前内容导出，未展开的按草稿态）；(c) 先不展开 — 你可以重新说一个更小的范围（比如「先展开 5 条」）。
+**优先 AskUserQuestion**（**三个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**）：
 
-  | 选择 | 动作 |
-  |------|------|
-  | **(a)** | 按本批范围全量打 Markdown 展开块 → §9 partial/full hint（复用 §9「SQA 明确要全量预览时允许」） |
-  | **(b)** | 不铺对话展开块 → 走 §8 导出流程（本选择视为 SQA 主动要导出；**不会**为本批自动展开步骤，按当前内容导出，未展开的按草稿态）→ §9 export receipt |
-  | **(c)** | 停下，不展开、不导出；等 SQA 重新发起更小范围 |
+| 字段 | 值 |
+|------|-----|
+| `header` | 展开方式 |
+| `question` | 本次要展开 N 条,在对话里会很长。怎么弄? |
+| option 1 · `label` | 全部铺开 |
+| option 1 · `description` | 不管多长都在对话里展开 |
+| option 2 · `label` | 导出 CSV 去表格看 |
+| option 2 · `description` | 按当前内容导出,没展开的只有标题 |
+| option 3 · `label` | 先不展开 |
+| option 3 · `description` | 换个更小范围,比如「先展开 5 条」 |
 
-- **免分流（已表态则不问）**：请求里已明确决断要全铺时，**直接当 (a)**，例如「我知道很长，就是要全铺」「别问，全展开」「不管多长全部展开」— 仍遵守 §9 全量预览例外，不先抛三选一。
-- **边界**：这不是给展开加确认闸；≤10 条、或已表态的 >10 条，展开仍无摩擦。三选一**仅**在「本批 > 10 且未表态」时出现。
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+展开方式
+本次要展开 N 条,在对话里会很长。怎么弄?
+1. 全部铺开
+2. 导出 CSV 去表格看 —— 按当前内容导出,没展开的只有标题
+3. 先不展开 —— 换个更小范围,比如「先展开 5 条」
+请回复序号，或直接说你想怎么做。
+```
+
+| 选择 | 动作 |
+|------|------|
+| **全部铺开** | 按本批范围全量打 Markdown 展开块 → §9 partial/full hint |
+| **导出 CSV 去表格看** | 不铺对话展开块 → 走 §8 导出流程（本选择视为 SQA 主动要导出；**不会**为本批自动展开步骤，按当前内容导出，未展开的只有标题）→ §9 export receipt |
+| **先不展开** | 停下，不展开、不导出；等 SQA 重新发起更小范围 |
+
+- **「全部展开」≠ 已表态**：仅说「全部展开」（或同义 Full 档位触发）只表示进入 Full 档位、用于计算 `batchCount`；**不算**免分流已表态。`batchCount > 10` 时仍须先走框4，**禁止**直接铺开。
+- **免分流（已表态则不问）**：请求里已**额外**明确决断要全铺、且话术**强于**单纯「全部展开」时，**直接当「全部铺开」**，例如「我知道很长，就是要全铺」「别问，全展开」「不管多长全部展开」— 不先弹框4。
+- **边界**：这不是给展开加确认闸；≤10 条、或已表态的 >10 条，展开仍无摩擦。框4**仅**在「本批 > 10 且未表态」时出现。
 
 - Default first pass: **title-state Markdown tables grouped by Group** (not CSV). **父测试点**列是拆分账核心：同一父测试点连出 N 行 = 逐项拆对；只出 1 行 = 可能错合；空 = 孤儿。
 - **Preview table columns ≠ CSV 12 columns** — preview is for human review; export column layout follows `assets/testcase-template.csv`. 预览层的 `同上` 是显示缩写；`cases[].testPointTitle` 与导出 JSON 始终保留全称（见下「预览呈现格式」）。
@@ -199,7 +321,7 @@ Run **twice**: (1) before **title-state preview**; (2) before **export**.
 | Action | Confirm? | Notes |
 |--------|----------|-------|
 | Title-state / expand preview (Markdown) | **No** | Does not write files |
-| **Export CSV** (SQA initiates) | **No** upfront confirm | SQA asked; receipt states draft vs final (see §9) |
+| **Export CSV** (SQA initiates) | **No** upfront confirm | SQA asked; receipt see §9 |
 | **Regenerate entire set** | **Yes** | Clears `cases[]`, discards all `【已调整】` / `【新增】` / "已移除" traces, rebuilds from GET test points — wipes SQA manual edits |
 | Delete / retitle / SQA-directed tweak | **No** | Update `cases[]` + re-render affected preview; **§8 only when SQA says export** |
 
@@ -209,7 +331,7 @@ AI produces an **export-time snapshot** of current `cases[]` as interim JSON; `e
 
 **When to export**:
 
-- Triggered **only when SQA actively asks** (e.g. 「导出 CSV」). May export at **any content state** (title-only / partial mix / full). Assemble interim JSON from current `cases[]`. Non–full-expand = **draft export**: unexpanded rows keep `steps` / `expected` as `[]`; mixed rows legal (see `references/csv-template-mapping.md` 「草稿态导出」). Export does **not** lock work state; may export multiple times (timestamp filenames do not overwrite). Describe draft status honestly in §9 receipt — do not rename files or add columns.
+- Triggered **only when SQA actively asks** (e.g. 「导出 CSV」). May export at **any content state** (title-only / partial mix / full). Assemble interim JSON from current `cases[]`. Non–full-expand = **draft export**: unexpanded rows keep `steps` / `expected` as `[]`; mixed rows legal (see `references/csv-template-mapping.md` 「草稿态导出」). Export does **not** lock work state; may export multiple times (timestamp filenames do not overwrite). Do not rename files or add columns.
 - Before export: **filter out** entries with `status: 'removed'` — preview-only trace; **do not** put `status` or removed rows into interim JSON.
 - Before export: if any remaining row has `steps.length !== expected.length` → **refuse export**, point SQA to fix in preview (e.g. "第 3 条步骤与预期数量不一致,先修齐再导") — **do not** call §8 and dump script stderr.
 
@@ -248,30 +370,44 @@ rm -f "$TMP_JSON"
 
 ### 9. Present (preview + export receipt)
 
+**进场静默（§1 解析链接 → §2 拉取 — 至标题清单首轮为止）**:
+
+- **适用范围**：从 SQA 触发「生成测试用例」/冷交接 / Rebind / 热交接续跑,经 Portal 解析、`requirements get`、`testpoints list`,到**首次**打出标题清单为止。
+- **禁止向 SQA 输出**任何内部过程或 ID,例如:「Requirement 链接已解析」「product_id=…」「requirement_id=…」「正在拉取…最新数据」「开始按…展开」等。解析与 CLI **照常执行**,仅不向 SQA 念过程。
+- **例外（仍可/必须对用户说）**：缺 `product_id` 须追问;读失败 / 404 如实报错;§1 框1 / 框3、§3 框2 等硬停;§2 五字段漂移的轻量存疑一行。
+- **成功且进入标题清单首轮时**：§2 拉取完成后,**第一条**可见输出 = 下方 Opening line + 标题清单 Markdown(+ 尾部 hint、存疑清单若有)。**不**在前面加过程旁白。
+
+**Opening (title-list first pass — first SQA-visible line after §2 refresh)**:
+
+- **输出纪律**：承接「进场静默」;开场只说「需求(泛指) + 这是标题清单」;**禁止**念内部过程。其中「需求」为泛指,**不**填入 Requirement 显示标题。
+- Opening line（逐字模板; `{N}` = `test_points.length` from GET）:
+  > 已读取需求与 {N} 条测试点,先按测试点列出用例标题(未展开步骤):
+
 **Preview state** (after title table / partial expand / full expand when SQA asked):
 
 - Markdown 预览的**分块、列结构、父测试点「同上」**遵 §5「预览呈现格式」；与 §8 CSV 落盘无关。
 - Output the corresponding **Markdown preview** + **one of the three SQA hints below** + 存疑清单 (if any).
-- **Forbidden**: agent **proactively** pasting a full expand table for all cases (context blow-up). **Exception** — full Markdown preview is allowed when:
-  1. SQA explicitly says **「全部展开」** (or equivalent), **or**
-  2. SQA chose **(a) 全部铺开** from §5「本批展开分流」, **or**
-  3. SQA **免分流已表态**（§5：如「我知道很长，就是要全铺」）— still preview, not CSV.
+- **Forbidden**: agent **proactively** pasting a full expand table for all cases (context blow-up). **Exception** — full Markdown preview is allowed **only after** §5「本批展开分流」已放行（`batchCount ≤ 10`，或框4 选了「全部铺开」，或免分流已表态）:
+  - **Not** on 「全部展开」alone when `batchCount > 10` — that only enters Full tier and **must** trigger §5 框4 first; **do not** expand until triage completes.
+  - SQA chose **「全部铺开」** from §5 框4「展开方式」, **or**
+  - SQA **免分流已表态**（§5：如「我知道很长，就是要全铺」）— still preview, not CSV.
   Title tables and partial expand blocks are always allowed as Markdown preview.
 
 **Three SQA hints** (after preview; no word "脚本"):
 
-- **After title-state preview:**
-  > 以上为标题态预览(未导出)。可继续调标题 / 增删;需要看步骤粒度就说「展开第 X 条」;审阅满意后说「导出 CSV」,即按当前内容导出。
+- **After title-list preview:**
+  > 要改就直接说(改标题、增删);想看某条用例步骤说「展开第 X 条」;要导出就说「导出 CSV」。
 
 - **After partial expand:**
-  > 已展开这 N 条供你看步骤粒度,其余未展开。可继续展开别的,或说「全部展开」;随时可说「导出 CSV」(当前为混排,会按草稿态导出)。
+  > 这 N 条的步骤已展开。想看别的就说「展开第 X 条」或「全部展开」;要导出就说「导出 CSV」(未展开用例,导出时只有标题)。
+
+- **After full expand:**
+  > 全部 N 条已展开完毕。要导出就说「导出 CSV」。
 
 - **Export receipt** (after §8 only — thin summary, **no case body**):
-  1. Requirement display name + file path (from stdout `已导出: ...`)
-  2. Group-level counts (e.g. "3 组 / 12 条")
-  3. 存疑清单 (if any, same list as preview state)
-  4. Status line:
-     > 已导出:<路径>。本次 N 条,其中 M 条含步骤、其余标题态。**非全展开时:此为草稿态、非最终交付。**
+  - 存疑清单 (if any, same list as preview state)
+  - Status line（逐字; `<路径>` from stdout `已导出: ...`）:
+    > 已导出:<路径>。
 
 CSV is an **export snapshot**; Markdown preview is the **in-conversation work state**.
 
@@ -359,7 +495,7 @@ Export column layout: `assets/testcase-template.csv`.
 ## Output & Confirmation
 
 - **Title-state first pass** → §6 → §5 title Markdown preview → §9 hint (**no §8**)
-- **Partial / full expand** → §5：若本批 `batchCount > 10` 且未表态 → 三选一分流；**(a)** / ≤10 / 免分流 → expand Markdown preview → §9 hint；**(b)** → §8 → §9 receipt；**(c)** → 停下（**no confirm gate on expand itself; triage is routing only**）
+- **Partial / full expand** — 硬顺序：算 `batchCount` → `>10` 且未免分流？**只框4、禁止铺步骤**（含「全部展开」）→ 框4「全部铺开」/ `≤10` / 免分流 → expand → §9 hint；框4「导出 CSV 去表格看」→ §8 → §9 receipt；框4「先不展开」→ 停下（**no confirm gate on expand itself; triage is routing only**）
 - **Export CSV (SQA initiates)** → §8 (filter removed, refuse mispaired) → §9 receipt (any content state)
 - **Regenerate entire set** → §7 confirm → §6 → §5 preview
 - **Failures** → §2 honest error; keep in-memory draft if safe
