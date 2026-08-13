@@ -14,6 +14,11 @@ npm install && npm run build && npm link
 npm test
 ```
 
+skill 本地开发更新 （根目录运行）
+```bash
+npx skills add ./ -a cursor claude-code codex -g -y
+```
+
 **验证 skills（从仓库根目录运行）：**
 ```bash
 bash scripts/validate-skills.sh
