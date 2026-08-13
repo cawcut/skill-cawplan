@@ -489,14 +489,14 @@ Parse `data.nodes`（可能为 `[]`）。从五字段尝试推荐一个挂载节
 
 ```
 ① 选位置(框)
-     ├─「可以,放这里就行」→ 用推荐节点 → 挂上、继续归档保存
-     ├─「看看有哪些节点」→ 树形缩进列表(文字)→ 选中一个 → 用它挂上、继续归档
+     ├─「就保存到这里」→ 用推荐节点 → 挂上、继续 step 11 保存（此步只定位置、未写库）
+     ├─「看看有哪些节点」→ 树形缩进列表(文字)→ 选中一个 → 用它挂上、继续 step 11
      └─「新建一个节点」→ 问名字+父节点(文字)→ 确认新建(框)
                                                    ├─「对,新建」→ 写库建节点 →〔回到 ①〕拿新建的那条当推荐,再确认一次
                                                    └─「不对」→ 回上一步重问名字+父节点,不写库
 ```
 
-关键：**新建只负责「把节点建出来」；建完不自动挂载**，而是回到「选位置」逻辑，以刚建的节点为推荐，再走一遍「放不放这里」。
+关键：**新建只负责「把节点建出来」；建完不自动挂载**，而是回到「选位置」逻辑，以刚建的节点为推荐，再走一遍「是否要保存到这里」。
 
 ---
 
@@ -507,21 +507,21 @@ Parse `data.nodes`（可能为 `[]`）。从五字段尝试推荐一个挂载节
 | 字段 | 值 |
 |------|-----|
 | `header` | 选择位置 |
-| `question` | 建议放到「{推荐节点全路径}」下,可以吗? |
-| option 1 · `label` | 可以,放这里就行 |
+| `question` | 是否要保存到「{推荐节点全路径}」节点下? |
+| option 1 · `label` | 就保存到这里 |
 | option 2 · `label` | 看看有哪些节点 |
 | option 3 · `label` | 新建一个节点 |
 
-**落点**：
+**落点**（**此步只定位置、未写库** — 真正保存须经 step 11 确认闸）：
 
-- **可以,放这里就行** → 采用推荐节点，`module_tree_node_id` = 该节点 `id`，挂上、继续 step 11 归档保存。
+- **就保存到这里** → 采用推荐节点，`module_tree_node_id` = 该节点 `id`，挂上、继续 step 11 保存。
 - **看看有哪些节点** → 展示节点树形列表（〔选②〕），SQA 选中一个 → 采用、`module_tree_node_id` 写入上下文、挂上、继续 step 11。
 - **新建一个节点** → 进〔选③〕问名字+父节点。
 
 **AskUserQuestion 不可用时** — 纯文字降级（逐字，填入实际全路径）：
 
 ```text
-建议放到「{推荐节点全路径}」下,可以吗? 1. 可以,放这里就行 2. 看看有哪些节点 3. 新建一个节点(回序号)
+是否要保存到「{推荐节点全路径}」节点下? 1. 就保存到这里 2. 看看有哪些节点 3. 新建一个节点(回序号)
 ```
 
 ---
@@ -554,7 +554,7 @@ Parse `data.nodes`（可能为 `[]`）。从五字段尝试推荐一个挂载节
 12. 系统设置
 ```
 
-- **落点**：选中 → 采用该节点，`module_tree_node_id` 写入上下文、挂上、继续 step 11 归档保存。
+- **落点**：选中 → 采用该节点，`module_tree_node_id` 写入上下文、挂上、继续 step 11 保存（此步只定位置、未写库）。
 - SQA 说「新建一个节点」或节点不在列表中 → 进〔选③〕。
 
 ---
@@ -575,36 +575,30 @@ Parse `data.nodes`（可能为 `[]`）。从五字段尝试推荐一个挂载节
 | 字段 | 值 |
 |------|-----|
 | `header` | 确认新建 |
-| `question` | 新建后位置是「{父节点全路径} → {新节点名}」,对吗? |
+| `question` | 新建节点「{新节点名}」(在「{父节点全路径}」下),对吗?（顶级父节点：`新建节点「{新节点名}」(顶级),对吗?`） |
 | option 1 · `label` | 对,新建 |
 | option 2 · `label` | 不对 |
 
-展示**完整路径**，末端即为要新建的那节；**建议视觉上标出是新增节点**（呈现层用路径箭头与末端名体现，勿改 question 字面）。
-
 **落点**：
 
-- **对,新建** → **写库建节点**（step 9 POST）；建成后 **回到 ① 选位置**，以刚建节点全路径为 `{推荐节点全路径}`，再走一遍「放不放这里」。
+- **对,新建** → **写库建节点**（step 9 POST）；建成后 **回到 ① 选位置**，以刚建节点全路径为 `{推荐节点全路径}`，再走一遍「是否要保存到这里」。
 - **不对** → 回〔选③〕重问名字+父节点，**不写库**。
 
 **写库约束**：**这是唯一真正写库的一步** — 未经 SQA 明确选「对,新建」，**不许写库、不许自动确认、不许跳过**。
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字；顶级用 `(顶级)` 替换 `(在「…」下)`）：
 
 ```text
-新建后位置是「{全路径}」,对吗? 1. 对,新建 2. 不对(回序号)
+新建节点「{新节点名}」(在「{父节点全路径}」下),对吗? 1. 对,新建 2. 不对(回序号)
 ```
-
-（`{全路径}` = `{父节点全路径} → {新节点名}`）
 
 ---
 
 #### ③ 新建成功后 → 回到「选位置」再确认
 
 - 写库建成后，**不自动挂载**。
-- 以**新建的那条节点全路径**为推荐，**再走一遍 ① 选位置**：
-  - `question`：`建议放到「{新建节点全路径}」下,可以吗?`
-  - 选项同 ①（`可以,放这里就行` / `看看有哪些节点` / `新建一个节点`）。
-- 选「可以,放这里就行」→ 采用、`module_tree_node_id` 写入上下文、挂上、继续 step 11 归档保存。SQA 建完仍能核对，甚至再改或再建。
+- 以**新建的那条节点全路径**为推荐，**再走一遍 ① 选位置**（`question` / 选项 / 降级与 ① 相同，填入 `{新建节点全路径}`）。
+- 选「就保存到这里」→ 采用、`module_tree_node_id` 写入上下文、挂上、继续 step 11 保存（此步只定位置、未写库）。SQA 建完仍能核对，甚至再改或再建。
 
 ---
 
@@ -719,7 +713,7 @@ When SQA signals archive/submit intent ("可以了", "存吧", "归档", "提交
 
 | `reconcile.decision` | Action |
 |----------------------|--------|
-| `strong_match_single` | Bind `reconcile.matched_requirement_ids[0]`; refresh snapshots from `api`/server; clear `pending_write` and UNKNOWN; **set `just_reconciled = true`**. Tell SQA: 上次归档可能已成功，已绑定 `id`，**无需再建**. **Do not create.** |
+| `strong_match_single` | Bind `reconcile.matched_requirement_ids[0]`; refresh snapshots from `api`/server; clear `pending_write` and UNKNOWN; **set `just_reconciled = true`**. Tell SQA（逐字，下接 **Confirmation** §6 成功回执）：`这条上次其实已经保存成功了(当时没返回确认)。已绑定到那一条,没有重复创建。` **Do not create.** |
 | `strong_match_multiple` | **List every id in `reconcile.matched_requirement_ids`; ask SQA which to bind.** Do not pick one yourself; do not create. |
 | `patch_already_applied` | Treat PATCH as likely succeeded; refresh snapshots; clear UNKNOWN; **set `just_reconciled = true`**. |
 | `patch_still_old` | Read-back → **PATCH retry** via `requirements update` (not create). |
@@ -740,15 +734,40 @@ When SQA signals archive/submit intent ("可以了", "存吧", "归档", "提交
 
 When Table B routes here (no bound, or SQA confirms另建 / different requirement, or retry POST after Table A no-match).
 
-**Read-back** (new):
+**保存确认（新建 POST）** — **乙式**：AskUserQuestion 无「框上正文」字段 — **先**纯文字输出路径行，**再**弹框；**勿**把路径塞进 `question`。
 
-> 将把以上五字段与展示摘要【`summary` 文案】归档到【Product：X】的【模块树节点：Y】下的**新** Requirement，review 状态 = 待 review。约束/正常预期中含 **（惯例推断）** / **（界面推断）** 项，请核对；不符请先改五字段再确认。确认？
+框上方正文（逐字，填入 `{模块树节点全路径}`）：
 
-**Read-back** (retry after Table A no-match):
+> 将需求保存到「{模块树节点全路径}」下。
 
-> 上次归档结果不明且服务端未发现相同记录，将**重试创建**同一条 Requirement（**不是另建第二条**）。约束/正常预期中含 **（惯例推断）** / **（界面推断）** 项，请核对。确认？
+**优先 AskUserQuestion**（**两个选项，仅 `label`，无 `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**）：
 
-If open-questions list still has unresolved **需补充** (product-specific concrete values), **需澄清** from **数值限制型存疑** ①–④ (boundary / precision / counting scope / limit-value source), or unverified **（惯例推断）** / **（界面推断）** bullets SQA may want to fix first, add a soft note — e.g. 「存疑清单中仍有未闭合的数值口径项，归档后 A2 可能缺边界/统计口径用例；可先修订五字段或确认后再归档」— remind only; do not block.
+| 字段 | 值 |
+|------|-----|
+| `header` | 确认保存 |
+| `question` | 确认保存这条需求? |
+| option 1 · `label` | 确认保存 |
+| option 2 · `label` | 先不保存 |
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+将需求保存到「{模块树节点全路径}」下。 确认保存这条需求? 1. 确认保存 2. 先不保存(回序号)
+```
+
+**落点**：
+
+- **确认保存**（或同义肯定）→ 记录 `pending_write` 后 POST（见下方）。
+- **先不保存** → 逐字回执，**不 POST**：
+  > 好的,先不保存。需求草稿还在,你可以继续改;想好了说一声「保存到 CawPlan」。
+
+**重试保存确认**（Table A `no_match` 后重试 POST — 逻辑同新建，仅框上方多一句安抚）：
+
+框上方正文（逐字，两行）：
+
+> 上次保存没确认成功,查过没有重复,现在重存一次。将需求保存到「{模块树节点全路径}」下。
+
+再接与上相同的 **AskUserQuestion** / 降级 / **先不保存** 落点。**勿**输出推断核对、存疑 soft note 或「不是另建第二条」等技术措辞。
 
 Wait for SQA confirmation. **Do not POST** without it.
 
@@ -768,11 +787,32 @@ The command POSTs directly — it does **not** look for duplicates first. Preven
 
 When Table B routes here (bound + snapshot diff shows changes).
 
-**PATCH read-back** (must state update, not create):
+**更新确认** — **乙式**（与 11a 相同：先路径正文，再弹框）。若更新场景无节点上下文 / 位置不变，**可省**框上方路径行。
 
-> 将**更新** Requirement【`bound_requirement_id`】（**不是新建**），变动字段：【列出变动的中文字段名，如「约束与规则」「展示摘要」】。约束/正常预期中含 **（惯例推断）** / **（界面推断）** 项，请核对。确认？
+框上方正文（逐字，填入 `{模块树节点全路径}`）：
 
-Same soft note as **11a** when unresolved **需补充** / **数值限制型存疑** 需澄清 / unverified inferred bullets remain — remind only; do not block.
+> 将需求更新到「{模块树节点全路径}」下。
+
+**优先 AskUserQuestion**（**两个选项，仅 `label`，无 `description`**）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 确认更新 |
+| `question` | 确认更新这条需求? |
+| option 1 · `label` | 确认更新 |
+| option 2 · `label` | 先不更新 |
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+将需求更新到「{模块树节点全路径}」下。 确认更新这条需求? 1. 确认更新 2. 先不更新(回序号)
+```
+
+**落点**：
+
+- **确认更新**（或同义肯定）→ 记录 `pending_write` 后 PATCH（见下方）。
+- **先不更新** → 逐字回执，**不 PATCH**：
+  > 好的,先不更新。需求草稿还在,你可以继续改;想好了说一声「保存到 CawPlan」。
 
 Wait for SQA confirmation. **Do not PATCH** without it.
 
@@ -788,7 +828,7 @@ Pass **complete** states, not a hand-computed diff — the command works out whi
 
 **`--snapshot` must be the values last written to CawPlan** — i.e. `five_field_snapshot` + `summary_snapshot` + `ticket_id_snapshot` from step 10, verbatim. Not the current draft (that yields `NOOP` and silently drops the edit), and not a fresh `GET` (that re-sends someone else's concurrent edit as if it were yours). Neither mistake raises an error.
 
-Echo the returned `patch_body` keys back to SQA as the changed-field list.
+Record returned `patch_body` keys internally (session / retry); **do not** print a changed-field list to SQA.
 
 **After the call**: branch on `outcome` (see **Command outcomes**) and update session state per step 10. On `SUCCESS` → **Confirmation**.
 
@@ -844,7 +884,7 @@ The command rejects a body containing `product_id`, `review_status`, or `is_edit
 - **Trigger boundary**: this skill is for SQA requirement analysis and QA Insights archiving — not for loading a ticket into a coding session. If the user only pasted a CawPlan issue URL with no analysis intent, stop and use `cawplan-ticket-context` instead. Ticket links are **material** here only when the user also wants five-field analysis or archive.
 - **Display summary**: see step 4 (展示摘要 / `summary` role). Snapshots: step 10 Store (`summary_snapshot` separate from `five_field_snapshot`).
 - **A1 API scope**: writes go through `cawplan qa-insights` (module-tree node create; requirement create / update / reconcile). Reads still use `cawplan api GET` (module tree, requirement list). **No test-point APIs.**
-- **Failures**: report `error.message` (and `api.code` / `api.msg` when present) honestly for any command failure; **never claim success when `outcome` is `FAILURE` or `UNKNOWN`**. Keep the draft (five fields + display summary); do not claim saved or updated.
+- **Failures**: for **POST** create failure, present to SQA per **Confirmation** §9（`没能保存。原因:…`）；**PATCH** update failure 见 Confirmation「更新失败」已知例外。内部仍读 `error.message`（及 `api.code` / `api.msg` when present）；**never claim success when `outcome` is `FAILURE` or `UNKNOWN`**. Keep the draft (five fields + display summary); do not claim saved or updated.
 - **五字段尾巴**：出稿与修订重出均只用 step 5b 固定轻量尾巴；产品 / 模块树 / 保存确认仅在保存意图触发后（step 7+）出现。用户可见引导用「保存到 CawPlan」。Step 7 **C** 分支列产品供选 ≠ A2/A3 链接解析缺 `product_id` 时的「do not scan product lists」——后者禁止猜产品；本 skill 保存流程内无 Ticket 时 **必须** 拉列表让 SQA 选。
 - **跨 skill 接力（入站 / 出站）**:
   - **入站**（来自「生成测试点」或「生成用例」框，且会话已有五字段草稿）：**跳过 step 1–6**，直接从 step 7（Resolve product）/ 归档闸 step 11 继续；**不得**从头重分析（措辞漂移会破坏 reconcile / snapshot diff）。入站（`resume_intent`）本身即保存意图；**不在入站前**向 SQA 重复五字段尾巴里的保存引导。
@@ -869,27 +909,51 @@ The command rejects a body containing `product_id`, `review_status`, or `is_edit
 
 ## Confirmation
 
-After a create or update returns `outcome: SUCCESS`, report **only fields present in `api.data`** — do not invent paths:
+### §6 成功回执（`outcome: SUCCESS` 的 POST / PATCH）
 
-- Requirement `id` from `api.data.id` — set `bound_requirement_id` and refresh `five_field_snapshot`, `summary_snapshot`, and `ticket_id_snapshot` (step 10).
-- For an **update**, state clearly that the existing Requirement was **updated**, not newly created.
-- **Requirement 链接** (`url`): return `api.data.url` exactly as returned; prepend portal base to open in browser. **Present to SQA with label `Requirement 链接`** (not 「链接」). **Never** construct `url` or pass it to `cawplan api`.
-- **展示摘要** (`summary`) from `api.data.summary`, or `-` when it is `null`.
-- Product name and `product_id`.
-- Module-tree node name and `module_tree_node_id`.
-- `review_status` (expected `PENDING`).
-- `ticket_id` if linked, or `-` if none.
+向 SQA 逐字呈现（`需求` = API `summary`，**勿**拼接五字段；`关联工单` 有无都显示）：
 
-**After reconcile (10b / Table A) binds an existing row** — no new write:
+**新建（POST）**：
 
-- State that the prior write outcome was unclear but the server already has a matching Requirement (`requirements reconcile` returned `strong_match_single`).
+```text
+已保存成功。
+需求:{需求摘要}
+产品:{产品名}
+位置:{模块树节点全路径}
+关联工单:{工单号，没有则「无」}
+Requirement 链接:{api.data.url 完整可点链接}
+```
+
+**更新（PATCH）** — 首行改 `已更新成功。`，其余字段同上。
+
+内部：从 `api.data` 设置 `bound_requirement_id` 并刷新 `five_field_snapshot` / `summary_snapshot` / `ticket_id_snapshot`（step 10 **Store**）。**勿**向 SQA 展示 Requirement UUID、`review_status`、`product_id`、`module_tree_node_id` 等内部 id。
+
+`Requirement 链接`：返回 `api.data.url` 原样；可拼 portal 基址供浏览器打开。**Never** construct `url` or pass it to `cawplan api`.
+
+### reconcile 绑定成功（`strong_match_single`）
+
+无新写入。先逐字：
+
+> 这条上次其实已经保存成功了(当时没返回确认)。已绑定到那一条,没有重复创建。
+
+下接 §6 成功回执（数据取自绑定行：`summary`、产品名、节点全路径、关联工单、`url`）。清除 `pending_write` 与 UNKNOWN。
+
+### reconcile 绑定（`patch_already_applied`）— 已知例外，文案未改本轮
+
+- State that the prior write outcome was unclear but the server already has a matching Requirement (`requirements reconcile` returned `patch_already_applied`).
 - Report bound `id`, product, module-tree node, `summary`, and `review_status` from the list row.
 - Clear `pending_write` and UNKNOWN.
 
-After a **clear** failed archive or update (`POST` / `PATCH` with API error body), report:
+### 保存失败（POST `FAILURE`）
+
+逐字（`{错误信息}` = `error.message` 原文；**勿**标 outcome / FAILURE / api.code）：
+
+> 没能保存。原因:{错误信息}。需求草稿还在,改完可以再存一次。
+
+### 更新失败（PATCH `FAILURE`）— 已知例外，文案未改本轮
 
 - The error `code` and `msg`.
-- That the draft (five fields + display summary) is unchanged and SQA may revise and retry (or reconcile first if outcome was unknown).
+- That the draft (five fields + display summary) is unchanged and SQA may revise and retry.
 
 ## References
 
