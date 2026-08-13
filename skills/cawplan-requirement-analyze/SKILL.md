@@ -502,15 +502,18 @@ Parse `data.nodes`（可能为 `[]`）。从五字段尝试推荐一个挂载节
 
 #### ① 选位置（AskUserQuestion 框）
 
-**优先 AskUserQuestion**（**三个选项，仅 `label`，无 `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**）：
+**优先 AskUserQuestion**（**三个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**）：
 
 | 字段 | 值 |
 |------|-----|
 | `header` | 选择位置 |
 | `question` | 是否要保存到「{推荐节点全路径}」节点下? |
 | option 1 · `label` | 就保存到这里 |
+| option 1 · `description` | 用推荐的这个位置 |
 | option 2 · `label` | 看看有哪些节点 |
+| option 2 · `description` | 列出模块树再选 |
 | option 3 · `label` | 新建一个节点 |
+| option 3 · `description` | 建个新的来放 |
 
 **落点**（**此步只定位置、未写库** — 真正保存须经 step 11 确认闸）：
 
@@ -570,14 +573,16 @@ Parse `data.nodes`（可能为 `[]`）。从五字段尝试推荐一个挂载节
 
 #### ② 确认新建（AskUserQuestion 框 · 写库前确认闸）
 
-**优先 AskUserQuestion**（**两个选项，仅 `label`，无 `description`**）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**）：
 
 | 字段 | 值 |
 |------|-----|
 | `header` | 确认新建 |
 | `question` | 新建节点「{新节点名}」(在「{父节点全路径}」下),对吗?（顶级父节点：`新建节点「{新节点名}」(顶级),对吗?`） |
 | option 1 · `label` | 对,新建 |
+| option 1 · `description` | 就按上面建 |
 | option 2 · `label` | 不对 |
+| option 2 · `description` | 改名字或位置 |
 
 **落点**：
 
@@ -606,7 +611,7 @@ Parse `data.nodes`（可能为 `[]`）。从五字段尝试推荐一个挂载节
 
 - **框只用于**「选位置」（2–4 个固定动作）和「确认新建」（是/否）。
 - **节点列表一律纯文字树形** — 不塞进框。
-- **选项不带说明**，靠 `label` + `question` 表意。
+- **AskUserQuestion 选项一律带 `description`**（短句灰字说明）；纯文字降级措辞与上文一致。
 - **全程纯文字降级**：框不渲染时退化为编号问答，措辞与上文一致。
 - **写库前必确认**：仅「确认新建 → 对,新建」写库，且必须 SQA 明确选择。
 
@@ -740,14 +745,16 @@ When Table B routes here (no bound, or SQA confirms另建 / different requiremen
 
 > 将需求保存到「{模块树节点全路径}」下。
 
-**优先 AskUserQuestion**（**两个选项，仅 `label`，无 `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**）：
 
 | 字段 | 值 |
 |------|-----|
 | `header` | 确认保存 |
 | `question` | 确认保存这条需求? |
 | option 1 · `label` | 确认保存 |
+| option 1 · `description` | 存到 CawPlan |
 | option 2 · `label` | 先不保存 |
+| option 2 · `description` | 先留着草稿 |
 
 **AskUserQuestion 不可用时** — 纯文字降级（逐字）：
 
@@ -793,14 +800,16 @@ When Table B routes here (bound + snapshot diff shows changes).
 
 > 将需求更新到「{模块树节点全路径}」下。
 
-**优先 AskUserQuestion**（**两个选项，仅 `label`，无 `description`**）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**）：
 
 | 字段 | 值 |
 |------|-----|
 | `header` | 确认更新 |
 | `question` | 确认更新这条需求? |
 | option 1 · `label` | 确认更新 |
+| option 1 · `description` | 更新到 CawPlan |
 | option 2 · `label` | 先不更新 |
+| option 2 · `description` | 先留着草稿 |
 
 **AskUserQuestion 不可用时** — 纯文字降级（逐字）：
 

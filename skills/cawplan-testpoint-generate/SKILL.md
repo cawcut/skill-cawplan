@@ -40,14 +40,14 @@ On each **generate test points** request, resolve the target in this order (**fa
 
 **禁止**在选项中出现「用刚归档那条」（属有效 P2 热交接，自动走）。
 
-**优先 AskUserQuestion**（**仅两个点选项**；工具会自动追加 Other 自由输入行，**标题/占位不可自定义**——**不要**在 skill 里定义或手写 Other / 自由输入行）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具会自动追加 Other 自由输入行，**标题/占位不可自定义**——**不要**在 skill 里定义或手写 Other / 自由输入行）：
 
 | 字段 | 值 |
 |------|-----|
 | `header` | 锁定 Requirement |
 | `question` | 生成测试点前，先确定是哪条 Requirement？ |
 | option 1 · `label` | 已有 Requirement 链接 |
-| option 1 · `description` | 选这个，把 Requirement 链接发我 |
+| option 1 · `description` | 把链接发我 |
 | option 2 · `label` | 没有 Requirement |
 | option 2 · `description` | 马上生成并保存到 CawPlan |
 
@@ -70,7 +70,7 @@ On each **generate test points** request, resolve the target in this order (**fa
 
 **触发**：上表 **P3**（有需求草稿、无 `requirement_id`）。有效热交接 / 已给 Requirement 链接 → **不弹**。
 
-**优先 AskUserQuestion**（**仅两个点选项**；Other 行由工具自动追加，**勿定义**）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**）：
 
 | 字段 | 值 |
 |------|-----|
@@ -362,17 +362,49 @@ Proceed only when SQA clearly says 保存 / 存 / 入库 / `保存到 CawPlan`.
 
 #### 首批保存
 
-- **框上方正文**：`将测试点保存到需求「〔需求名〕」下。`
-- **header**：确认保存　**question**：`确认保存这批测试点?`
-- **选项**：1. `确认保存`　2. `先不保存`
-- **纯文字降级**：`将测试点保存到需求「〔需求名〕」下。 确认保存这批测试点? 1. 确认保存 2. 先不保存(回序号)`
+框上方正文（逐字，填入 `〔需求名〕`）：
+
+> 将测试点保存到需求「〔需求名〕」下。
+
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 确认保存 |
+| `question` | 确认保存这批测试点? |
+| option 1 · `label` | 确认保存 |
+| option 1 · `description` | 存到 CawPlan |
+| option 2 · `label` | 先不保存 |
+| option 2 · `description` | 先留着草稿 |
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+将测试点保存到需求「〔需求名〕」下。 确认保存这批测试点? 1. 确认保存 2. 先不保存(回序号)
+```
 
 #### 增量保存（库里已有，仅存本轮新增）
 
-- **框上方正文**：`将本轮新测试点保存到需求「〔需求名〕」下（已存的不动）。`
-- **header**：确认保存　**question**：`确认保存本轮新测试点?`
-- **选项**：1. `确认保存`　2. `先不保存`
-- **纯文字降级**：`将本轮新测试点保存到需求「〔需求名〕」下（已存的不动）。 确认保存本轮新测试点? 1. 确认保存 2. 先不保存(回序号)`
+框上方正文（逐字，填入 `〔需求名〕`）：
+
+> 将本轮新测试点保存到需求「〔需求名〕」下（已存的不动）。
+
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 确认保存 |
+| `question` | 确认保存本轮新测试点? |
+| option 1 · `label` | 确认保存 |
+| option 1 · `description` | 存到 CawPlan |
+| option 2 · `label` | 先不保存 |
+| option 2 · `description` | 先留着草稿 |
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+将本轮新测试点保存到需求「〔需求名〕」下（已存的不动）。 确认保存本轮新测试点? 1. 确认保存 2. 先不保存(回序号)
+```
 
 **「先不保存」回执**（纯文字，逐字）：
 > 好的，先不保存。测试点草稿还在，你可以继续改；想好了说一声「保存到 CawPlan」。
@@ -398,7 +430,12 @@ Branch on `outcome`:
 | `FAILURE` | Report `error.message` honestly (§9.6). `validation` = the body was built wrong; fix and resend. Do **not** fake success, do **not** blind-retry |
 | `UNKNOWN` | The batch may or may not have landed. **Never re-archive on a guess** → §10 |
 
-**Success receipt (§9.5)** — **only place SQA sees a count**. One short line. Use **`N` = `body.test_points.length`** (or response `test_points.length` on SUCCESS), e.g. `已保存 N 条到需求「〔需求名〕」下`. `〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`. If refresh returned a non-empty `url`, append with label **`Requirement 链接`** (not 「链接」) on the same line or the next line. **If `url` is missing or null, say nothing about links** — never construct portal URLs, never note that `url` was unavailable.
+**Success receipt (§9.5)** — **only place SQA sees a count**. **Two lines** when `url` is present; otherwise line 1 only. Use **`N` = `body.test_points.length`** (or response `test_points.length` on SUCCESS). `〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`.
+
+- **Line 1**（逐字）：`已保存 N 条测试点到需求「〔需求名〕」下。`
+- **Line 2**（仅当 refresh 返回非空 `url`；**单独一行**，不接到 line 1 句末；逐字）：`Requirement 链接:{url}`
+
+**If `url` is missing or null** — output line 1 only; say nothing about links — never construct portal URLs, never note that `url` was unavailable.
 
 **Forbidden in success receipt**: per-row tables; title lists; `id` lists; re-generated or summarized titles; any line about missing `url` (e.g. "未返回 url"/"无法附 Requirement 链接"); **apology or post-hoc recount explanations** (e.g. "之前误算成 13 条").
 
