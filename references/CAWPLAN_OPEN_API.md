@@ -131,13 +131,15 @@
 
 ### Update Version Ticket (transition / progress / fields)
 - Endpoint: `PUT /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}`
-- Body (all optional, sparse update): `status`, `priority`, `version_id` (move ticket to another version), `description`, `remarks`, `comment`, `progress_comment`, `assignee_ids[]`, `parent_id`, `label_ids[]`, `due_date`, `manual_progress`, `links[]`, `fix_versions[]`, `api_status`, `notifiers`
+- Body (all optional, sparse update): `status`, `priority`, `version_id` (move ticket to another version), `description`, `remarks`, `comment`, `progress_comment`, `root_cause`, `solution`, `assignee_ids[]`, `parent_id`, `label_ids[]`, `due_date`, `manual_progress`, `links[]`, `fix_versions[]`, `api_status`, `notifiers`
 - Notes:
     - `description` updates the ticket title/summary field. It does **not** update the web page description body; that body is stored as `remarks` and accepts HTML.
     - `version_id` updates the ticket's target version. CLI supports this through `cawplan tickets update ... --target_version_id <id>` or `--target-ver <name>`.
+    - `root_cause`/`solution` are plain strings on write but come back on read (`tickets get`/`tickets search`) as `UserDataInfo` objects (`{display_name, user_id, avatar, data, updated_at}` — the actual text is in `.data`) with author/timestamp attribution auto-filled server-side from the update caller. Only processed for `type: BUGFIX` — silently ignored on a FEATURE ticket, so don't set them expecting an effect there. CLI: `cawplan tickets update ... --root_cause "<text>" --solution "<text>"`.
     - This is the primary "transition" + "comment" surface for adapters: change `status` to transition, set `progress_comment` (HTML) to record narrative work. `progress_comment` is a single string field — adapters that need multi-message threads should embed marker blocks (e.g. `<!-- clawcode-workpad-{runId} -->...<!-- /clawcode-workpad-{runId} -->`) and find/replace.
     - `status` must be a valid status key for the ticket's `product_line`. Read the ticket detail or list with `include=available_statuses` to discover the legal values; otherwise the call may fail with `invalid ticket status '...' for this product line`.
     - Externally synced tickets (Jira) reject status / priority edits.
+    - Ticket-edit access is resource-scoped per ticket, not just a bare `ticket.edit` permission key — verified live that even a same-product/team ticket can 403 with `user has 'ticket.edit' but lacks access to ticket '<id>'` if the caller's role scope doesn't cover it, regardless of which fields are being updated (confirmed by isolating a plain `--comment`-only update, which failed identically).
     - Response includes `version_promoted: true` when the version status was auto-bumped to INPROGRESS.
     - **Optimistic lock (optional)**: the response carries the current `version` (integer). To guard against lost updates when multiple writers touch `progress_comment`, read the ticket, then PUT with `version` set to the value you read. If it no longer matches, the server returns **409 CONFLICT** with the current version — re-read and retry. Omitting `version` (or `0`) keeps the legacy last-writer-wins behaviour.
 - Maps to cawplan CLI: `cawplan tickets update` (`--expected_version N` to opt into the lock).

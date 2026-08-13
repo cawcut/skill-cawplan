@@ -319,6 +319,8 @@ export function registerTicketsCommand(program: Command): void {
     .option("--description <text>", "Ticket title/summary (server description field; not page body/remarks)")
     .option("--remarks <html>", "Ticket page body/remarks (HTML supported)")
     .option("--comment <text>", "Comment")
+    .option("--root_cause <text>", "Root cause analysis (BUGFIX type only)")
+    .option("--solution <text>", "Solution description (BUGFIX type only)")
     .option("--parent_id <id>", "Parent ticket ID")
     .option("--due_date <date>", "Due date YYYY-MM-DD")
     .option("--assignees <csv>", "Assignee IDs (CSV)")
@@ -335,6 +337,8 @@ export function registerTicketsCommand(program: Command): void {
       if (opts.description !== undefined) body.description = opts.description;
       if (opts.remarks !== undefined) body.remarks = opts.remarks;
       if (opts.comment !== undefined) body.comment = opts.comment;
+      if (opts.root_cause !== undefined) body.root_cause = opts.root_cause;
+      if (opts.solution !== undefined) body.solution = opts.solution;
       if (opts.parent_id) body.parent_id = opts.parent_id;
       if (opts.due_date) body.due_date = opts.due_date;
       const assignees = csvToArray(opts.assignees);
