@@ -273,9 +273,19 @@ Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s
 
 ### 7. Present to SQA
 
-1. **覆盖面一句话** (§2.3) — which axis classes are covered; no matrix.
+**输出纪律**：呈现时**只给「哪条需求 + 表」**（首批加「草稿」、增量按状态列区分）；**禁止**复述内部过程——不得出现「轴遍历 / 自查 / 覆盖维度清单 / 已按…完成 / 五字段已读取 / 核对完毕」等字样。第一句直接进正题。
 
-2. **测试点清单 — 按 `group` 分节呈现（硬性要求，每次必做）**
+**开场**（`〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`，与保存确认等处显示名规则一致）：
+
+- **首批**（库为空，逐字）：
+  > 需求「〔需求名〕」的测试点草稿如下（这条之前还没有测试点）：
+
+- **增量**（库里已有，逐字）：
+  > 需求「〔需求名〕」的测试点如下（已有的标「已存」、本轮新增标「新增」）：
+
+紧接下方分节表；**不要**在开场前另加覆盖面叙述或其它过程说明。
+
+1. **测试点清单 — 按 `group` 分节呈现（硬性要求，每次必做）**
 
    **禁止**把全部测试点挤进一张无分节的连续表。即使 `group` 字段已在各行有值，也**不得**只靠 `N.M` 序号暗示分组——**必须先打出组标题行，再跟该组的小表**。
 
@@ -304,20 +314,23 @@ Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s
    - **First batch** (library empty): `序号 | 标题 | 标签` — no status column; no row bolding.
    - **Incremental** (library has archived rows): `序号 | 标题 | 标签 | 状态` — see rules below.
 
-3. **存疑清单** after **all** group sections (§5): 〔指向哪〕+〔为什么疑〕+〔建议动作〕; no coverage checkbox matrix. If none: say so explicitly.
+2. **存疑清单** after **all** group sections (§5): 〔指向哪〕+〔为什么疑〕+〔建议动作〕; no coverage checkbox matrix. If none: say so explicitly.
 
-**Do not state draft totals** before archive (no `共 N 条草稿`, no N in archive prompts). SQA reviews the tables; **the only count SQA sees is in the post-POST success receipt** (§9.5).
+3. **尾巴**（草稿表 + 存疑清单之后，逐字；首次呈现与 §8 修订后重展均输出；**不做弹框**）：
+   > 要改就直接说（增删，或改标题/标签/分组）；没问题就说一声「保存到 CawPlan」。
+
+**Do not state draft totals** before save (no `共 N 条草稿`, no N in save prompts). SQA reviews the tables; **the only count SQA sees is in the post-POST success receipt** (§9.5).
 
 **Incremental merged display** (only when library already has test points — N archived + M new drafts):
 
-Per §7 step 2: **one section per `group`** (group title line + small table). Within each group, merge archived + new into **one** table; **continuous numbering** (archived first in API order, new drafts appended). 覆盖面 + 存疑 for **full** N+M set. Archive only drafts without `id`; edit/delete archived rows → Test Suites UI.
+Per §7 step 1: **one section per `group`** (group title line + small table). Within each group, merge archived + new into **one** table; **continuous numbering** (archived first in API order, new drafts appended). 存疑清单覆盖 **full** N+M set（**不要**另加覆盖面叙述）。Archive only drafts without `id`; edit/delete archived rows → Test Suites UI.
 
 **Distinguish 新增 vs 已存** (two means — status column is required; bold is optional):
 
 1. **Status column** (primary, plain text): `已存` (has `id`, read-only) or `新增` (this round's draft, no `id`). This column alone must make the distinction clear even if other formatting fails.
 2. **Bold entire rows** (enhancement): status `新增` → bold all four cells (`**…**`); `已存` rows not bold. May write `🆕 新增` in the status column.
 
-**No count summary after tables** — do **not** write `本轮新增 M 条` / `其余 K 条为已存` / `共 N 条` (agents cannot reliably count rows; see Rules Index · Draft totals). Optional **non-numeric** footer after all group sections: `已入库条目标为「已存」（只读，改/删请去 Test Suites 后台）；「新增」为本轮草稿，确认后仅归档新增行。`
+**No count summary after tables** — do **not** write `本轮新增 M 条` / `其余 K 条为已存` / `共 N 条` (agents cannot reliably count rows; see Rules Index · Draft totals). Optional **non-numeric** footer after all group sections: `已存的标「已存」（只读，改/删请去 Test Suites 后台）；「新增」为本轮新测试点，确认后只保存新增的。`
 
 **Rendering discipline**:
 
@@ -331,26 +344,40 @@ Natural language: add / delete drafts / edit title, tags, group / adopt 存疑 i
 
 **Adopting 存疑 → new test-point rows** counts as a revision round (same as add): re-show full table, recompute 序号.
 
-After **any** revision round → **re-show the full 分节清单** (every group title + per-group table, §7 step 2) with recomputed numbers; refresh 存疑 as needed. Prompt: review by title content, not old numbers only (§4.4).
+After **any** revision round → **re-show the full 分节清单** (every group title + per-group table, §7 step 1) with recomputed numbers; refresh 存疑 as needed; **re-output §7 尾巴**. Prompt: review by title content, not old numbers only (§4.4).
 
 **SQA insists on keeping two similar rows** → keep both; do not re-run §2.2 merge on those rows.
 
-**Never auto-archive.** "看着不错" ≠ archive → ask e.g. `要现在归档，还是再调调？` — **no draft count** in this prompt.
+**Never auto-save.** "看着不错" ≠ save → ask e.g. `要现在保存，还是再调调？` — **no draft count** in this prompt.
 
 **原稿** = first table shown to SQA this working set (**after §6 self-critique** — §5 internal draft does not count). Self-critique补 rows are part of 原稿. Track which draft rows SQA touched for `is_edited` (§9).
 
 ### 9. Archive (write — explicit confirm only)
 
-Proceed only when SQA clearly says 存 / 归档 / 入库.
+Proceed only when SQA clearly says 保存 / 存 / 入库 / `保存到 CawPlan`.
 
-**Read-back** (§9.4) before POST — **no draft count** in the message:
+**Save confirm** (§9.4) before POST — **AskUserQuestion**; **no draft count**. AskUserQuestion 无「框上正文」字段 → **先输出一行路径正文，再弹框**（勿把路径塞进 question）。
 
-- First batch: `将本批测试点归档到 Requirement〔标题〕下。确认归档？`
-- Incremental: `将本轮新草稿归档到 Requirement〔标题〕下（已入库的不动）。确认归档？`
+`〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`.
+
+#### 首批保存
+
+- **框上方正文**：`将测试点保存到需求「〔需求名〕」下。`
+- **header**：确认保存　**question**：`确认保存这批测试点?`
+- **选项**：1. `确认保存`　2. `先不保存`
+- **纯文字降级**：`将测试点保存到需求「〔需求名〕」下。 确认保存这批测试点? 1. 确认保存 2. 先不保存(回序号)`
+
+#### 增量保存（库里已有，仅存本轮新增）
+
+- **框上方正文**：`将本轮新测试点保存到需求「〔需求名〕」下（已存的不动）。`
+- **header**：确认保存　**question**：`确认保存本轮新测试点?`
+- **选项**：1. `确认保存`　2. `先不保存`
+- **纯文字降级**：`将本轮新测试点保存到需求「〔需求名〕」下（已存的不动）。 确认保存本轮新测试点? 1. 确认保存 2. 先不保存(回序号)`
+
+**「先不保存」回执**（纯文字，逐字）：
+> 好的，先不保存。测试点草稿还在，你可以继续改；想好了说一声「保存到 CawPlan」。
 
 **Before POST**: build `test_points` from the last full table in display order — **one body entry per draft row without `id`**, same order as shown. Do not skip or duplicate rows.
-
-Requirement display name: `summary` → truncate `function_description` → `requirement_id`.
 
 POST **only drafts without `id`**, in display order:
 
@@ -371,7 +398,7 @@ Branch on `outcome`:
 | `FAILURE` | Report `error.message` honestly (§9.6). `validation` = the body was built wrong; fix and resend. Do **not** fake success, do **not** blind-retry |
 | `UNKNOWN` | The batch may or may not have landed. **Never re-archive on a guess** → §10 |
 
-**Success receipt (§9.5)** — **only place SQA sees a count**. One short line. Use **`N` = `body.test_points.length`** (or response `test_points.length` on SUCCESS), e.g. `已归档 N 条到 Requirement〔标题〕下`. Requirement display name: `summary` → truncate `function_description` → `requirement_id`. If refresh returned a non-empty `url`, append with label **`Requirement 链接`** (not 「链接」) on the same line or the next line. **If `url` is missing or null, say nothing about links** — never construct portal URLs, never note that `url` was unavailable.
+**Success receipt (§9.5)** — **only place SQA sees a count**. One short line. Use **`N` = `body.test_points.length`** (or response `test_points.length` on SUCCESS), e.g. `已保存 N 条到需求「〔需求名〕」下`. `〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`. If refresh returned a non-empty `url`, append with label **`Requirement 链接`** (not 「链接」) on the same line or the next line. **If `url` is missing or null, say nothing about links** — never construct portal URLs, never note that `url` was unavailable.
 
 **Forbidden in success receipt**: per-row tables; title lists; `id` lists; re-generated or summarized titles; any line about missing `url` (e.g. "未返回 url"/"无法附 Requirement 链接"); **apology or post-hoc recount explanations** (e.g. "之前误算成 13 条").
 
@@ -406,7 +433,7 @@ SQA wants to change/delete a row **with `id`** → direct them to Test Suites UI
 
 **② Work set**: 原稿 snapshot; touched-row marks; current drafts; archived stubs from last refresh.
 
-**③ Write**: `pending_write` after read-back; `write_outcome` SUCCESS / failure / UNKNOWN.
+**③ Write**: `pending_write` after save confirm; `write_outcome` SUCCESS / failure / UNKNOWN.
 
 Refresh binding + stubs before each generate. Rebind clears all. After successful archive, merge new `id`s into stubs; new supplement round gets a **new** 原稿 for the M drafts.
 
@@ -476,7 +503,7 @@ Authoritative rules live in **Workflow**; this section is navigation only. On co
 | **Coverage closure** (a)(b)(c) | §5 step 4 |
 | **Self-critique** | §6 |
 | **Presentation** — 分节、状态列 | §7 |
-| **Draft totals** — SQA 只看归档后条数 | §7 · §9.5 · §9 read-back（禁草稿/归档前计数） |
+| **Draft totals** — SQA 只看保存后条数 | §7 · §9.5 · §9 save confirm（禁草稿/保存前计数） |
 | **Archive / confirm / receipt** | §9; UNKNOWN → §10 (`testpoints reconcile`, needs `count_before` from §2) |
 | **Cross-batch dedup** | §10 (`id` stubs); batch-internal → §5 step 3 + granularity §2 |
 | **API** | Writes → `cawplan qa-insights` (§9 archive, §10 reconcile); reads → `cawplan api GET` (§2); `references/CAWPLAN_OPEN_API.md` §15 |
@@ -486,7 +513,7 @@ Authoritative rules live in **Workflow**; this section is navigation only. On co
 ## Output & Confirmation
 
 - **Generate / revise (no archive)** → §6 then §7
-- **Archive read-back + POST** → §9; UNKNOWN reconcile → §10
+- **Save confirm + POST** → §9; UNKNOWN reconcile → §10
 
 ## References
 
