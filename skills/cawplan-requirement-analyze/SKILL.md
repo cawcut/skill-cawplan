@@ -27,7 +27,7 @@ cawplan skill check
 - **是** → 走 step 10 **Cold handoff** 载入服务端五字段作为草稿基线，**不要从头重分析**。理由：归档比对（`reconcile` strong match 与 `requirements update` 的 snapshot diff）是 **trim 后逐字节精确比对**，从头重分析必然产生措辞漂移，会让 reconcile 误判 `no_match`（重复建单风险）或 PATCH 误报变更键。
 - **否**（新需求分析）→ 继续本步收集素材。
 
-**零素材早停（新增）** — 判定本条消息是否带有**任一**素材：用户文字、工单（URL / display ID / unique ID）、截图。
+**零素材早停（新增）** — 判定本条消息是否带有**任一**素材：用户文字、工单（URL / display ID / unique ID）、截图。（**Product info 不计入素材** — 仅有 overview、无任何上述三类 → 仍走零素材早停。）
 
 - **全无** → **只**输出下方引导文案，然后 **`stop`**；**禁止**进入 step 2–5（否则会产出全「（素材未提及）」废稿）。
 - **有任一** → 继续下方 `Accept any mix of`，不弹窗。
@@ -70,11 +70,28 @@ cawplan tickets search --display_ids CAWP-13477,CAW-04560
 
 From each ticket, use **only** `description` and `remarks` (no separate title — rely on these two). Strip HTML tags from `remarks` before analysis. Do **not** use `progress_comment`, comments, or attachments.
 
+**Product info（内部背景 · 可选）** — 系统自动派生的定向理解上下文（产品名 + 描述），帮助判断「这是什么产品、术语与场景背景」；**不呈现给 SQA**；`argument-hint` 不变。
+
+- **取数时机**（进入 step 2 之前，命中其一即取；取到后 step 6 修订轮复用、**不重复 GET**）：
+  - 工单响应已带 `product_id`（step 1 ticket lookup 之后）；
+  - 会话已有 `product_id`（含接力入站已带）。
+- **不取数**：纯文字/截图且无 ticket、会话无 `product_id`（产品选择仍延后到保存意图 step 7）；冷交接（step 10）；接力入站且跳过 step 1–6。
+- **命令**（分析阶段允许的 product 只读 GET；与 step 7 的 `products list` 保存流程分离）：
+
+```bash
+cawplan api GET /api/v1/public/openapi/product/<product_id>/overview
+```
+
+- **解析**：响应外层 `code` / `data` / `msg`（**不用** qa-insights 的 `outcome`）。**成功** = `code == "SUCCESS"` **且** `data.description` 非空；此时只认 `data.name` 与 `data.description`（均在 `data` 顶层、无嵌套），**忽略** `data` 内 `product_line` / `type` / `product_types` 等同名字段。
+- **用法**：仅作 step 2–5「这条需求在讲什么」的背景参考；**不是第四类素材**（见 step 2）。
+- **绝不能进归档链路**：不进五字段、不进展示摘要、不进存疑清单；不进归档 body（仍仅五字段 + `summary` + `ticket_id`）；不进 `five_field_snapshot` / `summary_snapshot` / `ticket_id_snapshot` / `pending_write` probe。
+- **降级**：请求失败、`code != "SUCCESS"`、`data.description` 空或缺失 → 等同于没有这层背景；分析照常进行，不早停、不中断、不向 SQA 报错。
+
 ### 2. Tag sources internally (not in output)
 
-Track source per fact (user text / ticket / screenshot; multiple screenshots by upload order). **Five fields must read as finalized requirements**, not evidence notes: state facts directly and **never** name, cite, or allude to which input they came from — regardless of wording or punctuation. If sources contradict, mention the conflict once in the open-questions list only.
+Track source per fact (user text / ticket / screenshot; multiple screenshots by upload order). **Product info is not a fourth material type** — do not tag facts to it; step 1 Product info does not participate in per-fact source tracking. **Five fields must read as finalized requirements**, not evidence notes: state facts directly and **never** name, cite, or allude to which input they came from — regardless of wording or punctuation. If sources contradict, mention the conflict once in the open-questions list only.
 
-**Numeric cross-source check** (before drafting fields): screenshot tooltips, on-screen error copy, and body/ticket text that carry **numbers or thresholds** (duration, size, count, resolution cap, etc.) are all material. **Cross-check** them — do not adopt one source and ignore another. If values **conflict**, or **match numerically but likely refer to different scopes** (e.g. per-slot tooltip vs cumulative total; current model pair vs full model set), → **存疑** (step 5 — numeric collision + **数值限制型存疑** ①–④). **Do not** default-ignore cross-app / cross-client numbers — if scope is unclear, **需澄清** with judgment clues (e.g. body says SD2.0=15s but another app reports 2s — is that in scope?). Clues may name tooltip / error copy / body in 存疑 only — **not** in five fields.
+**Numeric cross-source check** (before drafting fields): screenshot tooltips, on-screen error copy, and body/ticket text that carry **numbers or thresholds** (duration, size, count, resolution cap, etc.) are all material. **Product overview numbers are not material** — do not cross-check overview figures against screenshot/ticket/body numbers; authoritative numeric scope remains the three material types only. **Cross-check** them — do not adopt one source and ignore another. If values **conflict**, or **match numerically but likely refer to different scopes** (e.g. per-slot tooltip vs cumulative total; current model pair vs full model set), → **存疑** (step 5 — numeric collision + **数值限制型存疑** ①–④). **Do not** default-ignore cross-app / cross-client numbers — if scope is unclear, **需澄清** with judgment clues (e.g. body says SD2.0=15s but another app reports 2s — is that in scope?). Clues may name tooltip / error copy / body in 存疑 only — **not** in five fields.
 
 ### 3. Produce the five-field draft
 
@@ -87,6 +104,8 @@ Present exactly these five fields, in this order, as **section headings** (not a
 5. **不测范围** (`out_of_scope`, may be empty) — what is explicitly out of scope for this round.
 
 **维度 / 取值二分**（贯穿以下全部规则）：**验证维度** = 有没有这条规则、这个分支、这个状态、这类枚举；**具体取值** = 阈值、次数、秒数、文案原文、错误码、URL。**总则**管维度取舍，**红线 0** 管取值表达 —— **缺取值不构成删除维度的理由**。
+
+**Product info 边界**：step 1 载入的 Product info **不得**誊进五字段；不得因产品背景新增 `（惯例推断）` / `（界面推断）` 行；产品 description **不构成** step 5 **判据 1** 白名单扩展依据。
 
 **Fill rules** (Rules **总则** + **红线 0** + **枚举完整性** + step 5 **判据 1** / **总判据** — replaces any separate "infer / never invent / do not list common" rules):
 
@@ -177,7 +196,7 @@ If over 15 characters and not yet shortened:
 
 五字段与展示摘要成稿后、**向 SQA 呈现之前**跑一轮回捞，只做一件事：**素材里出现过的东西，五字段里有没有留下可验证的痕迹。**
 
-**回捞清单**（逐类扫素材，不是扫五字段）：素材明写的**枚举项**、**状态**、**角色 / 权限身份**、**限制 / 上限**、**异常分支**。任一项在五字段中找不到对应痕迹 → 补回。
+**回捞清单**（逐类扫素材，不是扫五字段）：**素材** = 用户文字 / 工单 / 截图三类 only（**不含** step 1 Product info）。素材明写的**枚举项**、**状态**、**角色 / 权限身份**、**限制 / 上限**、**异常分支**。任一项在五字段中找不到对应痕迹 → 补回。
 
 **两条硬约束**：
 
@@ -233,6 +252,8 @@ After step 2 **Numeric cross-source check** finds collision or scope mismatch �
 **多来源数值对撞（存疑归类）**: complements step 2 — when tooltip / error copy / body numbers **conflict** or **likely differ in scope**, → 存疑 (clues allowed in 存疑 only). Then expand per ①–④ above. Cross-app numbers: **do not** silently adopt or ignore.
 
 **判据 1 — 维度存在性（先判存在性，再判取值）**:
+
+Product info（`data.description`）**不得**作为扩白名单依据，**不得**因产品背景新增存疑项。
 
 先问：**该维度在同类产品中是否近乎必然存在？**
 
@@ -966,4 +987,4 @@ Requirement 链接:{api.data.url 完整可点链接}
 
 ## References
 
-- `references/CAWPLAN_OPEN_API.md` — §15 QA Insights APIs (subsections **Create Module Tree Node**, **Create Requirement**, **Update Requirement**, **List Requirements (read — cold-handoff and reconcile)**); §2 Product APIs and §4 Ticket APIs for product resolution and ticket material.
+- `references/CAWPLAN_OPEN_API.md` — §15 QA Insights APIs (subsections **Create Module Tree Node**, **Create Requirement**, **Update Requirement**, **List Requirements (read — cold-handoff and reconcile)**); §2 Product APIs (**Get Product Overview** for analysis-stage background; product resolution at save) and §4 Ticket APIs for ticket material.
