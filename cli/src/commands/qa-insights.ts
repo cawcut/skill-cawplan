@@ -10,7 +10,16 @@ import {
   buildTestPointBatchBody,
   buildTestrailImportExecuteBody,
   buildTestrailImportPreviewBody,
+  buildTestrailDefectCreateTicketBody,
+  buildTestrailDefectDraftBody,
+  buildTestrailDefectLinkTicketBody,
+  buildTestrailPlanExecuteBody,
+  buildTestrailPlanPreviewBody,
+  buildTestrailPlanRulesBody,
   mergeTestrailImportPreviewBody,
+  mergeTestrailDefectDraftBody,
+  mergeTestrailPlanPreviewBody,
+  requiredPositiveInteger,
   validateRequirementPatchBody,
 } from "../lib/qa-insights/body-builders.js";
 import { buildEnvelope, buildReadEnvelope, emitEnvelopeAndExit, emitReadEnvelopeAndExit } from "../lib/qa-insights/envelope.js";
@@ -21,6 +30,11 @@ import {
   CountReconcileValidationError,
   reconcileTestPoints,
 } from "../lib/qa-insights/reconcile-testpoints.js";
+import {
+  buildTestrailExecutionFailuresQuery,
+  buildTestrailExecutionSummaryQuery,
+  buildTestrailResolveUrlBody,
+} from "../lib/qa-insights/testrail-execution.js";
 import type {
   ImportSourceType,
   QAInsightsMeta,
@@ -28,6 +42,8 @@ import type {
   QAInsightsWriteEnvelope,
   RequirementRow,
   SectionStrategy,
+  TestrailDefectDraftInput,
+  TestrailPlanPreviewInput,
 } from "../lib/qa-insights/types.js";
 
 /**
@@ -697,18 +713,23 @@ function testrailApiPath(productId: string, suffix: string): string {
   return `${INTERNAL_PRODUCT_API_BASE}/${productId}/qa/testrail${suffix}`;
 }
 
+function versionTestrailApiPath(productId: string, versionId: string, suffix: string): string {
+  return `${INTERNAL_PRODUCT_API_BASE}/${productId}/versions/${versionId}/qa/testrail${suffix}`;
+}
+
 async function performTestrailPost(options: {
   request: RequestFn;
+  method?: "POST" | "PUT";
   path: string;
   body: Record<string, unknown>;
   command: string;
   meta: QAInsightsMeta;
   isWrite: boolean;
 }): Promise<QAInsightsWriteEnvelope> {
-  const { request, path, body, command, meta, isWrite } = options;
+  const { request, method = "POST", path, body, command, meta, isWrite } = options;
   let payload: unknown;
   try {
-    payload = await request({ method: "POST", path, body });
+    payload = await request({ method, path, body });
   } catch (err) {
     const mapped = mapCawplanRequestError(err, { isWrite });
     return buildEnvelope({
@@ -766,6 +787,72 @@ export async function runTestrailMappingsGet(
       api: { code: "SUCCESS", msg: "success", data: read.data },
     }),
   );
+}
+
+export async function runTestrailPlanRulesGet(
+  productId: string,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail plan-rules get";
+  const meta: QAInsightsMeta = { product_id: productId, dry_run: false };
+  const emit = emitter(deps);
+
+  const read = await performRead({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/plan-rules"),
+    command,
+    meta,
+  });
+  if (read.envelope) return emit(read.envelope);
+
+  return emit(
+    buildEnvelope({
+      outcome: "SUCCESS",
+      command,
+      meta,
+      api: { code: "SUCCESS", msg: "success", data: read.data },
+    }),
+  );
+}
+
+export interface TestrailPlanRulesSetOptions {
+  bodyFile?: string;
+  body?: string;
+  dryRun?: boolean;
+}
+
+export async function runTestrailPlanRulesSet(
+  productId: string,
+  opts: TestrailPlanRulesSetOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail plan-rules set";
+  const meta: QAInsightsMeta = { product_id: productId, dry_run: Boolean(opts.dryRun) };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    body = buildTestrailPlanRulesBody(
+      await readJsonInput(opts.bodyFile, opts.body, "testrail plan-rules set"),
+    );
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    method: "PUT",
+    path: testrailApiPath(productId, "/plan-rules"),
+    body,
+    command,
+    meta,
+    isWrite: true,
+  });
+  return emit(envelope);
 }
 
 export interface TestrailImportPreviewOptions {
@@ -903,6 +990,487 @@ export async function runTestrailImportExecute(
   const data = envelope.api?.data as { job_id?: string; jobId?: string; status?: string } | undefined;
   const jobId = data?.job_id ?? data?.jobId;
   if (jobId) meta.job_id = jobId;
+  return emit(envelope);
+}
+
+export interface TestrailPlanPreviewOptions extends TestrailPlanPreviewInput {
+  bodyFile?: string;
+  body?: string;
+  dryRun?: boolean;
+}
+
+function planPreviewMeta(
+  productId: string,
+  dryRun: boolean,
+  body?: Record<string, unknown>,
+): QAInsightsMeta {
+  return {
+    product_id: productId,
+    dry_run: dryRun,
+    version_id: typeof body?.version_id === "string" ? body.version_id : undefined,
+    ticket_id: typeof body?.ticket_id === "string" ? body.ticket_id : undefined,
+    ticket_ids: Array.isArray(body?.ticket_ids) ? (body.ticket_ids as string[]) : undefined,
+    milestone_strategy:
+      typeof body?.milestone_strategy === "string"
+        ? (body.milestone_strategy as QAInsightsMeta["milestone_strategy"])
+        : undefined,
+    milestone_id: typeof body?.milestone_id === "number" ? body.milestone_id : undefined,
+    ticket_reuse_strategy:
+      typeof body?.ticket_reuse_strategy === "string"
+        ? (body.ticket_reuse_strategy as QAInsightsMeta["ticket_reuse_strategy"])
+        : undefined,
+  };
+}
+
+export async function runTestrailPlanPreview(
+  productId: string,
+  opts: TestrailPlanPreviewOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail plan preview";
+  const emit = emitter(deps);
+  let meta: QAInsightsMeta = planPreviewMeta(productId, Boolean(opts.dryRun));
+
+  let body: Record<string, unknown>;
+  try {
+    const parsed = await readOptionalJsonInput(opts.bodyFile, opts.body, "testrail plan preview");
+    body =
+      parsed === undefined
+        ? buildTestrailPlanPreviewBody(opts)
+        : mergeTestrailPlanPreviewBody(parsed, opts);
+    meta = planPreviewMeta(productId, Boolean(opts.dryRun), body);
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/plan/preview"),
+    body,
+    command,
+    meta,
+    isWrite: false,
+  });
+  const previewData = envelope.api?.data as { preview_id?: string; previewId?: string } | undefined;
+  const previewId = previewData?.preview_id ?? previewData?.previewId;
+  if (previewId) meta.preview_id = previewId;
+  return emit(envelope);
+}
+
+export interface TestrailPlanExecuteOptions {
+  previewId: string;
+  confirm?: boolean;
+  dryRun?: boolean;
+}
+
+export async function runTestrailPlanExecute(
+  productId: string,
+  opts: TestrailPlanExecuteOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail plan execute";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    preview_id: opts.previewId,
+    dry_run: Boolean(opts.dryRun),
+  };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    body = buildTestrailPlanExecuteBody(opts.previewId, Boolean(opts.confirm));
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  if (!opts.confirm) {
+    return emit(
+      buildEnvelope({
+        outcome: "FAILURE",
+        command,
+        meta,
+        post_body: body,
+        error: {
+          type: "validation",
+          message: "testrail plan execute requires --confirm (safety gate; preview must be reviewed first)",
+          api_code: "CONFIRMATION_REQUIRED",
+        },
+      }),
+    );
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/plan/execute"),
+    body,
+    command,
+    meta,
+    isWrite: true,
+  });
+
+  const data = envelope.api?.data as {
+    job_id?: string;
+    jobId?: string;
+    status?: string;
+    mapping?: {
+      reused_plan_mapping_ids?: string[];
+      created_plan_mapping_ids?: string[];
+      reusedPlanMappingIds?: string[];
+      createdPlanMappingIds?: string[];
+    };
+  } | undefined;
+  const jobId = data?.job_id ?? data?.jobId;
+  if (jobId) meta.job_id = jobId;
+  const mapping = data?.mapping;
+  const reusedIds = mapping?.reused_plan_mapping_ids ?? mapping?.reusedPlanMappingIds;
+  const createdIds = mapping?.created_plan_mapping_ids ?? mapping?.createdPlanMappingIds;
+  if (reusedIds?.length) meta.reused_plan_mapping_ids = reusedIds;
+  if (createdIds?.length) meta.created_plan_mapping_ids = createdIds;
+  return emit(envelope);
+}
+
+// ---------------------------------------------------------------------------
+// TestRail integration (T2) — A3 execution progress
+// ---------------------------------------------------------------------------
+
+export interface TestrailExecutionSummaryOptions {
+  refresh?: boolean;
+  ticketId?: string;
+  planMappingId?: string;
+  planMappingIds?: string[] | string;
+  includeZeroStatuses?: boolean;
+}
+
+export async function runTestrailExecutionSummary(
+  productId: string,
+  versionId: string,
+  opts: TestrailExecutionSummaryOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail execution summary";
+  const meta: QAInsightsMeta = { product_id: productId, version_id: versionId, dry_run: false };
+  const emit = emitter(deps);
+
+  let query: Record<string, string>;
+  try {
+    query = buildTestrailExecutionSummaryQuery(opts);
+    if (query.ticket_id) meta.ticket_id = query.ticket_id;
+    if (query.plan_mapping_id) meta.plan_mapping_id = query.plan_mapping_id;
+    if (query.plan_mapping_ids) meta.plan_mapping_ids = query.plan_mapping_ids.split(",");
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  const read = await performRead({
+    request: requester(deps),
+    path: versionTestrailApiPath(productId, versionId, "/execution/summary"),
+    query,
+    command,
+    meta,
+  });
+  if (read.envelope) return emit(read.envelope);
+
+  return emit(
+    buildEnvelope({
+      outcome: "SUCCESS",
+      command,
+      meta,
+      api: { code: "SUCCESS", msg: "success", data: read.data },
+    }),
+  );
+}
+
+export interface TestrailExecutionFailuresOptions {
+  refresh?: boolean;
+  runId?: number | string;
+  testId?: number | string;
+  includeFlaky?: boolean;
+  limit?: number | string;
+  offset?: number | string;
+}
+
+export async function runTestrailExecutionFailures(
+  productId: string,
+  versionId: string,
+  opts: TestrailExecutionFailuresOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail execution failures";
+  const meta: QAInsightsMeta = { product_id: productId, version_id: versionId, dry_run: false };
+  const emit = emitter(deps);
+
+  let query: Record<string, string>;
+  try {
+    query = buildTestrailExecutionFailuresQuery(opts);
+    if (query.test_id) meta.test_id = Number(query.test_id);
+    if (query.run_id) meta.run_id = Number(query.run_id);
+    if (query.limit) meta.limit = Number(query.limit);
+    if (query.offset) meta.offset = Number(query.offset);
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  const read = await performRead({
+    request: requester(deps),
+    path: versionTestrailApiPath(productId, versionId, "/execution/failures"),
+    query,
+    command,
+    meta,
+  });
+  if (read.envelope) return emit(read.envelope);
+
+  return emit(
+    buildEnvelope({
+      outcome: "SUCCESS",
+      command,
+      meta,
+      api: { code: "SUCCESS", msg: "success", data: read.data },
+    }),
+  );
+}
+
+export interface TestrailResolveUrlOptions {
+  url?: string;
+}
+
+export async function runTestrailResolveUrl(
+  productId: string,
+  opts: TestrailResolveUrlOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail resolve-url";
+  const meta: QAInsightsMeta = { product_id: productId, dry_run: false };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    body = buildTestrailResolveUrlBody(opts);
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/resolve-url"),
+    body,
+    command,
+    meta,
+    isWrite: false,
+  });
+  const data = envelope.api?.data as { version_id?: string; run_id?: number } | undefined;
+  if (data?.version_id) meta.version_id = data.version_id;
+  if (typeof data?.run_id === "number") meta.run_id = data.run_id;
+  return emit(envelope);
+}
+
+// ---------------------------------------------------------------------------
+// TestRail integration (T2) — A4 failure-to-defect
+// ---------------------------------------------------------------------------
+
+export interface TestrailDefectDraftOptions extends TestrailDefectDraftInput {
+  bodyFile?: string;
+  body?: string;
+  dryRun?: boolean;
+}
+
+function defectMeta(
+  productId: string,
+  resultId: number,
+  dryRun: boolean,
+  body?: Record<string, unknown>,
+): QAInsightsMeta {
+  return {
+    product_id: productId,
+    result_id: resultId,
+    version_id: typeof body?.version_id === "string" ? body.version_id : undefined,
+    run_id: typeof body?.run_id === "number" ? body.run_id : undefined,
+    case_id: typeof body?.case_id === "number" ? body.case_id : undefined,
+    test_id: typeof body?.test_id === "number" ? body.test_id : undefined,
+    dry_run: dryRun,
+  };
+}
+
+export async function runTestrailDefectDraft(
+  productId: string,
+  resultIdRaw: string | number,
+  opts: TestrailDefectDraftOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail defects draft";
+  const emit = emitter(deps);
+
+  let resultId: number;
+  try {
+    resultId = requiredPositiveInteger(resultIdRaw, "result_id");
+  } catch (err) {
+    return emit(validationEnvelope(command, { product_id: productId, dry_run: Boolean(opts.dryRun) }, err));
+  }
+
+  let body: Record<string, unknown>;
+  let meta: QAInsightsMeta = defectMeta(productId, resultId, Boolean(opts.dryRun));
+  try {
+    const parsed = await readOptionalJsonInput(opts.bodyFile, opts.body, "testrail defects draft");
+    body =
+      parsed === undefined
+        ? buildTestrailDefectDraftBody(opts)
+        : mergeTestrailDefectDraftBody(parsed, opts);
+    meta = defectMeta(productId, resultId, Boolean(opts.dryRun), body);
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, `/results/${resultId}/defect-draft`),
+    body,
+    command,
+    meta,
+    isWrite: false,
+  });
+  return emit(envelope);
+}
+
+export interface TestrailDefectCreateTicketOptions {
+  bodyFile?: string;
+  body?: string;
+  confirm?: boolean;
+  dryRun?: boolean;
+}
+
+export async function runTestrailDefectCreateTicket(
+  productId: string,
+  resultIdRaw: string | number,
+  opts: TestrailDefectCreateTicketOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail defects create-ticket";
+  const emit = emitter(deps);
+
+  let resultId: number;
+  try {
+    resultId = requiredPositiveInteger(resultIdRaw, "result_id");
+  } catch (err) {
+    return emit(validationEnvelope(command, { product_id: productId, dry_run: Boolean(opts.dryRun) }, err));
+  }
+
+  let body: Record<string, unknown>;
+  let meta: QAInsightsMeta = defectMeta(productId, resultId, Boolean(opts.dryRun));
+  try {
+    body = buildTestrailDefectCreateTicketBody(
+      await readJsonInput(opts.bodyFile, opts.body, "testrail defects create-ticket"),
+    ) as unknown as Record<string, unknown>;
+    const draft = body.draft as Record<string, unknown>;
+    meta = {
+      ...meta,
+      version_id: typeof draft.version_id === "string" ? draft.version_id : undefined,
+      ticket_id: typeof body.link_existing_ticket_id === "string" ? body.link_existing_ticket_id : undefined,
+    };
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  if (!opts.confirm) {
+    return emit(
+      buildEnvelope({
+        outcome: "FAILURE",
+        command,
+        meta,
+        post_body: body,
+        error: {
+          type: "validation",
+          message: "testrail defects create-ticket requires --confirm (draft must be reviewed first)",
+          api_code: "CONFIRMATION_REQUIRED",
+        },
+      }),
+    );
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, `/results/${resultId}/create-ticket`),
+    body,
+    command,
+    meta,
+    isWrite: true,
+  });
+  return emit(envelope);
+}
+
+export interface TestrailDefectLinkTicketOptions {
+  ticketId?: string;
+  confirm?: boolean;
+  dryRun?: boolean;
+}
+
+export async function runTestrailDefectLinkTicket(
+  productId: string,
+  resultIdRaw: string | number,
+  opts: TestrailDefectLinkTicketOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail defects link-ticket";
+  const emit = emitter(deps);
+
+  let resultId: number;
+  try {
+    resultId = requiredPositiveInteger(resultIdRaw, "result_id");
+  } catch (err) {
+    return emit(validationEnvelope(command, { product_id: productId, dry_run: Boolean(opts.dryRun) }, err));
+  }
+
+  let body: Record<string, unknown>;
+  const meta: QAInsightsMeta = defectMeta(productId, resultId, Boolean(opts.dryRun));
+  try {
+    body = buildTestrailDefectLinkTicketBody(opts.ticketId);
+    meta.ticket_id = body.ticket_id as string;
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  if (!opts.confirm) {
+    return emit(
+      buildEnvelope({
+        outcome: "FAILURE",
+        command,
+        meta,
+        post_body: body,
+        error: {
+          type: "validation",
+          message: "testrail defects link-ticket requires --confirm (existing Ticket must be reviewed first)",
+          api_code: "CONFIRMATION_REQUIRED",
+        },
+      }),
+    );
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, `/results/${resultId}/link-ticket`),
+    body,
+    command,
+    meta,
+    isWrite: true,
+  });
   return emit(envelope);
 }
 
@@ -1090,6 +1658,47 @@ export function registerQAInsightsCommand(program: Command): void {
     .description("Get Product TestRail mappings (suite, sections, templates)")
     .action((productId: string) => runTestrailMappingsGet(productId));
 
+  const testrailPlanRules = testrail
+    .command("plan-rules")
+    .description("TestRail plan layout rule configuration (A2)");
+  testrailPlanRules
+    .command("get <product_id>")
+    .description("Get Product TestRail plan layout rules (R1-R7)")
+    .action((productId: string) => runTestrailPlanRulesGet(productId));
+  testrailPlanRules
+    .command("set <product_id>")
+    .description("Update Product TestRail plan layout rules (R1-R7)")
+    .option("--body-file <path>", "JSON file containing plan-rules body")
+    .option("--body <json>", "Inline JSON plan-rules body")
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, opts) => runTestrailPlanRulesSet(productId, opts));
+
+  const testrailPlan = testrail.command("plan").description("TestRail test plan layout (A2)");
+  testrailPlan
+    .command("preview <product_id>")
+    .description("Preview Version/Ticket-scoped TestRail Plan/Run layout")
+    .option("--body-file <path>", "Full plan preview request JSON")
+    .option("--body <json>", "Inline plan preview request JSON")
+    .option("--version-id <id>", "Version unique_id; required unless body provides version_id")
+    .option("--ticket-id <id>", "Preview one Ticket in the Version")
+    .option("--ticket-ids <ids>", "Comma-separated Ticket ids to preview")
+    .option("--milestone-name <name>", "Milestone name; default is derived by BE")
+    .option("--milestone-strategy <strategy>", "AUTO | CREATE | REUSE_LATEST | REUSE_BY_ID")
+    .option("--milestone-id <id>", "Required when milestone-strategy=REUSE_BY_ID", (v: string) => Number(v))
+    .option("--ticket-reuse-strategy <strategy>", "AUTO | CREATE_ALL (BE default AUTO)")
+    .option("--start-date <date>", "Milestone start date (YYYY-MM-DD)")
+    .option("--end-date <date>", "Milestone end date (YYYY-MM-DD)")
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, opts) => runTestrailPlanPreview(productId, opts));
+
+  testrailPlan
+    .command("execute <product_id>")
+    .description("Execute a confirmed TestRail plan preview")
+    .requiredOption("--preview-id <id>", "preview_id from plan preview response")
+    .option("--confirm", "Required safety gate — must be set to execute")
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, opts) => runTestrailPlanExecute(productId, opts));
+
   const testrailImport = testrail.command("import").description("TestRail case import (A1)");
   testrailImport
     .command("preview <product_id>")
@@ -1116,6 +1725,81 @@ export function registerQAInsightsCommand(program: Command): void {
     .option("--confirm", "Required safety gate — must be set to execute")
     .option("--dry-run", "Print request body without calling API")
     .action((productId: string, opts) => runTestrailImportExecute(productId, opts));
+
+  const testrailExecution = testrail.command("execution").description("TestRail execution progress (A3)");
+  testrailExecution
+    .command("summary <product_id> <version_id>")
+    .description("Get Version/Ticket-scoped TestRail execution summary")
+    .option("--refresh", "Bypass execution cache and refresh TestRail status metadata")
+    .option("--ticket-id <id>", "Filter by Ticket scoped Plan/Run")
+    .option("--plan-mapping-id <id>", "Filter by one PlanMapping")
+    .option("--plan-mapping-ids <ids>", "Comma-separated PlanMapping ids")
+    .option("--include-zero-statuses", "Return non-core status counts even when count=0")
+    .action((productId: string, versionId: string, opts) =>
+      runTestrailExecutionSummary(productId, versionId, opts),
+    );
+
+  testrailExecution
+    .command("failures <product_id> <version_id>")
+    .description("List failed/blocked TestRail execution results")
+    .option("--refresh", "Reserved; failures has no server cache (same as default)")
+    .option("--run-id <n>", "List mode: filter by TestRail run id", (v: string) => Number(v))
+    .option(
+      "--test-id <n>",
+      "test_id mode: resolve failed/blocked results for one Test (A4 cold start)",
+      (v: string) => Number(v),
+    )
+    .option(
+      "--include-flaky",
+      "Compute is_flaky and consecutive_failures from TestRail history (slower)",
+    )
+    .option("--limit <n>", "Page size (default 50)", (v: string) => Number(v))
+    .option("--offset <n>", "Page offset (default 0)", (v: string) => Number(v))
+    .action((productId: string, versionId: string, opts) =>
+      runTestrailExecutionFailures(productId, versionId, opts),
+    );
+
+  testrail
+    .command("resolve-url <product_id>")
+    .description("Resolve a TestRail Plan/Run URL to Version context (A4/A6 cold start)")
+    .requiredOption("--url <url>", "TestRail Plan or Run URL")
+    .action((productId: string, opts) => runTestrailResolveUrl(productId, opts));
+
+  const testrailDefects = testrail.command("defects").description("TestRail failure-to-defect filing (A4)");
+  testrailDefects
+    .command("draft <product_id> <result_id>")
+    .description("Generate an editable defect draft from a TestRail result")
+    .option("--body-file <path>", "Full defect draft request JSON")
+    .option("--body <json>", "Inline defect draft request JSON")
+    .option("--version-id <id>", "Version unique_id")
+    .option("--run-id <n>", "TestRail run id", (v: string) => Number(v))
+    .option("--case-id <n>", "TestRail case id", (v: string) => Number(v))
+    .option("--test-id <n>", "TestRail test id", (v: string) => Number(v))
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, resultId: string, opts) =>
+      runTestrailDefectDraft(productId, resultId, opts),
+    );
+
+  testrailDefects
+    .command("create-ticket <product_id> <result_id>")
+    .description("Create a CawPlan Ticket from a reviewed defect draft and write TestRail defects")
+    .option("--body-file <path>", "JSON body containing { draft, link_existing_ticket_id? }")
+    .option("--body <json>", "Inline JSON body containing { draft, link_existing_ticket_id? }")
+    .option("--confirm", "Required safety gate — draft must be reviewed first")
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, resultId: string, opts) =>
+      runTestrailDefectCreateTicket(productId, resultId, opts),
+    );
+
+  testrailDefects
+    .command("link-ticket <product_id> <result_id>")
+    .description("Link an existing CawPlan Ticket to a TestRail result and write TestRail defects")
+    .requiredOption("--ticket-id <id>", "Existing CawPlan Ticket unique_id")
+    .option("--confirm", "Required safety gate — existing Ticket must be reviewed first")
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, resultId: string, opts) =>
+      runTestrailDefectLinkTicket(productId, resultId, opts),
+    );
 
   const testrailJobs = testrail.command("jobs").description("Async TestRail jobs");
   testrailJobs

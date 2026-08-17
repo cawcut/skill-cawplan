@@ -25,6 +25,13 @@ import {
   type ImportSourceType,
   type InlineCaseDraft,
   type SectionStrategy,
+  type TestrailPlanMilestoneStrategy,
+  type TestrailPlanTicketReuseStrategy,
+  type TestrailPlanPreviewInput,
+  type TestrailPlanRulesBody,
+  type TestrailPlanRuleKey,
+  type TestrailDefectCreateTicketInput,
+  type TestrailDefectDraftInput,
   type TestPointDraft,
 } from "./types.js";
 
@@ -204,6 +211,13 @@ export interface BuildTestrailImportPreviewBodyInput {
   cases?: InlineCaseDraft[];
 }
 
+const TESTRAIL_PLAN_RULE_KEYS = ["R1", "R2", "R3", "R4", "R5", "R6", "R7"] as const;
+const TESTRAIL_PLAN_RULE_KEY_SET = new Set<string>(TESTRAIL_PLAN_RULE_KEYS);
+const TESTRAIL_PLAN_MILESTONE_STRATEGIES = ["AUTO", "CREATE", "REUSE_LATEST", "REUSE_BY_ID"] as const;
+const TESTRAIL_PLAN_MILESTONE_STRATEGY_SET = new Set<string>(TESTRAIL_PLAN_MILESTONE_STRATEGIES);
+const TESTRAIL_PLAN_TICKET_REUSE_STRATEGIES = ["AUTO", "CREATE_ALL"] as const;
+const TESTRAIL_PLAN_TICKET_REUSE_STRATEGY_SET = new Set<string>(TESTRAIL_PLAN_TICKET_REUSE_STRATEGIES);
+
 function valueByNames<T>(body: Record<string, unknown>, snakeKey: string, camelKey: string): T | undefined {
   return (body[snakeKey] ?? body[camelKey]) as T | undefined;
 }
@@ -211,6 +225,73 @@ function valueByNames<T>(body: Record<string, unknown>, snakeKey: string, camelK
 function optionalString(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   return typeof value === "number" ? String(value) : normalizeField(value);
+}
+
+function optionalInteger(value: unknown, label: string): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new BodyValidationError(`${label} must be a positive integer`);
+  }
+  return parsed;
+}
+
+export function requiredPositiveInteger(value: unknown, label: string): number {
+  const parsed = optionalInteger(value, label);
+  if (parsed === undefined) {
+    throw new BodyValidationError(`${label} is required and must be a positive integer`);
+  }
+  return parsed;
+}
+
+function optionalMilestoneStrategy(value: unknown): TestrailPlanMilestoneStrategy | undefined {
+  const strategy = optionalString(value)?.toUpperCase();
+  if (!strategy) return undefined;
+  if (!TESTRAIL_PLAN_MILESTONE_STRATEGY_SET.has(strategy)) {
+    throw new BodyValidationError(
+      `milestone_strategy must be one of ${TESTRAIL_PLAN_MILESTONE_STRATEGIES.join(", ")}`,
+    );
+  }
+  return strategy as TestrailPlanMilestoneStrategy;
+}
+
+function optionalTicketReuseStrategy(value: unknown): TestrailPlanTicketReuseStrategy | undefined {
+  const strategy = optionalString(value)?.toUpperCase();
+  if (!strategy) return undefined;
+  if (!TESTRAIL_PLAN_TICKET_REUSE_STRATEGY_SET.has(strategy)) {
+    throw new BodyValidationError(
+      `ticket_reuse_strategy must be one of ${TESTRAIL_PLAN_TICKET_REUSE_STRATEGIES.join(", ")}`,
+    );
+  }
+  return strategy as TestrailPlanTicketReuseStrategy;
+}
+
+function optionalDate(value: unknown, label: string): string | undefined {
+  const date = optionalString(value);
+  if (!date) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new BodyValidationError(`${label} must use YYYY-MM-DD`);
+  }
+  return date;
+}
+
+function optionalStringArray(value: unknown, label: string): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  const rawValues = typeof value === "string" ? value.split(",") : value;
+  if (!Array.isArray(rawValues)) {
+    throw new BodyValidationError(`${label} must be an array or comma-separated string`);
+  }
+  const values = rawValues.map((item, index) => {
+    const normalized = optionalString(item);
+    if (!normalized) {
+      throw new BodyValidationError(`${label}[${index}] must be a non-empty string`);
+    }
+    return normalized;
+  });
+  if (values.length === 0) {
+    throw new BodyValidationError(`${label} must not be empty`);
+  }
+  return values;
 }
 
 function normalizePriority(value: unknown): string | undefined {
@@ -376,4 +457,186 @@ export function mergeTestrailImportPreviewBody(
       flags.fixedSectionId ?? valueByNames<number>(fromFile, "fixed_section_id", "fixedSectionId"),
     cases: flags.cases ?? casesFromBody,
   });
+}
+
+export function buildTestrailPlanPreviewBody(input: TestrailPlanPreviewInput): Record<string, unknown> {
+  const versionId = optionalString(input.versionId);
+  if (!versionId) {
+    throw new BodyValidationError("testrail plan preview requires --version-id");
+  }
+
+  const ticketId = optionalString(input.ticketId);
+  const ticketIds = optionalStringArray(input.ticketIds, "ticket_ids");
+  if (ticketId && ticketIds) {
+    throw new BodyValidationError("testrail plan preview accepts either --ticket-id or --ticket-ids, not both");
+  }
+
+  const body: Record<string, unknown> = { version_id: versionId };
+  if (ticketId) body.ticket_id = ticketId;
+  if (ticketIds) body.ticket_ids = ticketIds;
+
+  const milestoneName = optionalString(input.milestoneName);
+  if (milestoneName) body.milestone_name = milestoneName;
+
+  const milestoneStrategy = optionalMilestoneStrategy(input.milestoneStrategy);
+  const milestoneId = optionalInteger(input.milestoneId, "milestone_id");
+  if (milestoneStrategy) body.milestone_strategy = milestoneStrategy;
+  if (milestoneId !== undefined) body.milestone_id = milestoneId;
+  if (milestoneStrategy === "REUSE_BY_ID" && milestoneId === undefined) {
+    throw new BodyValidationError("REUSE_BY_ID milestone strategy requires --milestone-id");
+  }
+  if (milestoneStrategy && milestoneStrategy !== "REUSE_BY_ID" && milestoneId !== undefined) {
+    throw new BodyValidationError("--milestone-id is only accepted with --milestone-strategy REUSE_BY_ID");
+  }
+
+  const startDate = optionalDate(input.startDate, "start_date");
+  if (startDate) body.start_date = startDate;
+
+  const endDate = optionalDate(input.endDate, "end_date");
+  if (endDate) body.end_date = endDate;
+
+  const ticketReuseStrategy = optionalTicketReuseStrategy(input.ticketReuseStrategy);
+  if (ticketReuseStrategy) body.ticket_reuse_strategy = ticketReuseStrategy;
+
+  return body;
+}
+
+export function mergeTestrailPlanPreviewBody(
+  parsed: unknown,
+  flags: Partial<TestrailPlanPreviewInput>,
+): Record<string, unknown> {
+  const body = assertPlainObject(parsed, "testrail plan preview body");
+  return buildTestrailPlanPreviewBody({
+    versionId: flags.versionId ?? valueByNames<string>(body, "version_id", "versionId"),
+    ticketId: flags.ticketId ?? valueByNames<string | null>(body, "ticket_id", "ticketId"),
+    ticketIds: flags.ticketIds ?? valueByNames<string[] | string>(body, "ticket_ids", "ticketIds"),
+    milestoneName: flags.milestoneName ?? valueByNames<string>(body, "milestone_name", "milestoneName"),
+    milestoneStrategy:
+      flags.milestoneStrategy ??
+      valueByNames<TestrailPlanMilestoneStrategy>(body, "milestone_strategy", "milestoneStrategy"),
+    milestoneId: flags.milestoneId ?? valueByNames<number | string>(body, "milestone_id", "milestoneId"),
+    ticketReuseStrategy:
+      flags.ticketReuseStrategy ??
+      valueByNames<TestrailPlanTicketReuseStrategy>(
+        body,
+        "ticket_reuse_strategy",
+        "ticketReuseStrategy",
+      ),
+    startDate: flags.startDate ?? valueByNames<string>(body, "start_date", "startDate"),
+    endDate: flags.endDate ?? valueByNames<string>(body, "end_date", "endDate"),
+  });
+}
+
+export function buildTestrailPlanExecuteBody(
+  previewId: string,
+  confirm: boolean,
+): Record<string, unknown> {
+  const id = optionalString(previewId);
+  if (!id) throw new BodyValidationError("testrail plan execute requires --preview-id");
+  return { preview_id: id, confirm };
+}
+
+export function buildTestrailPlanRulesBody(input: unknown): TestrailPlanRulesBody {
+  const body = assertPlainObject(input, "testrail plan-rules body");
+  const rules = body.rules;
+  if (rules !== undefined) {
+    const ruleBody = assertPlainObject(rules, "testrail plan-rules body.rules");
+    for (const [key, value] of Object.entries(ruleBody)) {
+      if (!TESTRAIL_PLAN_RULE_KEY_SET.has(key)) {
+        throw new BodyValidationError(
+          `testrail plan-rules body.rules contains unsupported rule ${key}; use ${TESTRAIL_PLAN_RULE_KEYS.join(", ")}`,
+        );
+      }
+      const rule = assertPlainObject(value, `testrail plan-rules body.rules.${key}`);
+      if (typeof rule.enabled !== "boolean") {
+        throw new BodyValidationError(`testrail plan-rules body.rules.${key}.enabled must be a boolean`);
+      }
+    }
+  }
+
+  const automationDetection = body.automation_detection ?? body.automationDetection;
+  if (automationDetection !== undefined) {
+    const detection = assertPlainObject(automationDetection, "testrail plan-rules body.automation_detection");
+    if (detection.fields !== undefined) {
+      const fields = optionalStringArray(detection.fields, "automation_detection.fields");
+      detection.fields = fields;
+    }
+    if (detection.rule !== undefined && !optionalString(detection.rule)) {
+      throw new BodyValidationError("automation_detection.rule must be a non-empty string");
+    }
+    body.automation_detection = detection;
+    delete body.automationDetection;
+  }
+
+  if (body.rules === undefined && body.automation_detection === undefined) {
+    throw new BodyValidationError("testrail plan-rules body requires rules or automation_detection");
+  }
+
+  return body as TestrailPlanRulesBody & {
+    rules?: Partial<Record<TestrailPlanRuleKey, { enabled: boolean }>>;
+  };
+}
+
+export function buildTestrailDefectDraftBody(input: TestrailDefectDraftInput): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  const versionId = optionalString(input.versionId);
+  if (versionId) body.version_id = versionId;
+  const runId = optionalInteger(input.runId, "run_id");
+  if (runId !== undefined) body.run_id = runId;
+  const caseId = optionalInteger(input.caseId, "case_id");
+  if (caseId !== undefined) body.case_id = caseId;
+  const testId = optionalInteger(input.testId, "test_id");
+  if (testId !== undefined) body.test_id = testId;
+  return body;
+}
+
+export function mergeTestrailDefectDraftBody(
+  parsed: unknown,
+  flags: Partial<TestrailDefectDraftInput>,
+): Record<string, unknown> {
+  const body = assertPlainObject(parsed, "testrail defects draft body");
+  return buildTestrailDefectDraftBody({
+    versionId: flags.versionId ?? valueByNames<string>(body, "version_id", "versionId"),
+    runId: flags.runId ?? valueByNames<number | string>(body, "run_id", "runId"),
+    caseId: flags.caseId ?? valueByNames<number | string>(body, "case_id", "caseId"),
+    testId: flags.testId ?? valueByNames<number | string>(body, "test_id", "testId"),
+  });
+}
+
+export function buildTestrailDefectCreateTicketBody(input: unknown): TestrailDefectCreateTicketInput {
+  const body = assertPlainObject(input, "testrail defects create-ticket body");
+  const allowed = new Set(["draft", "link_existing_ticket_id", "linkExistingTicketId"]);
+  const extra = Object.keys(body).filter((key) => !allowed.has(key));
+  if (extra.length > 0) {
+    throw new BodyValidationError(
+      `testrail defects create-ticket body must contain only draft and link_existing_ticket_id — remove ${extra.join(", ")}`,
+    );
+  }
+
+  const draft = assertPlainObject(body.draft, "testrail defects create-ticket body.draft");
+  if (Object.keys(draft).length === 0) {
+    throw new BodyValidationError("testrail defects create-ticket body.draft must not be empty");
+  }
+
+  const out: TestrailDefectCreateTicketInput = { draft };
+  const linkExisting = optionalString(
+    valueByNames<string | null>(body, "link_existing_ticket_id", "linkExistingTicketId"),
+  );
+  if (linkExisting) {
+    out.link_existing_ticket_id = linkExisting;
+  } else if (
+    body.link_existing_ticket_id === null ||
+    body.linkExistingTicketId === null
+  ) {
+    out.link_existing_ticket_id = null;
+  }
+  return out;
+}
+
+export function buildTestrailDefectLinkTicketBody(ticketId: unknown): { ticket_id: string } {
+  const id = optionalString(ticketId);
+  if (!id) {
+    throw new BodyValidationError("testrail defects link-ticket requires --ticket-id");
+  }
+  return { ticket_id: id };
 }
