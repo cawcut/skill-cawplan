@@ -733,19 +733,19 @@ describe("src lib collect cost currency", () => {
   test("calculateCost does not double-count cache tokens", () => {
     // 1M input tokens with 100K cache reads and 50K cache writes.
     // Non-cache input = 1M - 100K - 50K = 850K
-    // Expected: 850K * 0.14 + 0 * 0.28 + 100K * 0.0028 + 50K * 0.14
-    // = 0.119 + 0 + 0.00028 + 0.007 = $0.12628
+    // Expected (peak rates): 850K * 0.44 + 0 * 1.32 + 100K * 0.014 + 50K * 0.44
+    // = 0.374 + 0 + 0.0014 + 0.022 = $0.3974
     const cost = calculateCost("deepseek-v4-flash", {
       input_tokens: 1_000_000,
       output_tokens: 0,
       cache_read_input_tokens: 100_000,
       cache_creation_input_tokens: 50_000,
     });
-    expect(cost).toBeCloseTo(0.12628, 4);
+    expect(cost).toBeCloseTo(0.3974, 4);
 
     // If we had the old double-counting bug:
-    // 1M * 0.14 + 0 + 100K * 0.0028 + 50K * 0.14 = 0.14 + 0.00028 + 0.007 = 0.14728
-    // Our fixed cost (0.12628) < old bug cost (0.14728)
+    // 1M * 0.44 + 0 + 100K * 0.014 + 50K * 0.44 = 0.44 + 0.0014 + 0.022 = 0.4634
+    // Our fixed cost (0.3974) < old bug cost (0.4634)
   });
 
   test("calculateCost handles input without cache tokens", () => {
@@ -754,8 +754,8 @@ describe("src lib collect cost currency", () => {
       input_tokens: 1_000_000,
       output_tokens: 500_000,
     });
-    // 1M * 0.435 + 500K * 0.87 = 0.435 + 0.435 = 0.87
-    expect(cost).toBeCloseTo(0.87, 4);
+    // 1M * 1.32 + 500K * 3.96 = 1.32 + 1.98 = 3.30 (peak rates)
+    expect(cost).toBeCloseTo(3.30, 4);
   });
 
   test("calculateCost uses current Claude dollar pricing", () => {
@@ -783,15 +783,17 @@ describe("src lib collect cost currency", () => {
   });
 
   test("calculateCost matches dotted GPT-5.6 model IDs after normalization", () => {
+    // Terra's 2026-07-30 price cut: $2/$12 (was $2.5/$15).
     expect(calculateCost("gpt-5.6-terra", {
       input_tokens: 1_000_000,
       output_tokens: 1_000_000,
-    })).toBeCloseTo(17.5, 4);
+    })).toBeCloseTo(14, 4);
 
+    // billableInput = 1M - 500K = 500K; 500K * 2 + 500K * 0.20 = 1.0 + 0.10 = 1.10
     expect(calculateCost("gpt-5.6-terra", {
       input_tokens: 1_000_000,
       cache_read_input_tokens: 500_000,
-    })).toBeCloseTo(1.375, 4);
+    })).toBeCloseTo(1.10, 4);
   });
 });
 
