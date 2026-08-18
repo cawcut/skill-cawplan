@@ -131,5 +131,101 @@ for skill_dir in skills/cawplan-*/; do
 done
 [ "$fail" -eq 0 ] && echo "✓ no parent-dir references"
 
+echo "→ Validating cawplan-requirement-analyze rules dual-copy (normalized)..."
+python3 - <<'PY' || fail=1
+import pathlib
+import re
+import sys
+
+ROOT = pathlib.Path(".")
+skill_md = ROOT / "skills/cawplan-requirement-analyze/SKILL.md"
+rules_global = ROOT / "skills/cawplan-requirement-analyze/references/rules-global.md"
+
+if not skill_md.is_file():
+    print(f"::error file={skill_md}::missing")
+    sys.exit(1)
+if not rules_global.is_file():
+    print(f"::error file={rules_global}::missing (rules dual-copy check)")
+    sys.exit(1)
+
+
+def normalize_lines(lines: list[str]) -> str:
+    out: list[str] = []
+    for raw in lines:
+        line = raw.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+        while True:
+            if line.startswith("> "):
+                line = line[2:]
+                continue
+            if line.startswith(">"):
+                line = line[1:]
+                continue
+            m = re.match(r"^(\s*)-\s+(.*)$", line)
+            if m:
+                line = m.group(2)
+                continue
+            break
+        out.append(line.strip())
+    return "\n".join(out)
+
+
+def extract_trigger_boundary(text: str) -> list[str]:
+    for line in text.splitlines():
+        if re.match(r"^-\s+\*\*Trigger boundary\*\*:", line):
+            return [line]
+    return []
+
+
+def extract_cross_skill_relay(text: str) -> list[str]:
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if re.match(r"^-\s+\*\*跨 skill 接力", line):
+            block = [line]
+            for nxt in lines[i + 1 :]:
+                if not nxt.strip():
+                    continue
+                if re.match(r"^\s+-\s+", nxt):
+                    block.append(nxt)
+                    continue
+                break
+            return block
+    return []
+
+
+def compare_block(name: str, main_lines: list[str], ref_lines: list[str]) -> bool:
+    if not main_lines:
+        print(f"::error file={skill_md}::missing {name} block in main SKILL.md")
+        return False
+    if not ref_lines:
+        print(f"::error file={rules_global}::missing {name} block in rules-global.md")
+        return False
+    main_norm = normalize_lines(main_lines)
+    ref_norm = normalize_lines(ref_lines)
+    if main_norm != ref_norm:
+        print(f"::error file={skill_md}::{name} normalized text differs from rules-global.md")
+        return False
+    print(f"✓ {name} — normalized dual-copy match")
+    return True
+
+
+skill_text = skill_md.read_text(encoding="utf-8")
+rules_text = rules_global.read_text(encoding="utf-8")
+
+ok = True
+ok &= compare_block(
+    "Trigger boundary",
+    extract_trigger_boundary(skill_text),
+    extract_trigger_boundary(rules_text),
+)
+ok &= compare_block(
+    "跨 skill 接力",
+    extract_cross_skill_relay(skill_text),
+    extract_cross_skill_relay(rules_text),
+)
+
+if not ok:
+    sys.exit(1)
+PY
+
 [ "$fail" -eq 0 ] || exit 1
 echo "All skill validations passed."

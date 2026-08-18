@@ -248,8 +248,8 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 | `question` | 本次要展开 N 条,在对话里会很长。怎么弄? |
 | option 1 · `label` | 全部铺开 |
 | option 1 · `description` | 不管多长都在对话里展开 |
-| option 2 · `label` | 导出 CSV 去表格看 |
-| option 2 · `description` | 按当前内容导出,没展开的只有标题 |
+| option 2 · `label` | 全部带步骤导出 |
+| option 2 · `description` | 缺步骤的自动补齐 |
 | option 3 · `label` | 先不展开 |
 | option 3 · `description` | 换个更小范围,比如「先展开 5 条」 |
 
@@ -259,7 +259,7 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 展开方式
 本次要展开 N 条,在对话里会很长。怎么弄?
 1. 全部铺开
-2. 导出 CSV 去表格看 —— 按当前内容导出,没展开的只有标题
+2. 全部带步骤导出 —— 缺步骤的自动补齐
 3. 先不展开 —— 换个更小范围,比如「先展开 5 条」
 请回复序号，或直接说你想怎么做。
 ```
@@ -267,7 +267,7 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 | 选择 | 动作 |
 |------|------|
 | **全部铺开** | 按本批范围全量打 Markdown 展开块 → §9 partial/full hint |
-| **导出 CSV 去表格看** | 不铺对话展开块 → 走 §8 导出流程（本选择视为 SQA 主动要导出；**不会**为本批自动展开步骤，按当前内容导出，未展开的只有标题）→ §9 export receipt |
+| **全部带步骤导出** | 不铺对话展开块 → 为尚未展开用例静默补齐 `steps` / `expected`（更新 `cases[]`，**不在对话里铺开**）→ 走 §8 导出流程（`exportMode = fill_then_export`）→ §9 export receipt（含补齐提示） |
 | **先不展开** | 停下，不展开、不导出；等 SQA 重新发起更小范围 |
 
 - **「全部展开」≠ 已表态**：仅说「全部展开」（或同义 Full 档位触发）只表示进入 Full 档位、用于计算 `batchCount`；**不算**免分流已表态。`batchCount > 10` 时仍须先走框4，**禁止**直接铺开。
@@ -311,7 +311,7 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 
 ### 6. Self-review (internal — do not show SQA a checklist)
 
-Run **twice**: (1) before **title-state preview**; (2) before **export**.
+Run **twice**: (1) before **title-state preview**; (2) before **export** (含 `fill_then_export` 静默补齐前).
 
 1. Per `references/testcase-writing-spec.md` — would merging reduce duplicate verification goals?
 2. Every case has non-empty `testPointId` (archived path); orphans **do not enter** `cases[]`, preview, or export → 存疑 back to A2.
@@ -321,7 +321,7 @@ Run **twice**: (1) before **title-state preview**; (2) before **export**.
 | Action | Confirm? | Notes |
 |--------|----------|-------|
 | Title-state / expand preview (Markdown) | **No** | Does not write files |
-| **Export CSV** (SQA initiates) | **No** upfront confirm | SQA asked; receipt see §9 |
+| **Export CSV** (SQA initiates) | **No** file-write confirm | **先框5「导出方式」**（二选一）；选后再 §8；receipt 见 §9 |
 | **Regenerate entire set** | **Yes** | Clears `cases[]`, discards all `【已调整】` / `【新增】` / "已移除" traces, rebuilds from GET test points — wipes SQA manual edits |
 | Delete / retitle / SQA-directed tweak | **No** | Update `cases[]` + re-render affected preview; **§8 only when SQA says export** |
 
@@ -329,9 +329,42 @@ Run **twice**: (1) before **title-state preview**; (2) before **export**.
 
 AI produces an **export-time snapshot** of current `cases[]` as interim JSON; `export_to_csv.js` lays out cells only — **no improvisation, no inline CSV text, no ad-hoc export code**.
 
+#### 框5 · 导出方式
+
+**触发**：SQA **主动说**「导出 CSV」等导出意图，且**不是**从 §5 框4 已选「全部带步骤导出」进入（框4 已选则 **跳过框5**，直接 `exportMode = fill_then_export`）。
+
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**）：
+
+| 字段 | 值 |
+|------|-----|
+| `header` | 导出方式 |
+| `question` | 这批用例要怎么导出? |
+| option 1 · `label` | 按当前状态导出 |
+| option 1 · `description` | 没展开的用例只有标题、没有步骤 |
+| option 2 · `label` | 全部带步骤导出 |
+| option 2 · `description` | 缺步骤的自动补齐再导,不在对话里铺开 |
+
+**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+
+```text
+导出方式
+这批用例要怎么导出?
+1. 按当前状态导出 —— 没展开的用例只有标题、没有步骤
+2. 全部带步骤导出 —— 缺步骤的自动补齐再导,不在对话里铺开
+请回复序号，或直接说你想怎么做。
+```
+
+| 选择 | `exportMode` | 动作 |
+|------|--------------|------|
+| **按当前状态导出** | `as_is` | 直接 §8：按当前 `cases[]` 组装 interim JSON（未展开行 `steps` / `expected` 仍为 `[]`） |
+| **全部带步骤导出** | `fill_then_export` | **静默补齐**所有 `steps` / `expected` 为空或视为未展开的用例（遵 §5 展开规则与红线 0；**不**打 Markdown 展开块）→ 更新 `cases[]` → §8 |
+
 **When to export**:
 
-- Triggered **only when SQA actively asks** (e.g. 「导出 CSV」). May export at **any content state** (title-only / partial mix / full). Assemble interim JSON from current `cases[]`. Non–full-expand = **draft export**: unexpanded rows keep `steps` / `expected` as `[]`; mixed rows legal (see `references/csv-template-mapping.md` 「草稿态导出」). Export does **not** lock work state; may export multiple times (timestamp filenames do not overwrite). Do not rename files or add columns.
+- Triggered **only when SQA actively asks** (e.g. 「导出 CSV」), **or** §5 框4 选了「全部带步骤导出」。**直接说「导出 CSV」时先走框5，禁止跳过直接 §8。**
+- **`exportMode = fill_then_export`**（框5 选项 2 或框4 选项 2）：导出前须完成静默补齐（见上表）；§9 receipt 须加补齐提示句。
+- **`exportMode = as_is`**（框5 选项 1）：未展开行保持 `steps` / `expected` 为 `[]`。
+- May export at **any content state** (title-only / partial mix / full). Assemble interim JSON from current `cases[]` after mode handling. Mixed rows legal (see `references/csv-template-mapping.md` 「草稿态导出」). Export does **not** lock work state; may export multiple times (timestamp filenames do not overwrite). Do not rename files or add columns.
 - Before export: **filter out** entries with `status: 'removed'` — preview-only trace; **do not** put `status` or removed rows into interim JSON.
 - Before export: if any remaining row has `steps.length !== expected.length` → **refuse export**, point SQA to fix in preview (e.g. "第 3 条步骤与预期数量不一致,先修齐再导") — **do not** call §8 and dump script stderr.
 
@@ -366,7 +399,7 @@ rm -f "$TMP_JSON"
 - Default output dir: `testcases/` under cwd; override with `-o <dir>` when SQA specifies.
 - On script failure after a valid export attempt → report stderr honestly; fix JSON upstream, retry.
 - **Forbidden**: writing CSV by hand in chat or generating one-off Python/JS export snippets.
-- **To SQA**: do not say "脚本" — say "按当前内容导出".
+- **To SQA**: do not say "脚本". `exportMode = as_is` 时可说「按当前状态导出」; `fill_then_export` 时不说「按当前状态导出」— 用 §9 补齐提示句。
 
 ### 9. Present (preview + export receipt)
 
@@ -408,6 +441,8 @@ rm -f "$TMP_JSON"
   - 存疑清单 (if any, same list as preview state)
   - Status line（逐字; `<路径>` from stdout `已导出: ...`）:
     > 已导出:<路径>。
+  - **`exportMode = fill_then_export` 时**（框5 选项 2 或 §5 框4「全部带步骤导出」），Status line **后追加**一行（逐字）:
+    > 已把未展开用例补齐步骤后导出(对话未铺开)。
 
 CSV is an **export snapshot**; Markdown preview is the **in-conversation work state**.
 
@@ -488,15 +523,15 @@ Title-state preview (illustrative — even a single Group uses one block):
 
 2. **跨页必拆**: follow `references/testcase-writing-spec.md` **「步骤粒度」**节 Config → Idea → Storyboard table example — **do not duplicate**; cite that table when explaining cross-page splits.
 
-**Step C — SQA: "导出 CSV"** → §8 (filter `status: 'removed'`, pairing check) → §9 export receipt.
+**Step C — SQA: "导出 CSV"** → 框5「导出方式」→ 按选项 `as_is` 或 `fill_then_export`（后者静默补齐）→ §8 (filter `status: 'removed'`, pairing check) → §9 export receipt。
 
 Export column layout: `assets/testcase-template.csv`.
 
 ## Output & Confirmation
 
 - **Title-state first pass** → §6 → §5 title Markdown preview → §9 hint (**no §8**)
-- **Partial / full expand** — 硬顺序：算 `batchCount` → `>10` 且未免分流？**只框4、禁止铺步骤**（含「全部展开」）→ 框4「全部铺开」/ `≤10` / 免分流 → expand → §9 hint；框4「导出 CSV 去表格看」→ §8 → §9 receipt；框4「先不展开」→ 停下（**no confirm gate on expand itself; triage is routing only**）
-- **Export CSV (SQA initiates)** → §8 (filter removed, refuse mispaired) → §9 receipt (any content state)
+- **Partial / full expand** — 硬顺序：算 `batchCount` → `>10` 且未免分流？**只框4、禁止铺步骤**（含「全部展开」）→ 框4「全部铺开」/ `≤10` / 免分流 → expand → §9 hint；框4「全部带步骤导出」→ 静默补齐 → §8 (`fill_then_export`) → §9 receipt（含补齐提示）；框4「先不展开」→ 停下（**no confirm gate on expand itself; triage is routing only**）
+- **Export CSV (SQA initiates)** → 框5「导出方式」→ §8 (filter removed, refuse mispaired) → §9 receipt (`as_is` 或 `fill_then_export`)
 - **Regenerate entire set** → §7 confirm → §6 → §5 preview
 - **Failures** → §2 honest error; keep in-memory draft if safe
 
