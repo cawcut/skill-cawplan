@@ -5,8 +5,34 @@ import {listCawplanProducts} from "../lib/product-catalog.js";
 
 export {listCawplanProducts as listProducts} from "../lib/product-catalog.js";
 
+export async function getProductOverview(
+    productId: string,
+    opts: { refresh?: boolean } = {},
+): Promise<unknown> {
+    const refresh = Boolean(opts.refresh);
+    const key = await buildScopedCacheKey(`products:overview:${productId}`, undefined);
+    const cached = getCache(key, refresh);
+    if (cached) return cached;
+
+    const result = await cawplanRequest({
+        method: "GET",
+        path: `/api/v1/public/openapi/product/${productId}/overview`,
+    });
+    setCache(key, result);
+    return result;
+}
+
 export function registerProductsCommand(program: Command): void {
     const products = program.command("products").description("Manage products");
+
+    products
+        .command("overview <product_id>")
+        .description("Get product overview (name + description background)")
+        .option("--refresh", "Bypass cache")
+        .action(async (productId: string, opts) => {
+            const result = await getProductOverview(productId, { refresh: opts.refresh });
+            console.log(JSON.stringify(result, null, 2));
+        });
 
     products
         .command("list")

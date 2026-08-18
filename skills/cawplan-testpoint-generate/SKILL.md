@@ -418,7 +418,7 @@ cawplan qa-insights testpoints archive <product_id> <requirement_id> \
   --body-file <path>   # {"test_points":[{"title":"...","tags":["边界"],"group":"...","is_edited":false}]}
 ```
 
-Body per item: **only** `title`, `tags`, `group`, `is_edited`. The command rejects the batch and sends nothing if an item carries anything else (an `id` here usually means an already-archived row is being re-posted).
+Body per item (skill/agent): **only** `title`, `tags`, `group`, `is_edited`. The CLI injects `is_ai_generated: true` on **each** item before POST — do not put it in `--body-file`. The command rejects the batch and sends nothing if an item carries anything else (an `id` here usually means an already-archived row is being re-posted).
 
 **`is_edited`**: `false` if untouched since 原稿 (includes rows added in §6 self-critique — AI-generated, no source tag); `true` if SQA edited or added (including adopting 存疑). Incremental batch: only for **new** M drafts vs their 原稿; archived N rows excluded. The command passes this through verbatim — **it never infers the value**, so getting it right is this skill's job.
 

@@ -571,10 +571,11 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 - Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/requirements`
 - Path params: `product_id` (**do not include `product_id` in the body**)
 - Body (required): `module_tree_node_id`, `function_description`, `entry_trigger`, `normal_expectation`, `constraints`
-- Body (optional on API): `out_of_scope`, `ticket_id` (ticket `display_id`), `summary` (display label for list/cards — API allows null)
+- Body (optional on API): `out_of_scope`, `ticket_id` (ticket `display_id`), `summary` (display label for list/cards — API allows null), `is_ai_generated` (default `false`; QA Skills inject `true` via CLI at body top level)
 - Notes:
     - `summary`: short one-line overview for QA Insights list display. **Not** one of the five requirement fields; **not** test-point input. `cawplan-requirement-analyze` always sends non-empty `summary` on POST.
     - Do not send `review_status` (defaults to `PENDING`) or `is_edited` (TestPoint field only).
+    - `is_ai_generated`: injected by `cawplan qa-insights requirements create` — skill/agent omit from `--body-file`.
     - Response `data.url` is a **portal deep-link path** (e.g. `/product/{product_id}/qa-insights/test-suites/requirements/{id}`) for opening Test Suites in the browser — **not** a Public Open API route. Return it to the user as-is from the response; **never** construct or guess this path.
     - Response `data.id` is the requirement id for later API calls (e.g. `GET .../qa/requirements/{id}`, `POST .../qa/requirements/{id}/testpoints/batch`).
 - Maps to cawplan CLI: `cawplan qa-insights requirements create {product_id} --body-file <path>`
@@ -583,8 +584,8 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 ### Update Requirement
 - Endpoint: `PATCH /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}`
 - Path params: `product_id`, `requirement_id`
-- Body: any subset of `function_description`, `entry_trigger`, `normal_expectation`, `constraints`, `out_of_scope`, `summary`, `ticket_id` — send **only changed** fields
-- Notes: do not send `product_id`, `review_status`, or `is_edited` in the body. `summary` may be cleared with empty string or `null`. `ticket_id` is the ticket **display_id** (e.g. `CAWP-04606`); pass `null` to unlink. Use when updating an existing Requirement after hot/cold handoff; compare five fields against `five_field_snapshot`, `summary` against `summary_snapshot`, and `ticket_id` against `ticket_id_snapshot` before PATCH vs POST create. Example bodies (changed keys only): `{"constraints":"..."}`, `{"summary":"..."}`, `{"ticket_id":"CAWP-04606"}`, `{"ticket_id":null}`
+- Body: any subset of `function_description`, `entry_trigger`, `normal_expectation`, `constraints`, `out_of_scope`, `summary`, `ticket_id`, `is_ai_generated` — send **only changed** fields (plus CLI-injected `is_ai_generated: true` on every non-empty PATCH from QA Skills)
+- Notes: do not send `product_id`, `review_status`, or `is_edited` in the body. `summary` may be cleared with empty string or `null`. `ticket_id` is the ticket **display_id** (e.g. `CAWP-04606`); pass `null` to unlink. Use when updating an existing Requirement after hot/cold handoff; compare five fields against `five_field_snapshot`, `summary` against `summary_snapshot`, and `ticket_id` against `ticket_id_snapshot` before PATCH vs POST create. `is_ai_generated` is added by the CLI — omit from `--desired` / `--snapshot`. Example bodies (changed keys only): `{"constraints":"..."}`, `{"summary":"..."}`, `{"ticket_id":"CAWP-04606"}`, `{"ticket_id":null}`
 - Maps to cawplan CLI: `cawplan qa-insights requirements update {product_id} {requirement_id} --desired '<json>' --snapshot '<json>'` — pass complete states; the command derives the changed keys and PATCHes only those
 
 ### Get Requirement (read — single item)
@@ -613,9 +614,10 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 ### Batch Create TestPoints (write — archive drafts)
 - Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints/batch`
 - Path params: `product_id`, `requirement_id` (**do not include in body**)
-- Body: `{ "test_points": [ { "title", "tags", "group", "is_edited" }, ... ] }`
+- Body: `{ "test_points": [ { "title", "tags", "group", "is_edited" }, ... ] }` — skill/agent supply four keys per item; CLI injects `is_ai_generated: true` on each element before POST
 - Notes:
-    - Each item: **only** `title`, `tags`, `group`, `is_edited`. `tags` may be `[]`; `group` may be empty (display as 未分组).
+    - Each item (caller): **only** `title`, `tags`, `group`, `is_edited`. `tags` may be `[]`; `group` may be empty (display as 未分组).
+    - CLI POST payload: each item also carries `is_ai_generated: true` (inside the object, not at batch top level).
     - **Do not send**: `id`, `sort_order`, `product_id`, `requirement_id`, review fields, or display sequence N/N.M.
     - Array order = display order = backend `sort_order`. Batch is all-or-nothing (no partial success).
     - Response on `code: SUCCESS`: `data.test_points[]` — same length as POST array; each item echoes `title`, `tags`, `group`, `is_edited` from the request plus server-assigned `id`, `requirement_id`, `created_by`, `created_at`, `updated_at` (same shape as List TestPoints rows).

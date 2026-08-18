@@ -1,6 +1,6 @@
 ### 7. Resolve product
 
-**仅当「保存意图闸」已触发**后执行本步。Run this after the draft (five fields + display summary) is acceptable and **before** any QA Insights API calls (`.../qa/module-tree`, `.../qa/requirements`). Read-only — no writes. Do **not** call `GET/POST .../qa/...` in this step（`products list` 仅在本步无 Ticket 选产品分支调用）。
+**仅当「保存意图闸」已触发**后执行本步。Run this after the draft (five fields + display summary) is acceptable and **before** any QA Insights write calls (`module-tree node create`, `requirements create` / `update`). Read-only — no writes. Do **not** call `qa-insights module-tree get` or other `qa-insights` read/write commands in this step（`products list` 仅在本步无 Ticket 选产品分支调用）。
 
 **Resolve order**（命中即停，不重复问、不重复列）：
 
@@ -54,13 +54,13 @@ Keep the resolved `product_id` (and product name) in context for module-tree and
 - **跳过**：会话已确定 `module_tree_node_id`（如接力入站已带）→ **直接用，不重问** → 带 `module_tree_node_id` 进入 step 11。
 - 本步仍在五字段尾巴之后；**不在** step 5b 出现模块树文案（见 step 5b **输出纪律**）。
 
-**读树**（本步及「看看有哪些节点」共用；GET only，创建节点前不写库）：
+**读树**（本步及「看看有哪些节点」共用；read only，创建节点前不写库）：
 
 ```bash
-cawplan api GET /api/v1/public/openapi/product/<product_id>/qa/module-tree
+cawplan qa-insights module-tree get <product_id>
 ```
 
-Parse `data.nodes`（可能为 `[]`）。从五字段尝试推荐一个挂载节点（name + `id` + 全路径）→ `{推荐节点全路径}`。
+On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝试推荐一个挂载节点（name + `id` + 全路径）→ `{推荐节点全路径}`。
 
 **无推荐 / 空树**（系统给不出推荐节点，或 `data.nodes` 为 `[]`）：
 

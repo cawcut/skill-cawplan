@@ -6,6 +6,7 @@ import { parseApiEnvelope, batchReturnedCount } from "../lib/qa-insights/api-cod
 import {
   BodyValidationError,
   buildModuleTreeNodeBody,
+  applyAiGeneratedToRequirementPatch,
   buildRequirementCreateBody,
   buildTestPointBatchBody,
   buildTestrailImportExecuteBody,
@@ -303,6 +304,71 @@ export async function runRequirementsGet(
 }
 
 // ---------------------------------------------------------------------------
+// module-tree get — full module tree for a product
+// ---------------------------------------------------------------------------
+
+export async function runModuleTreeGet(productId: string, deps?: ReadCommandDeps) {
+  const command = "module-tree get";
+  const meta: QAInsightsMeta = { product_id: productId, dry_run: false };
+  const emit = readEmitter(deps);
+
+  const read = await performRead({
+    request: requester(deps),
+    path: `${API_BASE}/${productId}/qa/module-tree`,
+    command,
+    meta,
+  });
+  if (read.envelope) {
+    return emit(readFailureFromWriteEnvelope(command, meta, read.envelope));
+  }
+  return emit(buildReadEnvelope({ outcome: "SUCCESS", command, meta, data: read.data }));
+}
+
+// ---------------------------------------------------------------------------
+// requirements list — requirements under a module-tree node
+// ---------------------------------------------------------------------------
+
+export async function runRequirementsList(
+  productId: string,
+  opts: { moduleTreeNodeId?: string },
+  deps?: ReadCommandDeps,
+) {
+  const command = "requirements list";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    module_tree_node_id: opts.moduleTreeNodeId,
+    dry_run: false,
+  };
+  const emit = readEmitter(deps);
+
+  if (!opts.moduleTreeNodeId) {
+    return emit(
+      buildReadEnvelope({
+        outcome: "FAILURE",
+        command,
+        meta,
+        error: {
+          type: "validation",
+          message: `${command}: --module-tree-node-id is required`,
+        },
+      }),
+    );
+  }
+
+  const read = await performRead({
+    request: requester(deps),
+    path: `${API_BASE}/${productId}/qa/requirements`,
+    query: { module_tree_node_id: opts.moduleTreeNodeId },
+    command,
+    meta,
+  });
+  if (read.envelope) {
+    return emit(readFailureFromWriteEnvelope(command, meta, read.envelope));
+  }
+  return emit(buildReadEnvelope({ outcome: "SUCCESS", command, meta, data: read.data }));
+}
+
+// ---------------------------------------------------------------------------
 // testpoints list — all test points for a requirement
 // ---------------------------------------------------------------------------
 
@@ -448,9 +514,11 @@ export async function runRequirementsUpdate(
     const snapshot = await readJsonInput(
       opts.snapshotFile, opts.snapshot, `${command} snapshot`, "--snapshot-file", "--snapshot",
     );
-    patchBody = computePatchBody(
-      desired as Record<string, unknown>,
-      snapshot as Record<string, unknown>,
+    patchBody = applyAiGeneratedToRequirementPatch(
+      computePatchBody(
+        desired as Record<string, unknown>,
+        snapshot as Record<string, unknown>,
+      ),
     );
     if (!isEmptyDiff(patchBody)) validateRequirementPatchBody(patchBody);
   } catch (err) {
@@ -1576,6 +1644,11 @@ export function registerQAInsightsCommand(program: Command): void {
     .description("QA Insights: T1 test suites and T2 TestRail integration");
 
   const moduleTree = qa.command("module-tree").description("Module tree operations");
+  moduleTree
+    .command("get <product_id>")
+    .description("Get the module tree for a product")
+    .action((productId: string) => runModuleTreeGet(productId));
+
   const node = moduleTree.command("node").description("Module tree node operations");
   node
     .command("create <product_id>")
@@ -1591,6 +1664,14 @@ export function registerQAInsightsCommand(program: Command): void {
     .description("Get a single requirement (five fields + metadata)")
     .action((productId: string, requirementId: string) =>
       runRequirementsGet(productId, requirementId),
+    );
+
+  requirements
+    .command("list <product_id>")
+    .description("List requirements under a module-tree node")
+    .requiredOption("--module-tree-node-id <id>", "Module tree node to list")
+    .action((productId: string, opts: { moduleTreeNodeId?: string }) =>
+      runRequirementsList(productId, opts),
     );
 
   requirements
