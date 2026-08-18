@@ -5,8 +5,8 @@
  * - A1: skills/cawplan-requirement-analyze/SKILL.md "Write body rules"
  *   (product_id only in URL; never send review_status / is_edited;
  *   POST = five fields + non-empty summary + module_tree_node_id).
- * - A2: skills/cawplan-testpoint-generate/SKILL.md §9 (each item carries ONLY
- *   title, tags, group, is_edited).
+ * - A2: skills/cawplan-testpoint-generate/SKILL.md §9 (caller supplies title,
+ *   tags, group, is_edited; CLI injects is_ai_generated per item).
  *
  * Forbidden keys are HARD-REJECTED, never silently stripped (OQ#2): silently
  * dropping a caller-supplied review_status would hide a real bug in the caller.
@@ -19,7 +19,8 @@ import { normalizeField, normalizeOutOfScope } from "./normalize.js";
 import {
   FIVE_FIELD_KEYS,
   FORBIDDEN_WRITE_BODY_KEYS,
-  TESTPOINT_BODY_KEYS,
+  IS_AI_GENERATED,
+  TESTPOINT_CALLER_KEYS,
   type ImportStepDraft,
   type ImportPreviewSource,
   type ImportSourceType,
@@ -96,7 +97,19 @@ export function buildRequirementCreateBody(input: unknown): Record<string, unkno
   for (const key of FIVE_FIELD_KEYS) {
     out[key] = key === "out_of_scope" ? normalizeOutOfScope(body[key]) : normalizeField(body[key]);
   }
+  out.is_ai_generated = IS_AI_GENERATED;
   return out;
+}
+
+/**
+ * Every non-empty Requirement PATCH from QA Skills carries the AI provenance flag.
+ * `computePatchBody` omits it — this runs after diff, before HTTP.
+ */
+export function applyAiGeneratedToRequirementPatch(
+  patchBody: Record<string, unknown>,
+): Record<string, unknown> {
+  if (Object.keys(patchBody).length === 0) return patchBody;
+  return { ...patchBody, is_ai_generated: IS_AI_GENERATED };
 }
 
 /**
@@ -130,14 +143,14 @@ export function buildTestPointBatchBody(input: unknown): { test_points: TestPoin
     throw new BodyValidationError("testpoint batch body requires at least one test point");
   }
 
-  const allowed = new Set<string>(TESTPOINT_BODY_KEYS);
+  const allowed = new Set<string>(TESTPOINT_CALLER_KEYS);
   const testPoints = raw.map((item, index) => {
     const point = assertPlainObject(item, `test_points[${index}]`);
 
     const extra = Object.keys(point).filter((key) => !allowed.has(key));
     if (extra.length > 0) {
       throw new BodyValidationError(
-        `test_points[${index}] must contain only ${TESTPOINT_BODY_KEYS.join(", ")} — ` +
+        `test_points[${index}] must contain only ${TESTPOINT_CALLER_KEYS.join(", ")} — ` +
           `remove ${extra.join(", ")} (keys are not stripped automatically; ` +
           `an "id" here usually means an already-archived row is being re-posted)`,
       );
@@ -169,6 +182,7 @@ export function buildTestPointBatchBody(input: unknown): { test_points: TestPoin
       tags,
       group: normalizeField(point.group),
       is_edited: point.is_edited === true,
+      is_ai_generated: IS_AI_GENERATED,
     } satisfies TestPointDraft;
   });
 

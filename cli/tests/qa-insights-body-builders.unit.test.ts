@@ -2,11 +2,13 @@ import { describe, expect, test } from "vitest";
 import {
   BodyValidationError,
   assertNoForbiddenKeys,
+  applyAiGeneratedToRequirementPatch,
   buildRequirementCreateBody,
   validateRequirementPatchBody,
   buildTestPointBatchBody,
   buildModuleTreeNodeBody,
 } from "../src/lib/qa-insights/body-builders";
+import { IS_AI_GENERATED } from "../src/lib/qa-insights/types";
 
 const validCreate = {
   module_tree_node_id: "019fcf73-7fd1-7b6a-8745-97c2ffaded05",
@@ -138,6 +140,10 @@ describe("A1-WB-2 optional API fields pass through untouched", () => {
     const body = buildRequirementCreateBody({ ...validCreate, ticket_id: null });
     expect(body.ticket_id).toBeNull();
   });
+  test("CWP-18709 create body injects is_ai_generated at top level", () => {
+    const body = buildRequirementCreateBody(validCreate);
+    expect(body.is_ai_generated).toBe(IS_AI_GENERATED);
+  });
 });
 
 describe("A1-WB-4 requirement patch body validation", () => {
@@ -152,13 +158,33 @@ describe("A1-WB-4 requirement patch body validation", () => {
   });
 });
 
-describe("A2-§9-body / P10 testpoint batch — exactly four keys per item", () => {
+describe("CWP-18709 applyAiGeneratedToRequirementPatch", () => {
+  test("empty diff stays empty (NOOP gate)", () => {
+    expect(applyAiGeneratedToRequirementPatch({})).toEqual({});
+  });
+  test("non-empty patch gets is_ai_generated at top level", () => {
+    expect(applyAiGeneratedToRequirementPatch({ summary: "新" })).toEqual({
+      summary: "新",
+      is_ai_generated: IS_AI_GENERATED,
+    });
+  });
+});
+
+describe("A2-§9-body / P10 testpoint batch — caller four keys; CLI injects is_ai_generated per item", () => {
   const point = { title: "用户名含特殊字符应被拦截", tags: ["异常"], group: "注册校验", is_edited: false };
 
-  test("A2-§9-body valid four-key item is accepted", () => {
+  test("A2-§9-body valid four-key item is accepted and injects is_ai_generated per element", () => {
     const body = buildTestPointBatchBody({ test_points: [point] });
     expect(body.test_points).toHaveLength(1);
-    expect(Object.keys(body.test_points[0]).sort()).toEqual(["group", "is_edited", "tags", "title"]);
+    expect(Object.keys(body.test_points[0]).sort()).toEqual(
+      ["group", "is_ai_generated", "is_edited", "tags", "title"],
+    );
+    expect(body.test_points[0].is_ai_generated).toBe(IS_AI_GENERATED);
+  });
+  test("P10 caller-supplied is_ai_generated is a hard failure (CLI injects it)", () => {
+    expect(() =>
+      buildTestPointBatchBody({ test_points: [{ ...point, is_ai_generated: true }] }),
+    ).toThrow(/is_ai_generated/);
   });
   test("P10 extra key `id` is a hard failure, not stripped", () => {
     expect(() => buildTestPointBatchBody({ test_points: [{ ...point, id: "tp-1" }] }))

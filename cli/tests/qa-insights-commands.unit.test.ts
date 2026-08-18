@@ -184,7 +184,7 @@ describe("A1-TB-1 / P1 requirements create — plain POST, never a pre-flight GE
     const h = harness([]);
     await runRequirementsCreate(PRODUCT, { body: JSON.stringify(createBody), dryRun: true }, h.deps);
     expect(h.calls).toHaveLength(0);
-    expect(h.envelope.post_body).toMatchObject({ module_tree_node_id: NODE });
+    expect(h.envelope.post_body).toMatchObject({ module_tree_node_id: NODE, is_ai_generated: true });
   });
   test("A1-PW-2 write 5xx maps to UNKNOWN, never an auto-retry", async () => {
     const h = harness([new ApiError("API error 500", 500, {})]);
@@ -218,14 +218,14 @@ describe("A1-WB-4 / A1-TB-3 / P4 requirements update — changed keys only", () 
     const h = harness([ok({ id: REQUIREMENT })]);
     await runRequirementsUpdate(PRODUCT, REQUIREMENT, { desiredFile: desired, snapshotFile: snapshot }, h.deps);
     expect(h.calls[0].method).toBe("PATCH");
-    expect(h.calls[0].body).toEqual({ summary: "新的摘要" });
+    expect(h.calls[0].body).toEqual({ summary: "新的摘要", is_ai_generated: true });
   });
   test("A1-WB-4 unchanged fields are never included", async () => {
     const desired = await tempJson("d.json", { ...fiveFields, constraints: "改后的约束", summary: "同一摘要" });
     const snapshot = await tempJson("s.json", { ...fiveFields, summary: "同一摘要" });
     const h = harness([ok({ id: REQUIREMENT })]);
     await runRequirementsUpdate(PRODUCT, REQUIREMENT, { desiredFile: desired, snapshotFile: snapshot }, h.deps);
-    expect(h.calls[0].body).toEqual({ constraints: "改后的约束" });
+    expect(h.calls[0].body).toEqual({ constraints: "改后的约束", is_ai_generated: true });
   });
   test("P4 empty diff yields NOOP and sends no PATCH", async () => {
     const same = { ...fiveFields, summary: "没变" };
@@ -254,7 +254,7 @@ describe("A1-WB-4 / A1-TB-3 / P4 requirements update — changed keys only", () 
       h.deps,
     );
     expect(h.calls).toHaveLength(0);
-    expect(h.envelope.patch_body).toEqual({ summary: "新" });
+    expect(h.envelope.patch_body).toEqual({ summary: "新", is_ai_generated: true });
   });
   test("A1-WB-4 missing --snapshot-file fails validation", async () => {
     const desired = await tempJson("d.json", fiveFields);
@@ -291,7 +291,7 @@ describe("OQ-3 / 1b requirements update — inline --desired / --snapshot", () =
       h.deps,
     );
     expect(h.calls[0].method).toBe("PATCH");
-    expect(h.calls[0].body).toEqual({ summary: "新摘要" });
+    expect(h.calls[0].body).toEqual({ summary: "新摘要", is_ai_generated: true });
   });
 
   test("1b inline and file forms produce an IDENTICAL patch_body", async () => {
@@ -391,7 +391,7 @@ describe("E19 update --snapshot provenance — wrong sources fail silently", () 
       { desired: JSON.stringify(draft), snapshot: JSON.stringify(lastWritten) },
       h.deps,
     );
-    expect(h.envelope.patch_body).toEqual({ constraints: "我改过的约束" });
+    expect(h.envelope.patch_body).toEqual({ constraints: "我改过的约束", is_ai_generated: true });
   });
 
   test("E19 passing the CURRENT DRAFT as snapshot silently swallows the change", async () => {
@@ -418,7 +418,7 @@ describe("E19 update --snapshot provenance — wrong sources fail silently", () 
     // Our own edit plus a revert of their edit — silently clobbering their work.
     expect(h.envelope.patch_body).toHaveProperty("normal_expectation");
     expect(Object.keys(h.envelope.patch_body ?? {}).sort())
-      .toEqual(["constraints", "normal_expectation"]);
+      .toEqual(["constraints", "is_ai_generated", "normal_expectation"]);
   });
 });
 
@@ -527,11 +527,12 @@ describe("A2-§9.5 / A2-§8.5 / P7 testpoints archive — POST only, no follow-u
     expect(h.calls).toHaveLength(0);
     expect(h.envelope.error?.type).toBe("validation");
   });
-  test("A2-§9-is is_edited is passed through untouched", async () => {
+  test("A2-§9-is is_edited is passed through untouched; is_ai_generated injected", async () => {
     const h = harness([ok({ test_points: [{ id: "1" }, { id: "2" }] })]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
-    const sent = h.calls[0].body as { test_points: { is_edited: boolean }[] };
+    const sent = h.calls[0].body as { test_points: { is_edited: boolean; is_ai_generated: boolean }[] };
     expect(sent.test_points.map((p) => p.is_edited)).toEqual([false, true]);
+    expect(sent.test_points.every((p) => p.is_ai_generated === true)).toBe(true);
   });
   test("P9 batch 5xx yields UNKNOWN and does not GET or re-POST", async () => {
     const h = harness([new ApiError("API error 500", 500, {})]);

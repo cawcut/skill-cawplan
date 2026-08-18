@@ -6,6 +6,7 @@ import { parseApiEnvelope, batchReturnedCount } from "../lib/qa-insights/api-cod
 import {
   BodyValidationError,
   buildModuleTreeNodeBody,
+  applyAiGeneratedToRequirementPatch,
   buildRequirementCreateBody,
   buildTestPointBatchBody,
   buildTestrailImportExecuteBody,
@@ -432,9 +433,11 @@ export async function runRequirementsUpdate(
     const snapshot = await readJsonInput(
       opts.snapshotFile, opts.snapshot, `${command} snapshot`, "--snapshot-file", "--snapshot",
     );
-    patchBody = computePatchBody(
-      desired as Record<string, unknown>,
-      snapshot as Record<string, unknown>,
+    patchBody = applyAiGeneratedToRequirementPatch(
+      computePatchBody(
+        desired as Record<string, unknown>,
+        snapshot as Record<string, unknown>,
+      ),
     );
     if (!isEmptyDiff(patchBody)) validateRequirementPatchBody(patchBody);
   } catch (err) {

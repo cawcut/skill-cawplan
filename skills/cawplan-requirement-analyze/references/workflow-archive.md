@@ -144,7 +144,7 @@ Wait for SQA confirmation. **Do not POST** without it.
 cawplan qa-insights requirements create <product_id> --body-file <path>
 ```
 
-Body: `module_tree_node_id` + the five fields + non-empty `summary` (+ `ticket_id` when a ticket was used). Write it to a temp file — long JSON is error-prone to inline. See 仓库根 `references/CAWPLAN_OPEN_API.md` §15 — subsection **Create Requirement**.
+Body: `module_tree_node_id` + the five fields + non-empty `summary` (+ `ticket_id` when a ticket was used). Write it to a temp file — long JSON is error-prone to inline. See 仓库根 `references/CAWPLAN_OPEN_API.md` §15 — subsection **Create Requirement**. The CLI injects `is_ai_generated: true` at the **request body top level** — do not put it in `--body-file`.
 
 The command POSTs directly — it does **not** look for duplicates first. Preventing duplicates is this skill's job (step 11 Gate + Table B + 10b reconcile), not the command's.
 
@@ -193,7 +193,7 @@ cawplan qa-insights requirements update <product_id> <bound_requirement_id> \
   --snapshot '<five_field_snapshot + summary_snapshot + ticket_id_snapshot 原样 JSON>'
 ```
 
-Pass **complete** states, not a hand-computed diff — the command works out which keys changed and PATCHes only those. (`--desired-file` / `--snapshot-file` accept the same content from files when the JSON is long.) Include `ticket_id` in both objects when comparing or changing the ticket link (display_id, or `null` to clear); reconcile strong match still uses **five fields only**.
+Pass **complete** states, not a hand-computed diff — the command works out which keys changed and PATCHes only those. (`--desired-file` / `--snapshot-file` accept the same content from files when the JSON is long.) Include `ticket_id` in both objects when comparing or changing the ticket link (display_id, or `null` to clear); reconcile strong match still uses **five fields only**. The CLI adds `is_ai_generated: true` to every non-empty PATCH body — do not put it in `--desired` / `--snapshot`.
 
 **`--snapshot` must be the values last written to CawPlan** — i.e. `five_field_snapshot` + `summary_snapshot` + `ticket_id_snapshot` from step 10, verbatim. Not the current draft (that yields `NOOP` and silently drops the edit), and not a fresh `GET` (that re-sends someone else's concurrent edit as if it were yours). Neither mistake raises an error.
 
@@ -220,5 +220,7 @@ Every `cawplan qa-insights` command prints one JSON object. **Branch on the `out
 ## Write body rules
 
 Field names are **snake_case**. A `create` body carries `module_tree_node_id`, the five fields, a non-empty `summary`, and `ticket_id` only when a ticket was used. A `update` `--desired` / `--snapshot` pair may also carry `ticket_id` (display_id, or `null` to unlink); it is compared like `summary` — **not** part of reconcile strong match.
+
+**`is_ai_generated`**: Skill 归档的写请求由 CLI 统一注入 `is_ai_generated: true`（boolean）。`requirements create` → 请求体**顶层**；`requirements update` → 非空 PATCH body **顶层**；`testpoints archive` → `test_points` **每个元素内**。与 `is_edited` 正交；Skill/agent **不要**在 `--body-file` / `--desired` / `--snapshot` 里手写该字段。
 
 The command rejects a body containing `product_id`, `review_status`, or `is_edited` and sends nothing — so a `FAILURE` / `validation` here means the body you built was wrong, not that the server refused. (These keys do appear in `GET` responses; that is expected — the restriction is on what you send.)

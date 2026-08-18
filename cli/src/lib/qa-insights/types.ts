@@ -87,15 +87,26 @@ export interface RequirementRow extends Partial<RequirementFiveFields> {
   [key: string]: unknown;
 }
 
-/** One test-point draft. Batch bodies carry exactly these four keys. */
+/**
+ * Skill write bodies always mark AI provenance. Injected by body-builders —
+ * callers (skills) do not pass this field.
+ */
+export const IS_AI_GENERATED = true as const;
+
+/** Skill-supplied keys per test-point item (before CLI injects `is_ai_generated`). */
+export const TESTPOINT_CALLER_KEYS = ["title", "tags", "group", "is_edited"] as const;
+
+/** One test-point item as sent to the API (caller keys + `is_ai_generated`). */
 export interface TestPointDraft {
   title: string;
   tags: string[];
   group: string;
   is_edited: boolean;
+  is_ai_generated: typeof IS_AI_GENERATED;
 }
 
-export const TESTPOINT_BODY_KEYS = ["title", "tags", "group", "is_edited"] as const;
+/** @deprecated Use TESTPOINT_CALLER_KEYS — kept for tests referencing the four-key caller contract. */
+export const TESTPOINT_BODY_KEYS = TESTPOINT_CALLER_KEYS;
 
 /**
  * Keys that must never appear in a Requirement write body.
