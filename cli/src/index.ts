@@ -65,6 +65,8 @@ program
     .option("--body <json>", "Request body as JSON")
     .action(async (method: string, path: string, opts) => {
         const {cawplanRequest} = await import("./lib/http.js");
+        const {getApiBase, getDefaultEnvName} = await import("./lib/products.js");
+        const {readUserConfig} = await import("./lib/user-config.js");
         let body: unknown;
         if (opts.body) {
             try {
@@ -78,8 +80,25 @@ program
             ? Object.fromEntries(new URLSearchParams(opts.query).entries())
             : undefined;
 
+        const httpMethod = method.toUpperCase() as "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+        const userConfig = await readUserConfig();
+        const envName = userConfig?.env ?? getDefaultEnvName();
+        let baseUrl = getApiBase().trim();
+        if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+            baseUrl = `https://${baseUrl}`;
+        }
+        baseUrl = baseUrl.replace(/\/$/, "");
+        const normalizedPath = path.trim().startsWith("/") ? path.trim() : `/${path.trim()}`;
+        const debugUrl = new URL(`${baseUrl}${normalizedPath}`);
+        if (query) {
+            for (const [key, value] of Object.entries(query)) {
+                debugUrl.searchParams.set(key, value);
+            }
+        }
+        console.error(`[cawplan api debug] env=${envName} ${httpMethod} ${debugUrl.toString()}`);
+
         const result = await cawplanRequest({
-            method: method.toUpperCase() as "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+            method: httpMethod,
             path,
             query,
             body,
