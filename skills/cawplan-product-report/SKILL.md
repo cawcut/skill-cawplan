@@ -1,5 +1,5 @@
 ---
-version: 0.2.6
+version: 0.2.7
 name: cawplan-product-report
 description: |
   Generate a CawPlan status report over a date range: for a single product (progress, risk analysis, priority recommendations, summaries), for a Team (CawPlan product line), or for a named member — ticket-change-based completion, in the last two cases.

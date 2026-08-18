@@ -27,7 +27,7 @@ After SQA confirms a write, if the CLI returns no clear `SUCCESS` or `FAILURE` �
 
 On **clear API failure** (`FAILURE_*` or HTTP error with body): see **Failures** (Rules); `write_outcome` is not UNKNOWN — SQA may retry after read-back without reconcile-first for duplicate fear (same operation retry).
 
-On **SUCCESS**: bind (step 10 Store), clear `pending_write`, set `write_outcome = SUCCESS`. On **unknown outcome**: set `write_outcome = UNKNOWN`, keep `pending_write`, tell SQA the result is unclear — next step **10b** / **Table A — Reconcile** (step 11); do **not** claim success or immediately POST again.
+On **SUCCESS**: bind (step 10 Store), clear `pending_write`, set `write_outcome = SUCCESS`, clear `location_confirmed`. On **unknown outcome**: set `write_outcome = UNKNOWN`, keep `pending_write`, tell SQA the result is unclear — next step **10b** / **Table A — Reconcile** (step 11); do **not** claim success or immediately POST again.
 
 **Field comparison** — the `qa-insights` commands own this. `requirements reconcile` decides what matches; `requirements update` decides which keys changed. Do not compare fields by hand or hand-compute a PATCH body.
 
@@ -81,6 +81,14 @@ While `write_outcome = UNKNOWN`, **never** re-run the write command; **never** u
 
 When SQA signals archive/submit intent ("可以了", "存吧", "归档", "提交", "保存到 CawPlan", "存到 CawPlan", "保存需求", etc.), **do not write immediately**.
 
+**乙式确认闸（何时弹 / 何时跳过）**：
+
+| 条件 | step 11 行为 |
+|------|----------------|
+| `location_confirmed = true`（§8 刚完成选位置：「就保存到这里」或〔选②〕选中节点） | **跳过**下方 11a/11b 乙式 AskUserQuestion 与「将需求保存/更新到…」路径复述；**直接**记录 `pending_write` 后 POST/PATCH |
+| §8 **被跳过**（接力入站已带 `module_tree_node_id`、冷交接更新且未重选位置） | **保留** 11a/11b 乙式确认闸（此路径无 §8 确认，须在此确认一次） |
+| Table B「另建」、reconcile 后 `no_match` 重试等**非 §8 落点** | 见各子节；`no_match` 重试若 `location_confirmed` 仍为 true → **跳过**乙式，仅输出一行状态后直写 |
+
 **Gate** (judge **Table A before Table B**):
 
 - `write_outcome = UNKNOWN` or `pending_write` → step **10b** / **Table A — Reconcile** first; do **not** POST/PATCH until UNKNOWN is cleared or SQA explicitly wants a **new** Requirement (11a full read-back).
@@ -111,7 +119,9 @@ When SQA signals archive/submit intent ("可以了", "存吧", "归档", "提交
 
 When Table B routes here (no bound, or SQA confirms另建 / different requirement, or retry POST after Table A no-match).
 
-**保存确认（新建 POST）** — **乙式**：AskUserQuestion 无「框上正文」字段 — **先**纯文字输出路径行，**再**弹框；**勿**把路径塞进 `question`。
+**保存确认（新建 POST）** — **仅当 `location_confirmed` 不为 true** 时执行乙式确认。§8 已确认挂载位置时 **禁止**再输出「将需求保存到…」或弹「确认保存这条需求?」框。
+
+**乙式确认**（`location_confirmed` 为 false / 未设时）— AskUserQuestion 无「框上正文」字段 — **先**纯文字输出路径行，**再**弹框；**勿**把路径塞进 `question`。
 
 框上方正文（逐字，填入 `{模块树节点全路径}`）：
 
@@ -134,23 +144,27 @@ When Table B routes here (no bound, or SQA confirms另建 / different requiremen
 将需求保存到「{模块树节点全路径}」下。 确认保存这条需求? 1. 确认保存 2. 先不保存(回序号)
 ```
 
-**落点**：
+**落点**（仅乙式路径）：
 
 - **确认保存**（或同义肯定）→ 记录 `pending_write` 后 POST（见下方）。
 - **先不保存** → 逐字回执，**不 POST**：
   > 好的,先不保存。需求草稿还在,你可以继续改;想好了说一声「保存到 CawPlan」。
 
-**重试保存确认**（Table A `no_match` 后重试 POST — 逻辑同新建，仅框上方多一句安抚）：
+**跳过乙式确认闸**（`location_confirmed = true`）— §8 选位置已肯定：
 
-框上方正文（逐字，两行）：
+- **禁止**输出「将需求保存到…」、**禁止**弹确认框、**禁止**等待第二轮肯定。
+- **直接**记录 `pending_write` 后 POST（见下方 **After confirmation**）。
 
-> 上次保存没确认成功,查过没有重复,现在重存一次。将需求保存到「{模块树节点全路径}」下。
+**重试保存**（Table A `no_match` 后重试 POST）：
 
-再接与上相同的 **AskUserQuestion** / 降级 / **先不保存** 落点。**勿**输出推断核对、存疑 soft note 或「不是另建第二条」等技术措辞。
+- `location_confirmed = true` → **仅**一行状态（逐字）：`上次保存没确认成功,查过没有重复,现在重存一次。` 然后**直接** POST；**勿**再接乙式框或路径复述。
+- `location_confirmed` 未设 → 乙式路径，框上方两行正文：
+  > 上次保存没确认成功,查过没有重复,现在重存一次。将需求保存到「{模块树节点全路径}」下。
+  再接 AskUserQuestion / 降级 / **先不保存** 落点。
 
-Wait for SQA confirmation. **Do not POST** without it.
+Wait for SQA confirmation **only on the 乙式 path**. On the skip path, **do not wait** — POST immediately after Gate/Table routing.
 
-**After confirmation** — record `pending_write` (operation `POST`, full five fields + `summary`) then call:
+**After confirmation or skip** — record `pending_write` (operation `POST`, full five fields + `summary`) then call:
 
 ```bash
 cawplan qa-insights requirements create <product_id> --body-file <path>
@@ -166,7 +180,9 @@ The command POSTs directly — it does **not** look for duplicates first. Preven
 
 When Table B routes here (bound + snapshot diff shows changes).
 
-**更新确认** — **乙式**（与 11a 相同：先路径正文，再弹框）。若更新场景无节点上下文 / 位置不变，**可省**框上方路径行。
+**更新确认** — **仅当 `location_confirmed` 不为 true** 时执行乙式确认。§8 刚完成选位置时 **禁止**再弹「确认更新这条需求?」。
+
+**乙式确认**（`location_confirmed` 为 false / 未设时）— 先路径正文，再弹框。若更新场景无节点上下文 / 位置不变，**可省**框上方路径行。
 
 框上方正文（逐字，填入 `{模块树节点全路径}`）：
 
@@ -189,15 +205,17 @@ When Table B routes here (bound + snapshot diff shows changes).
 将需求更新到「{模块树节点全路径}」下。 确认更新这条需求? 1. 确认更新 2. 先不更新(回序号)
 ```
 
-**落点**：
+**落点**（仅乙式路径）：
 
 - **确认更新**（或同义肯定）→ 记录 `pending_write` 后 PATCH（见下方）。
 - **先不更新** → 逐字回执，**不 PATCH**：
   > 好的,先不更新。需求草稿还在,你可以继续改;想好了说一声「保存到 CawPlan」。
 
-Wait for SQA confirmation. **Do not PATCH** without it.
+**跳过乙式确认闸**（`location_confirmed = true`）— 直接记录 `pending_write` 后 PATCH。
 
-**After confirmation** — record `pending_write` (operation `PATCH`, `target_requirement_id`) then call:
+Wait for SQA confirmation **only on the 乙式 path**. On the skip path, **do not wait** — PATCH immediately after Gate/Table routing.
+
+**After confirmation or skip** — record `pending_write` (operation `PATCH`, `target_requirement_id`) then call:
 
 ```bash
 cawplan qa-insights requirements update <product_id> <bound_requirement_id> \

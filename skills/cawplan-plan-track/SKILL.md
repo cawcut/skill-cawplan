@@ -1,5 +1,5 @@
 ---
-version: 0.2.6
+version: 0.2.7
 name: cawplan-plan-track
 description: |
   Track CawPlan release progress for a version: ticket completion, risk level, open items, target release dates, unresolved Critical-priority bugs, features not yet at QA Testing, what's Ready for QA/QA Testing, descope suggestions, what's blocking QA testing, assignee overload, per-QA pending counts, and tickets stale for more than N days.

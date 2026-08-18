@@ -1,5 +1,5 @@
 ---
-version: 0.2.6
+version: 0.2.7
 name: cawplan-testcase-generate
 description: |
   Expand archived test points into executable test cases: Markdown title-state preview first, expand steps on demand, export team CSV when SQA actively requests after review (read-only — does not write to CawPlan).

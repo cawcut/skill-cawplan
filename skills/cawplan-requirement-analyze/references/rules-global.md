@@ -32,7 +32,7 @@
 - **五字段尾巴**：出稿与修订重出均只用 step 5b 固定轻量尾巴；产品 / 模块树 / 保存确认仅在保存意图触发后（step 7+）出现。用户可见引导用「保存到 CawPlan」。Step 7 **C** 分支列产品供选 ≠ A2/A3 链接解析缺 `product_id` 时的「do not scan product lists」——后者禁止猜产品；本 skill 保存流程内无 Ticket 时 **必须** 拉列表让 SQA 选。
 - **跨 skill 接力（入站 / 出站）**:
   - **入站**（来自「生成测试点」或「生成用例」框，且会话已有五字段草稿）：**跳过 step 1–6**，直接从 step 7（Resolve product）/ 归档闸 step 11 继续；**不得**从头重分析（措辞漂移会破坏 reconcile / snapshot diff）。入站（`resume_intent`）本身即保存意图；**不在入站前**向 SQA 重复五字段尾巴里的保存引导。
-  - **入站挂载节点**：若接力已带 `module_tree_node_id`，按方案「已确定挂载节点直接用,不重问」— 跳过 §8 选位置闭环，直接进入 step 11（归档闸照旧）。
+  - **入站挂载节点**：若接力已带 `module_tree_node_id`，按方案「已确定挂载节点直接用,不重问」— 跳过 §8 选位置闭环，直接进入 step 11（**保留** step 11 乙式确认闸，因无 §8 确认）。
   - **入站冷启动**（无五字段草稿）：从 step 1 正常收素材。
   - **出站**：归档或更新 `outcome: SUCCESS` 后，若会话存在 `resume_intent`（`testpoint` | `testcase`），回写 `product_id` + `requirement_id`（= `bound_requirement_id`），**读取并清除** `resume_intent`，回到发起方 skill 从其 **§2 refresh** 续跑；不停在本 skill 等下一条指令。
-  - 各归档/更新**确认闸照旧**——接力不绕过确认。
+  - §8 选位置确认后（`location_confirmed`）→ step 11 **跳过**乙式保存/更新确认，直接写入；§8 被跳过的路径（接力已带节点、冷交接未重选位置）→ **保留** step 11 乙式确认闸。

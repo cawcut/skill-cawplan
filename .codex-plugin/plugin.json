@@ -1,7 +1,7 @@
 {
   "name": "cawplan",
   "displayName": "CawPlan Agent Skills",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "CawPlan CLI-backed skills for products, tickets, todos, reports, critical issues, and metrics.",
   "author": {
     "name": "Ubiquiti",
