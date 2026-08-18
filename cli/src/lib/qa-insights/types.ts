@@ -135,6 +135,22 @@ export interface QAInsightsMeta {
   product_id: string;
   requirement_id?: string;
   module_tree_node_id?: string;
+  version_id?: string;
+  ticket_id?: string;
+  ticket_ids?: string[];
+  plan_mapping_id?: string;
+  plan_mapping_ids?: string[];
+  result_id?: number;
+  case_id?: number;
+  run_id?: number;
+  test_id?: number;
+  limit?: number;
+  offset?: number;
+  milestone_strategy?: TestrailPlanMilestoneStrategy;
+  milestone_id?: number;
+  ticket_reuse_strategy?: TestrailPlanTicketReuseStrategy;
+  reused_plan_mapping_ids?: string[];
+  created_plan_mapping_ids?: string[];
   job_id?: string;
   preview_id?: string;
   dry_run: boolean;
@@ -199,4 +215,52 @@ export interface InlineCaseDraft {
   automation_result?: string | null;
   source_case_key?: string;
   content_hash?: string;
+}
+
+export type TestrailPlanRuleKey = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7";
+
+export interface TestrailPlanRuleConfig {
+  enabled: boolean;
+  description?: string;
+  [key: string]: unknown;
+}
+
+export interface TestrailPlanRulesBody {
+  rules?: Partial<Record<TestrailPlanRuleKey, TestrailPlanRuleConfig>>;
+  automation_detection?: {
+    fields?: string[];
+    rule?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export type TestrailPlanMilestoneStrategy = "AUTO" | "CREATE" | "REUSE_LATEST" | "REUSE_BY_ID";
+
+export type TestrailPlanTicketReuseStrategy = "AUTO" | "CREATE_ALL";
+
+export interface TestrailPlanPreviewInput {
+  versionId?: string;
+  ticketId?: string | null;
+  ticketIds?: string[] | string;
+  milestoneName?: string;
+  milestoneStrategy?: TestrailPlanMilestoneStrategy;
+  milestoneId?: number | string;
+  ticketReuseStrategy?: TestrailPlanTicketReuseStrategy;
+  startDate?: string;
+  endDate?: string;
+}
+
+export type TestrailDefectTicketType = "FEATURE" | "BUGFIX";
+
+export interface TestrailDefectDraftInput {
+  versionId?: string;
+  runId?: number | string;
+  caseId?: number | string;
+  testId?: number | string;
+}
+
+export interface TestrailDefectCreateTicketInput {
+  draft: Record<string, unknown>;
+  link_existing_ticket_id?: string | null;
 }

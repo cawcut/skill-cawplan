@@ -14,6 +14,13 @@ function writeProducts(data) {
   writeFileSync(productsPath, `${JSON.stringify(data, null, 2)}\n`);
 }
 
+// Environments published in the public package. "local" (http://localhost)
+// only ever resolves to something real on a maintainer's own dev machine, so
+// it stays stripped — publishing it would just be a dead/misleading option.
+// "proto" is a real remote CawPlan environment (a hosted dev backend), so it's
+// useful to real users of the published package and is kept.
+const PUBLIC_ENVS = ["prd", "proto"];
+
 function prepack() {
   if (existsSync(backupPath)) {
     throw new Error(`Refusing to overwrite existing pack backup: ${backupPath}`);
@@ -27,6 +34,12 @@ function prepack() {
     throw new Error("products.json must contain products.cawplan.env.prd");
   }
 
+  const publicEnv = {};
+  for (const envName of PUBLIC_ENVS) {
+    const envConfig = product.env?.[envName];
+    if (envConfig) publicEnv[envName] = envConfig;
+  }
+
   copyFileSync(productsPath, backupPath);
   writeProducts({
     ...data,
@@ -35,9 +48,7 @@ function prepack() {
       cawplan: {
         ...product,
         defaultEnv: "prd",
-        env: {
-          prd: prod,
-        },
+        env: publicEnv,
       },
     },
   });
