@@ -36,6 +36,14 @@
 - Query params: `page_size` (default 10), `page_num` (default 1), `search`, `type_id`, `product_line_id`, `version_id` (filter by version `unique_id`, CSV)
 - Response: list of products with `unique_id`, `name`, `description`, `product_type`, `product_line`, plus paging
 
+### Get Product Overview
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/overview`
+- Path params: `product_id` (product `unique_id`)
+- Response envelope: `code`, `data`, `msg` — success when `code == "SUCCESS"` and `data.description` is non-empty
+- Response `data` (top-level fields used by `cawplan-requirement-analyze`): `name`, `description` — ignore other `data` keys such as `product_line`, `type`, `product_types`
+- Notes: read-only product background for agent context; not a QA Insights route
+- Maps to cawplan CLI: `cawplan api GET /api/v1/public/openapi/product/{product_id}/overview`
+
 ## 2.1) Product Line APIs
 ### List Product Lines
 - Endpoint: `GET /api/v1/public/openapi/product_lines`
