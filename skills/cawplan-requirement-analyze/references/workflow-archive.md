@@ -37,11 +37,23 @@ Your part is to feed them the right inputs: the probe / `--desired` come from th
 
 **Cold handoff** (SQA provides a requirement `id`, Requirement link, or asks to continue an existing Requirement):
 
+When `product_id` + `requirement_id` are known (Requirement portal link `/product/{product_id}/qa-insights/test-suites/requirements/{requirement_id}`, or SQA gives both):
+
 ```bash
-cawplan api GET /api/v1/public/openapi/product/<product_id>/qa/requirements --query "module_tree_node_id=<node_id>"
+cawplan qa-insights requirements get <product_id> <requirement_id>
 ```
 
-Filter client-side by `id` when SQA names a specific requirement. Map the row's five fields into the current draft. Set `bound_requirement_id`, `five_field_snapshot` (five fields per Field comparison), `summary_snapshot`, and `ticket_id_snapshot` from that row. If `summary` is `null`, **generate** a display summary for the draft now (step 4); next archive **PATCH** writes `summary`. Clear any `pending_write` / UNKNOWN. Re-show five fields + display summary + open-questions list if SQA wants to edit before the next archive/update.
+On `outcome: SUCCESS`, use `data` as the row (single `QARequirement` object; no list filter).
+
+When only `module_tree_node_id` is available and you must filter by `id`:
+
+```bash
+cawplan qa-insights requirements list <product_id> --module-tree-node-id <node_id>
+```
+
+On `outcome: SUCCESS`, `data` is the requirement array — filter client-side by `id` when SQA names a specific requirement.
+
+Map the row's five fields into the current draft. Set `bound_requirement_id`, `five_field_snapshot` (five fields per Field comparison), `summary_snapshot`, and `ticket_id_snapshot` from that row. If `summary` is `null`, **generate** a display summary for the draft now (step 4); next archive **PATCH** writes `summary`. Clear any `pending_write` / UNKNOWN. Re-show five fields + display summary + open-questions list if SQA wants to edit before the next archive/update.
 
 ### 10b. Reconcile (run Table A)
 

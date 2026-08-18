@@ -5,8 +5,10 @@ import { join } from "node:path";
 import { ApiError } from "../src/lib/http";
 import {
   runModuleTreeNodeCreate,
+  runModuleTreeGet,
   runRequirementsCreate,
   runRequirementsGet,
+  runRequirementsList,
   runRequirementsUpdate,
   runRequirementsReconcile,
   runTestPointsArchive,
@@ -675,5 +677,57 @@ describe("R6–R8 testpoints list — requirement test points read", () => {
       `/api/v1/public/openapi/product/${PRODUCT}/qa/requirements/${REQUIREMENT}/testpoints`,
     );
     expect(h.calls[0].query).toBeUndefined();
+  });
+});
+
+describe("R9–R11 module-tree get — product module tree read", () => {
+  const moduleTreeData = {
+    product_id: PRODUCT,
+    nodes: [{ id: NODE, name: "Access", parent_id: null, level: 1, children: [] }],
+  };
+
+  test("R9 success returns data.nodes verbatim", async () => {
+    const h = readHarness([ok(moduleTreeData)]);
+    await runModuleTreeGet(PRODUCT, h.deps);
+    expect(h.gets()).toHaveLength(1);
+    expect(h.calls[0].path).toBe(`/api/v1/public/openapi/product/${PRODUCT}/qa/module-tree`);
+    expect(h.envelope.outcome).toBe("SUCCESS");
+    expect(h.envelope.data).toEqual(moduleTreeData);
+    expect((h.envelope.data as typeof moduleTreeData).nodes).toHaveLength(1);
+  });
+
+  test("R10 HTTP 404 maps to FAILURE / not_found", async () => {
+    const h = readHarness([new ApiError("API error 404", 404, {})]);
+    await runModuleTreeGet(PRODUCT, h.deps);
+    expect(h.envelope.outcome).toBe("FAILURE");
+    expect(h.envelope.error?.type).toBe("not_found");
+  });
+});
+
+describe("R12–R14 requirements list — module-tree node listing", () => {
+  const listData = [{ id: REQUIREMENT, ...fiveFields, module_tree_node_id: NODE, summary: "标题" }];
+
+  test("R12 success returns requirement array at envelope.data", async () => {
+    const h = readHarness([ok(listData)]);
+    await runRequirementsList(PRODUCT, { moduleTreeNodeId: NODE }, h.deps);
+    expect(h.gets()).toHaveLength(1);
+    expect(h.calls[0].path).toBe(`/api/v1/public/openapi/product/${PRODUCT}/qa/requirements`);
+    expect(h.calls[0].query).toEqual({ module_tree_node_id: NODE });
+    expect(h.envelope.outcome).toBe("SUCCESS");
+    expect(h.envelope.data).toEqual(listData);
+  });
+
+  test("R13 missing --module-tree-node-id fails validation with no request", async () => {
+    const h = readHarness([]);
+    await runRequirementsList(PRODUCT, {}, h.deps);
+    expect(h.calls).toHaveLength(0);
+    expect(h.envelope.outcome).toBe("FAILURE");
+    expect(h.envelope.error?.type).toBe("validation");
+  });
+
+  test("R14 HTTP 404 maps to FAILURE / not_found", async () => {
+    const h = readHarness([new ApiError("API error 404", 404, {})]);
+    await runRequirementsList(PRODUCT, { moduleTreeNodeId: NODE }, h.deps);
+    expect(h.envelope.error?.type).toBe("not_found");
   });
 });

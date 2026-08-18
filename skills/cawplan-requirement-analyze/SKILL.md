@@ -1,5 +1,5 @@
 ---
-version: 0.2.6
+version: 0.2.7
 name: cawplan-requirement-analyze
 description: |
   Analyze SQA requirement inputs into five structured fields plus a display summary, and archive a Requirement to CawPlan QA Insights.
@@ -139,7 +139,7 @@ Detail: `references/workflow-revise.md`.
 
 **Do not** list `马上保存` as an A1 verbal trigger — that is A2/A3 框2 option label; it routes via `resume_intent` relay, not standalone A1 speech.
 
-Until save intent is triggered: **do not** call `products list`, **do not** `GET .../module-tree`, **do not** recommend a mount node.
+Until save intent is triggered: **do not** call `products list`, **do not** `qa-insights module-tree get`, **do not** recommend a mount node.
 
 Display layer: five-field tail and guidance use 「保存到 CawPlan」; recognition layer may accept legacy phrases.
 
@@ -182,4 +182,4 @@ Before archive Confirmation: on each new user message, read `references/output-c
 
 ### Repository references
 
-- `references/CAWPLAN_OPEN_API.md` — §15 QA Insights APIs (subsections **Create Module Tree Node**, **Create Requirement**, **Update Requirement**, **List Requirements (read — cold-handoff and reconcile)**); §2 Product APIs (**Get Product Overview** for analysis-stage background; product resolution at save) and §4 Ticket APIs for ticket material.
+- `references/CAWPLAN_OPEN_API.md` — §15 QA Insights APIs (field/schema reference only — invoke via `cawplan qa-insights` CLI); §2 Product APIs (**Get Product Overview** → `cawplan products overview`; product resolution at save) and §4 Ticket APIs for ticket material.

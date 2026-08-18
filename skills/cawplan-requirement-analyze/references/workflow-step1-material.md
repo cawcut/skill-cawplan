@@ -23,10 +23,10 @@ From each ticket, use **only** `description` and `remarks` (no separate title �
   - 工单响应已带 `product_id`（step 1 ticket lookup 之后）；
   - 会话已有 `product_id`（含接力入站已带）。
 - **不取数**：纯文字/截图且无 ticket、会话无 `product_id`（产品选择仍延后到保存意图 step 7）；冷交接（step 10）；接力入站且跳过 step 1–6。
-- **命令**（分析阶段允许的 product 只读 GET；与 step 7 的 `products list` 保存流程分离）：
+- **命令**（分析阶段允许的 product 只读 overview；与 step 7 的 `products list` 保存流程分离）：
 
 ```bash
-cawplan api GET /api/v1/public/openapi/product/<product_id>/overview
+cawplan products overview <product_id>
 ```
 
 - **解析**：响应外层 `code` / `data` / `msg`（**不用** qa-insights 的 `outcome`）。**成功** = `code == "SUCCESS"` **且** `data.description` 非空；此时只认 `data.name` 与 `data.description`（均在 `data` 顶层、无嵌套），**忽略** `data` 内 `product_line` / `type` / `product_types` 等同名字段。
