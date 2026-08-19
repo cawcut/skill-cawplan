@@ -34,7 +34,7 @@
 ### List Products
 - Endpoint: `GET /api/v1/public/openapi/products`
 - Query params: `page_size` (default 10), `page_num` (default 1), `search`, `type_id`, `product_line_id`, `version_id` (filter by version `unique_id`, CSV)
-- Response: list of products with `unique_id`, `name`, `description`, `product_type`, `product_line`, plus paging
+- Response: list of products with `unique_id`, `name`, `description`, `product_type`, `product_line`, `controls` (array of enabled feature keys, e.g. `dashboard`, `version-plans`, `issues-suggestions`, `knowledge`, `test-suites`, `coding-insights` — a product only has coding session data if `coding-insights` is present), plus paging
 
 ### Get Product Overview
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/overview`

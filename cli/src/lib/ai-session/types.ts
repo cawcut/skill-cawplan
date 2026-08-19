@@ -14,6 +14,7 @@ export interface ProductListItem {
         unique_id?: string;
         id?: string;
     };
+    controls?: string[];
 }
 
 export interface AiSessionReportItem {

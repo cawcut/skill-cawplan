@@ -125,6 +125,7 @@ export async function batchCreateProductRepoMappings(opts: {
 export function toProductChoices(result: unknown): ProductChoice[] {
     return extractList<ProductListItem>(result)
         .filter((p) => p.unique_id && p.name)
+        .filter((p) => (p.controls ?? []).includes("coding-insights"))
         .map((p) => ({
             product_id: String(p.unique_id),
             product_name: String(p.name),

@@ -115,9 +115,18 @@ cawplan session user-human-inputs --user-id <user_id> --from <YYYY-MM-DD> --to <
 
 ---
 
+### Product Eligibility (coding-insights control)
+
+Every product returned by `cawplan products list` carries a `controls` array (e.g. `["dashboard", "version-plans", "issues-suggestions", "knowledge", "test-suites", "coding-insights"]`) — the features enabled for that product. Only a product with `"coding-insights"` in its `controls` has any coding session data; treat every other product as out of scope for this skill and never call `product-*` session endpoints against it:
+
+- **Resolving a single product** (`cawplan products list --search "<name>"`): check the matched product's `controls` before querying. If `coding-insights` is missing, tell the user this product hasn't enabled coding insights and stop instead of calling `product-overview`/`product-trend`/etc.
+- **Building a Team roster or rollup** (`cawplan products list --product_line_id <id>`, used by Team Submission Gap and Team Cost Rollup below): drop any product whose `controls` lacks `coding-insights` *before* unioning `members.rds` or summing cost. Don't flag that product's R&D members for "hasn't submitted" and don't include the product in cost totals — it was never going to have session data. Name which products were excluded and why, so the exclusion isn't silent.
+
+---
+
 ### Product-Scoped Views
 
-Requires product unique_id. Resolve it first:
+Requires product unique_id. Resolve it first (and confirm it has the `coding-insights` control per the rule above):
 ```bash
 cawplan products list --search "<product name>"
 ```
@@ -205,7 +214,7 @@ The roster comes straight from the team's products — no per-user reverse looku
    ```bash
    cawplan products list --product_line_id <product_line_id>
    ```
-   Union `members.rds[].user_id` (with `first_name`/`last_name` for display) across every product returned — this is the roster. If a product in the team has an empty `rds` list, say so explicitly: real coding activity could still happen there, but this workflow has no roster to check it against for that product, so a gap on it would be invisible rather than flagged.
+   First drop any product whose `controls` doesn't include `coding-insights` (see Product Eligibility above) — name what was excluded. Then union `members.rds[].user_id` (with `first_name`/`last_name` for display) across the *remaining* products — this is the roster. If a remaining product has an empty `rds` list, say so explicitly: real coding activity could still happen there, but this workflow has no roster to check it against for that product, so a gap on it would be invisible rather than flagged.
 
 3. Resolve the target date the same way as the rest of this skill (`today="$(date +%F)"`, or the exact date/range the user gave — don't pass a literal "today" string). Find who actually submitted in that window — session data only exists because someone ran the `cawplan-coding-commit` upload flow (there's no passive/automatic collection in this CLI), so a `user_id` appearing here means they submitted, not just "was active":
    ```bash
@@ -222,8 +231,8 @@ The roster comes straight from the team's products — no per-user reverse looku
 
 There's no `product_line_id` parameter on any `session` cost command — only `--product-id`. Roll it up yourself:
 
-1. Resolve the Team to `product_line_id` and its products, same as Team Submission Gap steps 1-2.
-2. For each product:
+1. Resolve the Team to `product_line_id` and its products, same as Team Submission Gap steps 1-2 — including dropping products without the `coding-insights` control before proceeding.
+2. For each remaining product:
    ```bash
    cawplan session product-overview --product-id <pid> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
    cawplan session product-by-model --product-id <pid> --from <YYYY-MM-DD> --to <YYYY-MM-DD>   # only if the user asked for a model breakdown
@@ -240,7 +249,7 @@ Uploaded reports carry `files_changed` / `files_added` / `files_deleted` per ses
 
 1. Determine scope from the request:
    - **A member** → resolve their `user_id` (same pattern as Member Views: `auth status` for yourself, `users query --email`/`--keyword` for someone else), then `cawplan session my-sessions --user-id <user_id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>`. Use this, **not** `session member-detail --member <git-username>` — verified live that `member-detail`'s per-session records carry `tokens` but no `cost` field at all, so it can't support the cost-side of this ranking; `my-sessions`'s records have both `cost` and `files_changed`.
-   - **A product** → `cawplan session product-sessions --product-id <id>` (add `--from`/`--to` for a range) — verified live that its records include both `cost` and `files_changed`.
+   - **A product** → resolve it per Product Eligibility above first (skip if `coding-insights` isn't in its `controls`), then `cawplan session product-sessions --product-id <id>` (add `--from`/`--to` for a range) — verified live that its records include both `cost` and `files_changed`.
    - **The whole workspace** → `cawplan session members` then `my-sessions --user-id <id>` per member (not `member-detail`, for the same cost-field reason as the member bullet above) — this one genuinely is O(workspace members), unlike Team Submission Gap (which reads the roster straight off `products list`, not a per-user loop). Tell the user the call count and get an explicit go-ahead before firing more than ~30 calls.
 2. Don't invent a fixed cost or diff threshold (e.g. "cost > $50") — the org's normal range is unknown to you. Instead, rank the fetched sessions by cost descending and by `files_changed` ascending, and surface whichever sessions sit disproportionately in both directions at once — with small result sets (roughly under ~10 sessions) don't force a strict quartile cutoff, since it can mechanically exclude an obvious outlier by a hair; use the ranking as a guide and flag the standout(s) with their numbers shown, noting when a flagged session narrowly misses a strict quartile cut. State that the flagging is relative to the fetched set, not an absolute cutoff, and show the actual cost/files_changed numbers so the user can judge for themselves.
 3. Don't treat a session with zero files_changed as automatically suspicious without checking — legitimate non-coding sessions (planning, research, review-only) can have real cost and no diff. Say what the session's `session_name`/project looks like alongside the numbers rather than just flagging it as an anomaly.

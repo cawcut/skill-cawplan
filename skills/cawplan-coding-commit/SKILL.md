@@ -262,6 +262,8 @@ If the assignment page fails to load or a previous run seems stuck, check for a 
 
 The page shows `session / human inputs / product / repo / tickets`, requires product, supports product-only assignment, can edit ticket display IDs, and can link a new GitHub repository URL in the format `https://github.com/owner/repo`.
 
+The product picker (and `cawplan session products`) already excludes any product whose `controls` array doesn't include `coding-insights` — such a product can't hold session data, so it's never offered as an assignment target. Don't work around this by assigning to a different product or by editing the JSON's `product_id` directly; if the product the user wants isn't listed, tell them it hasn't enabled coding insights instead of guessing a substitute.
+
 ## Rules
 
 - If no `--date` is given, defaults to today.
