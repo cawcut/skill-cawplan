@@ -1,5 +1,5 @@
 ---
-version: 0.2.6
+version: 0.2.8
 name: cawplan-testcase-generate
 description: |
   Expand archived test points into executable test cases: Markdown title-state preview first, expand steps on demand, export team CSV when SQA actively requests after review (read-only — does not write to CawPlan).
@@ -21,6 +21,7 @@ cawplan skill check
 
 - 用例 Title / Preconditions / Step / Expected 里的**具体值**（次数、阈值、错误码、提示文案）**只能来自测试点或五字段**。
 - 源里没有 → 方向占位或 **(甲) 诚实带尾巴**（如「应提示密码长度不符(具体文案以实现为准)」），**绝不落成硬值**。
+- 源里**逐字给了** → **必须原样带入** Title / Expected，**禁止**降级为抽象描述、**禁止**再挂 `(以实现为准)` 等诚实尾巴（分拣式提炼与保真区判据见 `references/testcase-writing-spec.md` Title 节）。
 - 四法只建议取哪一类值、铺哪几步；细则见 `references/test-design-methods.md`，但红线 0 不可外包给 reference。
 
 ## Workflow
@@ -36,7 +37,7 @@ On each **generate test cases** request, resolve the target in this order (**fal
 | **P3** | Requirement **draft** in session but **no** valid `requirement_id` (not saved) | → **框3「需求还没保存」** below |
 | **兜底** | No link, no valid binding, no draft | → **框1「锁定 Requirement」** below |
 
-**P2 话术（同义，须有效 binding）**：`按上面的生成用例` / `generate test cases from above` / `expand the test points above` / `接着生成用例` / `把上面的展开成用例` / `生成测试用例` / `展开用例` 等（与 SPEC hot handoff 同意图）。
+**P2 话术（同义，须有效 binding）**：`马上生成测试用例` / `按上面的生成用例` / `generate test cases from above` / `expand the test points above` / `接着生成用例` / `把上面的展开成用例` / `生成测试用例` / `展开用例` 等（与 SPEC hot handoff 同意图）。
 
 **有效 binding** = `product_id` + `requirement_id` both present. Phrasing without binding → fall through to P3 or 兜底.
 
@@ -130,6 +131,7 @@ On each **generate test cases** request, resolve the target in this order (**fal
 
 - **出站**（框1「没有 Requirement」、框3「马上保存」、§3 框2「马上生成测试点」）：接力前写入 `resume_intent = testcase`。
 - **入站回归**：需求分析归档或测试点流程完成后，按 `resume_intent` 回到本 skill **§2 refresh** 续展开。
+- **A2 §9.5 引导入站**：测试点 §9.5 成功回执后 SQA 说「马上生成测试用例」→ 有效 binding 下 P2 热交接，直跑 §2 refresh（无需再贴需求或测试点）。
 - **框2「马上生成测试点」**：读 `cawplan-testpoint-generate` skill；该流程**只生成并呈现测试点、不自动归档**；SQA 确认归档后才回 §2 refresh。若只说「看着不错」未归档，回来仍 `test_points.length === 0`、会再弹框2 — **预期行为**。
 - **框1「已有 Requirement 链接」解析成功** → 按 P1 冷交接继续，**不弹**框3。
 
@@ -211,12 +213,14 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 
 **Expansion boundary (first rule)**:
 
+- **一条用例 = 一个独立验证目标**（完整判据与 ✅❌ 对照表见 `references/testcase-writing-spec.md`「拆 / 合规则」层 1）。**先过层 2 形状分类**（A/B、EP、多对象、跨页）**,再过层 1 那一问**。
+- **生成后必答**：「这条会不会因为两个不同的验证目标分别挂？挂了我能不能一眼看出是哪个验证目标？」——会挂两次且分不清 → 拆到每条只剩一个验证目标。
 - Four methods expand **only on archived test points** — do not invent coverage.
 - Missing surface with no parent test point → **存疑 only**: "这一块没有对应的测试点,回去补一条测试点、刷新后再展开。" **No orphan cases.**
 - Every case under the **archived main path** must have non-empty `testPointId` + parent test point — in `cases[]`, preview, and export (see §8).
 - SQA **verbally adds** a new case → same rule: must attach non-empty `testPointId` + parent test point; if none → 存疑 back to **A2**, **not** into `cases[]` / preview / export.
 
-**One test point → N cases**: split when **expected response differs**; merge when same response, different data only — see `references/testcase-writing-spec.md`. Do not skip values listed in A2 titles.
+**One test point → N cases**: split when **verification goals differ** (不同失败模式 / 不同独立验证目标); merge only when **same failure mode, data-only variation** and steps can walk each value/object — see `references/testcase-writing-spec.md`「拆 / 合规则」层 1. Do not skip values listed in A2 titles. **A2 粗 = 合法(不改)**;测试点标题里带取值清单 / 并列措辞时,A3 **默认逐项展开成 N 条**,不照抄成一条(与上句同源强化)。
 
 **Three-tier output rhythm** (content axis — Markdown preview only; **no CSV on this axis**):
 
@@ -304,6 +308,18 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 - Step contains verification verbs (验证/检查/确认) → inline `⚠疑似预期混入步骤`
 - `step` line count ≠ `expected` line count → inline `⚠步骤/预期不配对`
 - Expected contains source-doubtful concrete values → inline `⚠具体值待核` (红线 0 backstop)
+- **源已有具体文案/错误码/阈值,但用例未保留（保真回归）**：
+  - **判定**：父测试点（或五字段约束）含**源逐字给定**的具体值（见 `testcase-writing-spec.md` Title 节「两步门」），而本条出现以下任一 → 报警：
+    - **标题态**（`steps` / `expected` 为空）：`title` 用抽象概括替代源里的具体句/码/数，或挂了 `(以实现为准)` / `(具体文案以实现为准)` / `(文案以实现为准)` 等诚实尾巴而源里已有逐字文案；
+    - **已展开**（本条有 `steps` / `expected`）：除标题态情形外，`expected` 各行明显用抽象或错挂尾巴替代源里与验证点相关的具体文案（源提示句很长而某步 Expected 只含与该步相关的关键片段，可能合法 → 见下「呈现」）。
+  - **分状态（勿误报）**：
+    - **标题态**：**只查 `title`**；`expected` 为空不查。
+    - **已展开** / **`fill_then_export` 静默补齐后**：查 `title` **且** 查 `expected` 各行。
+  - **豁免（不报警）**：源里**只有**方向性描述、无逐字具体值 → 标题/预期用抽象 + 诚实尾巴为**正常**（与 Walkthrough 登录/素材时长示例一致）。
+  - **呈现（硬修 vs 软提示）**：
+    - **标题态 · `title` 问题 → 硬修**：与「块首行写了 `同上`」同级，几乎无误报空间。**不得**只留 `⚠` 就交付；**当场**按源写回 `cases[].title` 原文、删掉错挂尾巴，再输出预览。
+    - **已展开 · `expected` 文案比对 → 软提示**：inline `⚠源已有文案未保留`，**不阻断、不自动覆写** `cases[]`（源句很长而某步只放关键片段等边界由 SQA 判断）。`title` 若仍抽象化/错挂尾巴 → 仍按标题态**硬修**。
+- 父测试点标题含**明显多取值信号**（如 `5s/10s/15s`、`普通/多字符`、`分别…`、`下限…上限…`），但其下**只挂 1 条用例** → inline `⚠疑似未展开取值清单`，强制回 `testcase-writing-spec.md` 层 1 那一问。**`/` 仅在像取值清单时报警**；若 `/` 明显是流程阶段名 / 页面名 / 模块名（如 `Config/Idea/Storyboard 流程走通`）→ **豁免**（一条用例、多 step 跨页，见 spec「步骤粒度」），不得强拆成多条。宁可漏报，不误扩。
 
 **SQA edits in preview** — row-prefix labels: `【已调整】` / `【新增】` / `【存疑】`; deleted rows → "已移除" subsection at preview end (trace, not silent drop). **存疑清单正文** (separate from row labels) still uses A2 format: 〔指向哪〕+〔为什么疑〕+〔建议动作〕. Say "无" if none.
 
@@ -313,8 +329,9 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 
 Run **twice**: (1) before **title-state preview**; (2) before **export** (含 `fill_then_export` 静默补齐前).
 
-1. Per `references/testcase-writing-spec.md` — would merging reduce duplicate verification goals?
-2. Every case has non-empty `testPointId` (archived path); orphans **do not enter** `cases[]`, preview, or export → 存疑 back to A2.
+1. Per `references/testcase-writing-spec.md` layer 1 — **问 A（该拆没拆）**:每条用例,两个验证目标会不会独立失败且分不清?会 → 拆。**问 B（防过拆/该合没合）**:相邻几条是否同一失败模式下只换数据、能合而未合?是 → 合(受 EP 有效类例外与多对象逐个走约束)。
+2. **保真分拣（Title 节）**：父测试点含源逐字给定的具体值时 — **标题态**：`title` 须原样保留、未抽象化、未错挂尾巴，否 → **当场修正 `cases[].title`** 后再出预览（硬修）。**已展开**：`title` 同上硬修；`expected` 明显抽象化或错挂尾巴 → 仅标 `⚠源已有文案未保留`（软提示，不自动覆写，与 §5 一致）；源句很长而某步只含关键片段可能合法，不误修。细则与豁免见 `testcase-writing-spec.md` Title 节与 §5「保真回归」。
+3. Every case has non-empty `testPointId` (archived path); orphans **do not enter** `cases[]`, preview, or export → 存疑 back to A2.
 
 ### 7. Confirm before writing files
 
@@ -468,6 +485,21 @@ Title-state preview (illustrative — even a single Group uses one block):
 |---|---------|--------|---------|
 | 1 | 错误账号或密码点击 Sign In 应失败并给出明确提示 | P1 | 错误账号或密码登录应失败并给出明确提示 |
 
+**父测试点含逐字提示文案 → 标题/预期原样保留**（illustrative — 独立示例块，**编号不与上下示例连续**）：
+
+> ⚠️ **此例仅演示「源里逐字给了提示文案 → title/expected 须原样保留」的机制。** 示例句 `Please connect a Text input.` 是 Walkthrough 道具，**不可照抄**到其他用例；真实文案只能来自各自测试点或五字段（同 `test-design-methods.md` 示例数字铁律）。
+
+Setup 补充：同 Requirement 下另有测试点 `2.1`「未连接任何 Text 输入节点时,点击 Run 应提示 Please connect a Text input.」(`异常`, group `输入校验`)。
+
+### 输入校验
+
+| # | 用例标题 | 优先级 | 父测试点 |
+|---|---------|--------|---------|
+| (示例) | 未连接任何 Text 输入节点时,点击 Run 应提示 Please connect a Text input. | P1 | 未连接任何 Text 输入节点时,点击 Run 应提示 Please connect a Text input. |
+
+- 父测试点**无引号**但英文成句 → 仍属保真区,标题**不得**改成「应提示明确的必填输入缺失提示(以实现为准)」。
+- 与上表登录例对照：登录例源无逐字文案 → 抽象 + 展开后 Expected 可带诚实尾巴；本块源有逐字文案 → 标题与展开后 Expected **均保留原句、不挂尾巴**。
+
 **多 Group 时父测试点「同上」**（块边界归零 + 块首行全称 — illustrative）：
 
 ### 素材时长基础校验
@@ -522,6 +554,10 @@ Title-state preview (illustrative — even a single Group uses one block):
 ```
 
 2. **跨页必拆**: follow `references/testcase-writing-spec.md` **「步骤粒度」**节 Config → Idea → Storyboard table example — **do not duplicate**; cite that table when explaining cross-page splits.
+
+3. **源有逐字文案（输入校验正例）**: 展开后 Expected 须保留源句,不挂尾巴 — 例:
+   `"expected": ["界面提示 Please connect a Text input."]`
+   （若步骤合为一步一预期;文案须与父测试点一致,见 Title 节保真区。）
 
 **Step C — SQA: "导出 CSV"** → 框5「导出方式」→ 按选项 `as_is` 或 `fill_then_export`（后者静默补齐）→ §8 (filter `status: 'removed'`, pairing check) → §9 export receipt。
 

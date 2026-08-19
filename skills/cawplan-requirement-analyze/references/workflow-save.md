@@ -51,7 +51,7 @@ Keep the resolved `product_id` (and product name) in context for module-tree and
 **触发时机**：
 
 - **仅当**：保存意图闸已触发（step 6）、产品已确定（step 7）、进入本步时，走下方闭环。
-- **跳过**：会话已确定 `module_tree_node_id`（如接力入站已带）→ **直接用，不重问** → 带 `module_tree_node_id` 进入 step 11。
+- **跳过**：会话已确定 `module_tree_node_id`（如接力入站已带）→ **直接用，不重问** → 带 `module_tree_node_id` 进入 step 11（**不设** `location_confirmed` — step 11 乙式确认闸仍执行）。
 - 本步仍在五字段尾巴之后；**不在** step 5b 出现模块树文案（见 step 5b **输出纪律**）。
 
 **读树**（本步及「看看有哪些节点」共用；read only，创建节点前不写库）：
@@ -73,14 +73,14 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 
 ```
 ① 选位置(框)
-     ├─「就保存到这里」→ 用推荐节点 → 挂上、继续 step 11 保存（此步只定位置、未写库）
-     ├─「看看有哪些节点」→ 树形缩进列表(文字)→ 选中一个 → 用它挂上、继续 step 11
+     ├─「就保存到这里」→ 用推荐节点 → 挂上 → 设 location_confirmed → step 11 直接写入（跳过 11 乙式确认闸）
+     ├─「看看有哪些节点」→ 树形缩进列表(文字)→ 选中一个 → 用它挂上 → 设 location_confirmed → step 11 直接写入
      └─「新建一个节点」→ 问名字+父节点(文字)→ 确认新建(框)
                                                    ├─「对,新建」→ 写库建节点 →〔回到 ①〕拿新建的那条当推荐,再确认一次
                                                    └─「不对」→ 回上一步重问名字+父节点,不写库
 ```
 
-关键：**新建只负责「把节点建出来」；建完不自动挂载**，而是回到「选位置」逻辑，以刚建的节点为推荐，再走一遍「是否要保存到这里」。
+关键：**新建只负责「把节点建出来」；建完不自动挂载**，而是回到「选位置」逻辑，以刚建的节点为推荐，再走一遍「是否要保存到这里」。**§8 的选位置确认即保存确认**——SQA 在此步肯定后，**不得**再在 step 11 重复「将需求保存到…」乙式弹框。
 
 ---
 
@@ -99,10 +99,10 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 | option 3 · `label` | 新建一个节点 |
 | option 3 · `description` | 建个新的来放 |
 
-**落点**（**此步只定位置、未写库** — 真正保存须经 step 11 确认闸）：
+**落点**（**选位置即确认保存** — Requirement 写入在 step 11 执行，但**不再**二次弹保存确认框）：
 
-- **就保存到这里** → 采用推荐节点，`module_tree_node_id` = 该节点 `id`，挂上、继续 step 11 保存。
-- **看看有哪些节点** → 展示节点树形列表（〔选②〕），SQA 选中一个 → 采用、`module_tree_node_id` 写入上下文、挂上、继续 step 11。
+- **就保存到这里** → 采用推荐节点，`module_tree_node_id` = 该节点 `id`；设 `location_confirmed = true` → 进入 step 11 Gate / Table B → **直接** POST 或 PATCH（见 `workflow-archive.md` §11 **跳过乙式确认闸**）。
+- **看看有哪些节点** → 展示节点树形列表（〔选②〕），SQA 选中一个 → 采用、`module_tree_node_id` 写入上下文；设 `location_confirmed = true` → step 11 **直接**写入。
 - **新建一个节点** → 进〔选③〕问名字+父节点。
 
 **AskUserQuestion 不可用时** — 纯文字降级（逐字，填入实际全路径）：
@@ -141,7 +141,7 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 12. 系统设置
 ```
 
-- **落点**：选中 → 采用该节点，`module_tree_node_id` 写入上下文、挂上、继续 step 11 保存（此步只定位置、未写库）。
+- **落点**：选中 → 采用该节点，`module_tree_node_id` 写入上下文；设 `location_confirmed = true` → step 11 **直接**写入。
 - SQA 说「新建一个节点」或节点不在列表中 → 进〔选③〕。
 
 ---
@@ -187,7 +187,7 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 
 - 写库建成后，**不自动挂载**。
 - 以**新建的那条节点全路径**为推荐，**再走一遍 ① 选位置**（`question` / 选项 / 降级与 ① 相同，填入 `{新建节点全路径}`）。
-- 选「就保存到这里」→ 采用、`module_tree_node_id` 写入上下文、挂上、继续 step 11 保存（此步只定位置、未写库）。SQA 建完仍能核对，甚至再改或再建。
+- 选「就保存到这里」→ 采用、`module_tree_node_id` 写入上下文；设 `location_confirmed = true` → step 11 **直接**写入。SQA 建完仍能核对，甚至再改或再建。
 
 ---
 

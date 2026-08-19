@@ -1,5 +1,5 @@
 ---
-version: 0.2.6
+version: 0.2.8
 name: cawplan-my-work
 description: |
   Show the current user's own CawPlan work: tickets and critical issues assigned to them, grouped by product line, product, and version, as a single priority-sorted open-ticket list, as a list of their own tickets that got reopened with the reason, their tickets' linked repo PRs/commits, or tickets that have a linked PR/commit but whose status hasn't moved forward — optionally narrowed to one project/version.
