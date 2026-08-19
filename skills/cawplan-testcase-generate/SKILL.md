@@ -1,5 +1,5 @@
 ---
-version: 0.2.7
+version: 0.2.8
 name: cawplan-testcase-generate
 description: |
   Expand archived test points into executable test cases: Markdown title-state preview first, expand steps on demand, export team CSV when SQA actively requests after review (read-only — does not write to CawPlan).
@@ -36,7 +36,7 @@ On each **generate test cases** request, resolve the target in this order (**fal
 | **P3** | Requirement **draft** in session but **no** valid `requirement_id` (not saved) | → **框3「需求还没保存」** below |
 | **兜底** | No link, no valid binding, no draft | → **框1「锁定 Requirement」** below |
 
-**P2 话术（同义，须有效 binding）**：`按上面的生成用例` / `generate test cases from above` / `expand the test points above` / `接着生成用例` / `把上面的展开成用例` / `生成测试用例` / `展开用例` 等（与 SPEC hot handoff 同意图）。
+**P2 话术（同义，须有效 binding）**：`马上生成测试用例` / `按上面的生成用例` / `generate test cases from above` / `expand the test points above` / `接着生成用例` / `把上面的展开成用例` / `生成测试用例` / `展开用例` 等（与 SPEC hot handoff 同意图）。
 
 **有效 binding** = `product_id` + `requirement_id` both present. Phrasing without binding → fall through to P3 or 兜底.
 
@@ -130,6 +130,7 @@ On each **generate test cases** request, resolve the target in this order (**fal
 
 - **出站**（框1「没有 Requirement」、框3「马上保存」、§3 框2「马上生成测试点」）：接力前写入 `resume_intent = testcase`。
 - **入站回归**：需求分析归档或测试点流程完成后，按 `resume_intent` 回到本 skill **§2 refresh** 续展开。
+- **A2 §9.5 引导入站**：测试点 §9.5 成功回执后 SQA 说「马上生成测试用例」→ 有效 binding 下 P2 热交接，直跑 §2 refresh（无需再贴需求或测试点）。
 - **框2「马上生成测试点」**：读 `cawplan-testpoint-generate` skill；该流程**只生成并呈现测试点、不自动归档**；SQA 确认归档后才回 §2 refresh。若只说「看着不错」未归档，回来仍 `test_points.length === 0`、会再弹框2 — **预期行为**。
 - **框1「已有 Requirement 链接」解析成功** → 按 P1 冷交接继续，**不弹**框3。
 

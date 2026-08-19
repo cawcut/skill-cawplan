@@ -1,5 +1,5 @@
 ---
-version: 0.2.7
+version: 0.2.8
 name: cawplan-ux-tracking
 description: |
   Find CawPlan tickets that need UX attention: pending UX for a version, high-priority tickets missing UX design, or a Team's whole UX-pending queue.

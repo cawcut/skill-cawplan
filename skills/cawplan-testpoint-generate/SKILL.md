@@ -1,5 +1,5 @@
 ---
-version: 0.2.7
+version: 0.2.8
 name: cawplan-testpoint-generate
 description: |
   Generate test-point coverage outlines from an archived CawPlan Requirement (five fields), with an open-questions list, and batch-archive test points after SQA confirmation.
@@ -19,6 +19,11 @@ cawplan skill check
 
 ## Workflow
 
+**归档后用例热交接（优先于 §1）** — 本条为「马上生成测试用例」（或同义，见 `cawplan-testcase-generate` P2），且会话已有有效 binding（`product_id` + `requirement_id`）？
+
+- **是** → 读 `cawplan-testcase-generate` skill，按 P2 热交接续跑（**stop** 本 skill 后续步骤）。
+- **否** → 继续下方 §1。
+
 ### 1. Resolve target Requirement (entry priority)
 
 On each **generate test points** request, resolve the target in this order (**fall through** until one row matches):
@@ -30,7 +35,7 @@ On each **generate test points** request, resolve the target in this order (**fa
 | **P3** | Session has a requirement **draft** (five-field draft from analysis) but **no** valid `requirement_id` (not saved yet) | → **框2「需求还没保存」** below. **Do not** call APIs or show a test-point table |
 | **兜底** | None of the above (no link, no valid binding, no draft) | → **框1「锁定 Requirement」** below |
 
-**P2 话术（同义，须先满足有效 binding 才走热交接）**：`生成测试点` / `补测试点` / `按上面那条` / `按上面那条生成测试点` / `接着刚才那条` 等。
+**P2 话术（同义，须先满足有效 binding 才走热交接）**：`马上生成测试点` / `生成测试点` / `补测试点` / `按上面那条` / `按上面那条生成测试点` / `接着刚才那条` 等。
 
 **有效 binding** = `product_id` and `requirement_id` both present in session. Phrasing alone without binding → **fall through** to P3 or 兜底.
 
@@ -112,6 +117,9 @@ On each **generate test points** request, resolve the target in this order (**fa
 
 - **出站**（框1「没有 Requirement」、框2「马上保存」）：接力前写入 `resume_intent = testpoint`。
 - **入站回归**：需求分析归档 `SUCCESS` 后，发起方从 **§2 refresh** 继续。
+- **A1 §6 引导入站**：需求分析 §6 成功回执后 SQA 说「马上生成测试点」→ 有效 binding 下 P2 热交接，直跑 §2 refresh（无需再贴需求）。
+- **出站回归（`resume_intent = testcase`）**：测试点归档 `SUCCESS`（或 §10 `count_matched` 确认已落库）后，若会话存在 `resume_intent = testcase`，**读取并清除** `resume_intent`，读 `cawplan-testcase-generate` skill 从其 **§2 refresh** 续跑；**不追加** §9.5 用例引导；不停在本 skill 等下一条指令。
+- **归档后用例引导**：§9.5 成功回执末尾可选追加一句（见 §9.5 末尾引导）；用户回「马上生成测试用例」→ 读 `cawplan-testcase-generate` skill（P2 热交接）；不接茬则不重复提示。
 - **框1「已有 Requirement 链接」解析成功** → 按 P1 冷交接继续，**不弹**框2。
 
 ### 2. Refresh before generate (always)
@@ -160,7 +168,7 @@ After reading `references/coverage-dimensions.md`, walk **variation axes** in **
 
 For each axis, judge三态: **覆盖** / **不适用（静默跳过）** / **拿不准（进存疑清单）**. Path types (`正向` / `异常` / `逆向` / `边界`) **label only** — not axes for cross-multiply.
 
-- **A/B 组变化轴**（`输入类型` / `状态迁移` / `角色权限` / `来源入口`）：维持原三态 — 笃定不适用 → **静默跳过**；拿不准 → 存疑清单。
+- **A/B 组变化轴**（`输入类型` / `交互反馈` / `状态迁移` / `角色权限` / `来源入口`）：维持原三态 — 笃定不适用 → **静默跳过**；拿不准 → 存疑清单。
 - **C/D 组技术轴**（`幂等` / `并发` / `一致性` / `存量兼容` / `环境兼容` / `性能` / `安全审计` / `可观测`）：**默认存疑兜底** — 仅当五字段能**正面证明**该轴不适用（对照 `coverage-dimensions.md` §二.1 形态门槛表）→ **静默跳过**；否则即便倾向判「不适用」，也须在存疑清单留一行：`〔X 轴〕判为本次不测（原因：…）/ 是否需覆盖，请确认`（仍受红线 0：方向性表述，不编造具体次数/文案/阈值/错误码，不因此生成测点）。多根 C/D 轴指向同一缺口时，按 step 5 结构型存疑合并规则并成一行。
 
 **Generate → prune → dedup → closure checks**:
@@ -439,6 +447,21 @@ Branch on `outcome`:
 
 **Forbidden in success receipt**: per-row tables; title lists; `id` lists; re-generated or summarized titles; any line about missing `url` (e.g. "未返回 url"/"无法附 Requirement 链接"); **apology or post-hoc recount explanations** (e.g. "之前误算成 13 条").
 
+**§9.5 末尾引导（可选追加）** — 满足**全部**条件时，在成功回执**最后**另起一行逐字追加（不弹框、不追问、**仅本轮一次**）：
+
+> 想继续生成测试用例？说「马上生成测试用例」，我会在当前会话直接生成。
+
+**追加条件**（须同时满足）：
+
+- 本轮测试点归档结果为 `SUCCESS`（含 §10 `count_matched` 确认已落库后下接 §9.5 式回执）
+- 会话**无** `resume_intent`（非跨 skill 入站接力后的自动出站回归）
+- 非「先不保存」回执路径
+- 非保存失败 / UNKNOWN / `pending_write` 未定态
+
+**不追加**：保存失败、结果未定、`先不保存`；出站 `resume_intent = testcase` 自动回流 `cawplan-testcase-generate`（已自动续跑，无需再引导）。SQA 未接茬、去做别的 → **顺其自然，不重复提示**。
+
+**用户接茬**：SQA 说「马上生成测试用例」→ 以会话 `product_id` + `requirement_id` 读 `cawplan-testcase-generate` skill，当前会话 P2 热交接直跑 §2 refresh，**无需**再贴需求或测试点。
+
 On failure → report `error.message` (and `api.code` / `api.msg` when present) honestly (§9.6). Do not fake success or blind-retry.
 
 ### 10. UNKNOWN write outcome (§9.4)
@@ -454,7 +477,7 @@ cawplan qa-insights testpoints reconcile <product_id> <requirement_id> \
 
 | `reconcile.decision` | Action |
 |----------------------|--------|
-| `count_matched` | The batch already landed. Tell SQA it is saved; clear UNKNOWN; merge stubs on the next refresh. **Do not archive again.** |
+| `count_matched` | The batch already landed. Tell SQA it is saved; clear UNKNOWN; merge stubs on the next refresh. **Do not archive again.** → 下接 **§9.5** 成功回执（含末尾引导，条件同 §9.5） |
 | `retry_same_batch` | Nothing landed. Read-back, then archive the **same** batch — not a regenerated one. |
 | `count_unexpected` | The count is neither unchanged nor `+batch`. Someone may have appended concurrently, or the data is inconsistent. **Stop and ask SQA to check Test Suites**; archive nothing. |
 
@@ -478,7 +501,7 @@ Refresh binding + stubs before each generate. Rebind clears all. After successfu
 
 **五字段（节选）**：workflow 项目 Duplicate；入口为项目卡片更多菜单；正常预期为生成副本、列表可见、新窗口打开；约束含仅 workflow 类型、他人分享不可复制、命名 `Copy of xxx`、125 字符上限、素材一并复制、Free plan 50 个上限等。
 
-**判轴（节选）**：`输入类型`/`角色权限`（他人分享只读）/`边界`（50 上限、125 字符）→ **覆盖**；`幂等`（Duplicate 有写入）→ **覆盖**；`一致性`（副本列表可见）→ 正向测点 1.1 已体现。**C/D 其余轴**：`并发`（50 上限计数）、`存量兼容`（改动既有 workflow 能力）、`环境兼容`（Web 客户端）等五字段未正面排除 → **进存疑**（合并一行，非静默）；`性能`/`可观测`/`安全审计` 同理，除非 §二.1 形态门槛可正面证明不适用。
+**判轴（节选）**：`输入类型`/`交互反馈`（Duplicate 有 UI 提交过程）/`角色权限`（他人分享只读）/`边界`（50 上限、125 字符）→ **覆盖**；`幂等`（Duplicate 有写入）→ **覆盖**；`一致性`（副本列表可见）→ 正向测点 1.1 已体现。**C/D 其余轴**：`并发`（50 上限计数）、`存量兼容`（改动既有 workflow 能力）、`环境兼容`（Web 客户端）等五字段未正面排除 → **进存疑**（合并一行，非静默）；`性能`/`可观测`/`安全审计` 同理，除非 §二.1 形态门槛可正面证明不适用。
 
 **批内去重示例**：已有「Free plan 达 50 个 workflow 时 Duplicate 应提示超限」→ 不再单独生成「第 51 次点击 Duplicate 仍提示超限」（同验证目标，仅状态不同）。
 
@@ -491,6 +514,7 @@ Refresh binding + stubs before each generate. Rebind clears all. After successfu
 | 1.1 | 本人拥有的 workflow 项目点击 Duplicate 后应在列表出现名为「Copy of 原项目名」的副本 | `正向` |
 | 1.2 | Free plan 账号已有 50 个 workflow 时再 Duplicate 应提示超过最大限制且无法复制 | `边界` |
 | 1.3 | 连续快速点击 Duplicate 应仅创建一份副本 | `幂等` |
+| 1.4 | Duplicate 进行中应有进行中态，且完成前入口不可重复触发 | `交互反馈` |
 
 **存疑（两条，不同缺口不合并）**：
 

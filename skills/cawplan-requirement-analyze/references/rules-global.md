@@ -34,5 +34,6 @@
   - **入站**（来自「生成测试点」或「生成用例」框，且会话已有五字段草稿）：**跳过 step 1–6**，直接从 step 7（Resolve product）/ 归档闸 step 11 继续；**不得**从头重分析（措辞漂移会破坏 reconcile / snapshot diff）。入站（`resume_intent`）本身即保存意图；**不在入站前**向 SQA 重复五字段尾巴里的保存引导。
   - **入站挂载节点**：若接力已带 `module_tree_node_id`，按方案「已确定挂载节点直接用,不重问」— 跳过 §8 选位置闭环，直接进入 step 11（**保留** step 11 乙式确认闸，因无 §8 确认）。
   - **入站冷启动**（无五字段草稿）：从 step 1 正常收素材。
-  - **出站**：归档或更新 `outcome: SUCCESS` 后，若会话存在 `resume_intent`（`testpoint` | `testcase`），回写 `product_id` + `requirement_id`（= `bound_requirement_id`），**读取并清除** `resume_intent`，回到发起方 skill 从其 **§2 refresh** 续跑；不停在本 skill 等下一条指令。
+  - **出站**：归档或更新 `outcome: SUCCESS` 后，若会话存在 `resume_intent`（`testpoint` | `testcase`），回写 `product_id` + `requirement_id`（= `bound_requirement_id`），**读取并清除** `resume_intent`，回到发起方 skill 从其 **§2 refresh** 续跑；**不追加** §6 测试点引导（已自动回流）；不停在本 skill 等下一条指令。
+  - **归档后测试点引导**：§6 成功回执末尾可选追加一句（见 `output-confirmation.md` §6 末尾引导）；用户回「马上生成测试点」→ 读 `cawplan-testpoint-generate` skill（P2 热交接）；不接茬则不重复提示。
   - §8 选位置确认后（`location_confirmed`）→ step 11 **跳过**乙式保存/更新确认，直接写入；§8 被跳过的路径（接力已带节点、冷交接未重选位置）→ **保留** step 11 乙式确认闸。

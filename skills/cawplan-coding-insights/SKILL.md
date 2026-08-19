@@ -1,5 +1,5 @@
 ---
-version: 0.2.7
+version: 0.2.8
 name: cawplan-coding-insights
 description: |
   Show AI coding usage insights: cost, tokens, session activity, and breakdowns by member, model, agent, project, product, or prompt quality. Also finds who on a Team (CawPlan product line) hasn't submitted their daily coding report, rolls up a Team's cost, flags high-cost/low-diff sessions, and flags a member's cost growth.

@@ -35,6 +35,21 @@ Requirement 链接:{api.data.url 完整可点链接}
 
 `Requirement 链接`：返回 `api.data.url` 原样；可拼 portal 基址供浏览器打开。**Never** construct `url` or pass it to `cawplan api`.
 
+**§6 末尾引导（可选追加）** — 满足**全部**条件时，在成功回执**最后**另起一行逐字追加（不弹框、不追问、**仅本轮一次**）：
+
+> 想继续生成测试点？说「马上生成测试点」，我会在当前会话直接生成。
+
+**追加条件**（须同时满足）：
+
+- 本轮归档结果为 `SUCCESS`（含 POST、PATCH、`strong_match_single` reconcile 绑定成功下接 §6）
+- 会话**无** `resume_intent`（非跨 skill 入站接力后的自动出站）
+- 非「先不保存」回执路径
+- 非保存失败 / UNKNOWN / `pending_write` 未定态
+
+**不追加**：保存失败、结果未定、`先不保存`；出站 `resume_intent` 自动回流发起方（已自动续跑，无需再引导）。SQA 未接茬、去做别的 → **顺其自然，不重复提示**。
+
+**用户接茬**：SQA 说「马上生成测试点」→ 以会话 `product_id` + `requirement_id`（= `bound_requirement_id`）读 `cawplan-testpoint-generate` skill，当前会话 P2 热交接直跑 §2 refresh，**无需**再贴需求。
+
 ### reconcile 绑定成功（`strong_match_single`）
 
 无新写入。先逐字：
