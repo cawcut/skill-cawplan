@@ -73,11 +73,17 @@ There is no team-scoped activity endpoint — `product-activity get` only takes 
 
 2. Fetch ticket changes across the whole team — this is the ticket-change data the report is built from:
    ```bash
-   cawplan tickets search --product_line_ids <product_line_id> --start_date 2000-01-01 --end_date <today> --updated_start_date YYYY-MM-DD --updated_end_date YYYY-MM-DD --page_size 100 --page_num 1
+   cawplan tickets search --product_line_ids <product_line_id> --start_date 2000-01-01 --end_date <today> --updated_start_date <window_start> --updated_end_date <today> --page_size 100 --page_num 1
    ```
-   - **Use `--updated_start_date`/`--updated_end_date` for the report window, not `--start_date`/`--end_date`** — the latter filter ticket *creation* time, not last-changed time (see `references/CAWPLAN_OPEN_API.md`), so on their own they'd miss a ticket created earlier that was actually completed/progressed inside the window — silently understating "what changed." `--start_date`/`--end_date` still has to be passed (the endpoint requires a created_at window or `--time_range`), so pin it to a maximal range (`2000-01-01` to today, the same workaround `cawplan-ux-tracking` uses) so it doesn't itself narrow results — `--updated_start_date`/`--updated_end_date` does the actual filtering. A ticket created inside the window is still caught (its `updated_at` starts equal to `created_at`), so this is a strict superset of the old created_at-only behavior, not a narrower one.
-   - For "last N days" asks, compute the exact `--updated_start_date`/`--updated_end_date` (today minus N days) client-side — `time_range` only applies to the created_at pair, not the updated_at pair.
+   - **Use `--updated_start_date`/`--updated_end_date` for the report window, not `--start_date`/`--end_date`** — the latter filter ticket *creation* time, not last-changed time (see `references/CAWPLAN_OPEN_API.md`), so on their own they'd miss a ticket created earlier that was actually completed/progressed inside the window — silently understating "what changed." `--start_date`/`--end_date` still has to be passed (the endpoint requires a created_at window or `--time_range`), so pin it to a maximal range (`2000-01-01` to today, the same workaround `cawplan-ux-tracking` uses) so it doesn't itself narrow results — `--updated_start_date`/`--updated_end_date` does the actual filtering.
+   - **Pass `--updated_end_date <today>` (real "today"), not the report window's own end date** — `updated_at` is refreshed by *any* field change, not just completion, so a ticket that completed inside the window but got an unrelated edit (version transfer, priority bump, comment) after the window would have its `updated_at` pushed past the window's end and be silently dropped if `--updated_end_date` were capped there (see the `updated_at`-is-not-"completed at" note in `references/CAWPLAN_OPEN_API.md`). Widening the end bound to today makes this a candidate set, not the final answer — step 2a below narrows it back down using the real completion time for anything currently done/canceled. A ticket created inside `[window_start, today]` is still caught (its `updated_at` starts equal to `created_at`), so this remains a strict superset of the old created_at-only behavior.
+   - For "last N days" asks, compute `--updated_start_date` (today minus N days) client-side — `time_range` only applies to the created_at pair, not the updated_at pair.
    - The response is a `CommonPageResp` (`data`, `page_num`, `page_size`, `total`) — page through while `page_num * page_size < total`, the same rule used in `cawplan-my-work`/`cawplan-ux-tracking` for this identical shape. Don't stop on a page that happens to come back full without checking `total` first.
+
+2a. **Narrow the candidate set down to the real report window** — the widened end-bound in step 2 sweeps in tickets touched after the window for reasons unrelated to this report:
+   - For any candidate whose `status_display.category` is **not** `COMPLETE`/`CANCELED` (i.e. `UNSTARTED`/`STARTED`/`TESTING`): keep it only if its own `updated_at` falls inside `[window_start, window_end]` — these tickets aren't done, so there's no separate "completion timestamp" to check; their last-modified time is the best signal available and the widened end-bound would otherwise let in edits that happened after the report window closed.
+   - For any candidate whose `status_display.category` **is** `COMPLETE`/`CANCELED`: verify the *actual* completion timestamp with `cawplan tickets history <product_id> <version_id> <ticket_id>`, per the canonical pattern in `references/CAWPLAN_OPEN_API.md` (latest `UPDATED` entry whose `changed_fields.status.new` is a terminal-category status; fall back to the `CREATED` entry if none). Keep the ticket only if that timestamp falls inside `[window_start, window_end]` — this catches both directions of the bug: a ticket that completed inside the window but was edited again afterward (would otherwise be missed), and a ticket that completed *before* the window but was merely touched inside it for an unrelated reason (would otherwise be miscounted as "completed this period").
+   - This adds one `tickets history` call per COMPLETE/CANCELED-category candidate, not per candidate overall — usually a small fraction of the result set.
 
 3. Optionally, resolve which products make up the team (for a per-product breakdown only if asked):
    ```bash
@@ -97,9 +103,9 @@ Same ticket-change approach as Workflow B, scoped to one person instead of a who
 
 2. Fetch their ticket changes in the period:
    ```bash
-   cawplan tickets search --assignees <user_id> --start_date 2000-01-01 --end_date <today> --updated_start_date YYYY-MM-DD --updated_end_date YYYY-MM-DD --page_size 100 --page_num 1
+   cawplan tickets search --assignees <user_id> --start_date 2000-01-01 --end_date <today> --updated_start_date <window_start> --updated_end_date <today> --page_size 100 --page_num 1
    ```
-   If the user also scoped to a product/version, add `--product_ids <id>` / `--version_ids <id>` (resolve the same way as Workflow A step 1). Apply the same `--updated_start_date`/`--updated_end_date`-over-`--start_date`/`--end_date` rule, date-computation, and pagination rules as Workflow B step 2 — a ticket assigned to this member long ago but only completed inside the window must not be missed just because it wasn't *created* inside it.
+   If the user also scoped to a product/version, add `--product_ids <id>` / `--version_ids <id>` (resolve the same way as Workflow A step 1). Apply the same `--updated_start_date`/`--updated_end_date`-over-`--start_date`/`--end_date` rule, widened-end-date, date-computation, and pagination rules as Workflow B step 2 — a ticket assigned to this member long ago but only completed inside the window must not be missed just because it wasn't *created* inside it. Then apply **Workflow B step 2a** (history-verified completion window) to this candidate set before reporting completion counts — the `updated_at`-is-not-"completed at" issue applies identically to a single member's tickets.
 
 ## Output
 
@@ -114,8 +120,8 @@ Same ticket-change approach as Workflow B, scoped to one person instead of a who
 **Workflow B:**
 
 - **Summary**: what changed across the team in the period (counts, not a risk verdict — this workflow has no `versions track`-style risk field; don't invent one).
-- **Completion**: ticket counts by status (done vs in-progress vs not-started), by type, by priority.
-- **Notable items**: any CRITICAL/HIGH priority tickets touched in the period, and any ticket moved to a terminal status (done/canceled).
+- **Completion**: ticket counts by status (done vs in-progress vs not-started), by type, by priority — the done/canceled counts are the history-verified set from step 2a, not a raw `updated_at`/current-status count.
+- **Notable items**: any CRITICAL/HIGH priority tickets touched in the period, and any ticket moved to a terminal status (done/canceled) per step 2a's verified completion timestamp.
 - **Per-product breakdown**: only if step 3 ran and the user asked for it.
 
 **Workflow C:** same shape as Workflow B (Summary + Completion + Notable items), scoped to the one person's tickets — no per-product breakdown section.

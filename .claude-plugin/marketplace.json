@@ -75,6 +75,26 @@
           "name": "testcase-generate",
           "path": "skills/cawplan-testcase-generate",
           "invoke": "/cawplan-testcase-generate"
+        },
+        {
+          "name": "defect-ticket",
+          "path": "skills/cawplan-defect-ticket",
+          "invoke": "/cawplan-defect-ticket"
+        },
+        {
+          "name": "test-execution-progress",
+          "path": "skills/cawplan-test-execution-progress",
+          "invoke": "/cawplan-test-execution-progress"
+        },
+        {
+          "name": "testcase-import",
+          "path": "skills/cawplan-testcase-import",
+          "invoke": "/cawplan-testcase-import"
+        },
+        {
+          "name": "testplan-layout",
+          "path": "skills/cawplan-testplan-layout",
+          "invoke": "/cawplan-testplan-layout"
         }
       ]
     }
