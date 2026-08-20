@@ -36,6 +36,11 @@ import {
   buildTestrailExecutionSummaryQuery,
   buildTestrailResolveUrlBody,
 } from "../lib/qa-insights/testrail-execution.js";
+import { buildTestrailMilestoneValidateQuery } from "../lib/qa-insights/testrail-milestone.js";
+import {
+  buildTestrailSuiteCreateBody,
+  buildTestrailSuiteSectionsQuery,
+} from "../lib/qa-insights/testrail-sections.js";
 import type {
   ImportSourceType,
   QAInsightsMeta,
@@ -857,6 +862,79 @@ export async function runTestrailMappingsGet(
   );
 }
 
+export interface TestrailSectionsListOptions {
+  refresh?: boolean;
+}
+
+export async function runTestrailSectionsList(
+  productId: string,
+  suiteId: number,
+  opts: TestrailSectionsListOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail sections list";
+  const meta: QAInsightsMeta = { product_id: productId, suite_id: suiteId, dry_run: false };
+  const emit = emitter(deps);
+
+  const query = buildTestrailSuiteSectionsQuery(opts);
+  if (query.refresh) meta.refresh = true;
+
+  const read = await performRead({
+    request: requester(deps),
+    path: testrailApiPath(productId, `/suites/${suiteId}/sections`),
+    query,
+    command,
+    meta,
+  });
+  if (read.envelope) return emit(read.envelope);
+
+  return emit(
+    buildEnvelope({
+      outcome: "SUCCESS",
+      command,
+      meta,
+      api: { code: "SUCCESS", msg: "success", data: read.data },
+    }),
+  );
+}
+
+export interface TestrailSuiteCreateOptions {
+  name?: string;
+  description?: string;
+  dryRun?: boolean;
+}
+
+export async function runTestrailSuiteCreate(
+  productId: string,
+  opts: TestrailSuiteCreateOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail suite-create";
+  const meta: QAInsightsMeta = { product_id: productId, dry_run: Boolean(opts.dryRun) };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    body = buildTestrailSuiteCreateBody(opts);
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/suites"),
+    body,
+    command,
+    meta,
+    isWrite: true,
+  });
+  return emit(envelope);
+}
+
 export async function runTestrailPlanRulesGet(
   productId: string,
   deps?: CommandDeps,
@@ -933,6 +1011,7 @@ export interface TestrailImportPreviewOptions {
   versionName?: string;
   sectionStrategy?: SectionStrategy;
   fixedSectionId?: number;
+  parentSectionId?: number;
   dryRun?: boolean;
 }
 
@@ -957,6 +1036,7 @@ export async function runTestrailImportPreview(
         versionName: opts.versionName,
         sectionStrategy: opts.sectionStrategy,
         fixedSectionId: opts.fixedSectionId,
+        parentSectionId: opts.parentSectionId,
       });
     } else {
       if (!opts.sourceType) {
@@ -976,6 +1056,7 @@ export async function runTestrailImportPreview(
         versionName: opts.versionName,
         sectionStrategy: opts.sectionStrategy,
         fixedSectionId: opts.fixedSectionId,
+        parentSectionId: opts.parentSectionId,
       });
     }
   } catch (err) {
@@ -1203,6 +1284,100 @@ export async function runTestrailPlanExecute(
   if (reusedIds?.length) meta.reused_plan_mapping_ids = reusedIds;
   if (createdIds?.length) meta.created_plan_mapping_ids = createdIds;
   return emit(envelope);
+}
+
+// ---------------------------------------------------------------------------
+// TestRail integration (T2) — A2 Milestone binding probe
+// ---------------------------------------------------------------------------
+
+export async function runTestrailMilestoneMappingGet(
+  productId: string,
+  versionId: string,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail milestone mapping-get";
+  const meta: QAInsightsMeta = { product_id: productId, version_id: versionId, dry_run: false };
+  const emit = emitter(deps);
+
+  const read = await performRead({
+    request: requester(deps),
+    path: versionTestrailApiPath(productId, versionId, "/milestone-mapping"),
+    command,
+    meta,
+  });
+  if (read.envelope) return emit(read.envelope);
+
+  const data = read.data as {
+    has_mapping?: boolean;
+    mapping?: { milestone_id?: number };
+  } | undefined;
+  if (typeof data?.has_mapping === "boolean") meta.has_mapping = data.has_mapping;
+  if (data?.mapping?.milestone_id !== undefined) meta.milestone_id = data.mapping.milestone_id;
+
+  return emit(
+    buildEnvelope({
+      outcome: "SUCCESS",
+      command,
+      meta,
+      api: { code: "SUCCESS", msg: "success", data: read.data },
+    }),
+  );
+}
+
+export interface TestrailMilestoneValidateOptions {
+  versionId?: string;
+}
+
+export async function runTestrailMilestoneValidate(
+  productId: string,
+  milestoneId: number,
+  opts: TestrailMilestoneValidateOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail milestone validate";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    milestone_id: milestoneId,
+    dry_run: false,
+  };
+  const emit = emitter(deps);
+
+  let query: Record<string, string>;
+  try {
+    query = buildTestrailMilestoneValidateQuery(opts);
+    meta.version_id = query.version_id;
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  const read = await performRead({
+    request: requester(deps),
+    path: testrailApiPath(productId, `/milestones/${milestoneId}/validate`),
+    query,
+    command,
+    meta,
+  });
+  if (read.envelope) return emit(read.envelope);
+
+  const data = read.data as {
+    valid?: boolean;
+    cross_product_conflict?: boolean;
+    milestone_id?: number;
+  } | undefined;
+  if (typeof data?.valid === "boolean") meta.valid = data.valid;
+  if (typeof data?.cross_product_conflict === "boolean") {
+    meta.cross_product_conflict = data.cross_product_conflict;
+  }
+  if (data?.milestone_id !== undefined) meta.milestone_id = data.milestone_id;
+
+  return emit(
+    buildEnvelope({
+      outcome: "SUCCESS",
+      command,
+      meta,
+      api: { code: "SUCCESS", msg: "success", data: read.data },
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1739,6 +1914,27 @@ export function registerQAInsightsCommand(program: Command): void {
     .description("Get Product TestRail mappings (suite, sections, templates)")
     .action((productId: string) => runTestrailMappingsGet(productId));
 
+  const testrailSections = testrail
+    .command("sections")
+    .description("TestRail Section lookup (A1 import pre-flight)");
+  testrailSections
+    .command("list <product_id> <suite_id>")
+    .description(
+      "List all existing Sections in a Suite (id/name/parent), to resolve --parent-section-id for import preview",
+    )
+    .option("--refresh", "Bypass cache and refresh from TestRail")
+    .action((productId: string, suiteId: string, opts) =>
+      runTestrailSectionsList(productId, Number(suiteId), opts),
+    );
+
+  testrail
+    .command("suite-create <product_id>")
+    .description("Create a new TestRail Suite (proxies add_suite; use the returned suite_id in import preview)")
+    .option("--name <name>", "Suite name")
+    .option("--description <text>", "Suite description")
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, opts) => runTestrailSuiteCreate(productId, opts));
+
   const testrailPlanRules = testrail
     .command("plan-rules")
     .description("TestRail plan layout rule configuration (A2)");
@@ -1780,6 +1976,23 @@ export function registerQAInsightsCommand(program: Command): void {
     .option("--dry-run", "Print request body without calling API")
     .action((productId: string, opts) => runTestrailPlanExecute(productId, opts));
 
+  const testrailMilestone = testrail
+    .command("milestone")
+    .description("TestRail Milestone binding probe (A2 pre-layout)");
+  testrailMilestone
+    .command("mapping-get <product_id> <version_id>")
+    .description("Get the current latest Milestone binding for a Version (zero query)")
+    .action((productId: string, versionId: string) =>
+      runTestrailMilestoneMappingGet(productId, versionId),
+    );
+  testrailMilestone
+    .command("validate <product_id> <milestone_id>")
+    .description("Validate a TestRail Milestone ID before REUSE_BY_ID plan preview")
+    .requiredOption("--version-id <id>", "Target Version unique_id to bind")
+    .action((productId: string, milestoneId: string, opts) =>
+      runTestrailMilestoneValidate(productId, Number(milestoneId), opts),
+    );
+
   const testrailImport = testrail.command("import").description("TestRail case import (A1)");
   testrailImport
     .command("preview <product_id>")
@@ -1796,6 +2009,11 @@ export function registerQAInsightsCommand(program: Command): void {
       "AUTO_BY_GROUP | MAP_BY_MODULE | FIXED_SECTION",
     )
     .option("--fixed-section-id <n>", "Required for FIXED_SECTION", (v: string) => Number(v))
+    .option(
+      "--parent-section-id <n>",
+      "AUTO_BY_GROUP only — nest the Requirement top-level section under this existing Section id (see `testrail sections list`)",
+      (v: string) => Number(v),
+    )
     .option("--dry-run", "Print request body without calling API")
     .action((productId: string, opts) => runTestrailImportPreview(productId, opts));
 

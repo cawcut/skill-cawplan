@@ -38,6 +38,20 @@ describe("buildTestrailImportPreviewBody", () => {
   test("INLINE requires cases", () => {
     expect(() => buildTestrailImportPreviewBody({ sourceType: "INLINE" })).toThrow(/cases/);
   });
+
+  test("parentSectionId nests the AUTO_BY_GROUP top section under an existing Section", () => {
+    const body = buildTestrailImportPreviewBody({
+      sourceType: "REQUIREMENT",
+      requirementId: "req-1",
+      suiteId: 335210,
+      parentSectionId: 4377824,
+    });
+    expect(body).toEqual({
+      source: { type: "REQUIREMENT", requirement_id: "req-1" },
+      suite_id: 335210,
+      parent_section_id: 4377824,
+    });
+  });
 });
 
 describe("buildTestrailImportExecuteBody", () => {
@@ -65,6 +79,20 @@ describe("mergeTestrailImportPreviewBody", () => {
     );
     expect(body.suite_id).toBe(101);
     expect(body.cases).toHaveLength(1);
+  });
+
+  test("merges parent_section_id from body file and lets flags override", () => {
+    const fromFile = mergeTestrailImportPreviewBody(
+      { source: { type: "REQUIREMENT", requirement_id: "req-1" }, parent_section_id: 4377824 },
+      {},
+    );
+    expect(fromFile.parent_section_id).toBe(4377824);
+
+    const overridden = mergeTestrailImportPreviewBody(
+      { source: { type: "REQUIREMENT", requirement_id: "req-1" }, parent_section_id: 4377824 },
+      { parentSectionId: 5001 },
+    );
+    expect(overridden.parent_section_id).toBe(5001);
   });
 
   test("normalizes legacy camelCase INLINE fields to snake_case", () => {

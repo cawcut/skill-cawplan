@@ -144,10 +144,16 @@ export interface QAInsightsMeta {
   case_id?: number;
   run_id?: number;
   test_id?: number;
+  suite_id?: number;
+  parent_section_id?: number;
+  refresh?: boolean;
   limit?: number;
   offset?: number;
   milestone_strategy?: TestrailPlanMilestoneStrategy;
   milestone_id?: number;
+  has_mapping?: boolean;
+  valid?: boolean;
+  cross_product_conflict?: boolean;
   ticket_reuse_strategy?: TestrailPlanTicketReuseStrategy;
   reused_plan_mapping_ids?: string[];
   created_plan_mapping_ids?: string[];
