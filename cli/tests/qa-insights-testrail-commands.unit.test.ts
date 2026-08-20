@@ -12,11 +12,15 @@ import {
   runTestrailImportPreview,
   runTestrailJobGet,
   runTestrailMappingsGet,
+  runTestrailMilestoneMappingGet,
+  runTestrailMilestoneValidate,
   runTestrailPlanExecute,
   runTestrailPlanPreview,
   runTestrailPlanRulesGet,
   runTestrailPlanRulesSet,
   runTestrailResolveUrl,
+  runTestrailSectionsList,
+  runTestrailSuiteCreate,
 } from "../src/commands/qa-insights";
 import type { QAInsightsWriteEnvelope } from "../src/lib/qa-insights/types";
 
@@ -76,6 +80,128 @@ describe("A1 TestRail mappings get", () => {
     expect(h.calls[0].path).toBe(`/api/v1/product/${PRODUCT}/qa/testrail/mappings`);
     expect(h.envelope.command).toBe("qa-insights testrail mappings get");
     expect(h.envelope.outcome).toBe("SUCCESS");
+  });
+});
+
+describe("A1 TestRail sections list (import pre-flight)", () => {
+  test("GET /qa/testrail/suites/{suite_id}/sections", async () => {
+    const h = harness([
+      ok({
+        suite_id: 335210,
+        sections: [
+          { section_id: 4377824, name: "登录模块", parent_id: null, parent_name: null, depth: 0 },
+          {
+            section_id: 4377900,
+            name: "OIDC/登录行为",
+            parent_id: 4377824,
+            parent_name: "登录模块",
+            depth: 1,
+          },
+        ],
+        cached_at: "2026-08-19T08:00:00Z",
+      }),
+    ]);
+
+    await runTestrailSectionsList(PRODUCT, 335210, {}, h.deps);
+
+    expect(h.calls[0]).toMatchObject({
+      method: "GET",
+      path: `/api/v1/product/${PRODUCT}/qa/testrail/suites/335210/sections`,
+      query: {},
+    });
+    expect(h.envelope.command).toBe("qa-insights testrail sections list");
+    expect(h.envelope.outcome).toBe("SUCCESS");
+    expect((h.envelope.api?.data as { sections: unknown[] }).sections).toHaveLength(2);
+  });
+
+  test("--refresh bypasses cache", async () => {
+    const h = harness([ok({ suite_id: 335210, sections: [] })]);
+    await runTestrailSectionsList(PRODUCT, 335210, { refresh: true }, h.deps);
+    expect(h.calls[0]).toMatchObject({ query: { refresh: "true" } });
+    expect(h.envelope.meta.refresh).toBe(true);
+  });
+
+  test("SECTION_NOT_IN_SUITE maps to failure", async () => {
+    const h = harness([
+      { code: "SECTION_NOT_IN_SUITE", msg: "suite not in project", data: null },
+    ]);
+    await runTestrailSectionsList(PRODUCT, 999999, {}, h.deps);
+    expect(h.envelope.outcome).toBe("FAILURE");
+  });
+});
+
+describe("A1 TestRail suite-create", () => {
+  test("POST /qa/testrail/suites", async () => {
+    const h = harness([
+      ok({
+        suite_id: 103,
+        name: "VN - Hotfix",
+        description: "",
+        url: "https://xxx.testrail.io/index.php?/suites/view/103",
+        duplicate_warning: null,
+      }),
+    ]);
+
+    await runTestrailSuiteCreate(PRODUCT, { name: "VN - Hotfix" }, h.deps);
+
+    expect(h.calls[0]).toMatchObject({
+      method: "POST",
+      path: `/api/v1/product/${PRODUCT}/qa/testrail/suites`,
+      body: { name: "VN - Hotfix" },
+    });
+    expect(h.envelope.command).toBe("qa-insights testrail suite-create");
+    expect(h.envelope.outcome).toBe("SUCCESS");
+    expect((h.envelope.api?.data as { suite_id: number }).suite_id).toBe(103);
+  });
+
+  test("passes through duplicate_warning without blocking", async () => {
+    const h = harness([
+      ok({
+        suite_id: 103,
+        name: "VN - Hotfix",
+        url: "https://xxx.testrail.io/index.php?/suites/view/103",
+        duplicate_warning: { existing_suite_id: 101, existing_suite_name: "VN - Hotfix" },
+      }),
+    ]);
+
+    await runTestrailSuiteCreate(PRODUCT, { name: "VN - Hotfix" }, h.deps);
+
+    expect(h.envelope.outcome).toBe("SUCCESS");
+    expect(
+      (h.envelope.api?.data as { duplicate_warning: { existing_suite_id: number } })
+        .duplicate_warning.existing_suite_id,
+    ).toBe(101);
+  });
+
+  test("missing --name fails validation without calling the API", async () => {
+    const h = harness([]);
+    await runTestrailSuiteCreate(PRODUCT, {}, h.deps);
+    expect(h.calls).toHaveLength(0);
+    expect(h.envelope.outcome).toBe("FAILURE");
+    expect(h.envelope.error?.type).toBe("validation");
+  });
+
+  test("dry-run sends no suite-create request", async () => {
+    const h = harness([]);
+    await runTestrailSuiteCreate(PRODUCT, { name: "VN - Hotfix", dryRun: true }, h.deps);
+    expect(h.calls).toHaveLength(0);
+    expect(h.envelope.post_body).toEqual({ name: "VN - Hotfix" });
+  });
+
+  test("SUITE_CREATE_RATE_LIMITED maps to failure", async () => {
+    const h = harness([
+      { code: "SUITE_CREATE_RATE_LIMITED", msg: "rate limited", data: null },
+    ]);
+    await runTestrailSuiteCreate(PRODUCT, { name: "VN - Hotfix" }, h.deps);
+    expect(h.envelope.outcome).toBe("FAILURE");
+  });
+
+  test("SUITE_MODE_NOT_SUPPORTED maps to failure", async () => {
+    const h = harness([
+      { code: "SUITE_MODE_NOT_SUPPORTED", msg: "not multiple suites mode", data: null },
+    ]);
+    await runTestrailSuiteCreate(PRODUCT, { name: "VN - Hotfix" }, h.deps);
+    expect(h.envelope.outcome).toBe("FAILURE");
   });
 });
 
@@ -307,6 +433,48 @@ describe("A1 TestRail import preview", () => {
     });
   });
 
+  test("--parent-section-id nests the Requirement top section under an existing Section", async () => {
+    const h = harness([
+      ok({ preview_id: PREVIEW, summary: { total: 2, to_create: 2, to_skip: 0, to_fail: 0 } }),
+    ]);
+    await runTestrailImportPreview(
+      PRODUCT,
+      {
+        sourceType: "REQUIREMENT",
+        requirementId: REQUIREMENT,
+        suiteId: 335210,
+        parentSectionId: 4377824,
+      },
+      h.deps,
+    );
+    expect(h.calls[0].body).toEqual({
+      source: { type: "REQUIREMENT", requirement_id: REQUIREMENT },
+      suite_id: 335210,
+      parent_section_id: 4377824,
+    });
+  });
+
+  test("non-AUTO_BY_GROUP strategies still forward parent_section_id (BE ignores + warns)", async () => {
+    const h = harness([ok({ preview_id: PREVIEW })]);
+    await runTestrailImportPreview(
+      PRODUCT,
+      {
+        sourceType: "REQUIREMENT",
+        requirementId: REQUIREMENT,
+        suiteId: 335210,
+        sectionStrategy: "FIXED_SECTION",
+        fixedSectionId: 5001,
+        parentSectionId: 4377824,
+      },
+      h.deps,
+    );
+    expect(h.calls[0].body).toMatchObject({
+      section_strategy: "FIXED_SECTION",
+      fixed_section_id: 5001,
+      parent_section_id: 4377824,
+    });
+  });
+
   test("reads --body-file for INLINE", async () => {
     const file = await tempJson("preview.json", {
       source: { type: "INLINE" },
@@ -346,6 +514,105 @@ describe("A1 TestRail import execute", () => {
     await runTestrailImportExecute(PRODUCT, { previewId: PREVIEW, confirm: true }, h.deps);
     expect(h.calls[0].body).toEqual({ preview_id: PREVIEW, confirm: true });
     expect(h.envelope.meta.job_id).toBe(JOB);
+  });
+});
+
+describe("A2 TestRail milestone binding probe", () => {
+  test("mapping-get reads version milestone binding", async () => {
+    const h = harness([
+      ok({
+        version_id: VERSION,
+        version_name: "2.18.0",
+        has_mapping: true,
+        mapping: {
+          milestone_mapping_id: "ms_map_01",
+          milestone_id: 88,
+          name: "UniFi Network 2.18.0",
+          url: "https://example.testrail.io/index.php?/milestones/view/88",
+          is_latest: true,
+          created_at: "2026-08-04T08:00:00Z",
+        },
+      }),
+    ]);
+
+    await runTestrailMilestoneMappingGet(PRODUCT, VERSION, h.deps);
+
+    expect(h.calls[0]).toMatchObject({
+      method: "GET",
+      path: `/api/v1/product/${PRODUCT}/versions/${VERSION}/qa/testrail/milestone-mapping`,
+    });
+    expect(h.envelope.command).toBe("qa-insights testrail milestone mapping-get");
+    expect(h.envelope.meta.has_mapping).toBe(true);
+    expect(h.envelope.meta.milestone_id).toBe(88);
+    expect((h.envelope.api?.data as { has_mapping?: boolean }).has_mapping).toBe(true);
+  });
+
+  test("mapping-get reports unbound version", async () => {
+    const h = harness([
+      ok({
+        version_id: VERSION,
+        version_name: "2.18.0",
+        has_mapping: false,
+        mapping: null,
+      }),
+    ]);
+
+    await runTestrailMilestoneMappingGet(PRODUCT, VERSION, h.deps);
+
+    expect(h.envelope.meta.has_mapping).toBe(false);
+    expect(h.envelope.meta.milestone_id).toBeUndefined();
+  });
+
+  test("validate posts milestone id with version query", async () => {
+    const h = harness([
+      ok({
+        milestone_id: 88,
+        valid: true,
+        name: "UniFi Network 2.18.0",
+        in_project: true,
+        already_mapped_to_current_version: false,
+        cross_product_conflict: false,
+        conflict: null,
+      }),
+    ]);
+
+    await runTestrailMilestoneValidate(PRODUCT, 88, { versionId: VERSION }, h.deps);
+
+    expect(h.calls[0]).toMatchObject({
+      method: "GET",
+      path: `/api/v1/product/${PRODUCT}/qa/testrail/milestones/88/validate`,
+      query: { version_id: VERSION },
+    });
+    expect(h.envelope.command).toBe("qa-insights testrail milestone validate");
+    expect(h.envelope.meta.version_id).toBe(VERSION);
+    expect(h.envelope.meta.milestone_id).toBe(88);
+    expect(h.envelope.meta.valid).toBe(true);
+    expect(h.envelope.meta.cross_product_conflict).toBe(false);
+  });
+
+  test("validate requires version id", async () => {
+    const h = harness([]);
+    await runTestrailMilestoneValidate(PRODUCT, 88, {}, h.deps);
+
+    expect(h.calls).toHaveLength(0);
+    expect(h.envelope.outcome).toBe("FAILURE");
+    expect(h.envelope.error?.type).toBe("validation");
+  });
+
+  test("validate surfaces cross product conflict in meta", async () => {
+    const h = harness([
+      ok({
+        milestone_id: 88,
+        valid: false,
+        cross_product_conflict: true,
+        conflict: { code: "MILESTONE_CROSS_PRODUCT_CONFLICT" },
+      }),
+    ]);
+
+    await runTestrailMilestoneValidate(PRODUCT, 88, { versionId: VERSION }, h.deps);
+
+    expect(h.envelope.meta.valid).toBe(false);
+    expect(h.envelope.meta.cross_product_conflict).toBe(true);
   });
 });
 
