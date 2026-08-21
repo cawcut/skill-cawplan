@@ -77,6 +77,11 @@
           "invoke": "/cawplan-testcase-generate"
         },
         {
+          "name": "qa-commit",
+          "path": "skills/cawplan-qa-commit",
+          "invoke": "/cawplan-qa-commit"
+        },
+        {
           "name": "defect-ticket",
           "path": "skills/cawplan-defect-ticket",
           "invoke": "/cawplan-defect-ticket"

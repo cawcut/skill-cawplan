@@ -4,7 +4,10 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {buildQueryFromFlags, csvToArray} from "../lib/cache.js";
 import {cawplanRequest} from "../lib/http.js";
-import {collect} from "../lib/collect/index.js";
+import {collect, collectQaResult} from "../lib/collect/index.js";
+import {uploadQaDailyReport} from "../lib/qa-session/reports-api.js";
+import {readQaDailyReport} from "../lib/qa-assign/qa-report-io.js";
+import {startQaAssignmentWebServer} from "../lib/qa-assign/qa-web-server.js";
 import type {DailyApiJson} from "../lib/collect/types.js";
 import {
     addReportQueryOptions,
@@ -32,6 +35,7 @@ import {listCawplanProducts} from "../lib/product-catalog.js";
 import {registerAiSessionInsightsCommands} from "./session-insights.js";
 
 const REPORT_TEMP_DIR_NAME = "cawplan-ai-daily";
+const QA_REPORT_TEMP_DIR_NAME = "cawplan-qa-daily";
 
 // resolveReportTempDir returns the shared, workflow-scoped temp directory
 // used to stage ai-daily-<date>.json report files across collect/assign/
@@ -40,6 +44,14 @@ const REPORT_TEMP_DIR_NAME = "cawplan-ai-daily";
 // own platform-specific directory-creation logic.
 export function resolveReportTempDir(): string {
     const dir = join(tmpdir(), REPORT_TEMP_DIR_NAME);
+    mkdirSync(dir, {recursive: true});
+    return dir;
+}
+
+// resolveQaReportTempDir mirrors resolveReportTempDir but for QA daily
+// reports, kept in a physically separate directory from coding ai-daily-<date>.json outputs.
+export function resolveQaReportTempDir(): string {
+    const dir = join(tmpdir(), QA_REPORT_TEMP_DIR_NAME);
     mkdirSync(dir, {recursive: true});
     return dir;
 }
@@ -70,9 +82,21 @@ function registerSessionSubcommands(session: Command): void {
         )
         .option("--output <path>", "Output file path (default: <tmp>/cawplan-ai-daily/ai-daily-<date>.json)")
         .option("--verbose", "Print detailed collection progress and per-step timings")
+        .option("--mode <coding|qa>", "Collection mode: coding (default) or qa", "coding")
+        .option("--upload", "For --mode qa: upload the collected QA report immediately")
+        .option("--assign", "For --mode qa: open the QA assignment confirmation page after collection")
         .action(async (opts) => {
             const date = opts.date ?? new Date().toISOString().slice(0, 10);
-            const outputPath: string = opts.output ?? join(resolveReportTempDir(), `ai-daily-${date}.json`);
+            const collectMode: "coding" | "qa" = opts.mode === "qa" ? "qa" : "coding";
+            if (opts.assign && collectMode !== "qa") {
+                console.error("Error: --assign requires --mode qa");
+                process.exit(1);
+            }
+            const outputPath: string =
+                opts.output ??
+                (collectMode === "qa"
+                    ? join(resolveQaReportTempDir(), `qa-daily-${date}.json`)
+                    : join(resolveReportTempDir(), `ai-daily-${date}.json`));
             const agents =
                 opts.agent && opts.agent.length > 0
                     ? (opts.agent as AiSessionAgent[])
@@ -86,7 +110,35 @@ function registerSessionSubcommands(session: Command): void {
 
             console.error(`Collecting session data for ${date}...`);
             try {
-                const daily = await collect({date, agents, verbose});
+                if (collectMode === "qa") {
+                    const {daily: qaDaily, excludedSessions} = await collectQaResult({
+                        date,
+                        agents,
+                        verbose,
+                        outputPath,
+                    });
+                    console.error(
+                        `Collected ${qaDaily.totals.sessions} QA session(s) from agents: ${
+                            qaDaily.totals.agents.join(", ") || "none"
+                        }`
+                    );
+                    console.error(`Output written to ${outputPath}`);
+                    if (opts.upload) {
+                        const result = await uploadQaDailyReport(qaDaily);
+                        console.log(JSON.stringify(result, null, 2));
+                    }
+                    if (opts.assign) {
+                        await startQaAssignmentWebServer({
+                            file: outputPath,
+                            daily: qaDaily,
+                            excludedSessions,
+                        });
+                    }
+                    console.error(`Collection completed in ${formatElapsedMs(Date.now() - startedAt)}.`);
+                    return;
+                }
+
+                const daily = await collect({date, agents, verbose, collectMode});
                 console.error(
                     `Collected ${
                         (daily.totals as {sessions?: number})?.sessions ?? 0
@@ -335,6 +387,20 @@ function registerSessionSubcommands(session: Command): void {
 
             const result = await uploadDailyReport(payload);
             console.log(JSON.stringify(result, null, 2));
+        });
+
+    session.command("qa-upload")
+        .description("Upload a QA daily session report. Provide --file")
+        .requiredOption("--file <path>", "Path to qa-daily JSON; must contain schema qa-session.1, author, and date")
+        .action(async (opts) => {
+            try {
+                const payload = readQaDailyReport(String(opts.file));
+                const result = await uploadQaDailyReport(payload);
+                console.log(JSON.stringify(result, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
         });
 
     session.command("backfill")

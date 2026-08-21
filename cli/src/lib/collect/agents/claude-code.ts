@@ -33,6 +33,13 @@ import {countLines, extractPathFromInput, appendFileDelta, mergeFileDeltas, type
 
 interface ClaudeCollectOptions {
   log?: (message: string) => void;
+  /**
+   * Discard human-input turns longer than this many characters. Defaults to
+   * 1500 (the coding-collect behavior). Callers that need to keep long turns
+   * (e.g. QA collection, which cares about the full requirement/testcase
+   * text a QA engineer typed) can pass Infinity.
+   */
+  maxTurnLength?: number;
 }
 
 function formatDuration(ms: number): string {
@@ -565,7 +572,7 @@ export function collectClaudeCodeSession(
     if (/<command-message>/.test(text)) continue;
     if (/^(git |npm |npx |cawplan |cd |ls |cat |echo )/.test(text)) continue;
     if (/^@"/.test(text) || /^file:\//.test(text)) continue;
-    if (text.length > 1500) continue;
+    if (text.length > (opts?.maxTurnLength ?? 1500)) continue;
     if (/[@%$]\s*(npm|npx|node|tsc|cawplan|git)\b/.test(text)) continue;
     const key = text.slice(0, 120);
     if (seen.has(key)) continue;

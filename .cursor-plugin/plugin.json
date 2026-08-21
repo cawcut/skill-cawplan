@@ -71,6 +71,10 @@
     {
       "name": "cawplan-testcase-generate",
       "path": "skills/cawplan-testcase-generate"
+    },
+    {
+      "name": "cawplan-qa-commit",
+      "path": "skills/cawplan-qa-commit"
     }
   ]
 }
