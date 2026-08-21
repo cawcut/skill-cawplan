@@ -1,6 +1,8 @@
 import {normalizePortalBase} from "../assignment-ui/format.js";
 import {
     INLINE_ESCAPE_HTML,
+    INLINE_HUMAN_INPUT_HELPERS,
+    INLINE_HUMAN_INPUTS_HTML,
     INLINE_TICKET_DETAIL_URL,
     INLINE_TICKET_DISPLAY_ID_FROM_INPUT,
 } from "../assignment-ui/browser-snippets.js";
@@ -587,21 +589,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
 
     ${INLINE_ESCAPE_HTML}
 
-    function humanInputContent(input) {
-      if (typeof input === 'string') return input;
-      return input && (input.content || input.raw_block || input.topic || '');
-    }
-
-    function truncateHumanInput(input) {
-      const text = String(input || '');
-      return text.length > 200 ? text.slice(0, 200) + '...' : text;
-    }
-
-    function humanInputsForSession(report, session) {
-      const allInputs = Array.isArray(report.human_inputs) ? report.human_inputs : [];
-      const sessionId = String(session.session_id || '');
-      return allInputs.filter((input) => String(input && input.session_id || '') === sessionId);
-    }
+    ${INLINE_HUMAN_INPUT_HELPERS}
 
     function sessionModels(session) {
       const models = Array.isArray(session.models) ? session.models : [];
@@ -970,16 +958,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       return (session.time_range && session.time_range.display) || '';
     }
 
-    function humanInputsHtml(report, session) {
-      const inputs = humanInputsForSession(report, session)
-        .filter((input) => humanInputContent(input))
-        .slice(0, 3);
-      if (inputs.length === 0) return '<span class="muted">No human inputs</span>';
-      return '<ol class="human-inputs">' + inputs.map((input) => {
-        const text = escapeHtml(truncateHumanInput(humanInputContent(input)));
-        return '<li>' + text + '</li>';
-      }).join('') + '</ol>';
-    }
+    ${INLINE_HUMAN_INPUTS_HTML}
 
     function sessionStartMs(session) {
       const value = session.time_range && session.time_range.start;

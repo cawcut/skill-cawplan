@@ -10,6 +10,7 @@ describe("assignmentHtml batch-1 shared snippet stability", () => {
         expect(html).toContain("function escapeHtml(value)");
         expect(html).toContain("function ticketDisplayIdFromInput(value)");
         expect(html).toContain("function ticketDetailUrl(ticket)");
+        expect(html).toContain("function humanInputsHtml(report, session)");
         expect(html).toContain("return CAWPLAN_PORTAL_BASE + '/issue/' + encodeURIComponent(ticket);");
     });
 

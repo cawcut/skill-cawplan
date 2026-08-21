@@ -2,6 +2,7 @@ import type {QaSessionData} from "../collect/qa-types.js";
 import type {QaExcludedSession} from "../collect/aggregators/qa-daily.js";
 import type {QaAssignmentBootstrap} from "./types.js";
 import {escapeHtml, normalizePortalBase} from "../assignment-ui/format.js";
+import {resolveSessionTitle} from "../assignment-ui/session-display.js";
 import {INLINE_ESCAPE_HTML} from "../assignment-ui/browser-snippets.js";
 
 export interface QaAssignmentHtmlOptions {
@@ -26,7 +27,7 @@ export function renderQaSessionRowHtml(
     opts: {interactive?: boolean} = {},
 ): string {
     const interactive = opts.interactive ?? false;
-    const title = session.session_title ?? session.session_id;
+    const title = resolveSessionTitle(session, "qa");
     const reqCount = (session.requirement_ids ?? []).length;
     const tpAdded = session.testpoint?.added ?? 0;
     const productCell = interactive
