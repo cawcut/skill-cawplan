@@ -22,40 +22,57 @@ const MOCK_PRODUCTS = [
     {product_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", product_name: "Other Product", product_line_id: "line-2"},
 ];
 
+function mockDailyFixture(): QaDailyApiJson {
+    return {
+        schema: "qa-session.1",
+        date: "2026-08-20",
+        author: "tester",
+        generated_at: "2026-08-20T00:00:00.000Z",
+        include_conversation: false,
+        totals: {
+            sessions: 3,
+            agents: ["claude-code"],
+            messages: {user: 1, assistant: 1, tool_calls: 0},
+            cost: {USD: 0},
+        },
+        usage_breakdown: [],
+        model_usage: {},
+        sessions: REAL_SESSION_IDS.map((sessionId, index) => ({
+            session_id: sessionId,
+            agent: "claude-code",
+            session_title: `Session ${index + 1}`,
+            product_id: PRODUCT_ID,
+            ticket_ids: [],
+            ticket_display_ids: [],
+            requirement_ids: ["req-" + index],
+            skill_layers: index === 0
+                ? ["cawplan-requirement-analyze", "cawplan-testpoint-generate"]
+                : ["cawplan-testcase-generate"],
+            testpoint: {added: index === 0 ? 6 : 0, modified: 0, deleted: 0},
+            testcase: {added: 0, modified: 0, deleted: 0},
+        })),
+        human_inputs: [
+            {
+                session_id: REAL_SESSION_IDS[0]!,
+                content: "Analyze requirement for login flow",
+            },
+            {
+                session_id: REAL_SESSION_IDS[0]!,
+                content: "Generate test points for edge cases",
+            },
+            {
+                session_id: REAL_SESSION_IDS[1]!,
+                content: "Expand testcase steps",
+            },
+        ],
+    };
+}
+
 function loadDailyFixture(): QaDailyApiJson {
     try {
         return JSON.parse(readFileSync("/tmp/qa-full.json", "utf-8")) as QaDailyApiJson;
     } catch {
-        return {
-            schema: "qa-session.1",
-            date: "2026-08-20",
-            author: "tester",
-            generated_at: "2026-08-20T00:00:00.000Z",
-            include_conversation: false,
-            totals: {
-                sessions: 3,
-                agents: ["claude-code"],
-                messages: {user: 1, assistant: 1, tool_calls: 0},
-                cost: {USD: 0},
-            },
-            usage_breakdown: [],
-            model_usage: {},
-            sessions: REAL_SESSION_IDS.map((sessionId, index) => ({
-                session_id: sessionId,
-                agent: "claude-code",
-                session_title: `Session ${index + 1}`,
-                product_id: PRODUCT_ID,
-                ticket_ids: [],
-                ticket_display_ids: [],
-                requirement_ids: ["req-" + index],
-                skill_layers: index === 0
-                    ? ["cawplan-requirement-analyze", "cawplan-testpoint-generate"]
-                    : ["cawplan-testcase-generate"],
-                testpoint: {added: index === 0 ? 6 : 0, modified: 0, deleted: 0},
-                testcase: {added: 0, modified: 0, deleted: 0},
-            })),
-            human_inputs: [],
-        };
+        return mockDailyFixture();
     }
 }
 
@@ -90,6 +107,7 @@ describe("qaAssignmentHtml segment 1 — readonly session table", () => {
         });
         expect(html.length).toBeGreaterThan(0);
         expect(html.toLowerCase()).toContain("<table");
+        expect(html).toContain("<th>Input</th>");
         for (const sessionId of REAL_SESSION_IDS) {
             expect(html).toContain(sessionId);
         }
@@ -97,6 +115,48 @@ describe("qaAssignmentHtml segment 1 — readonly session table", () => {
         expect(html).not.toContain('id="save"');
         expect(html).not.toContain('class="supplement-add"');
         expect(html).not.toContain('id="qa-supplement-panel"');
+    });
+});
+
+describe("qaAssignmentHtml session and input columns", () => {
+    test("server-side row renderer uses shared human input preview from daily.human_inputs", () => {
+        const daily = mockDailyFixture();
+        const session = daily.sessions[0]!;
+        const row = renderQaSessionRowHtml(session, MOCK_PRODUCTS, {
+            interactive: false,
+            daily,
+        });
+        expect(row).toContain('class="input-cell"');
+        expect(row).toContain("Analyze requirement for login flow");
+        expect(row).toContain("Generate test points for edge cases");
+        expect(row).not.toContain("Expand testcase steps");
+    });
+
+    test("server-side row renderer shows empty human input placeholder", () => {
+        const daily = mockDailyFixture();
+        const session = daily.sessions[2]!;
+        const row = renderQaSessionRowHtml(session, MOCK_PRODUCTS, {
+            interactive: false,
+            daily,
+        });
+        expect(row).toContain('<span class="muted">No human inputs</span>');
+    });
+
+    test("server-side title uses qa nullish fallback chain", () => {
+        const daily = mockDailyFixture();
+        const session = {...daily.sessions[0]!, session_title: ""};
+        const row = renderQaSessionRowHtml(session, MOCK_PRODUCTS, {daily});
+        expect(row).toContain('<td class="title-cell"></td>');
+        expect(row).not.toContain(`<td class="title-cell">${session.session_id}</td>`);
+    });
+
+    test("interactive page wires browser resolveSessionTitle and humanInputsHtml", () => {
+        const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
+        expect(html).toContain("function resolveSessionTitle(session)");
+        expect(html).toContain("return session.session_title ?? session.session_id;");
+        expect(html).toContain("function humanInputsHtml(report, session)");
+        expect(html).toContain("humanInputsHtml(daily, session)");
+        expect(html).not.toContain("session.session_title || session.session_id");
     });
 });
 

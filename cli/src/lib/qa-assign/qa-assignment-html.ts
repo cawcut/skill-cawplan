@@ -3,7 +3,12 @@ import type {QaExcludedSession} from "../collect/aggregators/qa-daily.js";
 import type {QaAssignmentBootstrap} from "./types.js";
 import {escapeHtml, normalizePortalBase} from "../assignment-ui/format.js";
 import {resolveSessionTitle} from "../assignment-ui/session-display.js";
-import {INLINE_ESCAPE_HTML} from "../assignment-ui/browser-snippets.js";
+import {humanInputsHtml} from "../assignment-ui/human-input-preview.js";
+import {
+    INLINE_ESCAPE_HTML,
+    INLINE_HUMAN_INPUT_HELPERS,
+    INLINE_HUMAN_INPUTS_HTML,
+} from "../assignment-ui/browser-snippets.js";
 
 export interface QaAssignmentHtmlOptions {
     portalBase?: string;
@@ -24,10 +29,11 @@ function skillLayersText(session: QaSessionData): string {
 export function renderQaSessionRowHtml(
     session: QaSessionData,
     products: QaAssignmentBootstrap["products"],
-    opts: {interactive?: boolean} = {},
+    opts: {interactive?: boolean; daily?: {human_inputs?: unknown[]}} = {},
 ): string {
     const interactive = opts.interactive ?? false;
     const title = resolveSessionTitle(session, "qa");
+    const report = {human_inputs: opts.daily?.human_inputs ?? []};
     const reqCount = (session.requirement_ids ?? []).length;
     const tpAdded = session.testpoint?.added ?? 0;
     const productCell = interactive
@@ -38,6 +44,7 @@ export function renderQaSessionRowHtml(
         `<td class="sid-cell"><code>${escapeHtml(session.session_id)}</code></td>` +
         `<td class="agent-cell">${escapeHtml(session.agent || "—")}</td>` +
         `<td class="title-cell">${escapeHtml(title)}</td>` +
+        `<td class="input-cell">${humanInputsHtml(report, session)}</td>` +
         `<td class="product-cell">${productCell}</td>` +
         `<td class="num-cell">${reqCount}</td>` +
         `<td class="num-cell">${tpAdded}</td>` +
@@ -96,13 +103,13 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
             .map((session) => renderQaSessionRowHtml(
                 session,
                 opts.bootstrap!.products,
-                {interactive: !readonly},
+                {interactive: !readonly, daily: opts.bootstrap!.daily},
             ))
             .join("")}</tbody>`
-        : `<tbody id="qa-rows"><tr><td colspan="${readonly ? 7 : 8}" class="muted">Loading sessions...</td></tr></tbody>`;
+        : `<tbody id="qa-rows"><tr><td colspan="${readonly ? 8 : 9}" class="muted">Loading sessions...</td></tr></tbody>`;
 
     const ticketHeader = readonly ? "" : "<th>Tickets</th>";
-    const colSpan = readonly ? 7 : 8;
+    const colSpan = readonly ? 8 : 9;
 
     const supplementSection = readonly
         ? ""
@@ -158,6 +165,10 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     tbody tr:hover td { background: var(--bg-hover); }
     .sid-cell code { font-size: 11px; }
     .skills-cell { font-size: 12px; color: var(--text-02); }
+    .input-cell { overflow: hidden; }
+    .human-inputs { margin: 0; padding: 0; list-style: none; max-width: 100%; overflow: hidden; }
+    .human-inputs li { font-size: 11px; color: var(--text-02); line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .human-inputs li + li { color: var(--text-03); margin-top: 2px; }
     .product-cell select, .tickets-cell input { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 4px; font: inherit; }
     .product-cell select:focus, .tickets-cell input:focus { border-color: var(--uBlue-06); outline: none; box-shadow: 0 0 0 3px rgba(0,111,255,.12); }
     tr.invalid-product select.product-select { border-color: var(--red-06); box-shadow: 0 0 0 3px rgba(240,58,62,.12); }
@@ -195,6 +206,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
               <th>Session ID</th>
               <th>Agent</th>
               <th>Title</th>
+              <th>Input</th>
               <th>Product</th>
               <th>Requirements</th>
               <th>Test points added</th>
@@ -234,6 +246,12 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
 
     ${INLINE_ESCAPE_HTML}
 
+    function resolveSessionTitle(session) {
+      return session.session_title ?? session.session_id;
+    }
+
+    ${INLINE_HUMAN_INPUT_HELPERS}
+
     function findProduct(productId) {
       const needle = String(productId || "").trim();
       if (!needle) return null;
@@ -261,14 +279,17 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       return '<input class="ticket-input" type="text" value="' + escapeHtml(value) + '" placeholder="Ticket IDs (comma-separated)" />';
     }
 
+    ${INLINE_HUMAN_INPUTS_HTML}
+
     function sessionRowHtml(session) {
-      const title = session.session_title || session.session_id;
+      const title = resolveSessionTitle(session);
       const reqCount = (Array.isArray(session.requirement_ids) ? session.requirement_ids : []).length;
       const tpAdded = session.testpoint && typeof session.testpoint.added === "number" ? session.testpoint.added : 0;
       return '<tr data-session-id="' + escapeHtml(session.session_id) + '">' +
         '<td class="sid-cell"><code>' + escapeHtml(session.session_id) + '</code></td>' +
         '<td class="agent-cell">' + escapeHtml(session.agent || "—") + '</td>' +
         '<td class="title-cell">' + escapeHtml(title) + '</td>' +
+        '<td class="input-cell">' + humanInputsHtml(daily, session) + '</td>' +
         '<td class="product-cell">' + productSelectHtml(session) + '</td>' +
         '<td class="num-cell">' + reqCount + '</td>' +
         '<td class="num-cell">' + tpAdded + '</td>' +
