@@ -2,8 +2,9 @@ import {findSessionsByDate, parseEvents} from "./agents/claude-code.js";
 import {QaSkillLayer} from "./qa-types.js";
 
 /**
- * QA skills recognized when reading attributionSkill from assistant events.
+ * QA skill names recognized when reading attributionSkill / command traces.
  * Values outside this list (e.g. cawplan-coding-commit) are ignored for skill_layers.
+ * This whitelist identifies skill names only — it is not a session admission gate.
  */
 export const QA_SKILLS: readonly QaSkillLayer[] = [
     "cawplan-requirement-analyze",
@@ -37,8 +38,7 @@ export function layersFromAttributionSkill(jsonlPath: string, date?: string): Qa
 /**
  * Locate the local Claude Code JSONL path for a session_id on the given date.
  * Returns undefined when no file exists. Other agents have no equivalent trace
- * source yet — callers surface that via excluded-session logging and manual
- * supplement on the assignment web page rather than silently dropping sessions.
+ * source yet — callers include those sessions with skill_layers: [].
  */
 export function findClaudeCodeJsonlPathBySessionId(sessionId: string, date: string): string | undefined {
     const refs = findSessionsByDate(date);

@@ -56,6 +56,7 @@ export function findQaSessionById(daily: QaDailyApiJson, sessionId: string): QaS
     return daily.sessions.find((session) => session.session_id === sessionId);
 }
 
+/** Build a minimal session row from a layer 2/3 excluded entry (optional supplement). */
 function createSupplementedSession(
     excluded: QaExcludedSession,
     assignment: QaWebAssignment,

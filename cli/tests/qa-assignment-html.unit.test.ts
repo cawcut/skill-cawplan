@@ -72,8 +72,8 @@ function sampleExcluded(): QaExcludedSession[] {
     return [{
         session_id: "aaaa1111-1111-1111-1111-111111111111",
         agent: "cursor-gui",
-        title: "Missed QA session",
-        reason: "no-skill-trace",
+        title: "Commit-only workflow session",
+        reason: "qa-commit-only",
     }];
 }
 
@@ -134,7 +134,7 @@ describe("qaAssignmentHtml segment 3 — supplement excluded sessions", () => {
     test("supplement candidate HTML exposes session metadata for one-click add", () => {
         const list = renderExcludedSessionCandidatesHtml(sampleExcluded());
         expect(list).toContain("aaaa1111-1111-1111-1111-111111111111");
-        expect(list).toContain("no-skill-trace");
+        expect(list).toContain("qa-commit-only");
         expect(list).toContain("Add session");
     });
 

@@ -52,9 +52,8 @@ function qaSessionCost(session: SessionData): number {
 }
 
 /**
- * Resolve skill_layers only for agents with a known trace source (Claude Code).
- * Other agents return [] and are dropped by the positive filter's first rule;
- * excluded sessions are logged and can be manually supplemented on the assignment page.
+ * Best-effort skill_layers extraction. Claude Code reads JSONL traces; other agents
+ * return [] until a trace adapter exists — empty arrays are valid on included sessions.
  *
  * Future: Cursor GUI stores qa-insights commands in state.vscdb bubble toolFormerData
  * (run_terminal_command_v2 params/result) with stdout-shaped JSON — enough for Bash
@@ -91,7 +90,7 @@ export interface QaExcludedSession {
     session_id: string;
     agent: string;
     title?: string;
-    reason: "no-skill-trace" | "qa-commit-only" | "no-human-input";
+    reason: "qa-commit-only" | "no-human-input";
 }
 
 export interface QaFilterResult {
@@ -100,10 +99,9 @@ export interface QaFilterResult {
 }
 
 /**
- * QA session filter — three local rules:
- * 1. Include only when skill_layers.length > 0 (positive admission)
- * 2. Exclude commit-only sessions (cawplan-qa-commit)
- * 3. Exclude sessions with no human_input
+ * QA session noise filter — two local rules (all scanned sessions are candidates):
+ * 1. Exclude commit-only sessions (cawplan-qa-commit)
+ * 2. Exclude sessions with no human_input
  *
  * Excluded sessions are logged to stderr (session_id / agent / title) — never silent drops.
  */
@@ -115,10 +113,6 @@ export function filterQaSessions(sessions: SessionData[], date: string): QaFilte
         const title = session.session_title ?? session.session_name;
         const skillLayers = resolveSkillLayers(session, date);
 
-        if (skillLayers.length === 0) {
-            excluded.push({session_id: session.session_id, agent: session.agent, title, reason: "no-skill-trace"});
-            continue;
-        }
         if (isQaCommitOnlySession(session)) {
             excluded.push({session_id: session.session_id, agent: session.agent, title, reason: "qa-commit-only"});
             continue;
@@ -144,7 +138,7 @@ export function buildQaDailyPayload(
 ): {daily: QaDailyApiJson; excludedSessions: QaExcludedSession[]} {
     const {included, excluded} = filterQaSessions(sessions, date);
     if (excluded.length > 0) {
-        console.error(`QA collect: excluded ${excluded.length} session(s) with no QA trace or content:`);
+        console.error(`QA collect: excluded ${excluded.length} session(s) (commit-only or empty):`);
         for (const e of excluded) {
             console.error(`  - ${e.session_id} (${e.agent}) "${e.title ?? "untitled"}" — ${e.reason}`);
         }

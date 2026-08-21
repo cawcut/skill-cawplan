@@ -63,10 +63,10 @@ cawplan session collect --date <YYYY-MM-DD> --mode qa --output "$daily_file" --a
 Run `--assign` as a **background** shell task. The command waits for the user to click **Save assignments** or **Close** in the browser (up to 10 minutes). Do not start a second `--assign` while one is still running.
 
 The page lets the user:
-- Confirm collected QA sessions (session id, agent, skill layers, testpoint counts, requirements)
+- Confirm collected QA sessions (session id, agent, skill layers — may be empty, testpoint counts, requirements)
 - Adjust **one product per session** via dropdown
 - Edit ticket display IDs
-- **Add missed sessions** from the excluded-session list (no manual session-id typing)
+- **Optionally** add sessions from the commit-only / empty exclusion list (no manual session-id typing)
 
 **Step 3 — Review:**
 
@@ -86,9 +86,9 @@ Echo the server response, including any `report_id` UUID returned on success.
 Before upload, include:
 
 - Basic facts: date, author, total QA sessions, agents, total cost.
-- Per session: `session_title`, `agent`, `skill_layers`, `requirement_ids` count, `testpoint.added` / `testcase.added`, `product_id`, ticket display IDs when present.
-- Assignment notes: sessions added manually from the supplement list, or sessions left without a product (allowed — backend accepts empty `product_id`).
-- Data quality: excluded sessions printed during collect (if any) and whether the user supplemented them on the assignment page.
+- Per session: `session_title`, `agent`, `skill_layers` (empty `[]` is normal for discussion-only sessions), `requirement_ids` count, `testpoint.added` / `testcase.added`, `product_id`, ticket display IDs when present.
+- Assignment notes: sessions optionally added from the supplement list, or sessions left without a product (allowed — backend accepts empty `product_id`).
+- Data quality: count of sessions with empty `skill_layers` or missing `product_id`; excluded sessions printed during collect (commit-only or empty only, if any) and whether the user supplemented any on the assignment page.
 
 Do not summarize `human_inputs` with coding-only fields such as `category` or `topic` — the QA payload does not include them.
 

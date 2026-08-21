@@ -25,13 +25,11 @@ function baseSession(overrides: Partial<SessionData>): SessionData {
     };
 }
 
-// S3.4 正向过滤三层规则. Layer ① (no-skill-trace) needs a real
-// ~/.claude/projects/... jsonl file to resolve a non-empty skill_layers,
-// so we stage one under a fake project dir for the duration of each test
-// that needs layer ① to pass.
+// S4.x collect-all + two noise filters. Staged JSONL is only needed when a test
+// expects non-empty skill_layers from Claude Code trace extraction.
 const CLAUDE_PROJECTS_DIR = join(homedir(), ".claude", "projects");
 
-describe("filterQaSessions (S3.4)", () => {
+describe("filterQaSessions (collect-all + noise filters)", () => {
     let tmpProjectDir: string | undefined;
 
     afterEach(() => {
@@ -46,19 +44,30 @@ describe("filterQaSessions (S3.4)", () => {
         writeFileSync(jsonlPath, withTimestamp.map((e) => JSON.stringify(e)).join("\n"), "utf-8");
     }
 
-    test("layer ①: session with no QA skill trace is excluded as no-skill-trace", () => {
+    test("session with no QA skill trace is included with empty skill_layers", () => {
         const session = baseSession({
             session_id: "11111111-1111-1111-1111-111111111111",
             human_inputs: [{category: "direction", content: "hello"}],
         });
         const result = filterQaSessions([session], "2026-08-20");
-        expect(result.included).toHaveLength(0);
-        expect(result.excluded).toEqual([
-            {session_id: session.session_id, agent: "claude-code", title: "untitled", reason: "no-skill-trace"},
-        ]);
+        expect(result.excluded).toHaveLength(0);
+        expect(result.included).toHaveLength(1);
+        expect(result.included[0]?.skillLayers).toEqual([]);
     });
 
-    test("layer ②: qa-commit-only session is excluded even with a skill trace", () => {
+    test("cursor-gui session without trace adapter is included with empty skill_layers", () => {
+        const session = baseSession({
+            agent: "cursor-gui",
+            session_id: "55555555-5555-5555-5555-555555555555",
+            human_inputs: [{category: "direction", content: "discuss test scope"}],
+        });
+        const result = filterQaSessions([session], "2026-08-20");
+        expect(result.excluded).toHaveLength(0);
+        expect(result.included).toHaveLength(1);
+        expect(result.included[0]?.skillLayers).toEqual([]);
+    });
+
+    test("layer 2: qa-commit-only session is excluded even with a skill trace", () => {
         const sessionId = "22222222-2222-2222-2222-222222222222";
         stageClaudeCodeSession(sessionId, "2026-08-20", [
             {type: "assistant", attributionSkill: "cawplan-testpoint-generate"},
@@ -72,7 +81,7 @@ describe("filterQaSessions (S3.4)", () => {
         expect(result.excluded[0]?.reason).toBe("qa-commit-only");
     });
 
-    test("layer ③: session with a skill trace but no human_input is excluded as no-human-input", () => {
+    test("layer 3: session with a skill trace but no human_input is excluded as no-human-input", () => {
         const sessionId = "33333333-3333-3333-3333-333333333333";
         stageClaudeCodeSession(sessionId, "2026-08-20", [
             {type: "assistant", attributionSkill: "cawplan-requirement-analyze"},
@@ -83,7 +92,7 @@ describe("filterQaSessions (S3.4)", () => {
         expect(result.excluded[0]?.reason).toBe("no-human-input");
     });
 
-    test("session passing all three layers is included with its skill_layers", () => {
+    test("session with skill trace and human_input is included with its skill_layers", () => {
         const sessionId = "44444444-4444-4444-4444-444444444444";
         stageClaudeCodeSession(sessionId, "2026-08-20", [
             {type: "assistant", attributionSkill: "cawplan-testcase-generate"},

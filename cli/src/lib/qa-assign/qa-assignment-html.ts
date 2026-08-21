@@ -73,7 +73,7 @@ function ticketInputHtml(session: QaSessionData): string {
 /** Server-side supplement candidate list for tests. */
 export function renderExcludedSessionCandidatesHtml(excluded: QaExcludedSession[]): string {
     if (excluded.length === 0) {
-        return `<p class="muted">No excluded sessions to supplement.</p>`;
+        return `<p class="muted">No commit-only or empty sessions to supplement.</p>`;
     }
     return `<ul class="supplement-list">${excluded.map((entry) => {
         const title = entry.title ?? "untitled";
@@ -110,8 +110,8 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     const supplementSection = readonly
         ? ""
         : `<section id="qa-supplement-panel" class="supplement-panel hidden">
-            <h2 class="section-title">Add missed sessions</h2>
-            <p class="section-help">Pick from sessions excluded during collection. You do not need to type a session ID manually.</p>
+            <h2 class="section-title">Add excluded sessions (optional)</h2>
+            <p class="section-help">Optional: add sessions filtered out as commit-only or empty. You do not need to type a session ID manually.</p>
             <div id="qa-supplement-candidates"></div>
           </section>`;
 

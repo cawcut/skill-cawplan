@@ -100,8 +100,8 @@ describe("applyQaWebAssignments", () => {
         }], [{
             session_id: "22222222-2222-2222-2222-222222222222",
             agent: "cursor-gui",
-            title: "Missed session",
-            reason: "no-skill-trace",
+            title: "Commit-only session",
+            reason: "qa-commit-only",
         }]);
         expect(daily.sessions).toHaveLength(1);
         expect(Object.keys(daily.sessions[0]!).sort()).toEqual([
@@ -144,7 +144,7 @@ describe("dispatchQaAssignRequest", () => {
                 session_id: "22222222-2222-2222-2222-222222222222",
                 agent: "cursor-gui",
                 title: "Missed session",
-                reason: "no-skill-trace",
+                reason: "qa-commit-only",
             }],
         };
     });

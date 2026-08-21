@@ -117,6 +117,7 @@ SKILLS=(
   cawplan-requirement-analyze
   cawplan-testpoint-generate
   cawplan-testcase-generate
+  cawplan-qa-commit
 )
 
 LEGACY_SKILLS=(

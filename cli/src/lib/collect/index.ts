@@ -448,8 +448,8 @@ export interface QaCollectResult {
 }
 
 /**
- * QA collect entry point. Applies positive filtering inside buildQaDailyPayload()
- * via filterQaSessions() before assembling the upload JSON.
+ * QA collect entry point. Applies noise filtering (commit-only / empty sessions)
+ * inside buildQaDailyPayload() via filterQaSessions() before assembling the upload JSON.
  */
 export async function collectQaResult(opts: CollectOptions): Promise<QaCollectResult> {
     const date = opts.date;

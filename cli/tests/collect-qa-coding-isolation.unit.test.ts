@@ -52,11 +52,11 @@ describe("QA/coding collect isolation (S5.5)", () => {
         expect(overlap).toEqual([]);
     }, 60_000);
 
-    test("every QA-included session carries at least one skill layer", async () => {
+    test("QA-included sessions may have empty skill_layers", async () => {
         const date = baselineDates[0] ?? "2026-08-11";
         const {daily} = await collectQaResult({date, collectMode: "qa"});
         for (const session of daily.sessions) {
-            expect(session.skill_layers.length).toBeGreaterThan(0);
+            expect(Array.isArray(session.skill_layers)).toBe(true);
         }
     }, 60_000);
 });
