@@ -222,6 +222,7 @@ export interface BuildTestrailImportPreviewBodyInput {
   versionName?: string;
   sectionStrategy?: SectionStrategy;
   fixedSectionId?: number;
+  parentSectionId?: number;
   cases?: InlineCaseDraft[];
 }
 
@@ -423,6 +424,7 @@ export function buildTestrailImportPreviewBody(
   if (input.versionName) body.version_name = input.versionName;
   if (input.sectionStrategy) body.section_strategy = input.sectionStrategy;
   if (input.fixedSectionId !== undefined) body.fixed_section_id = input.fixedSectionId;
+  if (input.parentSectionId !== undefined) body.parent_section_id = input.parentSectionId;
   if (input.sourceType === "INLINE" && input.cases) {
     body.cases = input.cases.map((item, index) => normalizeInlineCaseItem(item, index));
   }
@@ -469,6 +471,9 @@ export function mergeTestrailImportPreviewBody(
       valueByNames<SectionStrategy>(fromFile, "section_strategy", "sectionStrategy"),
     fixedSectionId:
       flags.fixedSectionId ?? valueByNames<number>(fromFile, "fixed_section_id", "fixedSectionId"),
+    parentSectionId:
+      flags.parentSectionId ??
+      valueByNames<number>(fromFile, "parent_section_id", "parentSectionId"),
     cases: flags.cases ?? casesFromBody,
   });
 }

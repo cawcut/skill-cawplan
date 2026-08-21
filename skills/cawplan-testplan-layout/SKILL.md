@@ -26,19 +26,23 @@ cawplan skill check
 6. **用户展示**：`ux.md §Glossary`；UUID/`preview_id` 默认隐藏；跟随用户主语言；Agent 自行 `AskUserQuestion`。
 7. **双确认闸**：预览决策闸（Step 3）→ 执行提交闸（Step 5 `--confirm`）。
 8. **plan-rules set**：仅 SQA 明确要求调整 R1–R7 时执行。
+9. **首次 Milestone 闸门**：`mapping-get` 返回 `has_mapping=false` 时，**禁止**跳过框 M 直接 `plan preview`（`§Intent` 命中或 `§ConfirmState` 复用除外）。
+10. **非首次免询问**：`has_mapping=true` 时**禁止**弹框 M；直接 `AUTO` preview。框 M 或 Intent 确认后至 execute 前**禁止**改 `milestone_strategy` / `milestone_id`。
 
 ## Reference 加载（MUST）
 
 | 时机 | Read | 禁止 |
 |------|------|------|
 | Step 0 / preview / execute CLI | `execution.md` | 一次性 Read 全部 references |
+| Step 1.5 / 1.6 / Milestone 首次确认 | `execution.md §MilestoneProbe` · `§MilestoneValidate` · `§MilestoneFirstLayout` | — |
 | 交互、preview、gap、确认闸 | `ux.md` | — |
-| Milestone REUSE / 增量编排 | `execution.md §Incremental` · `ux.md §Prompts` | — |
+| Milestone REUSE 二次确认（Step 2.1） | `execution.md §Incremental` · `ux.md §Prompts` | — |
 
 ## 允许命令
 
 - `plan-rules get`（默认）；`plan-rules set`（仅用户明确要求）
-- `plan preview`（可选 `--ticket-reuse-strategy`）、`plan execute`
+- `milestone mapping-get`、`milestone validate`
+- `plan preview`（可选 `--milestone-strategy`、`--milestone-id`、`--ticket-reuse-strategy`）、`plan execute`
 - `products list`、`versions list`
 
 **禁止**：`cawplan api`、链式 `&&`、手动传 `suite_id`、直连 TestRail。
@@ -49,9 +53,12 @@ cawplan skill check
 |------|------|--------|
 | **0** | 解析 `product_id`/`version_id`/名称；编排范围 | `execution.md §0` · 缺信息 → `ux.md §Prompts` |
 | **1** | `plan-rules get`；用户要求才 `set` | `execution.md §Rules` |
-| **2** | `plan preview`（默认 BE `AUTO`） | `execution.md §Preview` · `§Incremental` |
-| **2.1** | `milestone.action=REUSE` → Milestone 交互 | `ux.md §Prompts` |
-| **3** | 友好 preview（含 `plan.action`、增量 summary、warnings）→ **预览决策闸** | `ux.md`；`NEW_CASES_NOT_IN_RUN` 须确认 |
+| **1.5** | `milestone mapping-get` | `execution.md §MilestoneProbe` |
+| **1.5a** | `has_mapping=false` → **框 M**（默认新建） | `ux.md §MilestoneFirstConfirm` · `§ConfirmState` |
+| **1.6** | 框 M 选「绑定已有」→ `milestone validate`（Intent `REUSE_BY_ID` 免本步） | `execution.md §MilestoneValidate` |
+| **2** | `plan preview`（策略见 `§MilestoneFirstLayout` 或 `AUTO`） | `execution.md §Preview` · `§Incremental` |
+| **2.1** | `AUTO` + `REUSE` + `LATEST_MAPPING` → Milestone 二次确认 | `ux.md §Prompts` · 框 M / Intent 已确认则跳过 |
+| **3** | 友好 preview → **预览决策闸** | `ux.md`；`NEW_CASES_NOT_IN_RUN` 须确认 |
 | **4** | 无阻断 gap 且过闸 → **执行提交闸** | `ux.md §Prompts` |
 | **5** | `plan execute --preview-id … --confirm` | `execution.md §Execute` |
 
@@ -75,9 +82,9 @@ cawplan skill check
 | {display_id} | 复用/新建 | … | [查看](url) |
 ```
 
-用户要「技术详情」时再展开：`preview_id`、`plan_mapping_id`、`reused_plan_mapping_ids`、`created_plan_mapping_ids`。
+用户要「技术详情」时再展开：`preview_id`、`plan_mapping_id`、`reused_plan_mapping_ids`、`created_plan_mapping_ids`、`confirmed_milestone_strategy`。
 
 ## References
 
-- [execution.md](references/execution.md) — 范围、CLI、Milestone、增量编排、R1–R7、execute
-- [ux.md](references/ux.md) — 友好名、确认闸、gap/warning、AskUserQuestion
+- [execution.md](references/execution.md) — 范围、CLI、Milestone 探测、增量编排、R1–R7、execute
+- [ux.md](references/ux.md) — 友好名、框 M、ConfirmState、确认闸、gap/warning、AskUserQuestion

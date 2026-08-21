@@ -1,6 +1,6 @@
-# CLAUDE.md — CawPlan Skills
+# AGENTS.md — CawPlan Skills
 
-Guidance for Claude Code and compatible agents when working in this repository.
+Guidance for Codex and compatible agents when working in this repository.
 
 ## What This Is
 
@@ -29,7 +29,7 @@ flow-cawplan-skill/
 │   ├── cawplan-coding-insights/
 │   ├── cawplan-my-work/
 │   └── cawplan-ux-tracking/
-├── .claude-plugin/
+├── .Codex-plugin/
 ├── .cursor-plugin/
 └── .codex-plugin/
 ```
