@@ -161,13 +161,17 @@ describe("qaAssignmentHtml session and input columns", () => {
 });
 
 describe("qaAssignmentHtml segment 2 — product selection", () => {
-    test("includes product dropdown with one option per product and default selection", () => {
+    test("includes searchable product input with datalist and coding-style lookup", () => {
         const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
-        expect(html).toContain('class="product-select"');
-        expect(html).toContain('value="' + PRODUCT_ID + '" selected');
-        expect(html).toContain("Demo Product");
-        expect(html).toContain("Other Product");
+        expect(html).toContain('id="product-list"');
+        expect(html).toContain('class="product"');
+        expect(html).toContain('list="product-list"');
+        expect(html).toContain('placeholder="Search product"');
+        expect(html).toContain('value="Demo Product"');
+        expect(html).toContain('<option value="Demo Product"></option>');
+        expect(html).toContain("normalizeProducts");
         expect(html).toContain("validateSingleProductPerSession");
+        expect(html).not.toContain('class="product-select"');
         expect(html).not.toContain("repoPickerHtml");
         expect(html).not.toContain("refreshRepoOptionsForProduct");
         expect(repoKeywordCount(html)).toBe(0);
@@ -176,8 +180,9 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
     test("server-side row renderer mirrors default product selection", () => {
         const session = loadDailyFixture().sessions[0]!;
         const row = renderQaSessionRowHtml(session, MOCK_PRODUCTS, {interactive: true});
-        expect(row).toContain('value="' + PRODUCT_ID + '" selected');
-        expect((row.match(/<option /g) ?? []).length).toBe(MOCK_PRODUCTS.length + 1);
+        expect(row).toContain('class="product"');
+        expect(row).toContain('value="Demo Product"');
+        expect(row).not.toContain("<select");
     });
 });
 
@@ -202,8 +207,10 @@ describe("qaAssignmentHtml segment 3 — supplement excluded sessions", () => {
         const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
         expect(html).toContain("emptyAssetChange");
         expect(html).toContain("ticket_display_ids: []");
-        expect(html).toContain("product-select");
-        expect(html).toContain("ticket-input");
+        expect(html).toContain('class="product"');
+        expect(html).toContain('class="ticket-picker"');
+        expect(html).toContain("wireTicketPicker");
+        expect(html).toContain("selectedTicketDisplayIds");
     });
 });
 

@@ -4,10 +4,13 @@ import type {QaAssignmentBootstrap} from "./types.js";
 import {escapeHtml, normalizePortalBase} from "../assignment-ui/format.js";
 import {resolveSessionTitle} from "../assignment-ui/session-display.js";
 import {humanInputsHtml} from "../assignment-ui/human-input-preview.js";
+import {ticketDetailUrl} from "../assignment-ui/ticket-url.js";
 import {
     INLINE_ESCAPE_HTML,
     INLINE_HUMAN_INPUT_HELPERS,
     INLINE_HUMAN_INPUTS_HTML,
+    INLINE_TICKET_DETAIL_URL,
+    INLINE_TICKET_DISPLAY_ID_FROM_INPUT,
 } from "../assignment-ui/browser-snippets.js";
 
 export interface QaAssignmentHtmlOptions {
@@ -25,11 +28,20 @@ function skillLayersText(session: QaSessionData): string {
     return (session.skill_layers ?? []).join(", ") || "—";
 }
 
+function sessionTicketDisplayIds(session: QaSessionData): string[] {
+    return [...new Set((session.ticket_display_ids ?? []).filter(Boolean).map(String))];
+}
+
 /** Server-side row HTML for tests and readonly preview. */
 export function renderQaSessionRowHtml(
     session: QaSessionData,
     products: QaAssignmentBootstrap["products"],
-    opts: {interactive?: boolean; daily?: {human_inputs?: unknown[]}} = {},
+    opts: {
+        interactive?: boolean;
+        daily?: {human_inputs?: unknown[]};
+        portalBase?: string;
+        allTicketDisplayIds?: string[];
+    } = {},
 ): string {
     const interactive = opts.interactive ?? false;
     const title = resolveSessionTitle(session, "qa");
@@ -37,7 +49,7 @@ export function renderQaSessionRowHtml(
     const reqCount = (session.requirement_ids ?? []).length;
     const tpAdded = session.testpoint?.added ?? 0;
     const productCell = interactive
-        ? productSelectHtml(session, products)
+        ? productInputHtml(session, products)
         : `<span class="product-readonly">${escapeHtml(session.product_id ?? "—")}</span>`;
 
     return `<tr data-session-id="${escapeHtml(session.session_id)}">` +
@@ -50,28 +62,59 @@ export function renderQaSessionRowHtml(
         `<td class="num-cell">${tpAdded}</td>` +
         `<td class="skills-cell">${escapeHtml(skillLayersText(session))}</td>` +
         (interactive
-            ? `<td class="tickets-cell">${ticketInputHtml(session)}</td>`
+            ? `<td class="tickets-cell">${ticketPickerHtmlServer(
+                session,
+                opts.portalBase ?? "https://app.cawplan.com",
+                opts.allTicketDisplayIds,
+            )}</td>`
             : "") +
         `</tr>`;
 }
 
-function productSelectHtml(
+function productInputHtml(
     session: QaSessionData,
     products: QaAssignmentBootstrap["products"],
 ): string {
-    const selected = session.product_id ?? "";
-    const options = ['<option value="">— Select product —</option>']
-        .concat(products.map((product) => {
-            const isSelected = product.product_id === selected ? " selected" : "";
-            return `<option value="${escapeHtml(product.product_id)}"${isSelected}>${escapeHtml(product.product_name)}</option>`;
-        }));
-    return `<select class="product-select" aria-label="Product for session">${options.join("")}</select>` +
+    const currentProduct = products.find((product) => product.product_id === session.product_id);
+    const productValue = currentProduct?.product_name ?? session.product_id ?? "";
+    return `<input class="product" list="product-list" value="${escapeHtml(productValue)}" placeholder="Search product" aria-label="Product for session" />` +
         `<div class="product-error field-error"></div>`;
 }
 
-function ticketInputHtml(session: QaSessionData): string {
-    const value = (session.ticket_display_ids ?? []).join(", ");
-    return `<input class="ticket-input" type="text" value="${escapeHtml(value)}" placeholder="Ticket IDs (comma-separated)" />`;
+function ticketPickerHtmlServer(
+    session: QaSessionData,
+    portalBase: string,
+    allTicketDisplayIds: string[] = [],
+): string {
+    const selected = new Set(sessionTicketDisplayIds(session).map((item) => item.trim().toUpperCase()).filter(Boolean));
+    const options = [...new Set([...allTicketDisplayIds, ...selected])].sort();
+    const optionRows = options.length === 0
+        ? `<div class="ticket-empty">No tickets yet</div>`
+        : options.map((ticket) =>
+            `<div class="ticket-option">` +
+            `<label class="ticket-option-choice">` +
+            `<input class="ticket-option-cb" type="checkbox" value="${escapeHtml(ticket)}"${selected.has(ticket) ? " checked" : ""} />` +
+            `<span class="ticket-option-label">${escapeHtml(ticket)}</span>` +
+            `</label>` +
+            `<a class="ticket-link ticket-open-link" href="${escapeHtml(ticketDetailUrl(portalBase, ticket))}" target="_blank" rel="noopener noreferrer">Open</a>` +
+            `</div>`,
+        ).join("");
+    const tickets = sessionTicketDisplayIds(session);
+    const tagsHtml = tickets.length === 0
+        ? `<span class="ticket-placeholder">Select tickets</span>`
+        : tickets.map((ticket) =>
+            `<span class="ticket-tag" data-ticket="${escapeHtml(ticket)}">` +
+            `<a class="ticket-link" href="${escapeHtml(ticketDetailUrl(portalBase, ticket))}" target="_blank" rel="noopener noreferrer">${escapeHtml(ticket)}</a>` +
+            `<button class="ticket-remove" type="button" data-ticket="${escapeHtml(ticket)}" aria-label="Remove ${escapeHtml(ticket)}">×</button>` +
+            `</span>`,
+        ).join("");
+    return `<div class="ticket-picker">` +
+        `<div class="ticket-trigger" role="button" tabindex="0">${tagsHtml}</div>` +
+        `<div class="ticket-menu hidden">` +
+        `<div class="ticket-options">${optionRows}</div>` +
+        `<input class="ticket-add" placeholder="Add ticket ID" />` +
+        `</div>` +
+        `</div>`;
 }
 
 /** Server-side supplement candidate list for tests. */
@@ -98,15 +141,31 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     const readonly = opts.readonlyPreview === true;
     const bootstrapJson = opts.bootstrap ? JSON.stringify(opts.bootstrap) : "";
 
+    const allTicketDisplayIds = opts.bootstrap
+        ? [...new Set(opts.bootstrap.daily.sessions
+            .flatMap((session) => session.ticket_display_ids ?? [])
+            .filter(Boolean)
+            .map((item) => String(item).trim().toUpperCase()))].sort()
+        : [];
     const preRenderedTable = opts.bootstrap
         ? `<tbody id="qa-rows">${opts.bootstrap.daily.sessions
             .map((session) => renderQaSessionRowHtml(
                 session,
                 opts.bootstrap!.products,
-                {interactive: !readonly, daily: opts.bootstrap!.daily},
+                {
+                    interactive: !readonly,
+                    daily: opts.bootstrap!.daily,
+                    portalBase,
+                    allTicketDisplayIds,
+                },
             ))
             .join("")}</tbody>`
         : `<tbody id="qa-rows"><tr><td colspan="${readonly ? 8 : 9}" class="muted">Loading sessions...</td></tr></tbody>`;
+    const productListOptions = opts.bootstrap
+        ? opts.bootstrap.products.map((product) =>
+            `<option value="${escapeHtml(product.product_name)}"></option>`,
+        ).join("")
+        : "";
 
     const ticketHeader = readonly ? "" : "<th>Tickets</th>";
     const colSpan = readonly ? 8 : 9;
@@ -169,9 +228,37 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     .human-inputs { margin: 0; padding: 0; list-style: none; max-width: 100%; overflow: hidden; }
     .human-inputs li { font-size: 11px; color: var(--text-02); line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .human-inputs li + li { color: var(--text-03); margin-top: 2px; }
-    .product-cell select, .tickets-cell input { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 4px; font: inherit; }
-    .product-cell select:focus, .tickets-cell input:focus { border-color: var(--uBlue-06); outline: none; box-shadow: 0 0 0 3px rgba(0,111,255,.12); }
-    tr.invalid-product select.product-select { border-color: var(--red-06); box-shadow: 0 0 0 3px rgba(240,58,62,.12); }
+    input, select { font-family: var(--font); font-size: 13px; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-01); outline: none; width: 100%; }
+    input:focus, select:focus { border-color: var(--uBlue-06); box-shadow: 0 0 0 3px rgba(0,111,255,.12); }
+    input::placeholder { color: var(--text-03); }
+    button { font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer; border: 0; background: transparent; }
+    .product-cell, .tickets-cell { vertical-align: middle; }
+    .tickets-cell { font-size: 12px; color: var(--text-02); overflow: visible; }
+    .ticket-picker { position: relative; min-width: 180px; }
+    .ticket-trigger { min-height: 32px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 4px 26px 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); cursor: pointer; position: relative; }
+    .ticket-trigger::after { content: "▾"; position: absolute; right: 8px; top: 5px; color: var(--text-03); font-size: 12px; }
+    .ticket-trigger:focus { border-color: var(--uBlue-06); box-shadow: 0 0 0 3px rgba(0,111,255,.12); outline: none; }
+    .ticket-picker.disabled .ticket-trigger { background: var(--n-02); color: var(--text-03); cursor: not-allowed; }
+    .ticket-picker.disabled .ticket-trigger::after { color: var(--text-03); }
+    .ticket-picker.disabled .ticket-tag { background: var(--border-sub); color: var(--text-03); }
+    .ticket-picker.disabled .ticket-remove { color: var(--text-03); cursor: not-allowed; }
+    .ticket-tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--uBlue-01); color: var(--uBlue-07); font-size: 11px; font-weight: 600; }
+    .ticket-link { color: inherit; text-decoration: none; }
+    .ticket-link:hover { text-decoration: underline; }
+    .ticket-remove { color: var(--uBlue-07); width: 14px; height: 14px; padding: 0; font-size: 12px; line-height: 14px; }
+    .ticket-placeholder { color: var(--text-03); font-size: 12px; }
+    .ticket-menu { position: absolute; z-index: 9999; top: calc(100% + 4px); left: 0; right: 0; min-width: 220px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); box-shadow: 0 4px 12px rgba(33,33,36,.04); pointer-events: auto; }
+    .ticket-picker.drop-up .ticket-menu { top: auto; bottom: calc(100% + 4px); }
+    .ticket-options { max-height: 144px; overflow: auto; display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+    .ticket-option { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 4px; color: var(--text-01); cursor: pointer; }
+    .ticket-option:hover { background: var(--bg-hover); }
+    .ticket-option input { width: 14px; height: 14px; padding: 0; flex-shrink: 0; }
+    .ticket-option-choice { min-width: 0; display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer; }
+    .ticket-option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ticket-open-link { margin-left: auto; color: var(--uBlue-07); font-weight: 600; font-size: 11px; }
+    .ticket-empty { color: var(--text-03); font-size: 12px; padding: 4px 6px; }
+    input.ticket-add { height: 28px; font-size: 12px; }
+    tr.invalid-product input.product { border-color: var(--red-06); box-shadow: 0 0 0 3px rgba(240,58,62,.12); }
     .field-error { color: var(--red-06); font-size: 11px; margin-top: 4px; }
     .field-error:empty { display: none; }
     .section-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
@@ -200,6 +287,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     <div class="phdr"><div class="ptitle">CawPlan QA Session Assignment</div></div>
     <div class="pbody">
       <div class="table-card">
+        ${readonly ? "" : `<datalist id="product-list">${productListOptions}</datalist>`}
         <table>
           <thead>
             <tr>
@@ -252,31 +340,95 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
 
     ${INLINE_HUMAN_INPUT_HELPERS}
 
-    function findProduct(productId) {
-      const needle = String(productId || "").trim();
+    function normalizeProducts(items) {
+      return items.map((p) => ({
+        product_id: p.product_id || p.unique_id,
+        product_name: p.product_name || p.name || p.product_id || p.unique_id,
+        product_line_id: p.product_line_id || (p.product_line && (p.product_line.unique_id || p.product_line.id)),
+      })).filter((p) => p.product_id && p.product_name);
+    }
+
+    function findProduct(value) {
+      const needle = String(value || "").trim().toLowerCase();
       if (!needle) return null;
-      return products.find((p) => String(p.product_id) === needle) || null;
+      return products.find((p) =>
+        String(p.product_id).toLowerCase() === needle ||
+        String(p.product_name).toLowerCase() === needle
+      ) || null;
+    }
+
+    function findSession(sessionId) {
+      return (daily.sessions || []).find((session) => session.session_id === sessionId);
     }
 
     function skillLayersText(session) {
       return (Array.isArray(session.skill_layers) ? session.skill_layers : []).join(", ") || "—";
     }
 
-    function productSelectHtml(session) {
-      const selected = session.product_id || "";
-      const options = ['<option value="">— Select product —</option>']
-        .concat(products.map((product) => {
-          const isSelected = product.product_id === selected ? " selected" : "";
-          return '<option value="' + escapeHtml(product.product_id) + '"' + isSelected + '>' +
-            escapeHtml(product.product_name) + '</option>';
-        }));
-      return '<select class="product-select" aria-label="Product for session">' + options.join("") + '</select>' +
-        '<div class="product-error field-error"></div>';
+    function sessionTickets(session) {
+      const displayIds = Array.isArray(session.ticket_display_ids) ? session.ticket_display_ids : [];
+      return [...new Set(displayIds.filter(Boolean).map(String))];
     }
 
-    function ticketInputHtml(session) {
-      const value = (Array.isArray(session.ticket_display_ids) ? session.ticket_display_ids : []).join(", ");
-      return '<input class="ticket-input" type="text" value="' + escapeHtml(value) + '" placeholder="Ticket IDs (comma-separated)" />';
+    function allTicketDisplayIds() {
+      const sessions = Array.isArray(daily && daily.sessions) ? daily.sessions : [];
+      const ids = sessions.flatMap((session) => Array.isArray(session.ticket_display_ids) ? session.ticket_display_ids : []);
+      return [...new Set(ids.filter(Boolean).map((item) => String(item).trim().toUpperCase()).filter(Boolean))].sort();
+    }
+
+    ${INLINE_TICKET_DISPLAY_ID_FROM_INPUT}
+
+    ${INLINE_TICKET_DETAIL_URL}
+
+    function ticketLinkHtml(ticket) {
+      return '<a class="ticket-link" href="' + escapeHtml(ticketDetailUrl(ticket)) + '" target="_blank" rel="noopener noreferrer" title="Open ' + escapeHtml(ticket) + '">' + escapeHtml(ticket) + '</a>';
+    }
+
+    function ticketOpenLinkHtml(ticket) {
+      return '<a class="ticket-link ticket-open-link" href="' + escapeHtml(ticketDetailUrl(ticket)) + '" target="_blank" rel="noopener noreferrer" title="Open ' + escapeHtml(ticket) + '">Open</a>';
+    }
+
+    function ticketOptionRows(session) {
+      const selected = new Set(sessionTickets(session).map((item) => String(item).trim().toUpperCase()).filter(Boolean));
+      const options = [...new Set([...allTicketDisplayIds(), ...selected])].sort();
+      if (options.length === 0) return '<div class="ticket-empty">No tickets yet</div>';
+      return options.map((ticket) =>
+        '<div class="ticket-option">' +
+          '<label class="ticket-option-choice">' +
+            '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '"' + (selected.has(ticket) ? ' checked' : '') + ' />' +
+            '<span class="ticket-option-label">' + escapeHtml(ticket) + '</span>' +
+          '</label>' +
+          ticketOpenLinkHtml(ticket) +
+        '</div>'
+      ).join('');
+    }
+
+    function ticketTagsHtml(session) {
+      const tickets = sessionTickets(session);
+      if (tickets.length === 0) return '<span class="ticket-placeholder">Select tickets</span>';
+      return tickets.map((ticket) =>
+        '<span class="ticket-tag" data-ticket="' + escapeHtml(ticket) + '">' +
+          ticketLinkHtml(ticket) +
+          '<button class="ticket-remove" type="button" data-ticket="' + escapeHtml(ticket) + '" aria-label="Remove ' + escapeHtml(ticket) + '">×</button>' +
+        '</span>'
+      ).join('');
+    }
+
+    function ticketPickerHtml(session) {
+      return '<div class="ticket-picker">' +
+        '<div class="ticket-trigger" role="button" tabindex="0">' + ticketTagsHtml(session) + '</div>' +
+        '<div class="ticket-menu hidden">' +
+          '<div class="ticket-options">' + ticketOptionRows(session) + '</div>' +
+          '<input class="ticket-add" placeholder="Add ticket ID" />' +
+        '</div>' +
+      '</div>';
+    }
+
+    function productInputHtml(session) {
+      const currentProduct = products.find((product) => product.product_id === session.product_id);
+      const productValue = currentProduct ? currentProduct.product_name : (session.product_name || "");
+      return '<input class="product" list="product-list" value="' + escapeHtml(productValue) + '" placeholder="Search product" aria-label="Product for session" />' +
+        '<div class="product-error field-error"></div>';
     }
 
     ${INLINE_HUMAN_INPUTS_HTML}
@@ -290,12 +442,205 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
         '<td class="agent-cell">' + escapeHtml(session.agent || "—") + '</td>' +
         '<td class="title-cell">' + escapeHtml(title) + '</td>' +
         '<td class="input-cell">' + humanInputsHtml(daily, session) + '</td>' +
-        '<td class="product-cell">' + productSelectHtml(session) + '</td>' +
+        '<td class="product-cell">' + productInputHtml(session) + '</td>' +
         '<td class="num-cell">' + reqCount + '</td>' +
         '<td class="num-cell">' + tpAdded + '</td>' +
         '<td class="skills-cell">' + escapeHtml(skillLayersText(session)) + '</td>' +
-        '<td class="tickets-cell">' + ticketInputHtml(session) + '</td>' +
+        '<td class="tickets-cell">' + ticketPickerHtml(session) + '</td>' +
         '</tr>';
+    }
+
+    function renderProductList() {
+      const productList = document.getElementById("product-list");
+      if (!productList) return;
+      productList.innerHTML = products.map((product) =>
+        '<option value="' + escapeHtml(product.product_name) + '"></option>'
+      ).join("");
+    }
+
+    function selectedTicketDisplayIds(picker) {
+      if (!picker) return [];
+      return [...new Set(Array.from(picker.querySelectorAll(".ticket-option-cb:checked") || [])
+        .map((option) => String(option.value || "").trim().toUpperCase())
+        .filter(Boolean))];
+    }
+
+    function renderTicketTags(picker) {
+      const selected = selectedTicketDisplayIds(picker);
+      const trigger = picker.querySelector(".ticket-trigger");
+      trigger.innerHTML = selected.length
+        ? selected.map((ticket) =>
+          '<span class="ticket-tag" data-ticket="' + escapeHtml(ticket) + '">' +
+            ticketLinkHtml(ticket) +
+            '<button class="ticket-remove" type="button" data-ticket="' + escapeHtml(ticket) + '" aria-label="Remove ' + escapeHtml(ticket) + '">×</button>' +
+          '</span>'
+        ).join('')
+        : '<span class="ticket-placeholder">Select tickets</span>';
+    }
+
+    function ensureTicketOption(picker, ticket, checked) {
+      const existing = Array.from(picker.querySelectorAll(".ticket-option-cb") || []).find((option) => option.value === ticket);
+      if (existing) {
+        if (checked) existing.checked = true;
+        return true;
+      }
+      const options = picker.querySelector(".ticket-options");
+      const empty = options.querySelector(".ticket-empty");
+      if (empty) empty.remove();
+      const label = document.createElement("div");
+      label.className = "ticket-option";
+      label.innerHTML = '<label class="ticket-option-choice">' +
+        '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '"' + (checked ? ' checked' : '') + ' />' +
+        '<span class="ticket-option-label">' + escapeHtml(ticket) + '</span>' +
+        '</label>' +
+        ticketOpenLinkHtml(ticket);
+      options.appendChild(label);
+      return true;
+    }
+
+    function addTicketOption(picker, value) {
+      const ticket = ticketDisplayIdFromInput(value);
+      if (!ticket) return false;
+      document.querySelectorAll(".ticket-picker").forEach((candidate) => {
+        ensureTicketOption(candidate, ticket, candidate === picker);
+      });
+      renderTicketTags(picker);
+      return true;
+    }
+
+    function syncRowTickets(row) {
+      if (!row) return;
+      const session = findSession(row.dataset.sessionId);
+      const picker = row.querySelector(".ticket-picker");
+      if (session && picker) session.ticket_display_ids = selectedTicketDisplayIds(picker);
+    }
+
+    function addTicketFromRow(row) {
+      if (!row) return;
+      const input = row.querySelector(".ticket-add");
+      const picker = row.querySelector(".ticket-picker");
+      if (!input || !picker) return;
+      if (picker.classList.contains("disabled")) return;
+      if (addTicketOption(picker, input.value)) {
+        input.value = "";
+        syncRowTickets(row);
+      }
+    }
+
+    function resetFloatingMenu(menu, scrollEl) {
+      menu.style.position = "";
+      menu.style.left = "";
+      menu.style.right = "";
+      menu.style.top = "";
+      menu.style.bottom = "";
+      menu.style.width = "";
+      menu.style.maxHeight = "";
+      if (scrollEl) scrollEl.style.maxHeight = "";
+    }
+
+    function setTicketMenuOpen(picker, open) {
+      const menu = picker.querySelector(".ticket-menu");
+      const options = picker.querySelector(".ticket-options");
+      if (open) {
+        setTimeout(() => picker.querySelector(".ticket-add")?.focus(), 0);
+      } else {
+        picker.classList.remove("drop-up");
+        resetFloatingMenu(menu, options);
+      }
+      menu.classList.toggle("hidden", !open);
+    }
+
+    function closeAllMenus() {
+      document.querySelectorAll(".ticket-picker").forEach((picker) => setTicketMenuOpen(picker, false));
+    }
+
+    function updateTicketPickerState(row) {
+      const picker = row.querySelector(".ticket-picker");
+      if (!picker) return;
+      const productSelected = Boolean(findProduct(row.querySelector(".product").value));
+      picker.classList.toggle("disabled", !productSelected);
+      picker.querySelector(".ticket-trigger").setAttribute("aria-disabled", String(!productSelected));
+      picker.querySelector(".ticket-trigger").tabIndex = productSelected ? 0 : -1;
+      picker.querySelectorAll(".ticket-option-cb, .ticket-add").forEach((input) => {
+        input.disabled = !productSelected;
+      });
+      if (!productSelected) setTicketMenuOpen(picker, false);
+    }
+
+    function wireTicketPicker(picker, row) {
+      picker.querySelector(".ticket-trigger").addEventListener("click", (event) => {
+        if (picker.classList.contains("disabled")) return;
+        if (event.target.closest(".ticket-link")) return;
+        if (event.target.closest(".ticket-remove")) return;
+        setTicketMenuOpen(picker, picker.querySelector(".ticket-menu").classList.contains("hidden"));
+      });
+      picker.querySelector(".ticket-trigger").addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        if (picker.classList.contains("disabled")) return;
+        setTicketMenuOpen(picker, picker.querySelector(".ticket-menu").classList.contains("hidden"));
+      });
+      picker.addEventListener("change", (event) => {
+        if (picker.classList.contains("disabled")) return;
+        if (!event.target.classList.contains("ticket-option-cb")) return;
+        renderTicketTags(picker);
+        syncRowTickets(row);
+      });
+      picker.addEventListener("click", (event) => {
+        if (picker.classList.contains("disabled")) return;
+        if (event.target.closest(".ticket-link")) return;
+        const remove = event.target.closest(".ticket-remove");
+        if (!remove) return;
+        event.stopPropagation();
+        const ticket = remove.dataset.ticket;
+        const checkbox = Array.from(picker.querySelectorAll(".ticket-option-cb")).find((option) => option.value === ticket);
+        if (checkbox) checkbox.checked = false;
+        renderTicketTags(picker);
+        syncRowTickets(row);
+      });
+      picker.querySelector(".ticket-add").addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        addTicketFromRow(row);
+      });
+      picker.querySelector(".ticket-add").addEventListener("mousedown", (event) => {
+        event.stopPropagation();
+      });
+      picker.querySelector(".ticket-add").addEventListener("click", (event) => {
+        event.stopPropagation();
+        event.currentTarget.focus();
+      });
+      picker.querySelector(".ticket-add").addEventListener("blur", () => {
+        addTicketFromRow(row);
+      });
+    }
+
+    function wireSessionRows() {
+      document.querySelectorAll("#qa-rows tr[data-session-id]").forEach((row) => {
+        const productInput = row.querySelector(".product");
+        productInput.addEventListener("change", () => setRowProduct(row, findProduct(productInput.value)));
+        const picker = row.querySelector(".ticket-picker");
+        if (picker) {
+          wireTicketPicker(picker, row);
+          updateTicketPickerState(row);
+        }
+      });
+    }
+
+    function setRowProduct(row, product) {
+      const session = findSession(row.dataset.sessionId);
+      const productInput = row.querySelector(".product");
+      if (!session || !productInput) return;
+      productInput.value = product ? product.product_name : "";
+      if (product) {
+        session.product_id = product.product_id;
+        session.product_name = product.product_name;
+      } else {
+        delete session.product_id;
+        delete session.product_name;
+      }
+      validateProductRow(row);
+      updateTicketPickerState(row);
     }
 
     function renderSessionTable() {
@@ -306,9 +651,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
         return;
       }
       tbody.innerHTML = sessions.map(sessionRowHtml).join("");
-      tbody.querySelectorAll(".product-select").forEach((select) => {
-        select.addEventListener("change", () => validateProductRow(select.closest("tr")));
-      });
+      wireSessionRows();
     }
 
     function renderSupplementCandidates() {
@@ -365,23 +708,13 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       renderSupplementCandidates();
     }
 
-    function parseTicketDisplayIds(raw) {
-      return [...new Set(String(raw || "").split(/[,\\s]+/).map((part) => {
-        const trimmed = part.trim();
-        const urlMatch = /https?:\\/\\/[^\\s/]+\\/issue\\/([A-Za-z]+-\\d+)/i.exec(trimmed);
-        if (urlMatch && urlMatch[1]) return urlMatch[1].toUpperCase();
-        const displayMatch = /^[A-Za-z][A-Za-z0-9]+-\\d+$/.exec(trimmed);
-        return displayMatch ? trimmed.toUpperCase() : "";
-      }).filter(Boolean))];
-    }
-
     function validateProductRow(row) {
-      const select = row.querySelector(".product-select");
+      const productInput = row.querySelector(".product");
       const error = row.querySelector(".product-error");
-      const product = findProduct(select.value);
-      const valid = Boolean(product || !select.value);
+      const product = findProduct(productInput.value);
+      const valid = Boolean(product || !productInput.value.trim());
       row.classList.toggle("invalid-product", !valid);
-      select.setCustomValidity(valid ? "" : "Choose a product from the list.");
+      productInput.setCustomValidity(valid ? "" : "Choose a product from the list.");
       if (error) error.textContent = valid ? "" : "Choose a product from the list.";
       return valid;
     }
@@ -400,24 +733,23 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       }
       const invalid = rows.filter((row) => row.classList.contains("invalid-product"));
       if (invalid.length > 0) {
-        invalid[0].querySelector(".product-select").reportValidity();
+        invalid[0].querySelector(".product").reportValidity();
         throw new Error("Fix invalid product selections before saving.");
       }
     }
 
     function collectAssignments() {
+      document.querySelectorAll("#qa-rows tr[data-session-id]").forEach((row) => addTicketFromRow(row));
       validateSingleProductPerSession();
       return Array.from(document.querySelectorAll("#qa-rows tr[data-session-id]")).map((row) => {
         const sessionId = row.dataset.sessionId;
-        const select = row.querySelector(".product-select");
-        const ticketInput = row.querySelector(".ticket-input");
-        const product = findProduct(select.value);
+        const product = findProduct(row.querySelector(".product").value);
         return {
           session_id: sessionId,
           product_id: product ? product.product_id : undefined,
           product_line_id: product ? product.product_line_id : undefined,
           product_name: product ? product.product_name : undefined,
-          ticket_display_ids: parseTicketDisplayIds(ticketInput ? ticketInput.value : ""),
+          ticket_display_ids: selectedTicketDisplayIds(row.querySelector(".ticket-picker")),
           manually_added: manuallyAddedIds.has(sessionId),
         };
       });
@@ -434,7 +766,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       if (!node) return false;
       const payload = JSON.parse(node.textContent || "{}");
       daily = payload.daily;
-      products = payload.products || [];
+      products = normalizeProducts(payload.products || []);
       excludedSessions = payload.excludedSessions || [];
       return true;
     }
@@ -445,11 +777,18 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
         if (!embedded) {
           const payload = await api("/qa-assign/bootstrap");
           daily = payload.daily;
-          products = payload.products || [];
+          products = normalizeProducts(payload.products || []);
           excludedSessions = payload.excludedSessions || [];
         }
+        renderProductList();
         renderSessionTable();
         renderSupplementCandidates();
+        document.addEventListener("click", (event) => {
+          document.querySelectorAll(".ticket-picker").forEach((picker) => {
+            if (!picker.contains(event.target)) setTicketMenuOpen(picker, false);
+          });
+        });
+        window.addEventListener("resize", closeAllMenus);
         setStatus("Review QA sessions, adjust products/tickets, and save.");
       } catch (err) {
         setStatus(err.message || "Failed to load QA assignment data.", true);
