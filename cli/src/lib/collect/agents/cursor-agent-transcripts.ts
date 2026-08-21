@@ -31,6 +31,8 @@ const CHARS_PER_TOKEN = 4;
 interface TranscriptEvent {
   role?: string;
   type?: string;
+  isSidechain?: boolean;
+  sidechain?: boolean;
   message?: {
     content?: Array<{
       type?: string;
@@ -53,6 +55,7 @@ interface ParsedTurn {
   toolCallCount: number;
   cwd: string;
   fileDeltas: FileDelta[];
+  isSidechain: boolean;
 }
 
 function estimateTokensFromTurns(turns: ParsedTurn[]): { inputTokens: number; outputTokens: number } {
@@ -126,6 +129,7 @@ function extractHumanInputs(turns: ParsedTurn[], sessionTitle: string): HumanInp
   for (let i = 0; i < turns.length; i++) {
     const turn = turns[i];
     if (!turn) continue;
+    if (turn.isSidechain) continue;
     if (turn.role !== "user") continue;
     const text = normalizeUserText(turn.text);
     if (!text || text.length < 10) continue;
@@ -150,6 +154,7 @@ function extractHumanInputs(turns: ParsedTurn[], sessionTitle: string): HumanInp
     for (let j = i + 1; j < turns.length; j++) {
       const next = turns[j];
       if (!next || next.role === "user") break;
+      if (next.isSidechain) continue;
       if (next.role === "assistant" && next.text) {
         assistantTexts.push(next.text);
       }
@@ -215,6 +220,7 @@ function parseTranscriptFile(jsonlPath: string): ParsedTurn[] {
       toolCallCount: toolCalls.length,
       cwd: extractCwd(event.message),
       fileDeltas: toolCalls.flatMap(extractFileDeltasFromToolCall),
+      isSidechain: event["isSidechain"] === true || event["sidechain"] === true,
     });
   }
 
