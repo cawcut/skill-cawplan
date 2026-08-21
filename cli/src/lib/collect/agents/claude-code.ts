@@ -743,6 +743,34 @@ export interface CollectedClaudeSession {
   session: SessionData;
 }
 
+interface ClaudeMergeEvents {
+  main: Record<string, unknown>[];
+  subagents: Record<string, unknown>[];
+}
+
+function mergeEventKey(event: Record<string, unknown>): string {
+  const message = event["message"] as Record<string, unknown> | undefined;
+  const id = event["uuid"] ?? message?.["id"];
+  if (id) return `id:${String(id)}`;
+  return `fallback:${String(event["type"] ?? "")}::${String(event["timestamp"] ?? "")}::${JSON.stringify(message?.["content"] ?? message ?? event)}`;
+}
+
+function readClaudeMergeEvents(member: CollectedClaudeSession): ClaudeMergeEvents {
+  const date = member.session.date;
+  const main = parseEvents(member.jsonlPath, date);
+  const subagents: Record<string, unknown>[] = [];
+  const subagentsDir = join(dirname(member.jsonlPath), member.sessionId, "subagents");
+  try {
+    for (const subFile of readdirSync(subagentsDir)) {
+      if (!subFile.startsWith("agent-") || !subFile.endsWith(".jsonl")) continue;
+      subagents.push(...parseEvents(join(subagentsDir, subFile), date));
+    }
+  } catch {
+    // No readable subagent directory.
+  }
+  return { main, subagents };
+}
+
 function mergeTimeRangeDisplay(members: SessionData[]): string {
   const parts = members.map((m) => m.time_range.display).filter((d) => d && d.includes(" - "));
   if (!parts.length) return members[0]?.time_range.display ?? "unknown";
@@ -751,34 +779,89 @@ function mergeTimeRangeDisplay(members: SessionData[]): string {
   return `${starts[0]} - ${ends[ends.length - 1]}`;
 }
 
-function mergeSessionDataGroup(members: SessionData[], canonicalIndex: number): SessionData {
-  const canonical = members[canonicalIndex];
+function mergeSessionDataGroup(members: CollectedClaudeSession[], canonicalIndex: number): SessionData {
+  const canonical = members[canonicalIndex]!.session;
+  const parsedMembers = members.map(readClaudeMergeEvents);
+  const allEvents = parsedMembers.flatMap((parsed) => [...parsed.main, ...parsed.subagents]);
+  const hasRawMessages = allEvents.some((event) => event["type"] === "user" || event["type"] === "assistant");
 
-  const buckets: Record<string, UsageBucket> = {};
-  for (const m of members) {
-    for (const b of m.usage_breakdown) {
-      const key = bucketKey({ model: b.model, speed: b.speed, service_tier: b.service_tier, effort: b.effort });
-      if (!buckets[key]) {
-        buckets[key] = { ...b };
-        continue;
-      }
-      const existing = buckets[key];
-      existing.api_calls += b.api_calls;
-      existing.input_tokens += b.input_tokens;
-      existing.output_tokens += b.output_tokens;
-      existing.cache_read_input_tokens += b.cache_read_input_tokens;
-      existing.cache_creation_input_tokens += b.cache_creation_input_tokens;
-      existing.cost += b.cost;
-    }
-  }
+  // Re-aggregate raw events so message.id deduplication works across the
+  // original transcript and every compaction continuation.
+  const rawBuckets = aggregateUsageBuckets(allEvents, "claude-code", "claude_code_pricing_table_estimate");
+  const buckets = Object.keys(rawBuckets).length > 0
+    ? rawBuckets
+    : members.reduce<Record<string, UsageBucket>>(
+        (result, member) => mergeUsageBuckets(result, member.session.usage_breakdown.reduce<Record<string, UsageBucket>>((byKey, bucket) => {
+          byKey[bucketKey({ model: bucket.model, speed: bucket.speed, service_tier: bucket.service_tier, effort: bucket.effort })] = bucket;
+          return byKey;
+        }, {})),
+        {},
+      );
   const usageBreakdown = Object.values(buckets);
   const modelUsage = foldBucketsToModel(buckets);
 
-  // collectClaudeCodeSession() never populates the top-level file_changes array
-  // (only human_inputs[].file_changes, which the daily aggregator later rolls up
-  // into it) — so files_changed here must be summed directly from each member's
-  // count, not derived from a field that's always empty at this pipeline stage.
-  const filesChangedCount = members.reduce((s, m) => s + (m.files_changed ?? 0), 0);
+  const seenEvents = new Set<string>();
+  const fileChanges = new Map<string, { added: number; deleted: number; repo: string }>();
+  const repoMap = new Map<string, RepoTouched>();
+  let userCount = 0;
+  let assistantCount = 0;
+  let toolCallCount = 0;
+
+  for (let memberIndex = 0; memberIndex < members.length; memberIndex++) {
+    const parsed = parsedMembers[memberIndex]!;
+    const repo = members[memberIndex]!.session.repos_touched[0]?.repo ?? "";
+    for (const [isSubagent, events] of [[false, parsed.main], [true, parsed.subagents]] as const) {
+      for (const event of events) {
+        const key = mergeEventKey(event);
+        if (seenEvents.has(key)) continue;
+        seenEvents.add(key);
+        if (event["type"] !== "assistant") {
+          if (!isSubagent && event["type"] === "user") {
+            const message = event["message"] as Record<string, unknown> | undefined;
+            if (typeof message?.["content"] === "string" && message["content"].trim()) userCount++;
+          }
+          continue;
+        }
+        assistantCount += isSubagent ? 0 : 1;
+        const message = event["message"] as Record<string, unknown> | undefined;
+        const content = message?.["content"] as unknown[] | undefined;
+        if (!Array.isArray(content)) continue;
+        for (const block of content) {
+          const b = block as Record<string, unknown>;
+          if (b["type"] !== "tool_use") continue;
+          toolCallCount++;
+          const input = b["input"] as Record<string, unknown> | undefined;
+          if (!input) continue;
+          const filePath = extractPathFromInput(input);
+          if (!filePath) continue;
+          let added = 0;
+          let deleted = 0;
+          if (b["name"] === "Edit") {
+            added = countLines(input["new_string"]);
+            deleted = countLines(input["old_string"]);
+          } else if (b["name"] === "Write") {
+            added = countLines(input["content"]);
+          }
+          const existing = fileChanges.get(filePath);
+          if (existing) {
+            existing.added += added;
+            existing.deleted += deleted;
+          } else {
+            fileChanges.set(filePath, { added, deleted, repo });
+          }
+        }
+      }
+    }
+  }
+
+  for (const change of fileChanges.values()) {
+    if (!change.repo) continue;
+    const existing = repoMap.get(change.repo) ?? { repo: change.repo, files: 0, added: 0, deleted: 0 };
+    existing.files++;
+    existing.added += change.added;
+    existing.deleted += change.deleted;
+    repoMap.set(change.repo, existing);
+  }
 
   // Compaction continuation seeds the new file with a copy of the preserved
   // segment from the file it continues from, so the same human_input turn can
@@ -786,7 +869,7 @@ function mergeSessionDataGroup(members: SessionData[], canonicalIndex: number): 
   // (by content), keeping the earliest occurrence chronologically.
   const seenContent = new Set<string>();
   const humanInputs = members
-    .flatMap((m) => m.human_inputs ?? [])
+    .flatMap((m) => m.session.human_inputs ?? [])
     .sort((a, b) => (a.start_time ?? "").localeCompare(b.start_time ?? ""))
     .filter((h) => {
       const key = h.content.trim();
@@ -796,31 +879,32 @@ function mergeSessionDataGroup(members: SessionData[], canonicalIndex: number): 
       return true;
     });
 
-  const messageStats: MessageStats = {
-    user: members.reduce((s, m) => s + m.message_stats.user, 0),
-    assistant: members.reduce((s, m) => s + m.message_stats.assistant, 0),
-    tool_calls: members.reduce((s, m) => s + m.message_stats.tool_calls, 0),
-  };
-
-  const repoMap = new Map<string, RepoTouched>();
-  for (const m of members) {
-    for (const r of m.repos_touched) {
-      const existing = repoMap.get(r.repo);
-      if (!existing) {
-        repoMap.set(r.repo, { ...r });
-        continue;
+  const messageStats: MessageStats = { user: userCount, assistant: assistantCount, tool_calls: toolCallCount };
+  if (!hasRawMessages) {
+    messageStats.user = members.reduce((sum, member) => sum + member.session.message_stats.user, 0);
+    messageStats.assistant = members.reduce((sum, member) => sum + member.session.message_stats.assistant, 0);
+    messageStats.tool_calls = members.reduce((sum, member) => sum + member.session.message_stats.tool_calls, 0);
+    for (const member of members) {
+      for (const repo of member.session.repos_touched) {
+        const existing = repoMap.get(repo.repo) ?? { ...repo };
+        existing.files += repo.files;
+        existing.added += repo.added;
+        existing.deleted += repo.deleted;
+        repoMap.set(repo.repo, existing);
       }
-      existing.files += r.files;
-      existing.added += r.added;
-      existing.deleted += r.deleted;
     }
   }
 
-  const starts = members.map((m) => m.time_range.start).filter((s): s is string => Boolean(s)).sort();
-  const filesAdded = members.reduce((s, m) => s + (m.files_added ?? 0), 0);
-  const filesDeleted = members.reduce((s, m) => s + (m.files_deleted ?? 0), 0);
-  const ticketIds = [...new Set(members.flatMap((m) => m.ticket_ids ?? []))];
-  const ticketDisplayIds = [...new Set(members.flatMap((m) => m.ticket_display_ids ?? []))];
+  const starts = members.map((m) => m.session.time_range.start).filter((s): s is string => Boolean(s)).sort();
+  const filesChanged = hasRawMessages ? fileChanges.size : members.reduce((sum, member) => sum + (member.session.files_changed ?? 0), 0);
+  const filesAdded = hasRawMessages
+    ? [...fileChanges.values()].reduce((s, f) => s + f.added, 0)
+    : members.reduce((sum, member) => sum + (member.session.files_added ?? 0), 0);
+  const filesDeleted = hasRawMessages
+    ? [...fileChanges.values()].reduce((s, f) => s + f.deleted, 0)
+    : members.reduce((sum, member) => sum + (member.session.files_deleted ?? 0), 0);
+  const ticketIds = [...new Set(members.flatMap((m) => m.session.ticket_ids ?? []))];
+  const ticketDisplayIds = [...new Set(members.flatMap((m) => m.session.ticket_display_ids ?? []))];
 
   // total_tokens/session_cost/models/cost_basis/token_source are intentionally
   // left unset here, same as a plain collectClaudeCodeSession() result — the
@@ -831,7 +915,7 @@ function mergeSessionDataGroup(members: SessionData[], canonicalIndex: number): 
     ...canonical,
     time_range: {
       ...canonical.time_range,
-      display: mergeTimeRangeDisplay(members),
+      display: mergeTimeRangeDisplay(members.map((m) => m.session)),
       start: starts[0] ?? canonical.time_range.start,
     },
     models: undefined,
@@ -841,7 +925,7 @@ function mergeSessionDataGroup(members: SessionData[], canonicalIndex: number): 
     token_source: undefined,
     model_usage: modelUsage,
     usage_breakdown: usageBreakdown,
-    files_changed: filesChangedCount,
+    files_changed: filesChanged,
     files_added: filesAdded > 0 ? filesAdded : undefined,
     files_deleted: filesDeleted > 0 ? filesDeleted : undefined,
     repos_touched: [...repoMap.values()],
@@ -902,14 +986,14 @@ export function mergeCompactionContinuations(
     if (groupIndices.length <= 1) continue; // nothing to merge
     if (groupIndices.some((i) => consumed.has(i))) continue; // already part of another merged group
 
-    const members = groupIndices.map((i) => collected[i].session);
+    const members = groupIndices.map((i) => collected[i]);
     const canonicalIndex = parentIndex !== undefined ? 0 : members
-      .map((m, i) => ({ i, start: m.time_range.start ?? "" }))
+      .map((m, i) => ({ i, start: m.session.time_range.start ?? "" }))
       .sort((a, b) => a.start.localeCompare(b.start))[0].i;
 
     logClaude(
       opts,
-      `Merging ${groupIndices.length} compaction-continuation session(s) into "${members[canonicalIndex].session_name}" (origin ${uuid.slice(0, 8)}...).`
+      `Merging ${groupIndices.length} compaction-continuation session(s) into "${members[canonicalIndex].session.session_name}" (origin ${uuid.slice(0, 8)}...).`
     );
     merged.push(mergeSessionDataGroup(members, canonicalIndex));
     groupIndices.forEach((i) => consumed.add(i));

@@ -59,6 +59,20 @@ function parseEventTimestampMs(event: Record<string, unknown>): number | null {
     return null;
 }
 
+function cursorUsageEventKey(event: Record<string, unknown>): string {
+    const explicitId = ["id", "eventId", "event_id", "usageEventId", "requestId", "completionId"]
+        .map((field) => event[field])
+        .find((value) => typeof value === "string" || typeof value === "number");
+    if (explicitId != null) return `id:${String(explicitId)}`;
+
+    return `fallback:${JSON.stringify({
+        timestamp: parseEventTimestampMs(event),
+        model: event["model"] ?? "",
+        tokenUsage: event["tokenUsage"] ?? {},
+        chargedCents: event["chargedCents"] ?? 0,
+    })}`;
+}
+
 /**
  * Read the Cursor access token from env or the state.vscdb SQLite database.
  */
@@ -272,11 +286,15 @@ export function aggregateCursorUsage(
 } {
     const byModel: Record<string, ModelUsageEntry> = {};
     let totalCost = 0;
+    const seenEvents = new Set<string>();
 
     for (const event of events) {
         const tsMs = parseEventTimestampMs(event);
         if (tsMs == null) continue;
         if (!isTimestampOnLocalDate(tsMs, date)) continue;
+        const eventKey = cursorUsageEventKey(event);
+        if (seenEvents.has(eventKey)) continue;
+        seenEvents.add(eventKey);
 
         const model = (event["model"] as string | undefined) ?? "unknown";
         const tokenUsage = event["tokenUsage"] as Record<string, unknown> | undefined;
@@ -529,11 +547,15 @@ export function aggregateCursorUsageBySession(
     const humanInputCosts = new Map<string, Record<number, number>>();
     const humanInputApiCalls = new Map<string, Record<number, number>>();
     const creditedIncrementalInput = new Set<string>();
+    const seenEvents = new Set<string>();
 
     for (const event of events) {
         const tsMs = parseEventTimestampMs(event);
         if (tsMs == null) continue;
         if (!isTimestampOnLocalDate(tsMs, date)) continue;
+        const eventKey = cursorUsageEventKey(event);
+        if (seenEvents.has(eventKey)) continue;
+        seenEvents.add(eventKey);
 
         const window = assignEventToAttributionWindow(tsMs, windows as AttributionWindow[]);
         if (!window) continue;

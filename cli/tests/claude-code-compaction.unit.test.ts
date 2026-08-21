@@ -276,6 +276,61 @@ describe("mergeCompactionContinuations", () => {
     expect(contents).toEqual(["shared preserved turn", "only in child-a", "only in child-b"]);
   });
 
+  test("deduplicates copied assistant usage and activity across continuation files", () => {
+    const dir = makeDir();
+    const parentPath = join(dir, "parent.jsonl");
+    const childPath = join(dir, "child.jsonl");
+    const copiedAssistant = {
+      type: "assistant",
+      timestamp: "2026-07-23T01:02:00.000Z",
+      message: {
+        id: "assistant-copied",
+        model: "claude-sonnet-5",
+        usage: { input_tokens: 100, output_tokens: 50 },
+        content: [{ type: "tool_use", name: "Edit", input: { file_path: "src/shared.ts", old_string: "old", new_string: "new" } }],
+      },
+    };
+    const newAssistant = {
+      type: "assistant",
+      timestamp: "2026-07-23T01:04:00.000Z",
+      message: {
+        id: "assistant-new",
+        model: "claude-sonnet-5",
+        usage: { input_tokens: 200, output_tokens: 80 },
+        content: [{ type: "tool_use", name: "Write", input: { file_path: "src/new.ts", content: "new file" } }],
+      },
+    };
+    const preservedUser = {
+      type: "user",
+      timestamp: "2026-07-23T01:01:00.000Z",
+      uuid: "preserved-user",
+      message: { role: "user", content: "continue the work" },
+    };
+    writeJsonl(parentPath, [preservedUser, copiedAssistant]);
+    writeJsonl(childPath, [
+      { type: "system", subtype: "compact_boundary", logicalParentUuid: "preserved-user" },
+      preservedUser,
+      copiedAssistant,
+      newAssistant,
+    ]);
+
+    const collected: CollectedClaudeSession[] = [
+      { jsonlPath: parentPath, sessionId: "parent", session: session({ session_id: "parent", files_changed: 1 }) },
+      { jsonlPath: childPath, sessionId: "child", session: session({ session_id: "child", files_changed: 2 }) },
+    ];
+
+    const [merged] = mergeCompactionContinuations(collected);
+    expect(merged?.usage_breakdown).toHaveLength(1);
+    expect(merged?.usage_breakdown[0]).toMatchObject({
+      api_calls: 2,
+      input_tokens: 300,
+      output_tokens: 130,
+    });
+    expect(merged?.message_stats).toEqual({ user: 1, assistant: 2, tool_calls: 2 });
+    expect(merged?.files_changed).toBe(2);
+    expect(merged?.files_added).toBe(2);
+  });
+
   test("leaves unrelated sessions unmerged", () => {
     const dir = makeDir();
     const pathA = join(dir, "a.jsonl");

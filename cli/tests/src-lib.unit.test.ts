@@ -1645,6 +1645,19 @@ describe("src lib collect daily aggregator", () => {
     const bySession = aggregateCursorUsageBySession(
       [
         {
+          id: "cursor-usage-event-1",
+          timestamp: "2026-06-17T02:10:00.000Z",
+          model: "gpt-5.5-medium",
+          tokenUsage: {
+            inputTokens: 100,
+            outputTokens: 20,
+            cacheReadTokens: 300,
+            cacheWriteTokens: 0,
+          },
+          chargedCents: 12,
+        },
+        {
+          id: "cursor-usage-event-1",
           timestamp: "2026-06-17T02:10:00.000Z",
           model: "gpt-5.5-medium",
           tokenUsage: {
