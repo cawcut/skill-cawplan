@@ -6,6 +6,7 @@ import {buildQueryFromFlags, csvToArray} from "../lib/cache.js";
 import {cawplanRequest} from "../lib/http.js";
 import {collect, collectQaResult} from "../lib/collect/index.js";
 import {uploadQaDailyReport} from "../lib/qa-session/reports-api.js";
+import {qaBackfillMissingReports} from "../lib/qa-session/backfill.js";
 import {readQaDailyReport} from "../lib/qa-assign/qa-report-io.js";
 import {startQaAssignmentWebServer} from "../lib/qa-assign/qa-web-server.js";
 import type {DailyApiJson} from "../lib/collect/types.js";
@@ -397,6 +398,31 @@ function registerSessionSubcommands(session: Command): void {
                 const payload = readQaDailyReport(String(opts.file));
                 const result = await uploadQaDailyReport(payload);
                 console.log(JSON.stringify(result, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    session.command("qa-backfill")
+        .description("List or backfill missing QA daily session reports in a date range")
+        .requiredOption("--from <YYYY-MM-DD>", "Start date")
+        .requiredOption("--to <YYYY-MM-DD>", "End date")
+        .option("--dry-run", "Only list missing QA report dates without collecting or uploading")
+        .action(async (opts) => {
+            try {
+                if (!opts.dryRun) {
+                    throw new Error("QA backfill requires --dry-run for now; batch upload will be added in a later release");
+                }
+                const dateFrom = String(opts.from);
+                const dateTo = String(opts.to);
+                parseISODate(dateFrom);
+                parseISODate(dateTo);
+
+                const backfill = await qaBackfillMissingReports(dateFrom, dateTo, {
+                    dryRun: true,
+                });
+                console.log(JSON.stringify(backfill, null, 2));
             } catch (e) {
                 console.error(`Error: ${(e as Error).message}`);
                 process.exit(1);

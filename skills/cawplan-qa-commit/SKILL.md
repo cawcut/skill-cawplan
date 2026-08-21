@@ -18,7 +18,15 @@ cawplan skill check
 
 ## Workflow
 
-This skill covers a **single-day QA daily** workflow: Collect → Assign → Review → Upload.
+This skill covers a **single-day QA daily** workflow only: Collect → Assign → Review → Upload.
+
+**Out of scope for this skill (do not improvise):**
+- Month-missing or multi-day backfill (no `last month` / `YYYY-MM` arguments).
+- `cawplan session backfill` — that command checks and uploads **coding** dailies (`ai-session-usage`), not QA dailies.
+- Ticket progress write-back (`cawplan tickets update --progress_comment`).
+- `cawplan session assign --web` (coding flow with git-repo mapping).
+
+If the user asks to fill missing QA reports for a month, explain that multi-day QA backfill is not supported in this skill yet and offer single-day upload for specific dates instead.
 
 Supported date arguments:
 - no date, `today` → today's date
@@ -36,14 +44,19 @@ Always collect and present the review summary before uploading. Proceed to uploa
 
 ## Permission Minimization
 
-- Run each logical phase as one shell block when possible.
-- Store every generated `qa-daily-*.json` file in the QA temp directory, not in the current git working tree:
-  ```bash
-  qa_daily_dir="${TMPDIR:-/tmp}/cawplan-qa-daily"
-  mkdir -p "$qa_daily_dir"
-  daily_file="$qa_daily_dir/qa-daily-<YYYY-MM-DD>.json"
-  ```
-- Reuse the same `daily_file` path for collect, assignment, review, and upload in one workflow.
+- Run each logical phase as one shell block instead of many tiny commands.
+- When using Cursor agent shell tools for any collection phase, request full network access once for the whole shell block (`required_permissions: ["full_network"]`), because collection may call the Cursor Dashboard API at `cursor.com`.
+- Store every generated `qa-daily-*.json` file in a system temporary directory, not in the current repository. This avoids repository write prompts and keeps generated report files out of the working tree.
+- Reuse the same workflow-scoped temp directory for collect, assign, review, and upload.
+
+Before collecting, create one workflow-scoped QA temp directory (matches the CLI default for `collect --mode qa` when `--output` is omitted):
+```bash
+qa_daily_dir="${TMPDIR:-/tmp}/cawplan-qa-daily"
+mkdir -p "$qa_daily_dir"
+daily_file="$qa_daily_dir/qa-daily-<YYYY-MM-DD>.json"
+```
+
+Use absolute paths under `qa_daily_dir` for every subsequent collect, assign, review, and upload step. Do not write generated QA daily JSON into the current working directory unless the user explicitly provides an output path.
 
 ### Single-Day Workflow
 
@@ -60,7 +73,13 @@ Open the QA assignment confirmation page (no git-project column — product and 
 cawplan session collect --date <YYYY-MM-DD> --mode qa --output "$daily_file" --assign
 ```
 
-Run `--assign` as a **background** shell task. The command waits for the user to click **Save assignments** or **Close** in the browser (up to 10 minutes). Do not start a second `--assign` while one is still running.
+Run `--assign` as a **background** / non-blocking shell task (e.g. Bash `run_in_background: true`), never as a plain foreground call — the command idles for up to 10 minutes waiting on browser input, and a foreground call left waiting can get suspended by the shell's job control before the user finishes, leaving a dead process still holding the port.
+
+Keep exactly one `collect --mode qa --assign` command running until the user finishes in the browser. The command exits when the user clicks **Save assignments**, clicks **Close**, presses Ctrl+C in the terminal, or the local assignment server reaches its 10-minute timeout.
+
+Do not rerun `--assign` while a previous assignment command is still running for the same `daily_file`, even if it has been waiting for a long time. Long waits mean the page is waiting for user action, not that the command failed. If you need to report progress, tell the user to finish the already-open assignment page by saving or closing it, then wait for the existing command to exit or time out before continuing.
+
+If the assignment page fails to load or a previous run seems stuck, check for a stopped process first (`ps aux | grep "session collect"`; a `STAT` of `T` means it was suspended and is no longer serving) before assuming the command failed. Only kill and restart when the process is actually stopped, not merely still waiting.
 
 The page lets the user:
 - Confirm collected QA sessions (session id, agent, skill layers — may be empty, testpoint counts, requirements)
@@ -68,11 +87,17 @@ The page lets the user:
 - Edit ticket display IDs
 - **Optionally** add sessions from the commit-only / empty exclusion list (no manual session-id typing)
 
-**Step 3 — Review:**
+**Step 3 — Ticket context check:**
 
-Present the review described in **Review content contract** before upload.
+Do not ask the user to manually provide ticket IDs during reporting. `cawplan session collect --mode qa` parses explicit ticket refs from session `human_inputs`, including CawPlan issue URLs and display IDs; the assignment page resolves display IDs to internal `ticket_ids` when the user saves.
 
-**Step 4 — Upload:**
+When reviewing `$daily_file`, mention any `sessions[].ticket_ids` and `sessions[].ticket_display_ids` already present after assign. Ticket context must come from explicit human-input refs or assignment-page edits; do not keyword-search or guess tickets.
+
+**Step 4 — Review:**
+
+Present the full review described in **Review content contract** before upload. Do not show only a stats table.
+
+**Step 5 — Upload:**
 ```bash
 cawplan session qa-upload --file "$daily_file"
 ```
@@ -86,17 +111,19 @@ Echo the server response, including any `report_id` UUID returned on success.
 Before upload, include:
 
 - Basic facts: date, author, total QA sessions, agents, total cost.
-- Per session: `session_title`, `agent`, `skill_layers` (empty `[]` is normal for discussion-only sessions), `requirement_ids` count, `testpoint.added` / `testcase.added`, `product_id`, ticket display IDs when present.
+- Overall summary: write 2–4 sentences on what QA work happened across sessions (requirements exercised, test points/cases produced, tickets touched). The QA payload has no top-level `summary` field — derive this from sessions and `human_inputs[].content`.
+- Session review: for each important session, include `session_title`, agent, `display_time_range` when present, cost, `skill_layers`, requirement/testpoint/testcase counts, `product_id`, and ticket display IDs. Add 1–2 sentences on what work happened; do not list only title and counts.
 - Assignment notes: sessions optionally added from the supplement list, or sessions left without a product (allowed — backend accepts empty `product_id`).
-- Data quality: count of sessions with empty `skill_layers` or missing `product_id`; excluded sessions printed during collect (commit-only or empty only, if any) and whether the user supplemented any on the assignment page.
+- Data quality notes: count of sessions with empty `skill_layers` or missing `product_id`; excluded sessions printed during collect (commit-only or empty only, if any) and whether the user supplemented any on the assignment page; collect stderr warnings; sessions without cost; unresolved ticket display IDs on the assignment page.
 
 Do not summarize `human_inputs` with coding-only fields such as `category` or `topic` — the QA payload does not include them.
 
 ## Product/ticket assignment
 
 - Always use `--mode qa --assign` for web confirmation. Do **not** use `cawplan session assign --web` (that is the coding flow with git-project mapping).
-- Product selection uses the same CawPlan product catalog as coding insights, but **without** git-project linking.
+- Product selection uses the same CawPlan product catalog as coding insights, but **without** git-project linking. The product picker (same source as `cawplan session products`) excludes products whose `controls` array does not include `coding-insights` — if the product the user wants is missing, tell them it has not enabled coding insights; do not guess a substitute or hand-edit `product_id` in the JSON.
 - One session maps to at most one product. Empty product is allowed when the user cannot determine it yet.
+- On save, the assignment page resolves ticket display IDs to internal `ticket_ids` via Cloud; unresolved display IDs fail save with an error — surface that error to the user instead of uploading a stale file.
 
 ## Rules
 
@@ -105,6 +132,10 @@ Do not summarize `human_inputs` with coding-only fields such as `category` or `t
 - Do not use coding temp paths (`cawplan-ai-daily` / `ai-daily-*.json`) for QA dailies.
 - If `--file` / `daily_file` is used, the JSON must contain `schema: "qa-session.1"`, `author`, and `date`.
 - Preserve raw `human_inputs` fields that the QA schema allows (`content`, `assistant_message`, `session_id`, `start_time`, `end_time`). Never add `category`, `topic`, or related coding-only keys.
+- Never replace raw `human_inputs` with summarized content in the JSON file. Summaries belong only in the conversational review before upload.
+- Do not keyword-search or guess tickets, products, or requirements beyond what collect and the assignment page resolve.
+- Do not use `cawplan session report`, `cawplan session backfill`, or `cawplan session assign --web` in this workflow.
+- Do not offer or run month-missing / multi-day QA backfill until a dedicated QA backfill path exists in the CLI.
 - When the user says only 「提交日报」 without QA/测试 wording, **do not** use this skill — route to `cawplan-coding-commit` instead.
 
 ## Confirmation
@@ -120,3 +151,4 @@ After uploading, show:
 ## References
 
 - `references/CAWPLAN_OPEN_API.md`
+- `docs/bedoc/qa-session-report-openapi-api.md` — QA session daily upload (`POST /qa-session-usage/reports`) and read APIs

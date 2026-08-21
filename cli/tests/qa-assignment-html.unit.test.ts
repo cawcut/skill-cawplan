@@ -294,3 +294,27 @@ describe("qaAssignmentHtml isolation", () => {
         expect(html).not.toContain("repoPickerHtml");
     });
 });
+
+describe("qaAssignmentHtml - submit effect", () => {
+    test("contains Saved check-mark text and return-to-agent guidance", () => {
+        const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
+        expect(html).toContain("Saved ✓");
+        expect(html).toContain("Saved ✓ Return to agent");
+        expect(html).toContain("Return to your agent to review and confirm upload.");
+    });
+
+    test("closes page after save like coding assignment page", () => {
+        const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
+        expect(html).toContain("function closePage()");
+        expect(html).toContain("setTimeout(closePage, 150)");
+        expect(html).toContain('api("/qa-assign/close", {method: "POST"}).finally(closePage)');
+    });
+
+    test("does not use alert for save confirmation", () => {
+        expect(qaAssignmentHtml({bootstrap: bootstrapFixture()})).not.toContain("alert('Saved");
+    });
+
+    test("contains btn-saved CSS class", () => {
+        expect(qaAssignmentHtml({bootstrap: bootstrapFixture()})).toContain(".btn-saved");
+    });
+});

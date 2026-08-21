@@ -287,6 +287,9 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     .supplement-add:disabled { opacity: .5; cursor: not-allowed; }
     .actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
     #save { background: var(--uBlue-06); color: #fff; border: 1px solid var(--uBlue-06); height: 32px; padding: 0 14px; border-radius: 4px; cursor: pointer; font: inherit; font-weight: 600; }
+    #save:hover:not(:disabled) { background: hsl(214,100%,46%); border-color: hsl(214,100%,46%); }
+    #save:disabled { opacity: .5; cursor: not-allowed; }
+    #save.btn-saved { background: var(--green-07); border-color: var(--green-07); }
     #close { background: var(--bg); color: var(--text-01); border: 1px solid var(--border); height: 32px; padding: 0 14px; border-radius: 4px; cursor: pointer; font: inherit; font-weight: 600; }`}
     .status { font-size: 13px; color: var(--text-03); margin-right: auto; }
     .status-error { color: var(--red-06); }
@@ -819,16 +822,38 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       }
     }
 
-    document.getElementById("save").addEventListener("click", async () => {
+    function closePage() {
+      window.open("", "_self");
+      window.close();
+    }
+
+    async function save() {
+      const saveBtn = document.getElementById("save");
       try {
         const assignments = collectAssignments();
-        await api("/qa-assign/save", {method: "POST", body: JSON.stringify({assignments})});
-        setStatus("Saved.");
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Saving...";
+        saveBtn.classList.remove("btn-saved");
+        setStatus("Saving...");
+        const result = await api("/qa-assign/save", {method: "POST", body: JSON.stringify({assignments})});
+        saveBtn.textContent = "Saved ✓ Return to agent";
+        saveBtn.classList.add("btn-saved");
+        const fileList = result.file || "";
+        setStatus(
+          "Saved " + (result.applied_sessions ?? 0) + " session(s) to " + fileList +
+          ". Return to your agent to review and confirm upload."
+        );
+        setTimeout(closePage, 150);
       } catch (err) {
+        saveBtn.textContent = "Save assignments";
+        saveBtn.classList.remove("btn-saved");
+        saveBtn.disabled = false;
         setStatus(err.message || "Save failed.", true);
       }
-    });
-    document.getElementById("close").addEventListener("click", () => window.close());
+    }
+
+    document.getElementById("save").addEventListener("click", () => save());
+    document.getElementById("close").addEventListener("click", () => api("/qa-assign/close", {method: "POST"}).finally(closePage));
 
     init();
   </script>`}
