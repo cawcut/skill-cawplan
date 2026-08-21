@@ -22,6 +22,7 @@ import {
 } from "./agents/cursor-api.js";
 import {buildDailyApiJson} from "./aggregators/daily.js";
 import {buildQaDailyJson, buildQaDailyPayload, type QaExcludedSession} from "./aggregators/qa-daily.js";
+import {writeQaExcludedSessions} from "../qa-assign/qa-report-io.js";
 import {QaDailyApiJson} from "./qa-types.js";
 import {SessionData} from "./types.js";
 import {findLocalProductMappingForDir} from "../user-config.js";
@@ -466,6 +467,7 @@ export async function collectQaResult(opts: CollectOptions): Promise<QaCollectRe
         logger.step(`Write report to ${opts.outputPath}`, () => {
             mkdirSync(dirname(opts.outputPath!), {recursive: true});
             writeFileSync(opts.outputPath!, JSON.stringify(payload.daily, null, 2), "utf-8");
+            writeQaExcludedSessions(opts.outputPath!, payload.excludedSessions);
         });
     }
 

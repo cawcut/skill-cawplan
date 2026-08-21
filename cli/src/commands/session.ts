@@ -7,7 +7,7 @@ import {cawplanRequest} from "../lib/http.js";
 import {collect, collectQaResult} from "../lib/collect/index.js";
 import {uploadQaDailyReport} from "../lib/qa-session/reports-api.js";
 import {qaBackfillMissingReports} from "../lib/qa-session/backfill.js";
-import {readQaDailyReport} from "../lib/qa-assign/qa-report-io.js";
+import {readQaDailyReport, readQaExcludedSessions} from "../lib/qa-assign/qa-report-io.js";
 import {startQaAssignmentWebServer} from "../lib/qa-assign/qa-web-server.js";
 import type {DailyApiJson} from "../lib/collect/types.js";
 import {
@@ -398,6 +398,25 @@ function registerSessionSubcommands(session: Command): void {
                 const payload = readQaDailyReport(String(opts.file));
                 const result = await uploadQaDailyReport(payload);
                 console.log(JSON.stringify(result, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    session.command("qa-assign")
+        .description("Open the QA assignment confirmation page for an existing qa-daily JSON file")
+        .requiredOption("--file <path>", "Path to qa-daily JSON; must contain schema qa-session.1, author, and date")
+        .action(async (opts) => {
+            try {
+                const file = String(opts.file);
+                const daily = readQaDailyReport(file);
+                const excludedSessions = readQaExcludedSessions(file);
+                await startQaAssignmentWebServer({
+                    file,
+                    daily,
+                    excludedSessions,
+                });
             } catch (e) {
                 console.error(`Error: ${(e as Error).message}`);
                 process.exit(1);
