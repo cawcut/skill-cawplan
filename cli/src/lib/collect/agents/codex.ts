@@ -218,6 +218,14 @@ function numberField(record: Record<string, unknown>, field: string): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+function isSubagentSessionMeta(event: Record<string, unknown>): boolean {
+  if (event["type"] !== "session_meta") return false;
+  const payload = event["payload"] as Record<string, unknown> | undefined;
+  if (payload?.["thread_source"] === "subagent") return true;
+  const source = payload?.["source"] as Record<string, unknown> | undefined;
+  return !!source?.["subagent"];
+}
+
 function stableHumanInputKey(text: string, ts?: string): string {
   const normalized = text.replace(/\s+/g, " ").trim();
   const hash = createHash("sha256").update(normalized).digest("hex");
@@ -283,6 +291,7 @@ function parseRollout(
   tokenCountEvents: number;
   model: string | null;
   rolloutPath: string | null;
+  isSubagent: boolean;
 } {
   const result = {
     userCount: 0,
@@ -299,6 +308,7 @@ function parseRollout(
     tokenCountEvents: 0,
     model: null as string | null,
     rolloutPath: null as string | null,
+    isSubagent: false,
   };
 
   let content: string | null = null;
@@ -337,6 +347,7 @@ function parseRollout(
     if (!trimmed) continue;
     try {
       const event = JSON.parse(trimmed) as Record<string, unknown>;
+      if (isSubagentSessionMeta(event)) result.isSubagent = true;
       const payload = event["payload"] as Record<string, unknown> | undefined;
       const role = (event["role"] ?? payload?.["role"]) as string | undefined;
       const eventType = event["type"] as string | undefined;
@@ -392,7 +403,7 @@ function parseRollout(
 
       if (role === "user") {
         result.userCount++;
-        if (eventType === "response_item" && payloadType === "message") {
+        if (!result.isSubagent && eventType === "response_item" && payloadType === "message") {
           const text = extractTextContent(payload?.["content"]);
           if (isHumanInputText(text)) {
             const key = stableHumanInputKey(text, ts);
@@ -487,6 +498,9 @@ function parseRollout(
     if (merged.length > 0) {
       result.humanInputs[i]!.file_changes = merged;
     }
+  }
+  if (result.isSubagent) {
+    result.humanInputs = [];
   }
   logCodex(opts, `Codex session ${sessionId}: users=${result.userCount}, assistants=${result.assistantCount}, tool_calls=${result.toolCallCount}, token_events=${result.tokenCountEvents}, files=${result.filesChanged}.`);
 

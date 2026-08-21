@@ -35,6 +35,12 @@ interface ClaudeCollectOptions {
   log?: (message: string) => void;
 }
 
+function isSidechainEvent(event: Record<string, unknown>): boolean {
+  if (event["isSidechain"] === true || event["sidechain"] === true) return true;
+  const message = event["message"] as Record<string, unknown> | undefined;
+  return message?.["isSidechain"] === true || message?.["sidechain"] === true;
+}
+
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.round(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -547,6 +553,7 @@ export function collectClaudeCodeSession(
   timed(opts, `Extract Claude human inputs ${sessionId}`, () => {
   for (let i = 0; i < events.length; i++) {
     const event = events[i];
+    if (isSidechainEvent(event)) continue;
     if (event["type"] !== "user") continue;
     const message = event["message"] as Record<string, unknown> | undefined;
     const content = message?.["content"];
@@ -596,6 +603,7 @@ export function collectClaudeCodeSession(
     let turnLinesDeleted = 0;
     for (let j = turn.index + 1; j < nextIdx; j++) {
       const ev = events[j];
+      if (isSidechainEvent(ev)) continue;
       if (ev["type"] !== "assistant") continue;
       const ts = ev["timestamp"] as string | undefined;
       if (ts) endTs = ts;
