@@ -1,5 +1,5 @@
 import {SessionData, UsageBucket} from "../types.js";
-import {QaDailyApiJson, QaHumanInput, QaSessionData, QaSkillLayer} from "../qa-types.js";
+import {QaDailyApiJson, QaDisplayTimeRange, QaHumanInput, QaSessionData, QaSkillLayer} from "../qa-types.js";
 import {collectSkillLayers, findClaudeCodeJsonlPathBySessionId, productIdFromStdoutTraces} from "../qa-trace-extract.js";
 import {collectQaAssetChanges} from "../qa-asset-changes.js";
 import {requirementIdsFromJsonl, requirementRefsFromJsonl} from "../qa-requirement-url.js";
@@ -128,6 +128,16 @@ export function filterQaSessions(sessions: SessionData[], date: string): QaFilte
     return {included, excluded};
 }
 
+function pickDisplayTimeRange(session: SessionData): QaDisplayTimeRange | undefined {
+    const start = session.time_range?.start;
+    const display = session.time_range?.display;
+    if (!start && !display) return undefined;
+    return {
+        ...(start ? {start} : {}),
+        ...(display ? {display} : {}),
+    };
+}
+
 /**
  * Builds the QA daily payload and returns excluded sessions for the assignment UI.
  */
@@ -183,6 +193,7 @@ export function buildQaDailyPayload(
             requirement_ids: requirementIds,
             testpoint: assetChanges.testpoint,
             testcase: assetChanges.testcase,
+            display_time_range: pickDisplayTimeRange(session),
         };
     });
 
@@ -233,4 +244,12 @@ export function buildQaDailyPayload(
  */
 export function buildQaDailyJson(sessions: SessionData[], date: string, author: string): QaDailyApiJson {
     return buildQaDailyPayload(sessions, date, author).daily;
+}
+
+/** Strip assignment-only session fields before upload (R2 / §1.4). */
+export function toQaUploadPayload(daily: QaDailyApiJson): QaDailyApiJson {
+    return {
+        ...daily,
+        sessions: daily.sessions.map(({display_time_range: _displayTimeRange, ...session}) => session),
+    };
 }

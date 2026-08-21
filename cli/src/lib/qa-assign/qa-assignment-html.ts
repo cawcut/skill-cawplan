@@ -24,12 +24,24 @@ export interface QaAssignmentHtmlOptions {
     readonlyPreview?: boolean;
 }
 
-function skillLayersText(session: QaSessionData): string {
-    return (session.skill_layers ?? []).join(", ") || "—";
-}
-
 function sessionTicketDisplayIds(session: QaSessionData): string[] {
     return [...new Set((session.ticket_display_ids ?? []).filter(Boolean).map(String))];
+}
+
+/** Mirrors coding assignment-html sessionDateTimeText; reads display_time_range only. */
+export function sessionDateTimeText(session: QaSessionData): string {
+    const range = session.display_time_range;
+    const start = range?.start;
+    if (start) {
+        const d = new Date(start);
+        if (!Number.isNaN(d.getTime())) {
+            return d.toLocaleDateString("en-US", {month: "short", day: "numeric"}) + ", " +
+                d.toLocaleTimeString("en-US", {hour: "numeric", minute: "2-digit"});
+        }
+    }
+    const display = range?.display?.trim();
+    if (display) return display;
+    return "—";
 }
 
 /** Server-side row HTML for tests and readonly preview. */
@@ -54,13 +66,11 @@ export function renderQaSessionRowHtml(
 
     return `<tr data-session-id="${escapeHtml(session.session_id)}">` +
         `<td class="sid-cell"><code>${escapeHtml(session.session_id)}</code></td>` +
-        `<td class="agent-cell">${escapeHtml(session.agent || "—")}</td>` +
         `<td class="title-cell">${escapeHtml(title)}</td>` +
         `<td class="input-cell">${humanInputsHtml(report, session)}</td>` +
-        `<td class="product-cell">${productCell}</td>` +
-        `<td class="num-cell">${reqCount}</td>` +
+        `<td class="agent-cell">${escapeHtml(session.agent || "—")}</td>` +
         `<td class="num-cell">${tpAdded}</td>` +
-        `<td class="skills-cell">${escapeHtml(skillLayersText(session))}</td>` +
+        `<td class="product-cell">${productCell}</td>` +
         (interactive
             ? `<td class="tickets-cell">${ticketPickerHtmlServer(
                 session,
@@ -68,6 +78,8 @@ export function renderQaSessionRowHtml(
                 opts.allTicketDisplayIds,
             )}</td>`
             : "") +
+        `<td class="num-cell">${reqCount}</td>` +
+        `<td class="dt-cell">${escapeHtml(sessionDateTimeText(session))}</td>` +
         `</tr>`;
 }
 
@@ -219,11 +231,12 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     .table-card { border: 1px solid var(--border-sub); border-radius: 8px; overflow: hidden; }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; }
     th { background: var(--bg); padding: 10px 12px; text-align: left; font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--border-sub); white-space: nowrap; }
+    th:last-child { text-align: right; }
     td { padding: 10px 12px; border-bottom: 1px solid var(--border-sub); vertical-align: top; word-break: break-word; }
     tbody tr:last-child td { border-bottom: none; }
     tbody tr:hover td { background: var(--bg-hover); }
     .sid-cell code { font-size: 11px; }
-    .skills-cell { font-size: 12px; color: var(--text-02); }
+    .dt-cell { font-size: 12px; color: var(--text-02); white-space: nowrap; vertical-align: middle; text-align: right; }
     .input-cell { overflow: hidden; }
     .human-inputs { margin: 0; padding: 0; list-style: none; max-width: 100%; overflow: hidden; }
     .human-inputs li { font-size: 11px; color: var(--text-02); line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -292,14 +305,14 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
           <thead>
             <tr>
               <th>Session ID</th>
-              <th>Agent</th>
               <th>Title</th>
               <th>Input</th>
-              <th>Product</th>
-              <th>Requirements</th>
+              <th>Agent</th>
               <th>Test points added</th>
-              <th>Skill layers</th>
+              <th>Product</th>
               ${ticketHeader}
+              <th>Requirements</th>
+              <th>Date / Time</th>
             </tr>
           </thead>
           ${preRenderedTable}
@@ -359,10 +372,6 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
 
     function findSession(sessionId) {
       return (daily.sessions || []).find((session) => session.session_id === sessionId);
-    }
-
-    function skillLayersText(session) {
-      return (Array.isArray(session.skill_layers) ? session.skill_layers : []).join(", ") || "—";
     }
 
     function sessionTickets(session) {
@@ -433,20 +442,35 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
 
     ${INLINE_HUMAN_INPUTS_HTML}
 
+    function sessionDateTimeText(session) {
+      const range = session.display_time_range;
+      const start = range && range.start;
+      if (start) {
+        const d = new Date(start);
+        if (!Number.isNaN(d.getTime())) {
+          return d.toLocaleDateString("en-US", {month: "short", day: "numeric"}) + ", " +
+            d.toLocaleTimeString("en-US", {hour: "numeric", minute: "2-digit"});
+        }
+      }
+      const display = range && range.display ? String(range.display).trim() : "";
+      if (display) return display;
+      return "—";
+    }
+
     function sessionRowHtml(session) {
       const title = resolveSessionTitle(session);
       const reqCount = (Array.isArray(session.requirement_ids) ? session.requirement_ids : []).length;
       const tpAdded = session.testpoint && typeof session.testpoint.added === "number" ? session.testpoint.added : 0;
       return '<tr data-session-id="' + escapeHtml(session.session_id) + '">' +
         '<td class="sid-cell"><code>' + escapeHtml(session.session_id) + '</code></td>' +
-        '<td class="agent-cell">' + escapeHtml(session.agent || "—") + '</td>' +
         '<td class="title-cell">' + escapeHtml(title) + '</td>' +
         '<td class="input-cell">' + humanInputsHtml(daily, session) + '</td>' +
-        '<td class="product-cell">' + productInputHtml(session) + '</td>' +
-        '<td class="num-cell">' + reqCount + '</td>' +
+        '<td class="agent-cell">' + escapeHtml(session.agent || "—") + '</td>' +
         '<td class="num-cell">' + tpAdded + '</td>' +
-        '<td class="skills-cell">' + escapeHtml(skillLayersText(session)) + '</td>' +
+        '<td class="product-cell">' + productInputHtml(session) + '</td>' +
         '<td class="tickets-cell">' + ticketPickerHtml(session) + '</td>' +
+        '<td class="num-cell">' + reqCount + '</td>' +
+        '<td class="dt-cell">' + escapeHtml(sessionDateTimeText(session)) + '</td>' +
         '</tr>';
     }
 

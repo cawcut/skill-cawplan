@@ -6,6 +6,7 @@ import {
     qaAssignmentHtml,
     renderExcludedSessionCandidatesHtml,
     renderQaSessionRowHtml,
+    sessionDateTimeText,
 } from "../src/lib/qa-assign/qa-assignment-html.js";
 import type {QaAssignmentBootstrap} from "../src/lib/qa-assign/types.js";
 
@@ -50,6 +51,10 @@ function mockDailyFixture(): QaDailyApiJson {
                 : ["cawplan-testcase-generate"],
             testpoint: {added: index === 0 ? 6 : 0, modified: 0, deleted: 0},
             testcase: {added: 0, modified: 0, deleted: 0},
+            display_time_range: {
+                start: "2026-08-20T06:09:21.460Z",
+                display: "14:09 - 14:12",
+            },
         })),
         human_inputs: [
             {
@@ -161,6 +166,73 @@ describe("qaAssignmentHtml session and input columns", () => {
 });
 
 describe("qaAssignmentHtml segment 2 — product selection", () => {
+    test("table headers follow column order without Skill layers", () => {
+        const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
+        expect(html).not.toContain("<th>Skill layers</th>");
+        const headerMatch = html.match(/<thead>[\s\S]*?<\/thead>/);
+        expect(headerMatch).not.toBeNull();
+        const headers = [...headerMatch![0].matchAll(/<th>([^<]+)<\/th>/g)].map((m) => m[1]);
+        expect(headers).toEqual([
+            "Session ID",
+            "Title",
+            "Input",
+            "Agent",
+            "Test points added",
+            "Product",
+            "Tickets",
+            "Requirements",
+            "Date / Time",
+        ]);
+    });
+
+    test("readonly preview omits Tickets column with eight headers", () => {
+        const html = qaAssignmentHtml({
+            readonlyPreview: true,
+            bootstrap: bootstrapFixture(),
+        });
+        expect(html).not.toContain("<th>Tickets</th>");
+        expect(html).not.toContain("<th>Skill layers</th>");
+        const headerMatch = html.match(/<thead>[\s\S]*?<\/thead>/);
+        const headers = [...headerMatch![0].matchAll(/<th>([^<]+)<\/th>/g)].map((m) => m[1]);
+        expect(headers).toEqual([
+            "Session ID",
+            "Title",
+            "Input",
+            "Agent",
+            "Test points added",
+            "Product",
+            "Requirements",
+            "Date / Time",
+        ]);
+    });
+
+    test("readonly loading state uses colspan 8", () => {
+        const html = qaAssignmentHtml({readonlyPreview: true});
+        expect(html).toContain('colspan="8"');
+    });
+
+    test("sessionDateTimeText formats start like coding and falls back to em dash", () => {
+        const daily = mockDailyFixture();
+        const withStart = daily.sessions[0]!;
+        expect(sessionDateTimeText(withStart)).toMatch(/^Aug 20, /);
+        expect(sessionDateTimeText({...withStart, display_time_range: {display: "14:09 - 14:12"}})).toBe("14:09 - 14:12");
+        expect(sessionDateTimeText({...withStart, display_time_range: undefined})).toBe("—");
+    });
+
+    test("server-side row cells match header order", () => {
+        const daily = mockDailyFixture();
+        const session = daily.sessions[0]!;
+        const row = renderQaSessionRowHtml(session, MOCK_PRODUCTS, {
+            interactive: true,
+            daily,
+        });
+        expect(row).not.toContain("skills-cell");
+        expect(row).toMatch(
+            /<td class="sid-cell">[\s\S]*<td class="title-cell">[\s\S]*<td class="input-cell">[\s\S]*<td class="agent-cell">[\s\S]*<td class="num-cell">[\s\S]*<td class="product-cell">[\s\S]*<td class="tickets-cell">[\s\S]*<td class="num-cell">[\s\S]*<td class="dt-cell">/,
+        );
+        expect(row).toContain('class="dt-cell"');
+    });
+
     test("includes searchable product input with datalist and coding-style lookup", () => {
         const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
         expect(html).toContain('id="product-list"');

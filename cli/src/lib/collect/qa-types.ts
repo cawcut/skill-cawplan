@@ -29,6 +29,12 @@ export type QaSkillLayer =
     | "cawplan-testpoint-generate"    // Test-point generate / batch archive
     | "cawplan-testcase-generate";    // Test-case expand / CSV export
 
+/** Assignment UI only — stripped from upload payload by toQaUploadPayload(). */
+export interface QaDisplayTimeRange {
+    start?: string;
+    display?: string;
+}
+
 export interface QaSessionData {
     // Required
     session_id: string;
@@ -50,6 +56,9 @@ export interface QaSessionData {
     // V1 required asset slots (backend stores as-is; see QaAssetChange)
     testpoint: QaAssetChange;
     testcase: QaAssetChange;
+
+    /** Assignment UI only — omitted from upload payload (see toQaUploadPayload). */
+    display_time_range?: QaDisplayTimeRange;
 
     // Optional (not produced in V1)
     conversation?: QaConversation;
