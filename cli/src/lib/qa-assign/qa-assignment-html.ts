@@ -1,6 +1,8 @@
 import type {QaSessionData} from "../collect/qa-types.js";
 import type {QaExcludedSession} from "../collect/aggregators/qa-daily.js";
 import type {QaAssignmentBootstrap} from "./types.js";
+import {escapeHtml, normalizePortalBase} from "../assignment-ui/format.js";
+import {INLINE_ESCAPE_HTML} from "../assignment-ui/browser-snippets.js";
 
 export interface QaAssignmentHtmlOptions {
     portalBase?: string;
@@ -11,12 +13,6 @@ export interface QaAssignmentHtmlOptions {
      * Used to verify the static table segment independently.
      */
     readonlyPreview?: boolean;
-}
-
-function escapeHtml(value: unknown): string {
-    return String(value ?? "").replace(/[&<>"']/g, (c) => (
-        {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]!
-    ));
 }
 
 function skillLayersText(session: QaSessionData): string {
@@ -90,7 +86,7 @@ export function renderExcludedSessionCandidatesHtml(excluded: QaExcludedSession[
 }
 
 export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
-    const portalBase = (opts.portalBase ?? "https://app.cawplan.com").replace(/\/$/, "");
+    const portalBase = normalizePortalBase(opts.portalBase ?? "https://app.cawplan.com");
     const readonly = opts.readonlyPreview === true;
     const bootstrapJson = opts.bootstrap ? JSON.stringify(opts.bootstrap) : "";
 
@@ -235,9 +231,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     let excludedSessions = [];
     let manuallyAddedIds = new Set();
 
-    function escapeHtml(value) {
-      return String(value ?? "").replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    }
+    ${INLINE_ESCAPE_HTML}
 
     function findProduct(productId) {
       const needle = String(productId || "").trim();

@@ -2,6 +2,9 @@ import {resolveTicketContexts, ticketContextIsResolved} from "../ai-session/tick
 import type {QaAssetChange, QaDailyApiJson, QaSessionData} from "../collect/qa-types.js";
 import type {QaExcludedSession} from "../collect/aggregators/qa-daily.js";
 import type {QaWebAssignment} from "./types.js";
+import {normalizeTicketDisplayIds} from "../assignment-ui/ticket-id-parse.js";
+
+export {normalizeTicketDisplayIds} from "../assignment-ui/ticket-id-parse.js";
 
 export class QaAssignmentValidationError extends Error {
     constructor(message: string) {
@@ -12,19 +15,6 @@ export class QaAssignmentValidationError extends Error {
 
 function emptyAssetChange(): QaAssetChange {
     return {added: 0, modified: 0, deleted: 0};
-}
-
-export function normalizeTicketDisplayIds(value: unknown): string[] {
-    if (!Array.isArray(value)) return [];
-    return [...new Set(value
-        .map((item) => {
-            const trimmed = String(item ?? "").trim();
-            const urlMatch = /https?:\/\/[^\s/]+\/issue\/([A-Za-z]+-\d+)/i.exec(trimmed);
-            if (urlMatch?.[1]) return urlMatch[1].toUpperCase();
-            const displayMatch = /^[A-Za-z][A-Za-z0-9]+-\d+$/.exec(trimmed);
-            return displayMatch ? trimmed.toUpperCase() : "";
-        })
-        .filter(Boolean))];
 }
 
 /**

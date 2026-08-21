@@ -1,5 +1,12 @@
+import {normalizePortalBase} from "../assignment-ui/format.js";
+import {
+    INLINE_ESCAPE_HTML,
+    INLINE_TICKET_DETAIL_URL,
+    INLINE_TICKET_DISPLAY_ID_FROM_INPUT,
+} from "../assignment-ui/browser-snippets.js";
+
 export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
-    const normalizedPortalBase = portalBase.replace(/\/$/, "");
+    const normalizedPortalBase = normalizePortalBase(portalBase);
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -578,9 +585,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       validateProductRow(row);
     }
 
-    function escapeHtml(value) {
-      return String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    }
+    ${INLINE_ESCAPE_HTML}
 
     function humanInputContent(input) {
       if (typeof input === 'string') return input;
@@ -650,17 +655,9 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       return [...new Set(ids.filter(Boolean).map((item) => String(item).trim().toUpperCase()).filter(Boolean))].sort();
     }
 
-    function ticketDisplayIdFromInput(value) {
-      const trimmed = String(value || '').trim();
-      const urlMatch = /https?:\\/\\/[^\\s/]+\\/issue\\/([A-Za-z]+-\\d+)/i.exec(trimmed);
-      if (urlMatch && urlMatch[1]) return urlMatch[1].toUpperCase();
-      const displayMatch = /^[A-Za-z][A-Za-z0-9]+-\\d+$/.exec(trimmed);
-      return displayMatch ? trimmed.toUpperCase() : '';
-    }
+    ${INLINE_TICKET_DISPLAY_ID_FROM_INPUT}
 
-    function ticketDetailUrl(ticket) {
-      return CAWPLAN_PORTAL_BASE + '/issue/' + encodeURIComponent(ticket);
-    }
+    ${INLINE_TICKET_DETAIL_URL}
 
     function ticketLinkHtml(ticket) {
       return '<a class="ticket-link" href="' + escapeHtml(ticketDetailUrl(ticket)) + '" target="_blank" rel="noopener noreferrer" title="Open ' + escapeHtml(ticket) + '">' + escapeHtml(ticket) + '</a>';
