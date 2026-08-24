@@ -17,6 +17,7 @@ import {applyProductRepoMappingToProject} from "./apply.js";
 import {assignmentReportPayload, readDailyReports, writeDailyReport} from "./report-io.js";
 import {assertAllSessionsHaveProduct, findSessionById} from "./session-checks.js";
 import {resolveTicketContexts, ticketContextIsResolved} from "../ai-session/ticket-context.js";
+import {normalizeTicketDisplayIdsIfArray} from "../assignment-ui/ticket-id-parse.js";
 import {setCachedAssignmentTicketRefsFromSession} from "../collect/assignment-ticket-cache.js";
 import type {AssignmentReport, ProductRepoMapping, WebAssignment} from "./types.js";
 import type {DailyApiJson} from "../collect/types.js";
@@ -128,26 +129,13 @@ function requestHasToken(req: IncomingMessage, token: string): boolean {
     return url.searchParams.get("token") === token;
 }
 
-function normalizeTicketDisplayIds(value: unknown): string[] | undefined {
-    if (!Array.isArray(value)) return undefined;
-    return [...new Set(value
-        .map((item) => {
-            const trimmed = String(item ?? "").trim();
-            const urlMatch = /https?:\/\/[^\s/]+\/issue\/([A-Za-z]+-\d+)/i.exec(trimmed);
-            if (urlMatch?.[1]) return urlMatch[1].toUpperCase();
-            const displayMatch = /^[A-Za-z][A-Za-z0-9]+-\d+$/.exec(trimmed);
-            return displayMatch ? trimmed.toUpperCase() : "";
-        })
-        .filter(Boolean))];
-}
-
 async function ticketWarningsForAssignment(
     session: Pick<DailyApiJson["sessions"][number], "session_id">,
     assignment: WebAssignment,
     productLineByProduct: Map<string, string>,
     file?: string
 ): Promise<TicketAssignmentWarning[]> {
-    const displayIds = normalizeTicketDisplayIds(assignment.ticket_display_ids);
+    const displayIds = normalizeTicketDisplayIdsIfArray(assignment.ticket_display_ids);
     if (!displayIds) return [];
     if (displayIds.length === 0) {
         return [];
@@ -199,7 +187,7 @@ async function validateTicketAssignments(daily: DailyApiJson, assignments: WebAs
 }
 
 async function applyTicketDisplayIds(session: DailyApiJson["sessions"][number], assignment: WebAssignment): Promise<void> {
-    const displayIds = normalizeTicketDisplayIds(assignment.ticket_display_ids);
+    const displayIds = normalizeTicketDisplayIdsIfArray(assignment.ticket_display_ids);
     if (!displayIds) return;
     if (displayIds.length === 0) {
         delete session.ticket_display_ids;

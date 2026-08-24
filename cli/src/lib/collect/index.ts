@@ -21,6 +21,9 @@ import {
     refineHumanInputsFromAttributedEvents,
 } from "./agents/cursor-api.js";
 import {buildDailyApiJson} from "./aggregators/daily.js";
+import {buildQaDailyJson, buildQaDailyPayload, type QaExcludedSession} from "./aggregators/qa-daily.js";
+import {writeQaExcludedSessions} from "../qa-assign/qa-report-io.js";
+import {QaDailyApiJson} from "./qa-types.js";
 import {SessionData} from "./types.js";
 import {findLocalProductMappingForDir} from "../user-config.js";
 import {getCachedAssignmentTicketRefs} from "./assignment-ticket-cache.js";
@@ -164,13 +167,26 @@ export function enrichCursorGuiFallbackContext(sessions: SessionData[]): void {
     }
 }
 
+export interface ScanSessionsResult {
+    sessions: SessionData[];
+    cursorApiUsage?: {
+        byModel: Record<string, import("./types.js").ModelUsageEntry>;
+        totalCost: number;
+        currency: string;
+    };
+}
+
 /**
- * Collect all coding session data for a given date and return a DailyApiJson.
+ * Scan all agent sources for a given date and return the raw session list,
+ * with repo context normalized, ticket refs resolved, and Cursor API cost
+ * attribution applied. Shared by both the coding and QA collection entry
+ * points — everything downstream of this point (report shaping) diverges.
  */
-export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
+export async function scanSessions(
+    opts: CollectOptions,
+    logger: ReturnType<typeof createCollectLogger>
+): Promise<ScanSessionsResult> {
     const date = opts.date;
-    const logger = createCollectLogger(Boolean(opts.verbose));
-    const author = logger.step("Resolve git author", () => gitAuthor());
     const sessions: SessionData[] = [];
 
     const defaultAgents: CollectOptions["agents"] = ["claude-code", "cursor", "codex"];
@@ -189,6 +205,7 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
                 const s = logger.step(`Collect Claude Code session ${sessionId}`, () =>
                     collectClaudeCodeSession(jsonlPath, projectName, sessionId, date, {
                         log: logger.log,
+                        maxTurnLength: opts.maxTurnLength,
                     })
                 );
                 // Skip sessions with no activity on this date (multi-day sessions overlap detected
@@ -216,6 +233,7 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
         try {
             const guiSessions = logger.step("Collect Cursor GUI sessions", () => collectGuiSessions(date, {
                 log: logger.log,
+                maxTurnLength: opts.maxTurnLength,
             }));
             logger.log(`Found ${guiSessions.length} Cursor GUI candidate session(s).`);
             // Convert GuiSession to SessionData — skip sessions with no activity.
@@ -400,6 +418,18 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
         }
     }
 
+    return {sessions, cursorApiUsage};
+}
+
+/**
+ * Collect all coding session data for a given date and return a DailyApiJson.
+ */
+export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
+    const date = opts.date;
+    const logger = createCollectLogger(Boolean(opts.verbose));
+    const author = logger.step("Resolve git author", () => gitAuthor());
+    const {sessions, cursorApiUsage} = await scanSessions(opts, logger);
+
     const daily = logger.step("Build daily API JSON", () => buildDailyApiJson(sessions, date, author, cursorApiUsage));
 
     if (opts.outputPath) {
@@ -411,4 +441,40 @@ export async function collect(opts: CollectOptions): Promise<DailyApiJson> {
 
     logger.log(`Collect finished with ${daily.sessions.length} session(s).`);
     return daily;
+}
+
+export interface QaCollectResult {
+    daily: QaDailyApiJson;
+    excludedSessions: QaExcludedSession[];
+}
+
+/**
+ * QA collect entry point. Applies noise filtering (commit-only / empty sessions)
+ * inside buildQaDailyPayload() via filterQaSessions() before assembling the upload JSON.
+ */
+export async function collectQaResult(opts: CollectOptions): Promise<QaCollectResult> {
+    const date = opts.date;
+    const logger = createCollectLogger(Boolean(opts.verbose));
+    const author = logger.step("Resolve git author", () => gitAuthor());
+    // QA collection keeps every human-input turn regardless of length — a QA
+    // engineer's requirement description or test case list can easily exceed
+    // the 1500-char cutoff coding uses to skip noisy/pasted turns.
+    const {sessions} = await scanSessions({...opts, maxTurnLength: opts.maxTurnLength ?? Infinity}, logger);
+
+    const payload = logger.step("Build QA daily API JSON", () => buildQaDailyPayload(sessions, date, author));
+
+    if (opts.outputPath) {
+        logger.step(`Write report to ${opts.outputPath}`, () => {
+            mkdirSync(dirname(opts.outputPath!), {recursive: true});
+            writeFileSync(opts.outputPath!, JSON.stringify(payload.daily, null, 2), "utf-8");
+            writeQaExcludedSessions(opts.outputPath!, payload.excludedSessions);
+        });
+    }
+
+    logger.log(`Collect QA finished with ${payload.daily.sessions.length} session(s).`);
+    return payload;
+}
+
+export async function collectQa(opts: CollectOptions): Promise<QaDailyApiJson> {
+    return (await collectQaResult(opts)).daily;
 }

@@ -1,5 +1,14 @@
+import {normalizePortalBase} from "../assignment-ui/format.js";
+import {
+    INLINE_ESCAPE_HTML,
+    INLINE_HUMAN_INPUT_HELPERS,
+    INLINE_HUMAN_INPUTS_HTML,
+    INLINE_TICKET_DETAIL_URL,
+    INLINE_TICKET_DISPLAY_ID_FROM_INPUT,
+} from "../assignment-ui/browser-snippets.js";
+
 export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
-    const normalizedPortalBase = portalBase.replace(/\/$/, "");
+    const normalizedPortalBase = normalizePortalBase(portalBase);
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -578,25 +587,9 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       validateProductRow(row);
     }
 
-    function escapeHtml(value) {
-      return String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    }
+    ${INLINE_ESCAPE_HTML}
 
-    function humanInputContent(input) {
-      if (typeof input === 'string') return input;
-      return input && (input.content || input.raw_block || input.topic || '');
-    }
-
-    function truncateHumanInput(input) {
-      const text = String(input || '');
-      return text.length > 200 ? text.slice(0, 200) + '...' : text;
-    }
-
-    function humanInputsForSession(report, session) {
-      const allInputs = Array.isArray(report.human_inputs) ? report.human_inputs : [];
-      const sessionId = String(session.session_id || '');
-      return allInputs.filter((input) => String(input && input.session_id || '') === sessionId);
-    }
+    ${INLINE_HUMAN_INPUT_HELPERS}
 
     function sessionModels(session) {
       const models = Array.isArray(session.models) ? session.models : [];
@@ -650,17 +643,9 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       return [...new Set(ids.filter(Boolean).map((item) => String(item).trim().toUpperCase()).filter(Boolean))].sort();
     }
 
-    function ticketDisplayIdFromInput(value) {
-      const trimmed = String(value || '').trim();
-      const urlMatch = /https?:\\/\\/[^\\s/]+\\/issue\\/([A-Za-z]+-\\d+)/i.exec(trimmed);
-      if (urlMatch && urlMatch[1]) return urlMatch[1].toUpperCase();
-      const displayMatch = /^[A-Za-z][A-Za-z0-9]+-\\d+$/.exec(trimmed);
-      return displayMatch ? trimmed.toUpperCase() : '';
-    }
+    ${INLINE_TICKET_DISPLAY_ID_FROM_INPUT}
 
-    function ticketDetailUrl(ticket) {
-      return CAWPLAN_PORTAL_BASE + '/issue/' + encodeURIComponent(ticket);
-    }
+    ${INLINE_TICKET_DETAIL_URL}
 
     function ticketLinkHtml(ticket) {
       return '<a class="ticket-link" href="' + escapeHtml(ticketDetailUrl(ticket)) + '" target="_blank" rel="noopener noreferrer" title="Open ' + escapeHtml(ticket) + '">' + escapeHtml(ticket) + '</a>';
@@ -973,16 +958,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       return (session.time_range && session.time_range.display) || '';
     }
 
-    function humanInputsHtml(report, session) {
-      const inputs = humanInputsForSession(report, session)
-        .filter((input) => humanInputContent(input))
-        .slice(0, 3);
-      if (inputs.length === 0) return '<span class="muted">No human inputs</span>';
-      return '<ol class="human-inputs">' + inputs.map((input) => {
-        const text = escapeHtml(truncateHumanInput(humanInputContent(input)));
-        return '<li>' + text + '</li>';
-      }).join('') + '</ol>';
-    }
+    ${INLINE_HUMAN_INPUTS_HTML}
 
     function sessionStartMs(session) {
       const value = session.time_range && session.time_range.start;

@@ -173,4 +173,12 @@ export interface CollectOptions {
     agents?: Array<"claude-code" | "cursor" | "codex">;
     outputPath?: string;
     verbose?: boolean;
+    /** Collection target: "coding" (default) or "qa". */
+    collectMode?: "coding" | "qa";
+    /**
+     * Discard human-input turns longer than this many characters. Defaults
+     * to 1500 when omitted, matching existing coding-collect behavior.
+     * QA collection passes Infinity so it never drops a long turn.
+     */
+    maxTurnLength?: number;
 }

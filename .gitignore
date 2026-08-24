@@ -15,3 +15,6 @@ Reports/
 ai-daily-*.json
 .cursor/rules/
 local/
+cli/tests/fixtures/coding-baseline/*.json
+cli/tests/fixtures/long-turn/*.jsonl
+docs/bedoc/

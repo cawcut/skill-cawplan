@@ -40,6 +40,12 @@ const ACTIVE_BACKDATE_END_SLACK_MS = 1_000;
 
 interface CursorGuiCollectOptions {
     log?: (message: string) => void;
+    /**
+     * Discard human-input turns longer than this many characters. Defaults
+     * to 1500 (the coding-collect behavior). Callers that need to keep long
+     * turns (e.g. QA collection) can pass Infinity.
+     */
+    maxTurnLength?: number;
 }
 
 function logCursorGui(opts: CursorGuiCollectOptions | undefined, message: string): void {
@@ -821,7 +827,8 @@ function buildHumanInputsFromDayBubbles(
     bubbleTimeline: SessionBubbleTimeline,
     statsByContent: Map<string, HumanInputFileStats>,
     resolvedAtByBubble: Map<UserBubble, Date>,
-    approxBubbles: Set<UserBubble>
+    approxBubbles: Set<UserBubble>,
+    maxTurnLength = 1500
 ): HumanInput[] {
     const sortedBubbles = [...bubbleTimeline.userBubbles].sort((a, b) => {
         const ta = resolvedAtByBubble.get(a)?.getTime() ?? a.createdAt.getTime();
@@ -836,7 +843,7 @@ function buildHumanInputsFromDayBubbles(
         const start = resolvedAtByBubble.get(bubble) ?? bubble.createdAt;
         const extracted = extractHumanInputText(bubble.text);
         const norm = normalizeBubbleMatchText(extracted);
-        if (!extracted || extracted.length > 1500 || seen.has(norm)) continue;
+        if (!extracted || extracted.length > maxTurnLength || seen.has(norm)) continue;
         seen.add(norm);
 
         const stats = statsByContent.get(norm);
@@ -997,6 +1004,12 @@ interface ParseTranscriptOptions {
     initialCwd?: string;
     db?: DatabaseSync;
     log?: (message: string) => void;
+    /**
+     * Discard human-input turns longer than this many characters. Defaults
+     * to 1500 (the coding-collect behavior). Callers that need to keep long
+     * turns (e.g. QA collection) can pass Infinity.
+     */
+    maxTurnLength?: number;
 }
 
 function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTranscriptOptions): {
@@ -1233,7 +1246,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
                 const trackHumanInput = !useBubbleAuthority &&
                     !seenInput.has(norm) &&
                     extracted.length > 0 &&
-                    extracted.length <= 1500;
+                    extracted.length <= (opts?.maxTurnLength ?? 1500);
                 if (trackHumanInput) {
                     seenInput.add(norm);
                     const inputIdx = humanInputs.length;
@@ -1384,7 +1397,8 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
             bubbleTimeline,
             statsByContent,
             resolvedAtByBubble,
-            approxBubbles
+            approxBubbles,
+            opts?.maxTurnLength ?? 1500
         );
         userCount = finalHumanInputs.length;
     }
@@ -1490,7 +1504,8 @@ function parseBubbleSession(
     db: DatabaseSync,
     sessionId: string,
     filterDate: string,
-    initialCwd = ""
+    initialCwd = "",
+    maxTurnLength = 1500
 ): ReturnType<typeof parseTranscript> {
     let activityStart: Date | null = null;
     let activityEnd: Date | null = null;
@@ -1531,7 +1546,7 @@ function parseBubbleSession(
         if (type === 1) {
             userCount++;
             const norm = extracted.slice(0, 200);
-            if (extracted && extracted.length <= 1500 && !seenInput.has(norm)) {
+            if (extracted && extracted.length <= maxTurnLength && !seenInput.has(norm)) {
                 seenInput.add(norm);
                 humanInputs.push({
                     category: classifyHumanInput(extracted),
@@ -1617,6 +1632,7 @@ function collectGuiSessionsFromTranscripts(filterDate: string, opts?: CursorGuiC
                 db: db ?? undefined,
                 sessionCreatedAtMs: db ? lookupComposerCreatedAtMs(db, sid) : undefined,
                 log: opts?.log,
+                maxTurnLength: opts?.maxTurnLength,
             });
             const hasActivity =
                 parsed.messageStats.user > 0 ||
@@ -1793,6 +1809,7 @@ export function collectGuiSessions(filterDate: string, opts?: CursorGuiCollectOp
                 initialCwd: sessions[i].cwd,
                 db,
                 log: opts?.log,
+                maxTurnLength: opts?.maxTurnLength,
             }));
             const dayParsed = (
                 parsed.messageStats.user > 0 ||
@@ -1801,7 +1818,7 @@ export function collectGuiSessions(filterDate: string, opts?: CursorGuiCollectOp
             )
                 ? parsed
                 : timed(opts, `Parse Cursor GUI bubble fallback ${session.id}`, () =>
-                    parseBubbleSession(db, sessions[i].id, filterDate, sessions[i].cwd)
+                    parseBubbleSession(db, sessions[i].id, filterDate, sessions[i].cwd, opts?.maxTurnLength ?? 1500)
                 );
             sessions[i] = {
                 ...sessions[i],

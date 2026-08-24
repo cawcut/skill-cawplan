@@ -3,7 +3,7 @@ version: 0.2.8
 name: cawplan-coding-commit
 description: |
   Use when the user asks to collect, generate, summarize, submit, upload, or report CawPlan AI coding session daily reports from local agent data or existing ai-daily JSON files.
-  NOT for: git commits, viewing insights, querying costs, or searching tickets.
+  NOT for: git commits, viewing insights, querying costs, searching tickets, or QA/测试会话日报 (use cawplan-qa-commit).
 argument-hint: "[date, file path, or agent name]"
 allowed-tools: Bash
 ---
