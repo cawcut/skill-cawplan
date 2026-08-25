@@ -17,14 +17,20 @@ and treats that as "the" category.
 ## Categories (15 leaves in 6 groups)
 
 **Definition work**
-- `requirement` — states a constraint, rule, or non-negotiable need the solution MUST satisfy
-  ("must", "should always", "cannot exceed", "needs to support"), not a one-off instruction.
-- `direction` — instructs what to build/do, OR asks a question / requests information (DEFAULT:
-  "add", "update", "change", "how does X work", "where is X", "is X the case"). Exploratory or
-  diagnostic questions inside a debugging session are `direction`, not `exploration`/`question`,
-  unless genuinely open-ended (see Reverse acquisition below).
-- `planning` — asks for a design/plan before implementation ("plan", "roadmap", "next step";
-  skill slash commands like `/cawplan-commit`; NOT API paths like `/model-providers`).
+- `requirement` — states a feature/goal to build, or a one-off concrete target — even when it
+  references an existing pattern as soft guidance ("do it the way the existing X flow works",
+  "follow the current design system"). That reference is descriptive detail, not a binding rule,
+  as long as the core ask is still "build this".
+- `direction` — sets a rule or constraint that governs implementation broadly, not just this one
+  task: "use X across the board", "uniformly go through X", "don't use X", "must go through the
+  middleware". The signal is scope ("uniformly", "across the board", "from now on") or an
+  explicit prohibition/mandate, not just "build this using X" (that's `requirement` or `decision`
+  instead). Distinguish from `decision`: `direction` is a standing rule with no menu of named
+  options; `decision` is picking ONE named option.
+- `planning` — asks for a design/plan/approach BEFORE implementation, with genuine "figure out
+  how first" framing ("look into how to do this first", "give me an overall plan first", "do a
+  technical comparison before we start"). "first + do this concrete task" is task sequencing, not
+  planning — classify by what the task itself is (usually `requirement` or `direction`).
 
 **Supplementary information**
 - `context_supply` — pastes a fact the AI couldn't otherwise access (error stack, log line, API
@@ -34,32 +40,51 @@ and treats that as "the" category.
 
 **Correction** (pick the ONE subtype that fits; only when the human says the AI's own output or
 a prior result was wrong)
-- `correction_defect` — functionality is broken, wrong, or not as expected ("that's out of
-  bounds", "it crashes", "not working").
-- `correction_intent` — it runs but isn't what was wanted ("works, but the interaction logic is
-  wrong").
-- `correction_quality` — it works but is over-engineered / unnecessarily complex ("too complex,
-  no need for this many layers").
-- `rejection` — a full rejection with no replacement direction given ("no, redo it").
+- `correction_defect` — the underlying behavior, data, or logic is factually wrong: wrong data,
+  wrong trigger condition/timing, a crash, a broken display. The defect is in what happened.
+- `correction_intent` — it runs without error but the RESULT or user-facing flow isn't what was
+  wanted: wrong page, wrong order, wrong wording, an awkward flow. Behavior technically works;
+  the outcome doesn't match intent.
+- `correction_quality` — it works and the outcome is fine, but the CODE or architecture is
+  over-engineered, too complex, or poorly organized: too many abstraction layers, scattered
+  logic, an overly heavy implementation, overly complex parameter design. An engineering/design
+  complaint, not a functional or UX one.
+- `rejection` — a short, full negative judgment ("that's not going to work", "doesn't fit", "no
+  good") or explicit rollback demand ("no, redo it", "revert this") with NO replacement direction
+  in the same message. The instant a message also states a concrete replacement ("switch it to
+  X"), classify the whole message as `direction` or `decision` instead — `rejection` only covers
+  pure, unaccompanied negation.
 - A question is NOT a correction unless it explicitly reports a defect.
 
 **Judgment**
-- `decision` — chose between concrete options ("agreed", "use X instead of Y", "use option B").
-- `approval` — approved/accepted with no new information ("ok, continue", "looks good").
-- `verification` — asked for testing, validation, or self-check ("add a unit test", "verify this
-  works").
+- `decision` — picked ONE option using an explicit choosing phrase ("use X", "go with option B",
+  "decided on X") — including when only a single candidate was ever on the table ("just go with
+  this one"). The act of choosing is what matters, not how many alternatives existed.
+- `approval` — evaluated something positively with actual evaluative content stated ("no issues,
+  approved", "looks good", "passed review"). Requires a stated judgment — a bare acknowledgement
+  with no evaluative content is `process_control` instead, not `approval`.
+- `verification` — asked for testing, validation, or a self-check ("add a unit test", "verify
+  this works", "run the regression suite").
 
 **Reverse acquisition**
-- `question` — asks the AI to explain/clarify something, with no correction or instruction
-  attached ("why is this written this way?").
-- `exploration` — open-ended "what if" probing with no fixed target ("what would happen if we
-  used microservices?").
+- `question` — asks for an explanation, reasoning, or factual detail about something that
+  ALREADY EXISTS or was already decided: "why is this written this way?", "why polling instead of
+  a long connection?", "how was this default chosen?", "how does X trigger Y?", "does the current
+  model support concurrent calls?". Seeking to understand the status quo, not proposing a change.
+- `exploration` — proposes a hypothetical CHANGE or alternative and asks about its effect, with no
+  existing thing being explained: "what would happen if we used microservices?", "would switching
+  to async be faster?", "have we considered an event-driven approach?".
 
 **Process control**
-- `process_control` — pure flow control, ~zero information ("continue", "stop", "next").
-- `other` — acknowledgements, confirmations, off-topic chat, environment/tooling chatter, or
-  anything with no actionable intent that doesn't fit a category above ("ok", "got it", "thanks",
-  "sounds good").
+- `process_control` — a short reply that only advances or pauses the conversation, with no
+  evaluative content and no new information: "continue", "stop", "pause", "hold off, wait for
+  confirmation", "go ahead" — including bare one-word acknowledgements that aren't explicitly
+  evaluative (contrast with `approval` above).
+- `other` — acknowledgements, off-topic chat, or routine dev-tooling mechanics with no
+  feature-level content: git/environment actions ("commit the code", "switch branches", "pull
+  latest", "set up the dev environment") count here, not `direction` — they carry no information
+  about what's being built. Also anything with no actionable intent that doesn't fit a category
+  above ("thanks", "this bug is a pain").
 
 ## Priority order (highest → lowest)
 
