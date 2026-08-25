@@ -120,6 +120,11 @@
           "name": "internal-qa-coding-session-test",
           "path": "skills/cawplan-internal-qa-coding-session-test",
           "invoke": "/cawplan-internal-qa-coding-session-test"
+        },
+        {
+          "name": "knowledge",
+          "path": "skills/cawplan-knowledge",
+          "invoke": "/cawplan-knowledge"
         }
       ]
     }

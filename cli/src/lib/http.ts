@@ -25,6 +25,9 @@ export interface RequestOptions {
   path: string;
   query?: Record<string, string>;
   body?: unknown;
+  /** Multipart form body (e.g. file uploads). Mutually exclusive with `body`; when set, the
+   * `content-type` header is left for fetch to set itself (with the multipart boundary). */
+  formData?: FormData;
 }
 
 interface AuthContext {
@@ -201,13 +204,14 @@ export async function cawplanRequest(options: RequestOptions): Promise<unknown> 
   }
 
   const method = options.method ?? "GET";
-  const body = options.body !== undefined ? JSON.stringify(options.body) : undefined;
+  const body: BodyInit | undefined =
+    options.formData ?? (options.body !== undefined ? JSON.stringify(options.body) : undefined);
   const fetchWithAuth = async (authHeader: string) => {
     const headers: Record<string, string> = {
       Authorization: authHeader,
       accept: "application/json",
     };
-    if (options.body !== undefined) {
+    if (options.body !== undefined && !options.formData) {
       headers["content-type"] = "application/json";
     }
     return fetch(url.toString(), { method, headers, body });

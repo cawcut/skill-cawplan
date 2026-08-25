@@ -5,66 +5,15 @@ import {extractList} from "../ai-session/helpers.js";
 import type {ProductChoice, ProductListItem} from "../ai-session/types.js";
 import {repoNameFromGitHubUrl} from "./matching.js";
 import type {ProductRepoMapping, ProductRepoSelection} from "./types.js";
+import {ttyKeysHelpTip, withTtyShortcuts} from "../tty-prompt.js";
 
 const PRODUCT_PAGE_SIZE = 1000;
 const PRODUCT_LINE_PAGE_SIZE = 100;
-const TTY_CANCEL_MESSAGE = "TTY selection cancelled.";
-
-type PromptContext = {signal: AbortSignal};
-type KeyHelp = [key: string, action: string];
 
 export interface ProductLineChoice {
     product_line_id: string;
     product_line_name: string;
     product_count?: number;
-}
-
-function ttyKeysHelpTip(keys: KeyHelp[]): string {
-    return [...keys, ["Esc", "exit"], ["j/J", "up"], ["k/K", "down"]]
-        .map(([key, action]) => `${key} ${action}`)
-        .join(" • ");
-}
-
-async function withTtyShortcuts<T>(
-    prompt: (context: PromptContext) => Promise<T>,
-    opts: {navigationKeys?: boolean} = {}
-): Promise<T> {
-    const inputStream = process.stdin as typeof process.stdin & {
-        emit: (eventName: string | symbol, ...args: unknown[]) => boolean;
-    };
-    const originalEmit = inputStream.emit;
-    const controller = new AbortController();
-
-    if (inputStream.isTTY) {
-        inputStream.emit = function emitWithTtyShortcuts(eventName: string | symbol, ...args: unknown[]): boolean {
-            if (eventName === "keypress") {
-                const key = args[1] as {name?: string; shift?: boolean; sequence?: string} | undefined;
-                if (key?.name === "escape") {
-                    controller.abort(new Error(TTY_CANCEL_MESSAGE));
-                    return true;
-                }
-                if (opts.navigationKeys && key?.name === "j") {
-                    args[0] = undefined;
-                    args[1] = {...key, name: "up", sequence: "\u001B[A"};
-                } else if (opts.navigationKeys && key?.name === "k") {
-                    args[0] = undefined;
-                    args[1] = {...key, name: "down", sequence: "\u001B[B"};
-                }
-            }
-            return originalEmit.call(this, eventName, ...args);
-        };
-    }
-
-    try {
-        return await prompt({signal: controller.signal});
-    } catch (err) {
-        if ((err as Error).name === "AbortPromptError") {
-            throw new Error(TTY_CANCEL_MESSAGE);
-        }
-        throw err;
-    } finally {
-        inputStream.emit = originalEmit;
-    }
 }
 
 export async function listProductRepoMappings(): Promise<ProductRepoMapping[]> {
