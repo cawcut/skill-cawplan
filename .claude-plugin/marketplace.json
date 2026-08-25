@@ -105,6 +105,11 @@
           "name": "internal-qa-coding-humaninputs",
           "path": "skills/cawplan-internal-qa-coding-humaninputs",
           "invoke": "/cawplan-internal-qa-coding-humaninputs"
+        },
+        {
+          "name": "internal-qa-coding-humaninputs-test",
+          "path": "skills/cawplan-internal-qa-coding-humaninputs-test",
+          "invoke": "/cawplan-internal-qa-coding-humaninputs-test"
         }
       ]
     }
