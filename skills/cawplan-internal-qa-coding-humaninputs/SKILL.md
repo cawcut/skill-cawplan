@@ -21,15 +21,26 @@ it is a pure reasoning check against uid.core-product's current classify rules, 
 ## Workflow
 
 1. Read `references/CATEGORY_TAXONOMY.md` if you haven't already this session.
-2. Read the given `content`, and `assistant_message` if provided — use it for domain context the
-   same way the real classify prompt does: a short or ambiguous instruction ("do it", "add that")
-   should be read in light of what the assistant actually worked on, not guessed from the content
-   alone.
-3. Determine every category from the taxonomy that clearly applies, then sort them by the
+2. If `assistant_message` is given, prepare it the same way production does before reading it —
+   don't reason over the raw untruncated text, or you'll have more context than the real
+   classifier ever sees:
+   - Strip any literal `[REDACTED]` placeholder tokens (an upload-time redaction marker with no
+     signal of its own — don't confuse it with real bracketed content like `[Done]`/`[QA Testing]`,
+     which must stay).
+   - Keep only the first ~400 characters of what's left (head-only, no tail) — this mirrors
+     uid.core-product's `AISessionClassifyAssistantMaxRunes` / `aiSessionClassifyAssistantHeadRatio`
+     (classify only needs the opening interpretation/diagnosis, not a closing summary; see
+     CWP-19829's truncation investigation). If the caller already gives you a short snippet, there's
+     nothing to trim.
+3. Read the given `content`, and the prepared `assistant_message` if provided — use it for domain
+   context the same way the real classify prompt does: a short or ambiguous instruction ("do it",
+   "add that") should be read in light of what the assistant actually worked on, not guessed from
+   the content alone.
+4. Determine every category from the taxonomy that clearly applies, then sort them by the
    priority order in the reference doc (highest → lowest). Don't invent a secondary category just
    to fill the list — only include ones that clearly apply. When only one applies, the list has
    one element.
-4. The first element of that sorted list is the primary category.
+5. The first element of that sorted list is the primary category.
 
 ## Output
 
