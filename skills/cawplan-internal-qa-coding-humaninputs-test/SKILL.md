@@ -86,15 +86,24 @@ a scripted/API call, so a very large batch is a real time cost.
 
 ### 3. Classify each row via the base skill
 
-For each row in `/tmp/humaninput_rows.jsonl`, apply the classification workflow from
-`cawplan-internal-qa-coding-humaninputs` (its Task/Workflow steps, and the taxonomy reference file
-in its own reference folder) using that row's `content` and `assistant_message` as input. Read
-that skill's instructions first if you haven't already this session, then apply them per row —
-this keeps the classification rules defined in exactly one place instead of duplicated here.
+Read `cawplan-internal-qa-coding-humaninputs`'s instructions first if you haven't already this
+session — its Task/Workflow steps and taxonomy reference file (in its own reference folder) are
+what you apply per row, so the classification rules stay defined in exactly one place instead of
+duplicated here.
 
-Produce a plain list mapping each row's `unique_id` to the resulting primary `category` before
-moving on to comparison — this makes the next step a trivial diff rather than something you have
-to re-derive.
+For each row in `/tmp/humaninput_rows.jsonl`, apply that classification to the row's `content`
+and `assistant_message` as input, and print one progress line per row as you go — this is both
+the progress indicator and the visible input/output of each atomic-skill call, not just a final
+summary:
+
+```
+[<n>/<total>] content: "<content excerpt, ~80 chars>" | assistant: <"<excerpt>" or "(none)"> -> category: <category>, categories: <categories>
+```
+
+Do this for every row in order, one line each, before moving on to comparison — don't batch
+several rows into one silent pass and only report the end result. After the last row, produce a
+plain list mapping each row's `unique_id` to its resulting primary `category` — this makes the
+next step a trivial diff rather than something you have to re-derive.
 
 ### 4. Compare against the cloud category
 
@@ -109,6 +118,9 @@ separately as a **taxonomy-version mismatch** (the row predates CWP-19829, not a
 disagreement) rather than counting it as a genuine miss.
 
 ## Output
+
+The per-row progress lines from step 3 already show every input/output — the final report below
+is a summary and highlight reel on top of that, not a replacement for it.
 
 Report:
 - **Scope**: person and/or product (or "workspace-wide" if neither), resolved date range, total
