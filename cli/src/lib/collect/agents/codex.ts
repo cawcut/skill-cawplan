@@ -26,7 +26,13 @@ import { calculateCost, COST_CURRENCY } from "../pricing.js";
 import { classifyHumanInput } from "../aggregators/human-category.js";
 import { appendAssistantMessage } from "../aggregators/human-assistant.js";
 import { formatLocalTime, getLocalTimezone, localDateString } from "../date-utils.js";
-import { countDiffLines, appendFileDelta, mergeFileDeltas, type FileDelta } from "../aggregators/tool-utils.js";
+import {
+  countDiffLines,
+  appendFileDelta,
+  mergeFileDeltas,
+  parseCodexCustomToolPatch,
+  type FileDelta,
+} from "../aggregators/tool-utils.js";
 
 interface CodexCollectOptions {
   log?: (message: string) => void;
@@ -456,6 +462,27 @@ function parseRollout(
       }
       if (eventType === "response_item" && payloadType === "custom_tool_call") {
         result.toolCallCount++;
+
+        // Codex Desktop wraps apply_patch in a custom `exec` call instead of
+        // emitting the CLI `patch_apply_end` event. Recover those deltas from
+        // the serialized tool input so Files/Lines are not reported as zero.
+        const customToolDeltas = parseCodexCustomToolPatch(payload?.["input"]);
+        const humanInput = currentHumanInputIndex == null ? null : result.humanInputs[currentHumanInputIndex];
+        const filesForInput = currentHumanInputIndex == null ? null : humanInputFileDeltas[currentHumanInputIndex];
+        for (const delta of customToolDeltas) {
+          allChangedFiles.add(delta.path);
+          result.linesAdded += delta.added;
+          result.linesDeleted += delta.deleted;
+          if (humanInput) {
+            humanInput.lines_added = (humanInput.lines_added ?? 0) + delta.added;
+            humanInput.lines_deleted = (humanInput.lines_deleted ?? 0) + delta.deleted;
+            if (filesForInput) {
+              appendFileDelta(filesForInput, delta);
+              humanInput.files_changed = filesForInput.size;
+            }
+          }
+        }
+        result.filesChanged = allChangedFiles.size;
       }
 
       if (eventType === "event_msg" && payload?.["type"] === "patch_apply_end") {

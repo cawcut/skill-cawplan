@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { buildDailyApiJson } from "../src/lib/collect/aggregators/daily.js";
 import {
   aggregateFileChanges,
+  parseCodexCustomToolPatch,
   relativizePathToRepo,
   relativizeFileChanges,
 } from "../src/lib/collect/aggregators/tool-utils.js";
@@ -56,6 +57,20 @@ describe("tool-utils file path helpers", () => {
         repo
       )
     ).toEqual([{ path: "cli/src/a.ts", added: 3, deleted: 1 }]);
+  });
+
+  test("parses Codex Desktop custom exec input containing an apply_patch string", () => {
+    const input = `const patch = ${JSON.stringify(
+      "*** Begin Patch\n*** Update File: /repo/service.go\n@@\n-old\n+new\n"
+    )};\ntext(await tools.apply_patch(patch));`;
+
+    expect(parseCodexCustomToolPatch(input)).toEqual([
+      { path: "/repo/service.go", added: 1, deleted: 1 },
+    ]);
+  });
+
+  test("ignores custom exec input without an embedded patch", () => {
+    expect(parseCodexCustomToolPatch('const r = await tools.exec_command({cmd: "git diff"});')).toEqual([]);
   });
 });
 

@@ -135,6 +135,27 @@ export function parsePatchDeltas(patch: string): FileDelta[] {
     return [...byPath.values()].filter((d) => d.added > 0 || d.deleted > 0);
 }
 
+/**
+ * Extract a patch embedded in Codex Desktop's custom exec tool input.
+ *
+ * Codex Desktop serializes apply_patch as JavaScript such as:
+ * `const patch = "*** Begin Patch\\n..."; await tools.apply_patch(patch);`
+ * rather than emitting the CLI's patch_apply_end event.
+ */
+export function parseCodexCustomToolPatch(input: unknown): FileDelta[] {
+    if (typeof input !== "string") return [];
+
+    const match = input.match(/(?:\bpatch\s*=\s*|\bapply_patch\(\s*)("(?:\\.|[^"\\])*")/s);
+    if (!match?.[1]) return [];
+
+    try {
+        const patch = JSON.parse(match[1]) as unknown;
+        return typeof patch === "string" ? parsePatchDeltas(patch) : [];
+    } catch {
+        return [];
+    }
+}
+
 const PATH_KEYS = ["path", "file_path", "target_file", "target_notebook"] as const;
 
 export function extractPathFromInput(input: Record<string, unknown>): string | null {
