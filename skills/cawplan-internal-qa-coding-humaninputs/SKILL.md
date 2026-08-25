@@ -3,9 +3,9 @@ version: 0.2.8
 name: cawplan-internal-qa-coding-humaninputs
 description: |
   Internal QA check for the AI-coding human-input classifier: pulls already-uploaded human inputs (content + paired assistant reply) via the cawplan CLI, classifies each one yourself using the current classify rules, and compares your category against the already-persisted cloud category by simple string match — reporting accuracy and concrete mismatches for manual review.
-  Use when: asked to test/verify/check human-input category classification accuracy — e.g. "test today's data", "test what spx submitted today", "check category accuracy for the last N days" — optionally scoped to one person and/or a date range (defaults to the last 2 days when no range is given).
+  Use when: asked to test/verify/check human-input category classification accuracy — e.g. "test today's data", "test what spx submitted today", "check category accuracy for the last N days" — optionally scoped to one person, one product, or both, and/or a date range (defaults to the last 2 days when no range is given).
   NOT for: submitting coding reports (use cawplan-coding-commit), general cost/usage insights or prompt-quality scores (use cawplan-coding-insights), or creating tickets.
-argument-hint: "[person] [date range]"
+argument-hint: "[person] [product] [date range]"
 allowed-tools: Bash
 ---
 
@@ -19,15 +19,24 @@ cawplan skill check
 
 ## Workflow
 
-### 1. Resolve scope: person + date range
+### 1. Resolve scope: person, product, and date range
 
 **Person** (optional):
 - If the request names someone (e.g. "spx", a display name), run `cawplan session members` and
   match case-insensitively / by substring against the returned list to find the exact `member`
   key — this is the report's git identity string used by `--member`, not necessarily their
-  display name. If more than one member plausibly matches, ask which one. If none match, say so
-  and continue workspace-wide rather than guessing.
+  display name.
+- **If more than one member plausibly matches, don't guess** — present them as a numbered list
+  (whatever distinguishing detail the response has: display name, email, member key) and ask the
+  user to pick one before proceeding.
+- If none match, say so and continue workspace-wide rather than guessing.
 - If no person is named, don't pass `--member` — the check runs workspace-wide.
+
+**Product** (optional — only when the request names a product):
+- Resolve via `cawplan products list --search "<name>"`.
+- **If more than one product plausibly matches, don't guess** — present them as a numbered list
+  (name, product line, unique_id) and ask the user to pick one before proceeding.
+- If none match, say so and ask for the correct product name rather than guessing the closest one.
 
 **Date range** (optional):
 - If the request gives one, use it.
@@ -35,17 +44,30 @@ cawplan skill check
 
 ### 2. Fetch human input rows (content + assistant_message + cloud category)
 
-`human-input-logs` is the only endpoint that returns `content`, `assistant_message`, and
-`category` together — page through it until exhausted:
+Pick the endpoint based on what got resolved in step 1 — all three return the same row shape
+(`content`, `assistant_message`, `category`, plus pagination in `.data`):
+
+| Resolved scope | Command |
+|---|---|
+| Nothing (workspace-wide) | `cawplan session human-input-logs --from ... --to ...` |
+| Person only | `cawplan session human-input-logs --from ... --to ... --member "<exact_member>"` |
+| Product only | `cawplan session product-human-input-logs --product-id <id> --from ... --to ...` |
+| Product + person | `cawplan session product-human-input-logs --product-id <id> --user-id <id> --from ... --to ...` (needs the person's PRM `user_id`, not the member key — resolve via `cawplan users query --email <email>` or `--keyword <name>`, applying the same numbered-list disambiguation rule if more than one user matches) |
+
+Page through until exhausted:
 
 ```bash
-from="<resolved from>"; to="<resolved to>"; member_flag=()
-# member_flag=(--member "<exact_member>") if a person was resolved in step 1
+from="<resolved from>"; to="<resolved to>"
+extra_flags=()
+# extra_flags=(--member "<exact_member>")                       # person only
+# extra_flags=(--product-id "<id>")                              # product only, use product-human-input-logs
+# extra_flags=(--product-id "<id>" --user-id "<id>")             # product + person, use product-human-input-logs
 
 page=1; page_size=100
 : > /tmp/humaninput_rows.jsonl
 while :; do
-  resp=$(cawplan session human-input-logs --from "$from" --to "$to" "${member_flag[@]}" --page-num "$page" --page-size "$page_size")
+  resp=$(cawplan session human-input-logs --from "$from" --to "$to" "${extra_flags[@]}" --page-num "$page" --page-size "$page_size")
+  # substitute "product-human-input-logs" for "human-input-logs" above if a product was resolved
   echo "$resp" | jq -c '.data.items[]? | select((.content // "") != "" and (.category // "") != "")' >> /tmp/humaninput_rows.jsonl
   total=$(echo "$resp" | jq '.data.total // 0')
   got=$(echo "$resp" | jq '.data.items | length')
@@ -89,8 +111,8 @@ counting it as a genuine miss.
 ## Output
 
 Report:
-- **Scope**: person (or "workspace-wide") and resolved date range, total rows fetched vs.
-  actually comparable (had both content and a cloud category).
+- **Scope**: person and/or product (or "workspace-wide" if neither), resolved date range, total
+  rows fetched vs. actually comparable (had both content and a cloud category).
 - **Accuracy**: exact string-match rate on `category`, and separately how many of the mismatches
   were taxonomy-version mismatches (pre-v2 rows) vs. genuine disagreements — don't blend the two
   into one number.
