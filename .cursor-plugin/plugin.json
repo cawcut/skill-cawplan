@@ -83,6 +83,10 @@
     {
       "name": "cawplan-internal-qa-coding-humaninputs-test",
       "path": "skills/cawplan-internal-qa-coding-humaninputs-test"
+    },
+    {
+      "name": "cawplan-internal-qa-coding-session-test",
+      "path": "skills/cawplan-internal-qa-coding-session-test"
     }
   ]
 }
