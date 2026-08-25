@@ -74,6 +74,10 @@
     {
       "name": "cawplan-qa-commit",
       "path": "skills/cawplan-qa-commit"
+    },
+    {
+      "name": "cawplan-internal-qa-coding-humaninputs",
+      "path": "skills/cawplan-internal-qa-coding-humaninputs"
     }
   ]
 }
