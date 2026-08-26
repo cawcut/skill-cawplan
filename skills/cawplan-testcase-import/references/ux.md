@@ -13,13 +13,31 @@
 | `MAPPING_EXISTS`/`REFS_EXISTS` | 已有映射 / 已导入过 |
 | `to_create`/`to_skip`/`to_fail` | 将新建 / 将跳过 / 将失败 |
 | `section_creates` | 将新建分组目录 |
-| `suite_id` | 用例集（Suite） |
+| `suite_id` | 用例集（Suite）；展示时 ID 须 `§TestRailLinks` 超链接 |
 | `default_suite_id` | 产品默认用例集（框 3 不做推荐标注，仅 Intent 显式命中「用默认用例集」时使用） |
-| `parent_section_id` | 挂靠目录（`{name}（ID {id}）`，与 `suite_id` 一样正常展示，不隐藏） |
+| `parent_section_id` | 挂靠目录（`{name}（ID [{id}](section_url)）`，须可点击） |
 | `PARENT_SECTION_ID_IGNORED` | 当前配置不支持挂靠已有目录，已按新建处理 |
 | `version_name` | 目标版本（`custom_case_version`） |
 | `MISSING_REQUIREMENT_ID` | 缺少需求关联，归档位置可能不完整 |
 | T1 `P0–P3+` | 最高/高/中/低 · Pn（勿展示 CRITICAL 等枚举） |
+
+## §TestRailLinks TestRail 超链接（SHALL）
+
+Step 1 `mappings get` 后解析并缓存 `testrail_origin`（`import-rules §ConfirmState`；同会话复用）：
+
+1. 优先 `testrail_project_url`，或 `suites[]` 中匹配 `confirmed_suite_id` 的 `url`，或 `suite-create` 返回的 `url`
+2. 提取 origin：`^(https?://[^/]+)` → 如 `https://xxx.testrail.io`
+3. 无法解析时 ID 回退纯文本（罕见）
+
+| 对象 | URL |
+|------|-----|
+| Suite | API `url` **或** `{origin}/index.php?/suites/view/{suite_id}` |
+| Section | `{origin}/index.php?/suites/view/{suite_id}&group_id={section_id}` |
+| Case | API `case_url` **优先**；否则 `{origin}/index.php?/cases/view/{case_id}` |
+
+Markdown：`[{name}（ID [{id}](url)）](url)` · Case：`[C{case_id}](case_url) — {title}`
+
+**SHALL 带链接**：`§Preview` 表头 Suite/Section ID；明细表 `target_section_id`、`existing_case_id`；框 4 正文；`§AsyncHandoff`/`§Result` 表头；`created_cases`/`skipped_cases` 的 Case ID；`§Result` **至少 1 条**示例 Case 链接。待创建 Section（无 ID）仅名称，不加链接。**禁止**裸数字 ID。
 
 ## §Intent
 
@@ -80,10 +98,10 @@
 
 Version 不再是弹窗（无编号），见 `§VersionConfirm`。
 
-**框 4 框上正文（SHALL 含 Suite；选了已有 Section 时追加归属行；版本未指定时显示"未指定"）**：
+**框 4 框上正文（SHALL 含 Suite；选了已有 Section 时追加归属行；版本未指定时显示"未指定"；Suite/Section ID 须 `§TestRailLinks` 超链接）**：
 
-> 将导入到用例集 **{suite_name}（ID {suite_id}）** · 目标版本 **{version_name 或"未指定"}** · 新建 **{to_create}** · 跳过 **{to_skip}**；已存在不覆盖。有 `section_creates` 时追加目录数。`to_create>50` → `§AsyncEstimate`。
-> 选了「导入到已有 Section」时追加一行：挂靠目录 **{parent_section_name}（ID {parent_section_id}）**。
+> 将导入到用例集 **[{suite_name}（ID [{suite_id}](suite_url)）](suite_url)** · 目标版本 **{version_name 或"未指定"}** · 新建 **{to_create}** · 跳过 **{to_skip}**；已存在不覆盖。有 `section_creates` 时追加目录数。`to_create>50` → `§AsyncEstimate`。
+> 选了「导入到已有 Section」时追加一行：挂靠目录 **{parent_section_name}（ID [{parent_section_id}](section_url)）**。
 
 ## §SuiteConfirm
 
@@ -108,7 +126,7 @@ Version 不再是弹窗（无编号），见 `§VersionConfirm`。
 
   | 情况 | 处理 |
   |------|------|
-  | `SUCCESS`，`duplicate_warning=null` | 直接采用：存 `confirmed_suite_id`/`confirmed_suite_name` = 返回的 `suite_id`/`name`；提示「已创建 Suite「{name}」（ID {suite_id}）」；进入框 3.5 |
+  | `SUCCESS`，`duplicate_warning=null` | 直接采用：存 `confirmed_suite_id`/`confirmed_suite_name` = 返回的 `suite_id`/`name`；提示「已创建 Suite「{name}」（ID [{suite_id}](url)）」；进入框 3.5 |
   | `SUCCESS`，`duplicate_warning` 非空 | 已创建成功，但检测到同名已有 Suite。提示「已新建 Suite「{name}」（ID {suite_id}）；另外发现一个同名的已有 Suite（ID {existing_suite_id}），是否改用它？」，选项：**使用新建的（ID {suite_id}）** / **改用已有的（ID {existing_suite_id}）** / 先不导入。选"改用已有"时 `confirmed_suite_id` 设为 `existing_suite_id`，并提示新建的那个是空 Suite，如不需要可自行去 TestRail 清理（Skill 无删除能力） |
   | `SUITE_CREATE_RATE_LIMITED` | 提示「该产品 10 分钟内新建 Suite 已达上限（5 次），请稍后重试，或改用已有 Suite」，选项：**改用已有 Suite** / 先不导入。退回第一层 |
   | `SUITE_MODE_NOT_SUPPORTED` | 提示「该 TestRail 项目不支持多 Suite 模式，无法新建，请改用已有 Suite（该项目通常只有 1 个默认 Suite）」，选项：**改用已有 Suite** / 先不导入 |
@@ -172,8 +190,8 @@ eta_max = ceil(eta_min * 1.3)
 
 | 项目 | 内容 |
 |------|------|
-| 用例集 | {suite_name}（ID {suite_id}） |
-| 挂靠目录 | {parent_section_name}（ID {parent_section_id}）（仅选了已有目录时显示本行） |
+| 用例集 | [{suite_name}（ID [{suite_id}](suite_url)）](suite_url) |
+| 挂靠目录 | [{parent_section_name}（ID [{parent_section_id}](section_url)）](section_url)（仅选了已有目录时显示本行） |
 | 目标版本 | {version_name} |
 | 状态 | 后台导入中 |
 | 规模 | 新建 {to_create} · 跳过 {to_skip} · 目录 {section_n} 个 |
@@ -189,7 +207,7 @@ eta_max = ceil(eta_min * 1.3)
 状态：{status}
 ```
 
-`COMPLETED` → `§Result` · `FAILED`/`CANCELLED` → `§Errors`
+`COMPLETED` → `§Result` · `FAILED`/`CANCELLED` → `§Errors`（错误码未列出 → `§UnknownError`）
 
 ## §AsyncTimeout
 
@@ -197,16 +215,16 @@ eta_max = ceil(eta_min * 1.3)
 
 ## §Preview
 
-**表头摘要（SHALL，明细表之前）**：
+**表头摘要（SHALL，明细表之前；Suite/Section ID 须 `§TestRailLinks`）**：
 
 ```markdown
-| 目标用例集 | {suite_name}（ID {suite_id}） |
-| 挂靠目录 | {parent_section_name}（ID {parent_section_id}）（仅选了已有目录时显示本行） |
+| 目标用例集 | [{suite_name}（ID [{suite_id}](suite_url)）](suite_url) |
+| 挂靠目录 | [{parent_section_name}（ID [{parent_section_id}](section_url)）](section_url)（仅选了已有目录时显示本行） |
 | 目标版本 | {version_name} |
 | 数据源 | {已展开用例 / 从测试点生成} |
 ```
 
-明细表：`action`/`skip_reason`/`warnings` 用 §Glossary。Section 列用 `target_section_path` 优先（选了已有目录时为三级路径）。表下汇总 to_create/to_skip/to_fail。禁止展示 `preview_id`、裸枚举。
+明细表：`action`/`skip_reason`/`warnings` 用 §Glossary。Section 列用 `target_section_path` 优先；路径末级 Section 有 `target_section_id` 时，在路径旁或单独列展示 **[{section_id}](section_url)** 链接。SKIP 行有 `existing_case_id` 时 Case 列为 **[C{id}](case_url)**。`section_creates` 待建目录仅列名称（无 ID 不加链接）。表下汇总 to_create/to_skip/to_fail。禁止展示 `preview_id`、裸枚举。
 
 ## §Result
 
@@ -214,14 +232,23 @@ eta_max = ceil(eta_min * 1.3)
 ## TestRail 导入完成 — {产品} / {需求}
 
 | 项目 | 结果 |
-| 用例集 | {suite_name}（ID {suite_id}） |
-| 挂靠目录 | {parent_section_name}（ID {parent_section_id}）（仅选了已有目录时显示本行） |
+|------|------|
+| 用例集 | [{suite_name}（ID [{suite_id}](suite_url)）](suite_url) |
+| 挂靠目录 | [{parent_section_name}（ID [{parent_section_id}](section_url)）](section_url)（仅选了已有目录时显示本行） |
 | 目标版本 | {version_name} |
 | 新建/跳过/失败 | n/m/k |
+| 示例 Case | [C{case_id}](case_url) — {title}（SHALL：至少 1 条可点击链接） |
 
-### 新建用例 · 测试点 | Case | 链接
-### 跳过 · 标题 | 原因
+### 新建用例
+| 标题 | Case |
+| {title} | [C{case_id}](case_url) |
+
+### 跳过
+| 标题 | Case | 原因 |
+| {title} | [C{case_id}](case_url)（有 case_id 时） | {skip_reason} |
 ```
+
+`created_cases[]`：**必须**用 API 返回的 `case_url`（勿手拼错 host）。展示新建列表时每条 Case ID 带链接；表头「示例 Case」取第一条新建，无新建时取跳过样例中有 `case_id` 的一条。
 
 ## §Errors
 
@@ -239,3 +266,19 @@ eta_max = ceil(eta_min * 1.3)
 | `validation` | — | Agent 自行修复 |
 | Job `UNKNOWN` | 结果不确定 | 手动查询 / 取消 |
 | Job `FAILED` / `CANCELLED` | 导入任务失败 | 查看错误 / 重新 preview / 取消 |
+
+## §UnknownError
+
+execute（或 preview）返回的 `error` code 不在上面 `§Errors` 表内时使用。核心是把"现场证据"讲清楚，而不是简单说"导入失败了"，也不擅自重试。
+
+```markdown
+本次导入遇到一个未处理过的错误（`{code}`），暂时无法自动恢复。
+
+- 批次结果：{created}/{total} 成功，{failed} 失败{failed === total 时追加"（全部失败）"}
+- TestRail 目录核实：{已确认目录已生成 / 已确认目录未生成 / 尚未核实}
+- 记录信息：job_id `{job_id}`（如需上报请附带）
+
+建议先不要重新导入（避免产生重复目录）。要不要我帮你整理成问题记录，方便你反馈？
+```
+
+选项：**整理信息（推荐）** / **先不处理** / 取消。「整理信息」不代表自动重试或自动上报，只是把 `product_id`/`preview_id`/`job_id`/错误码/`failed_cases` 样例汇总给用户，由用户决定后续动作。

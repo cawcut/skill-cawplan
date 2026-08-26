@@ -303,6 +303,16 @@
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/qa_report/{qa_report_id}`
 - Maps to cawplan CLI: `cawplan qa-reports get <product_id> <version_id> <qa_report_id>`.
 
+### Create QA Report (Portal)
+- Endpoint: `POST /api/v1/product/{product_id}/versions/{version_id}/qa_report`
+- Body: `QAReportCreateRequest` (`topic` required; `details`, `type`, `result`, `status`, `ticket_id`, `links`, `date_start`, `date_end`, …)
+- Maps to cawplan CLI: `cawplan qa-reports create <product_id> <version_id> --body-file <path>` or `--body <json>`.
+
+### Update QA Report (Portal)
+- Endpoint: `PUT /api/v1/product/{product_id}/versions/{version_id}/qa_report/{qa_report_id}`
+- Body: `QAReportUpdateRequest` (partial fields)
+- Maps to cawplan CLI: `cawplan qa-reports update <product_id> <version_id> <qa_report_id> --body-file <path>` or `--body <json>`.
+
 ## 11) Community APIs
 ### Get Community Release Timeline
 - Endpoint: `GET /api/v1/public/openapi/community/timeline`
