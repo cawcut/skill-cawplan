@@ -50,10 +50,12 @@ a prior result was wrong)
   logic, an overly heavy implementation, overly complex parameter design. An engineering/design
   complaint, not a functional or UX one.
 - `rejection` — a short, full negative judgment ("that's not going to work", "doesn't fit", "no
-  good") or explicit rollback demand ("no, redo it", "revert this") with NO replacement direction
-  in the same message. The instant a message also states a concrete replacement ("switch it to
-  X"), classify the whole message as `direction` or `decision` instead — `rejection` only covers
-  pure, unaccompanied negation.
+  good") or explicit rollback demand ("no, redo it", "revert this") with NO replacement stated at
+  all. When a message states ONLY a replacement with no separate negative-judgment phrase ("switch
+  it to X"), that is `direction` or `decision` instead, not `rejection`. But when a standalone
+  negative-judgment phrase IS present alongside the replacement ("X doesn't fit anymore, switch to
+  Y" / "X isn't working, redo it with Y"), both `rejection` and `direction`/`decision` apply —
+  `rejection` still wins by priority order.
 - A question is NOT a correction unless it explicitly reports a defect.
 
 **Judgment**
