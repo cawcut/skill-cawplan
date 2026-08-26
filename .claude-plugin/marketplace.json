@@ -102,6 +102,11 @@
           "invoke": "/cawplan-testplan-layout"
         },
         {
+          "name": "ticket-report-generate",
+          "path": "skills/cawplan-ticket-report-generate",
+          "invoke": "/cawplan-ticket-report-generate"
+        },
+        {
           "name": "internal-qa-coding-humaninputs",
           "path": "skills/cawplan-internal-qa-coding-humaninputs",
           "invoke": "/cawplan-internal-qa-coding-humaninputs"

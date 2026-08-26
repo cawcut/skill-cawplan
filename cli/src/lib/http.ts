@@ -157,6 +157,33 @@ function responseMessage(payload: unknown): string {
   return String(payload || "unknown");
 }
 
+/**
+ * Extract the BE's finer-grained diagnostic (e.g. `data.details` on a 400)
+ * from an ApiError's response body. `responseMessage()` only surfaces
+ * `msg`/`message`/`code`, which for validation failures is often a generic
+ * "invalid request body" — the actionable reason lives in `data`.
+ * Returns undefined when there's nothing beyond what responseMessage already showed.
+ */
+export function apiErrorDetails(err: unknown): string | undefined {
+  if (!(err instanceof ApiError) || !err.body || typeof err.body !== "object") {
+    return undefined;
+  }
+  const body = err.body as Record<string, unknown>;
+  const data = body.data;
+  if (data && typeof data === "object" && "details" in (data as Record<string, unknown>)) {
+    const details = (data as Record<string, unknown>).details;
+    if (typeof details === "string" && details.trim()) return details;
+  }
+  if (data !== undefined && data !== null) {
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return String(data);
+    }
+  }
+  return undefined;
+}
+
 export async function cawplanRequest(options: RequestOptions): Promise<unknown> {
   const baseUrl = normalizeBaseUrl(getBaseUrl());
   const url = new URL(`${baseUrl}${normalizePath(options.path)}`);
