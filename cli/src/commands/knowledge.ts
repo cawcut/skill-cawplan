@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { select } from "@inquirer/prompts";
@@ -8,12 +9,14 @@ import { assertInteractiveTerminal, TTY_CANCEL_MESSAGE, ttyKeysHelpTip, withTtyS
 import {
   buildOutlineWithPreview,
   extractSection,
+  extractSectionBody,
   findHeadings,
-  firstNonBlankLines,
   flattenOutline,
   parseMarkdownOutline,
   type FlatOutlineNode,
 } from "../lib/knowledge/outline.js";
+import { getMarkedForTerminal, renderMarkdownPreview } from "../lib/knowledge/terminal-markdown.js";
+import { markdownToPlainText } from "../lib/knowledge/plaintext.js";
 
 function collect(value: string, prev: string[]): string[] {
   return prev.concat([value]);
@@ -83,13 +86,49 @@ function extractDocumentContentData(result: unknown): { name?: string; content?:
 
 const EXIT_OUTLINE = Symbol("exit-outline");
 
+
+const SECTION_PREVIEW_LINES = 6;
+const SECTION_PREVIEW_RENDERED_LINES = 12;
+
+/**
+ * Displays already-rendered ANSI text in `less`, which owns the screen until the user quits.
+ * Printing straight to stdout does not work here: the caller redraws its `select` prompt
+ * immediately afterwards, and that repaint — taller than the viewport once choice descriptions are
+ * included — scrolls the section away and erases past the top of the screen. `less` reads
+ * keystrokes from /dev/tty, so piping the content through its stdin still leaves it interactive.
+ */
+function showInPager(text: string): Promise<void> {
+  return new Promise((resolve) => {
+    const pager = spawn("less", ["-R"], { stdio: ["pipe", "inherit", "inherit"] });
+    pager.on("error", () => {
+      process.stdout.write(`${text}\n`);
+      resolve();
+    });
+    pager.on("close", () => resolve());
+    // Quitting less before it has consumed the whole document breaks the pipe.
+    pager.stdin.on("error", () => {});
+    pager.stdin.end(text);
+  });
+}
+
 /** Live TTY loop: show the document's heading tree, print the picked section, then show the tree again until the user exits. */
 async function runInteractiveOutline(name: string | undefined, content: string): Promise<void> {
+  const marked = await getMarkedForTerminal();
   const flat = flattenOutline(parseMarkdownOutline(content));
   if (flat.length === 0) {
     console.log("No markdown headings found in this document; nothing to browse.");
     return;
   }
+
+  const previews = await Promise.all(
+    flat.map((node) =>
+      renderMarkdownPreview(
+        extractSectionBody(content, flat, node),
+        SECTION_PREVIEW_LINES,
+        SECTION_PREVIEW_RENDERED_LINES,
+      ),
+    ),
+  );
 
   for (;;) {
     let choice: FlatOutlineNode | typeof EXIT_OUTLINE;
@@ -100,7 +139,11 @@ async function runInteractiveOutline(name: string | undefined, content: string):
             {
               message: name ? `${name} — select a section` : "Select a section",
               choices: [
-                ...flat.map((node) => ({ name: `${"  ".repeat(node.depth)}${node.title}`, value: node })),
+                ...flat.map((node, i) => ({
+                  name: `${"  ".repeat(node.depth)}${node.title}`,
+                  value: node,
+                  description: previews[i] || undefined,
+                })),
                 { name: "Exit", value: EXIT_OUTLINE },
               ],
               pageSize: 20,
@@ -116,9 +159,7 @@ async function runInteractiveOutline(name: string | undefined, content: string):
     }
 
     if (choice === EXIT_OUTLINE) return;
-    console.log(`\n${"#".repeat(choice.level)} ${choice.title}\n`);
-    console.log(extractSection(content, flat, choice));
-    console.log("");
+    await showInPager((await marked.parse(extractSection(content, flat, choice))) as string);
   }
 }
 
@@ -595,11 +636,15 @@ export function registerKnowledgeCommand(program: Command): void {
             break;
           }
 
+          // Previews go through the plain-text renderer, not the ANSI one: this is a `select`
+          // choice description, where escape codes are fragile, and plain text still lands
+          // headings/tables readably. The ANSI path stays for full section display below.
           const previews = await Promise.all(
             documents.map(async (doc) => {
               try {
                 const content = extractDocumentContentData(await fetchDocumentContentResult(dataset.id, doc.id));
-                return content?.content ? firstNonBlankLines(content.content, 4) : "";
+                if (!content?.content) return "";
+                return markdownToPlainText(content.content, { maxLines: 4, stripCodeBlocks: true, compact: true });
               } catch {
                 return "";
               }

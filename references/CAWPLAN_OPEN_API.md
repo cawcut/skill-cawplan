@@ -349,19 +349,52 @@
   - Add `--grep <pattern>` (with `--context <n>`, default 3, like `grep -C`) to have the CLI itself
     filter `data.content` client-side and return only matching line ranges with context — for a large
     document, this locates one section precisely in a single call instead of loading the whole
-    response into an agent's context or piping to a separate shell `grep`.
+    response into an agent's context or piping to a separate shell `grep`. Best for freeform pattern
+    search in body text, or non-Markdown sources; `--section` (below) is better once you know the
+    exact heading, since a fixed-line-count `--context` can bleed into a neighboring section.
+  - Add `--outline` to get the document's Markdown heading tree as structured JSON
+    (`{level, title, line, preview, children}`) instead of the content — built client-side from the
+    cached content (`cli/src/lib/knowledge/outline.ts`, skips lines inside fenced ` ``` ` code blocks
+    so a `#`-prefixed shell comment in a curl example is never mistaken for a heading). Each node's
+    `preview` is its own first few body lines, so one `--outline` call already carries enough to
+    describe every heading for a browsing menu — no follow-up fetch per heading needed. Previews
+    are converted to plain text (`src/lib/knowledge/plaintext.ts`): headings, `**bold**`, inline
+    code and table pipes are stripped, tables become space-aligned columns. Preview consumers (a
+    chat client's preview panel, a terminal picker's description line) display text verbatim, so
+    raw Markdown would show its syntax as visible noise. Cannot be combined with `--grep`,
+    `--section`, or `--interactive`.
+  - Add `--section <heading>` to get the complete, cleanly-bounded content of the heading(s) whose
+    title contains this text (case-insensitive substring match, returns every match) — from that
+    heading's own line up to (not including) the next heading at the same or a shallower level, so
+    nested subsections are included and neighboring sections never bleed in. Use after `--outline`
+    once you know which heading you want. Cannot be combined with `--grep`, `--outline`, or
+    `--interactive`.
   - The raw response is cached locally per `(dataset_id, document_id)`, scoped per workspace, for the
     same TTL as the rest of the CLI's local cache (`~/.cawplan/cache.json`, default 12h, see Local
-    Caching (CLI) above) — repeated `--grep`/`--output` calls against the same document re-filter the
-    cached content instead of re-fetching it. Add `--refresh` to bypass the cache and re-fetch.
+    Caching (CLI) above) — repeated `--grep`/`--outline`/`--section`/`--output` calls against the same
+    document re-filter the cached content instead of re-fetching it. Add `--refresh` to bypass the
+    cache and re-fetch.
   - Interactive browsing (CLI-only, no backend/response change): browse the document's markdown
     headings as a live `select` menu in the terminal instead of printing JSON — pick a heading to
     print that section, then the menu reappears (Esc or "Exit" to quit). This is the **default**
-    when both stdin and stdout are a real TTY and `--grep` isn't given; pass `--no-interactive` to
-    force plain JSON at a terminal instead, or `-i, --interactive` to be explicit (also errors
-    clearly if forced without a real TTY). Cannot be combined with `--grep`. Agent/skill invocations
-    are unaffected — `cawplan` run as a subprocess never has a real TTY, so they always get plain
-    JSON regardless of these flags; agents should keep using `--grep`.
+    when both stdin and stdout are a real TTY and none of `--grep`/`--outline`/`--section` are given;
+    pass `--no-interactive` to force plain JSON at a terminal instead, or `-i, --interactive` to be
+    explicit (also errors clearly if forced without a real TTY). Cannot be combined with `--grep`.
+    Agent/skill invocations are unaffected — `cawplan` run as a subprocess never has a real TTY, so
+    they always get plain JSON regardless of these flags; agents should use `--outline`/`--section`
+    (see the `cawplan-knowledge` skill's Navigation Model for the drill-down pattern).
+
+### Browse the Knowledge Base Interactively (CLI-only, real TTY required)
+- No new endpoint — composes the three GET endpoints above (datasets list → documents list →
+  document content) into one live picker.
+- CLI: `cawplan knowledge browse` — pick a dataset (name + `document_count`), then a document
+  (previewing its first lines as you highlight it), then browse that document's heading tree
+  exactly like `documents get --interactive`. Esc goes back one level; Esc at the dataset list
+  exits. Shows only the first 10 documents per dataset — fall back to
+  `documents list --dataset <id> --keyword ...` to search a larger set.
+- Requires a real interactive terminal, same restriction as `documents get --interactive` — errors
+  with `"cawplan knowledge browse requires an interactive terminal"` if run as a subprocess (e.g.
+  from an agent). Agents should use the `--outline`/`--section` drill-down pattern instead.
 
 ### Upload Document to a Dataset — File (async)
 - Endpoint: `POST /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/create-by-file`

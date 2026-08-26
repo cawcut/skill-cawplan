@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   buildOutlineWithPreview,
   extractSection,
+  extractSectionBody,
   findHeadings,
   firstNonBlankLines,
   flattenOutline,
@@ -182,5 +183,52 @@ describe("firstNonBlankLines", () => {
 
   test("returns an empty string when there are no non-blank lines", () => {
     expect(firstNonBlankLines(["", "  ", ""].join("\n"), 4)).toBe("");
+  });
+});
+
+describe("setext headings", () => {
+  const titles = (md: string) => flattenOutline(parseMarkdownOutline(md)).map((n) => `${n.level}:${n.title}`);
+
+  test("reads '===' as level 1 and '---' as level 2", () => {
+    expect(titles("Title\n=====\n\nbody\n\nSub\n---\n\nmore")).toEqual(["1:Title", "2:Sub"]);
+  });
+
+  test("nests setext and ATX headings in one tree", () => {
+    expect(titles("Top\n===\n\n## Mid\n\nSub\n---")).toEqual(["1:Top", "2:Mid", "2:Sub"]);
+  });
+
+  test("does not mistake a thematic break after a blank line for a heading", () => {
+    expect(titles("# Real\n\npara\n\n---\n\nmore")).toEqual(["1:Real"]);
+  });
+
+  test("does not mistake a GFM table delimiter row for a setext underline", () => {
+    expect(titles("# Real\n\n| A | B |\n| --- | --- |\n| 1 | 2 |")).toEqual(["1:Real"]);
+  });
+
+  test("does not promote a list item or blockquote sitting above an underline", () => {
+    expect(titles("- item\n---")).toEqual([]);
+    expect(titles("> quote\n---")).toEqual([]);
+  });
+
+  test("ignores a setext underline inside a fenced code block", () => {
+    expect(titles("# Real\n\n```\nnot a heading\n===\n```")).toEqual(["1:Real"]);
+  });
+
+  test("extractSectionBody drops the underline as well as the title", () => {
+    const md = "Title\n=====\n\nbody line\n\nmore body";
+    const flat = flattenOutline(parseMarkdownOutline(md));
+    expect(extractSectionBody(md, flat, flat[0])).toBe("\nbody line\n\nmore body");
+  });
+
+  test("extractSectionBody drops only the title line for an ATX heading", () => {
+    const md = "# Title\n\n---\n\nbody";
+    const flat = flattenOutline(parseMarkdownOutline(md));
+    expect(extractSectionBody(md, flat, flat[0])).toBe("\n---\n\nbody");
+  });
+
+  test("a setext section ends where the next heading begins", () => {
+    const md = "One\n===\n\nfirst\n\nTwo\n===\n\nsecond";
+    const flat = flattenOutline(parseMarkdownOutline(md));
+    expect(extractSection(md, flat, flat[0])).toBe("One\n===\n\nfirst\n");
   });
 });

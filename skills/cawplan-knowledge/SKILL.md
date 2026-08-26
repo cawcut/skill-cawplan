@@ -1,5 +1,5 @@
 ---
-version: 0.2.6
+version: 0.2.9
 name: cawplan-knowledge
 description: |
   Browse and search the CawPlan knowledge base: list/create datasets, list/upload documents in a
@@ -31,18 +31,67 @@ about. If a user pastes a literal `cawplan ...` command instead of a plain-langu
 it as identifying *what they want* (a dataset, a document, a section), not as a script to execute
 verbatim; still pick the right underlying flags yourself.
 
-At every level, present the current level as a plain-text, numbered/nested list and let the user
-reply freely with a name, number, heading, or description of what they want next — never
-`AskUserQuestion` (see step 5 for why). After showing a leaf-level result (a section's content, a
-document's full text), show the list at the level the user was just browsing again so they can
-keep going, rather than ending the turn on a one-shot answer.
+At every level, decide the presentation by candidate-set size and how iterative the pick will be:
+
+- **Bounded, one-shot pick** (the current level's real candidates fit within `AskUserQuestion`'s
+  caps — at most 4 options × 4 questions per call, so ≤16 total — and the user is choosing once,
+  not about to rapidly reselect/backtrack through many rounds): `AskUserQuestion` with `preview`
+  is fine here. Example: picking among the handful of *non-empty* datasets, or among a short list
+  of same-topic endpoints. If a level has more raw items than that (e.g. 96 datasets total, only
+  3 non-empty), filter down to the real candidates first — don't force a large list into
+  `AskUserQuestion` across many chained calls just to avoid plain text.
+- **Large or iterative browsing** (a document's full heading tree, dozens of headings, the user
+  needs to jump around and reselect quickly across many rounds without waiting each time): plain
+  text, numbered/nested list, free-form reply for the deep/iterative parts — see step 5 for the
+  one exception (the top level of the tree, when it's bounded) and why going deeper than that
+  with `AskUserQuestion` was confirmed to be the wrong tool: modal round-trip per pick, no fast
+  reselect/backtrack.
+
+Either way, after showing a leaf-level result (a section's content, a document's full text), show
+the list at the level the user was just browsing again so they can keep going, rather than ending
+the turn on a one-shot answer.
+
+### Making the clickable path cheap
+
+When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
+
+- **A `preview` is always the node's own `--outline` `preview` string, verbatim.** Copy that field
+  in unchanged. Do **not** write your own preview text, and specifically do not substitute a
+  structural summary (a list of the chapter's child headings, a count, a paraphrase) — the point
+  of a preview is to show the section's actual opening 正文 so the user can judge the content
+  before selecting. A child-heading list tells them nothing the option labels don't already say,
+  and it costs a round trip of your own tokens to invent. Structure belongs in `label` /
+  `description`; body text belongs in `preview`.
+  - Already plain text, so paste it directly: `--outline` (and the CLI's own pickers) run every
+    preview through `markdownToPlainText` (`src/lib/knowledge/plaintext.ts`) — headings,
+    `**bold**`, `` `code` `` and table pipes are converted, tables become space-aligned columns.
+    A preview panel renders its text verbatim, so raw Markdown would leak `###`/`**`/`|` as
+    visible noise (verified side by side; converted wins). Don't hand-clean it and don't re-add
+    Markdown syntax.
+  - A node whose `preview` is empty genuinely has no body of its own (e.g. a heading holding only
+    subsections, or a figure). Say so plainly — don't backfill it with an invented summary.
+- **Collapse 1:1 levels.** Most datasets hold a single document, so dataset→document is a wasted
+  click. Offer `dataset / document` as one combined option and skip a whole round trip.
+- **Fill the call.** One `AskUserQuestion` carries 4 questions × 4 options — up to 16 selections
+  answered in a single round trip. Grouping related picks into one call beats chaining several.
+- **Fetch before you ask, not after.** Content is cached per document for 12h, and `--outline`
+  already embeds previews, so pull what the menu needs up front; then a selection renders straight
+  from what you have instead of paying a fetch on the click.
+- **Re-offer the menu in the same turn.** After rendering a selection, call `AskUserQuestion`
+  again immediately with the same (or parent) level. That gives a real pick → view → pick loop —
+  the thing plain text otherwise wins on — without the user retyping anything.
 
 1. **List datasets** — the root of the tree. When the user asks what's available, names a dataset
    you need to resolve to an `id`, or hasn't picked one yet and you need to offer a starting point:
    ```bash
    cawplan knowledge datasets list
    ```
-   Returns every dataset accessible to the caller: `{id, name, document_count}`.
+   Returns every dataset accessible to the caller: `{id, name, document_count}`. The workspace can
+   have many datasets total but few real (non-empty) ones — filter to `document_count > 0` before
+   deciding how to present the pick: if that filtered set is small (≤16), `AskUserQuestion` with
+   `preview` (e.g. each option's description = a sample of its documents) is a fine one-shot picker
+   here; for the full raw list (dozens+, mostly empty), fall back to a plain-text tree instead of
+   forcing it through many chained `AskUserQuestion` calls.
 
 2. **List documents in a dataset** — second level of the tree, when browsing a specific dataset's
    contents (the user picked a dataset from step 1, or named one directly):
@@ -118,14 +167,24 @@ keep going, rather than ending the turn on a one-shot answer.
      first few non-blank body lines, so this single call already carries enough to describe every
      heading — there is no need for a separate fetch per heading just to build preview text for
      the menu. Do not re-fetch just to rebuild the tree.
-   - In Claude Code, do NOT use `AskUserQuestion` for navigation. Claude Code has no native
-     document-tree UI, and modal selection adds an unnecessary round trip. Instead, render the
+   - **Top level of the tree only**: if the document's top-level headings (level 1) fit within
+     `AskUserQuestion`'s caps (≤16 total, ≤4 per question), offer them as a clickable
+     `AskUserQuestion` pick, one option per top-level heading, `preview` = that heading's own
+     `--outline` preview verbatim (see "Making the clickable path cheap" above — same rules
+     apply: real preview text, not an invented child-heading summary). This gives the user a
+     clickable first hop into a long document instead of always typing.
+   - **Below the top level, do NOT use `AskUserQuestion`** — deeper levels of a document's
+     heading tree are exactly the "large or iterative browsing" case from the Navigation Model
+     above: dozens+ of headings, and the user needs to jump around and reselect quickly across
+     many rounds. Claude Code has no native document-tree UI, and `AskUserQuestion`'s modal
+     round-trip per pick was confirmed clunky here specifically once a heading has more than a
+     handful of children (e.g. a chapter with 20-30 subsections). Instead, render the remaining
      tree as an actual indented plain-text tree — every node on its own line, 2 spaces of
      indentation per nesting level, mirroring `data.outline`'s `children` structure directly —
      and let the user reply freely with any section, heading, combination of sections, or other
-     request. This is a real nested tree, not a single flattened summary line of top-level titles
-     joined by commas/bullets; collapsing it into one line defeats the purpose of showing structure
-     at all.
+     request. This is a real nested tree, not a single flattened summary line of top-level
+     titles joined by commas/bullets; collapsing it into one line defeats the purpose of showing
+     structure at all.
 
      By default render only the first two heading levels (`#` and `##`) — deeper levels
      (`### Request Header`, `### Response Body`, etc.) are the same boilerplate sub-fields
@@ -167,13 +226,18 @@ keep going, rather than ending the turn on a one-shot answer.
    - After displaying the section, show the outline again so the user can continue browsing.
      Do not fetch or print the entire document again.
 
-   - This is an Agent-side browsing pattern. Do NOT use `--interactive` from an Agent.
-     The CLI's `--interactive` mode is only for a human running `documents get` directly in
-     a real TTY. Agent subprocesses do not have a TTY and therefore cannot use that mode.
+   - This is an Agent-side browsing pattern. Do NOT use `--interactive`, or run
+     `cawplan knowledge browse`, from an Agent. Both require a real interactive terminal — a
+     human running `cawplan` directly at one — and error out immediately when run as a subprocess
+     (which is all an Agent ever is).
 
-   - If the user explicitly wants terminal-based interactive browsing, tell them to run:
-     `cawplan knowledge documents get --dataset <id> --document <id>`
-     themselves in a real terminal. Do not attempt to run `--interactive` on their behalf.
+   - If the user explicitly wants terminal-based interactive browsing, tell them to run one of
+     these themselves in a real terminal (do not attempt either on their behalf):
+     - `cawplan knowledge browse` — the full picker: dataset → document (with live preview) →
+       heading tree, Esc to go back a level. Best starting point if they haven't picked a
+       document yet.
+     - `cawplan knowledge documents get --dataset <id> --document <id>` — same heading-tree
+       browser, scoped to a document they already picked.
 
 6. **Create a dataset** — when the user asks to create a new knowledge dataset:
    ```bash
@@ -209,25 +273,27 @@ keep going, rather than ending the turn on a one-shot answer.
 
 ## Output
 
-Every level below is the same pattern: a plain-text, numbered/nested list (never `AskUserQuestion`
-— Claude Code has no native tree UI) that the user replies to in free text to drill down, and the
-level they were browsing shown again after a leaf result so they can continue.
+Every level follows the Navigation Model above: `AskUserQuestion` for a bounded one-shot pick,
+plain-text numbered/nested list for large or iterative browsing. For a document's heading tree
+specifically, that split lands at the top level: `AskUserQuestion` for the level-1 headings when
+they fit the caps, plain-text free-form for everything below that. Either way, show the level the
+user was browsing again after a leaf result so they can continue.
 
-- **Dataset listing**: table/list of `name`, `id`, `document_count` — the root of the tree.
+- **Dataset listing**: table/list of `name`, `id`, `document_count` — the root of the tree; filter to non-empty before offering a pick.
 - **Document listing**: table/list of document names/ids for the requested dataset, noting total count if paginated — second level.
 - **Search results**: grouped by dataset → document (not a flat ranked list), with source metadata per fragment; note whether the search was scoped to one dataset or ran across all accessible datasets. Each hit should be drillable into that document's outline or full section.
-- **Document outline**: the `--outline` heading tree (numbered/nested, each node's `preview` inlined where it helps distinguish similarly-named headings) as a plain-text menu with free-form user selection — not raw content.
+- **Document outline**: level-1 headings as a clickable `AskUserQuestion` pick when they fit the caps (≤16 total, ≤4 per question); everything below the top level as a plain-text menu with free-form user selection — not raw content. Where a node's `preview` is worth inlining (to tell similarly-named headings apart), inline that field verbatim — never a summary you wrote yourself.
 - **Document content**: quote/summarize directly from the `--section`/`--grep` match you pulled, not from a re-assembly of prior search hits — the leaf of the tree.
 - **Create/upload**: confirm what was created/uploaded (dataset id/name, or per-document id/name from the response) — do not assume success without checking `code` in the response.
 
 ## Decision Guide
 
-- User gives no starting point at all ("what's in the knowledge base?"): `datasets list` — the root of the tree.
+- User gives no starting point at all ("what's in the knowledge base?"): `datasets list` — the root of the tree; filter to non-empty datasets, then `AskUserQuestion` if that fits ≤16, else plain text.
 - User names a specific dataset (or a few) ("search the X dataset for..."): resolve each with `datasets list` first, then `search --dataset <id>` (repeat for multiple).
 - User asks a general question with no dataset context: go straight to `search` with no `--dataset`.
 - User asks "what documents are in X": `documents list --dataset <id>`, not `search`.
 - User asks for a document's full content/summary, or search results only surface a title/fragment with no body: `documents get --dataset <id> --document <id>`.
-- User wants to browse/explore a long or unfamiliar document rather than a known section: `documents get --outline`, present the tree as a plain-text menu with free-form selection, then loop `--section "<heading>"` → outline → section on request.
+- User wants to browse/explore a long or unfamiliar document rather than a known section: `documents get --outline`, offer the level-1 headings as an `AskUserQuestion` pick if they fit the caps (else plain text), then for any deeper level present the remaining tree as a plain-text menu with free-form selection, then loop `--section "<heading>"` → outline → section on request.
 - User pastes a literal `cawplan knowledge ...` command instead of describing what they want: read it as naming a dataset/document/section, not as a script to run verbatim — resolve missing ids yourself (steps 1–2) and pick whichever flags (`--outline`, `--section`, `--grep`, ...) actually fit what they're asking for.
 - User asks to create a new dataset: `datasets create --name <name>`, after confirming the name.
 - User asks to upload/add files or text into a dataset: `documents upload --dataset <id> --file <path>...` or `--text-file <path>...`, after confirming target dataset and files.
