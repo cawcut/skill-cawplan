@@ -34,6 +34,13 @@ function sessionModelsText(session: QaSessionData): string {
     return [...new Set(models.filter(Boolean).map(String))].join(", ");
 }
 
+/** Mirrors coding assignment-html sessionStartMs; reads display_time_range only. */
+function sessionStartMs(session: QaSessionData): number {
+    const start = session.display_time_range?.start;
+    const ms = start ? Date.parse(start) : NaN;
+    return Number.isFinite(ms) ? ms : Number.MAX_SAFE_INTEGER;
+}
+
 /** Mirrors coding assignment-html sessionDateTimeText; reads display_time_range only. */
 export function sessionDateTimeText(session: QaSessionData): string {
     const range = session.display_time_range;
@@ -64,7 +71,6 @@ export function renderQaSessionRowHtml(
     const interactive = opts.interactive ?? false;
     const title = resolveSessionTitle(session, "qa");
     const report = {human_inputs: opts.daily?.human_inputs ?? []};
-    const reqCount = (session.requirement_ids ?? []).length;
     const tpAdded = session.testpoint?.added ?? 0;
     const productCell = interactive
         ? productInputHtml(session, products)
@@ -85,7 +91,6 @@ export function renderQaSessionRowHtml(
                 opts.allTicketDisplayIds,
             )}</td>`
             : "") +
-        `<td class="num-cell">${reqCount}</td>` +
         `<td class="dt-cell">${escapeHtml(sessionDateTimeText(session))}</td>` +
         `</tr>`;
 }
@@ -167,7 +172,8 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
             .map((item) => String(item).trim().toUpperCase()))].sort()
         : [];
     const preRenderedTable = opts.bootstrap
-        ? `<tbody id="qa-rows">${opts.bootstrap.daily.sessions
+        ? `<tbody id="qa-rows">${[...opts.bootstrap.daily.sessions]
+            .sort((a, b) => sessionStartMs(a) - sessionStartMs(b))
             .map((session) => renderQaSessionRowHtml(
                 session,
                 opts.bootstrap!.products,
@@ -179,7 +185,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
                 },
             ))
             .join("")}</tbody>`
-        : `<tbody id="qa-rows"><tr><td colspan="${readonly ? 9 : 10}" class="muted">Loading sessions...</td></tr></tbody>`;
+        : `<tbody id="qa-rows"><tr><td colspan="${readonly ? 8 : 9}" class="muted">Loading sessions...</td></tr></tbody>`;
     const productListOptions = opts.bootstrap
         ? opts.bootstrap.products.map((product) =>
             `<option value="${escapeHtml(product.product_name)}"></option>`,
@@ -187,7 +193,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
         : "";
 
     const ticketHeader = readonly ? "" : "<th>Tickets</th>";
-    const colSpan = readonly ? 9 : 10;
+    const colSpan = readonly ? 8 : 9;
 
     const supplementSection = readonly
         ? ""
@@ -325,7 +331,6 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
               <th>Test points added</th>
               <th>Product</th>
               ${ticketHeader}
-              <th>Requirements</th>
               <th>Date / Time</th>
             </tr>
           </thead>
@@ -496,6 +501,12 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
 
     ${INLINE_HUMAN_INPUTS_HTML}
 
+    function sessionStartMs(session) {
+      const value = session.display_time_range && session.display_time_range.start;
+      const ms = value ? Date.parse(value) : NaN;
+      return Number.isFinite(ms) ? ms : Number.MAX_SAFE_INTEGER;
+    }
+
     function sessionDateTimeText(session) {
       const range = session.display_time_range;
       const start = range && range.start;
@@ -513,7 +524,6 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
 
     function sessionRowHtml(session) {
       const title = resolveSessionTitle(session);
-      const reqCount = (Array.isArray(session.requirement_ids) ? session.requirement_ids : []).length;
       const tpAdded = session.testpoint && typeof session.testpoint.added === "number" ? session.testpoint.added : 0;
       return '<tr data-session-id="' + escapeHtml(session.session_id) + '">' +
         '<td class="sid-cell"><code>' + escapeHtml(session.session_id) + '</code></td>' +
@@ -524,7 +534,6 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
         '<td class="num-cell">' + tpAdded + '</td>' +
         '<td class="product-cell">' + productInputHtml(session) + '</td>' +
         '<td class="tickets-cell">' + ticketPickerHtml(session) + '</td>' +
-        '<td class="num-cell">' + reqCount + '</td>' +
         '<td class="dt-cell">' + escapeHtml(sessionDateTimeText(session)) + '</td>' +
         '</tr>';
     }
@@ -729,7 +738,8 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
         tbody.innerHTML = '<tr><td colspan="${colSpan}" class="muted" style="text-align:center;padding:32px;">No QA sessions in this report.</td></tr>';
         return;
       }
-      tbody.innerHTML = sessions.map(sessionRowHtml).join("");
+      const sorted = [...sessions].sort((a, b) => sessionStartMs(a) - sessionStartMs(b));
+      tbody.innerHTML = sorted.map(sessionRowHtml).join("");
       wireSessionRows();
     }
 

@@ -267,6 +267,7 @@ Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s
 - **AI 自动推断不产出 `CRITICAL`**——该枚举值保留供 SQA 事后手动指定，生成/自查阶段不主动打这个档。
 - 存疑清单条目不是测试点，不需要 `priority`。
 - SQA 可像改标题/标签一样，在 §8 修订阶段口头指定或调整某条的 `priority`（含改成 `CRITICAL`）；不新增独立弹框。
+- **拼写必须逐字符精确匹配** `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` 这四个字符串之一，不得有多字/少字/变形（如 `MEDIUUM`）；生成后按 §6 自查逐条核对。
 
 ### 6. Post-generation self-critique (internal — before first present)
 
