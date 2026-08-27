@@ -3,6 +3,7 @@ import {createServer, type IncomingMessage, type ServerResponse} from "node:http
 import {openBrowser} from "../oauth.js";
 import {getPortalBase} from "../products.js";
 import {listProductsForSelector} from "../assign/products-api.js";
+import {assignmentAssetContentType, readAssignmentAsset} from "../assign/assets.js";
 import {resolveTicketContexts} from "../ai-session/ticket-context.js";
 import {qaAssignmentHtml} from "./qa-assignment-html.js";
 import {applyQaWebAssignments, QaAssignmentValidationError} from "./qa-apply.js";
@@ -26,6 +27,7 @@ export interface QaAssignServerDeps {
 export interface QaAssignDispatchResult {
     status: number;
     body: unknown;
+    contentType?: string;
     closeServer?: boolean;
 }
 
@@ -43,6 +45,15 @@ function sendText(res: ServerResponse, status: number, body: string, contentType
     res.writeHead(status, {
         "content-type": contentType,
         "content-length": Buffer.byteLength(body),
+        "cache-control": "no-store",
+    });
+    res.end(body);
+}
+
+function sendBinary(res: ServerResponse, status: number, body: Buffer, contentType: string): void {
+    res.writeHead(status, {
+        "content-type": contentType,
+        "content-length": body.length,
         "cache-control": "no-store",
     });
     res.end(body);
@@ -94,6 +105,15 @@ export async function dispatchQaAssignRequest(
             status: 200,
             body: renderHtml({portalBase}),
         };
+    }
+
+    if (req.method === "GET" && url.pathname.startsWith("/assets/")) {
+        const assetName = url.pathname.slice("/assets/".length);
+        const asset = readAssignmentAsset(assetName);
+        if (!asset) {
+            return {status: 404, body: {error: "asset not found"}};
+        }
+        return {status: 200, body: asset, contentType: assignmentAssetContentType(assetName)};
     }
 
     if (req.method === "GET" && url.pathname === "/qa-assign/bootstrap") {
@@ -151,7 +171,9 @@ export async function handleQaAssignHttpRequest(
     try {
         const rawBody = req.method === "POST" ? await readRequestBody(req) : "";
         const result = await dispatchQaAssignRequest(req, rawBody, report, token, deps);
-        if (typeof result.body === "string") {
+        if (Buffer.isBuffer(result.body)) {
+            sendBinary(res, result.status, result.body, result.contentType ?? "application/octet-stream");
+        } else if (typeof result.body === "string") {
             sendText(res, result.status, result.body, "text/html; charset=utf-8");
         } else {
             sendJson(res, result.status, result.body);

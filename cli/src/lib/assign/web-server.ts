@@ -1,12 +1,10 @@
-import {existsSync, readFileSync} from "node:fs";
 import {randomBytes} from "node:crypto";
 import {createServer, type IncomingMessage, type ServerResponse} from "node:http";
-import {dirname, join} from "node:path";
-import {fileURLToPath} from "node:url";
 import {openBrowser} from "../oauth.js";
 import {getPortalBase} from "../products.js";
 import {readMatchingBrowserModule} from "./matching-browser.js";
 import {assignmentHtml} from "./assignment-html.js";
+import {assignmentAssetContentType, readAssignmentAsset} from "./assets.js";
 import {
     createProductRepoMapping,
     listProductRepoMappings,
@@ -24,7 +22,6 @@ import type {DailyApiJson} from "../collect/types.js";
 
 const localAssignmentHost = "127.0.0.1";
 const ASSIGNMENT_SERVER_TIMEOUT_MS = 10 * 60 * 1000;
-const assetNames = new Set(["model-gpt.png", "model-claude.png", "model-cursor.png", "model-deepseek.svg"]);
 
 interface TicketAssignmentWarning {
     file?: string;
@@ -89,25 +86,6 @@ function sendBinary(res: ServerResponse, status: number, body: Buffer, contentTy
         "cache-control": "no-store",
     });
     res.end(body);
-}
-
-function readAssignmentAsset(name: string): Buffer | null {
-    if (!assetNames.has(name)) return null;
-    const here = dirname(fileURLToPath(import.meta.url));
-    for (const path of [
-        join(here, "assets", name),
-        join(here, "..", "..", "..", "src", "lib", "assign", "assets", name),
-    ]) {
-        if (existsSync(path)) return readFileSync(path);
-    }
-    return null;
-}
-
-function assignmentAssetContentType(name: string): string {
-    const lower = name.toLowerCase();
-    if (lower.endsWith(".svg")) return "image/svg+xml";
-    if (lower.endsWith(".png")) return "image/png";
-    return "application/octet-stream";
 }
 
 function readRequestBody(req: IncomingMessage): Promise<string> {

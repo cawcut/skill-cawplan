@@ -49,6 +49,7 @@ function mockDailyFixture(): QaDailyApiJson {
             skill_layers: index === 0
                 ? ["cawplan-requirement-analyze", "cawplan-testpoint-generate"]
                 : ["cawplan-testcase-generate"],
+            models: index === 0 ? ["claude-sonnet-5"] : [],
             testpoint: {added: index === 0 ? 6 : 0, modified: 0, deleted: 0},
             testcase: {added: 0, modified: 0, deleted: 0},
             display_time_range: {
@@ -177,6 +178,7 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
             "Title",
             "Input",
             "Agent",
+            "Models",
             "Test points added",
             "Product",
             "Tickets",
@@ -185,7 +187,7 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
         ]);
     });
 
-    test("readonly preview omits Tickets column with eight headers", () => {
+    test("readonly preview omits Tickets column with nine headers", () => {
         const html = qaAssignmentHtml({
             readonlyPreview: true,
             bootstrap: bootstrapFixture(),
@@ -199,6 +201,7 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
             "Title",
             "Input",
             "Agent",
+            "Models",
             "Test points added",
             "Product",
             "Requirements",
@@ -206,9 +209,9 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
         ]);
     });
 
-    test("readonly loading state uses colspan 8", () => {
+    test("readonly loading state uses colspan 9", () => {
         const html = qaAssignmentHtml({readonlyPreview: true});
-        expect(html).toContain('colspan="8"');
+        expect(html).toContain('colspan="9"');
     });
 
     test("sessionDateTimeText formats start like coding and falls back to em dash", () => {

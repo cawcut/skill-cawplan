@@ -52,6 +52,7 @@ export interface QaSessionData {
     ticket_display_ids: string[];
     requirement_ids: string[];            // id strings only, not anchor objects
     skill_layers: QaSkillLayer[];
+    models: string[];
 
     // V1 required asset slots (backend stores as-is; see QaAssetChange)
     testpoint: QaAssetChange;
