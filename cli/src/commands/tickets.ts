@@ -3,7 +3,32 @@ import { cawplanRequest } from "../lib/http.js";
 import { getCache, setCache, buildScopedCacheKey, buildQueryFromFlags, csvToArray } from "../lib/cache.js";
 import { resolveApiPath } from "../lib/products.js";
 import { resolveProductId, resolveVersionId, resolveUserIds } from "../lib/resolve.js";
+import { normalizeTicketDetailFieldsCsv } from "../lib/ticket-detail-fields.js";
 
+export interface GetVersionTicketOptions {
+  /** CSV sparse fieldset; omit for full enrich (labels, children, relations, …). */
+  fields?: string;
+}
+
+/** GET version ticket detail via OpenAPI (full enrich when `fields` omitted). */
+export async function getVersionTicket(
+  productId: string,
+  versionId: string,
+  ticketId: string,
+  options?: GetVersionTicketOptions,
+): Promise<unknown> {
+  const flags: Record<string, string> = {};
+  if (options?.fields !== undefined) {
+    flags.fields = normalizeTicketDetailFieldsCsv(options.fields);
+  }
+  const query = buildQueryFromFlags(flags, ["fields"]);
+
+  return cawplanRequest({
+    method: "GET",
+    path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}`,
+    query,
+  });
+}
 
 export function registerTicketsCommand(program: Command): void {
   const tickets = program.command("tickets").description("Manage tickets");
@@ -30,13 +55,27 @@ export function registerTicketsCommand(program: Command): void {
 
   tickets
     .command("get <product_id> <version_id> <ticket_id>")
-    .description("Get a single version ticket")
-    .action(async (productId: string, versionId: string, ticketId: string) => {
-      const result = await cawplanRequest({
-        method: "GET",
-        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}`,
-      });
-      console.log(JSON.stringify(result, null, 2));
+    .description(
+      "Get a version ticket with full detail (labels, children, parent, relations, product_line, ai_sessions, qa_reports)",
+    )
+    .option(
+      "--fields <csv>",
+      "Sparse fieldset: labels,children,relations,product_line,ai_sessions,qa_reports (default: all enrich groups)",
+    )
+    .action(async (productId: string, versionId: string, ticketId: string, opts) => {
+      try {
+        const result = await getVersionTicket(productId, versionId, ticketId, {
+          fields: opts.fields,
+        });
+        console.log(JSON.stringify(result, null, 2));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.startsWith("invalid fields")) {
+          console.error(`Error: ${message}`);
+          process.exit(1);
+        }
+        throw err;
+      }
     });
 
   tickets

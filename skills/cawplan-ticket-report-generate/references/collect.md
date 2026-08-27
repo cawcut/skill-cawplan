@@ -1,138 +1,166 @@
 # A7 数据采集
 
-与 `publish.md` 配合。链接拼接见 `publish §Links`。
+链接见 `publish §Links`。
 
 ## §0 上下文
 
 | 输入 | 处理 |
 |------|------|
-| Ticket URL | 提取 `product_id`、`version_id`、`ticket_id`（或 `display_id`→`tickets search --display_ids`） |
+| Ticket URL | 提取 `product_id`、`version_id`、`ticket_id`（或 `display_id`→`search --display_ids`） |
 | display_id + 版本名 | `products list` / `versions list` 反查 |
-| `report_mode` | 用户显式 PROGRESS/COMPLETION；缺省 anchor 已完成→建议 COMPLETION，否则 PROGRESS |
+| `report_mode` | 显式 PROGRESS/COMPLETION；缺省 anchor 已完成→建议 COMPLETION |
 
-缺 product/version/anchor → `publish §Gates` 索取。多匹配停步，禁止猜测。
+缺上下文→`publish §Gates` 索取。多匹配停步。落库 `ticket_id`=anchor.`unique_id`。
 
-**anchor**：用户指定报告工单；落库 `ticket_id` = anchor.`unique_id`。
-
-Step 0 缓存：`portal_base`（`config env` Portal 行去尾 `/`）、`major_version_id`（`versions get` → `major_id ?? major_version_id ?? major_info.major_id ?? version_id`）、`product_id`、`version_id`、`anchor.*`。
+Step 0 缓存：`portal_base`、`major_version_id`、`product_id`、`version_id`。Step 1 写 `anchor_detail_cache`（热接力复用）。
 
 ## §Anchor Step 1
+
+同 anchor+version 且未要求刷新→复用 `anchor_detail_cache`，跳过 get。
 
 ```bash
 cawplan tickets get <product_id> <version_id> <anchor_id>
 ```
 
-| 检查 | 失败 |
-|------|------|
-| 存在 | 404→停止 |
-| `version_id` 匹配 | 不匹配→停止 |
-| `parent_id` | 任意值允许 |
+404 / version 不匹配→停止。`parent_id` 任意。
 
-记录：`display_id`、`description`、`status`、`type`、`parent_id`、`label_names[]`（`§Labels`）。
+**`anchor_detail_cache`**：`unique_id`、`display_id`、`description`、`status`、`type`、`priority`、`parent_id`；`children_tree`；`relations`（related/blocked_by/blocking/duplicate）；`parent_ticket`（`data.parent`）；`subtree_stats`（`§Subtree`）。
 
-**warning**（`template_payload.warnings[]`，不阻断）：`ANCHOR_IS_BUGFIX`（type=BUGFIX）；`SIBLING_REPORTS_EXIST`（同 Story/兄弟已有报告）。
+warning（不阻断）：`ANCHOR_IS_BUGFIX`；`SIBLING_REPORTS_EXIST`。
 
-有 `parent_id` → `tickets get` 父级，记 `parent_ticket`（Notes 用；L1 典型附 Story 链接）。
+Notes 父单：优先 `data.parent`；仅 `parent` 缺失且有 `parent_id`→**1 次** `get(parent_id)`。**禁止**再调 `tickets list`、`relate list`。
 
-## §Subtree Step 2
+## §Subtree Step 1b（本地，无额外 API）
 
-以 anchor 为 D0，**始终**纳入相对 depth 0–2（anchor + 最多两代后代）；不上溯兄弟/叔辈。这条规则相对 anchor 生效,**不按 anchor 在整棵工单树里的绝对层级封顶**——不管 anchor 本身是 Story、L1 还是 L2/BUGFIX，都统一按"anchor+D1+D2"下探两代,而不是"anchor 越深、纳入越少"。
+anchor=D0，相对 depth 0–3 纳入；不上溯兄弟。与 anchor 绝对层级无关。
 
-D1、D2 都须显式查询,不能只查 D1 就止步：
-
-```bash
-# D1：parent_id == anchor.unique_id
-cawplan tickets list <product_id> <version_id> --type FEATURE [--page_size 100 --page_num N]
-cawplan tickets list <product_id> <version_id> --type BUGFIX [--page_size 100 --page_num N]
-# 本地过滤 parent_id == anchor.unique_id → D1[]
-
-# D2：parent_id ∈ D1[].unique_id（对每个有 sub_issue_count>0 的 D1 工单都要覆盖到）
-cawplan tickets list <product_id> <version_id> --type FEATURE [--page_size 100 --page_num N]
-cawplan tickets list <product_id> <version_id> --type BUGFIX [--page_size 100 --page_num N]
-# 本地过滤 parent_id ∈ D1[].unique_id → D2[]
+```text
+flatten(children, depth=1): depth>3 → deeper_excluded+=count_subtree; return
+  每节点→scope[D{depth}]；sub_issue_count>0 且无 children → SUBTREE_TRUNCATED
+  有 children → flatten(children, depth+1)
 ```
 
-均须同 version。`tickets search` 仅辅助过滤 `parent_ids`，**必须**用 list 按 `unique_id` 合并 `labels` 等字段。
+记录：`unique_id`、`display_id`、`description`、`type`、`status`、`priority`、`parent_id`、`sub_issue_count`、`links[]`。不采集 labels（V2）。
 
-**截断信号（`SUBTREE_TRUNCATED`，warning，不阻断）**：D1（或 D2）中任意工单响应自带 `sub_issue_count > 0`，但对应子单没有出现在下一层查询结果里——常见原因：子单类型不在 `FEATURE`/`BUGFIX`（见下）、跨 version、或分页未取全——记下该工单 ID，正文/预览须提示"范围已截断，遗漏 N 条子单"，不允许悄悄丢数据。
+D4+ 不纳入；`deeper_excluded` 仅预览可选展示。open=非完成态（`publish §Rules`）。子树>50 open：PROGRESS→open 全量；COMPLETION→complete 纳入 type 汇总。
 
-**类型盲区**：上面两条 `tickets list --type` 目前只覆盖 `FEATURE`/`BUGFIX`；若子单实际类型是 TASK/STORY 等其他类型,不管 depth 规则怎么定都会被整个漏查。遇到 `sub_issue_count>0` 但两种类型查询都没找到对应子单时，同样计入 `SUBTREE_TRUNCATED`。
+## §Relation Step 2
 
-子树 >50 open：PROGRESS→open 全量、complete 仅 `by_depth` 计数；COMPLETION→complete 纳入 Labels 总结。open = status 不在完成态（`publish §Rules`）。
+仅读 `anchor_detail_cache.relations`。禁止 `relate list`。
 
-## §Labels
+| 类型 | 默认 | 过滤 |
+|------|------|------|
+| related / blocked_by / blocking | ✅ | `ticket.version_id==目标 version` |
+| duplicate | ❌ | — |
 
-`labels` 为对象数组：`label_names = labels.map(l=>l.name).filter(Boolean)`。**禁止**当 string[]；**禁止**用 `ticket.type` 或 `behavior` 作分组名。search **不返回** labels。空 labels → `tickets get` 补拉 → 仍无则「未分类」。
-
-## §Issue
-
-scope 内 `type=BUGFIX`：`priority`（CRITICAL→LOW）→ `label name` → ticket 超链接。多 label 各桶各列。写入 `issue_tracking.by_priority`。生成前抽查 1 条已知有 label 的 BUGFIX，若全「未分类」→ 停步回查。
-
-## §Relation
-
-```bash
-cawplan tickets relate list <product_id> <version_id> <anchor_id>
-```
-
-| type | 默认 |
-|------|------|
-| RELATED / BLOCKED_BY / BLOCKING | ✅ 纳入 |
-| DUPLICATE | ❌ 丢弃 |
-
-纳入 relation 须 `tickets get` 校验同 product/version。`scope_ids = {anchor} ∪ D1 ∪ D2 ∪ confirmed_relations`。
+跨 version 静默排除。`scope_ids = anchor ∪ D1–D3 ∪ confirmed_relations`（execution、coverage、R1–R8）。**Verification 分桶**另用 `verification_ids = D1 ∪ D2 ∪ D3`（**不含 anchor**、不含 relation）。缺字段罕见时再单条 get。
 
 ## §Execution Step 4
 
-对每个 `ticket_id ∈ scope_ids` **串行**：
+每个 `ticket_id ∈ scope_ids` **串行**：
 
 ```bash
-cawplan qa-insights testrail execution summary <product_id> <version_id> --ticket-id <id> --refresh
+cawplan qa-insights testrail execution summary <pid> <vid> --ticket-id <id> --refresh
 ```
 
-| 指标 | 计算 |
-|------|------|
-| 单 ticket | `aggregated.executed/total` |
-| 近似 coverage | `Σexecuted/Σtotal`（不去重 Case） |
-| 通过质量 | `(passed+auto_passed+passed_with_issue)/executed` |
-
-仅 Manual Run（`ticket_id` scoped）；不拉 AQA。`total=0`→记 0/0，预览标「无绑定 Manual Run」。汇总 `failed_sum`、`blocked_sum`、`passed_with_issue`、未关闭 BUGFIX（R1/R4 用）。
+单票 `executed/total`；coverage=`Σexecuted/Σtotal`；pass_quality=`(passed+auto_passed+passed_with_issue)/executed`。仅 Manual Run；`total=0`→0/0。汇总 failed/blocked/passed_with_issue、未关闭 BUGFIX（R1/R4）。Coverage% 写入 Test Summary；**禁止**在 Test Approach 追加近似覆盖率脚注。
 
 ## §Feature Step 5
 
-**feature_name**：① anchor 绑定 Requirement→`function_description` 或 `summary`；② 否则 `description` 首行≤120 字；③ 否则 `{display_id} {title}`。
+**feature_name**：① Requirement→`function_description`/`summary`；② `description` 首行≤120；③ `{display_id} {title}`。
 
-**RequirementLookup**（anchor 优先，D1/D2 各自绑定也查）：
+**RequirementLookup**（anchor + D1–D3）：`api GET module-tree` + `requirements?module_tree_node_id=`；按 ticket `unique_id` 过滤。
 
-```bash
-cawplan api GET .../qa/module-tree
-cawplan api GET .../qa/requirements --query "module_tree_node_id=<node_id>"
+**TestPoints**（COMPLETION）：`testpoints list`；按 `group` 聚类→`key_test_points` 1–5（核心优先）；PROGRESS 不产出。
+
+## §ModeMatrix（PROGRESS vs COMPLETION 唯一表）
+
+| 维度 | PROGRESS | COMPLETION |
+|------|----------|------------|
+| Issue A Type Overview | 必出 | 必出 |
+| Issue B Module Fragility | 条件；Top2/样本弱→1/无法→隐藏 | 同左 |
+| Issue C Collaboration Hotspots | 条件；Dev/QA 各 Top2/1/隐藏 | 同左 |
+| Issue D Recommendations | 2 条或 1 条/隐藏 | 3 条 + 可选 Lesson Learned 一句 |
+| Verification 桶 | failed·pass_with_issue·active·pending·not_yet | + passed（测试点，无 priority/type） |
+| Verification 对象 | **仅** D1–D3 子单；**排除 anchor** 与 relation | 同左 |
+| Verification passed | **禁止** HTML/预览列出 | 1–5 `key_test_points` 纯文本 |
+| `template_payload` | `issue_summary`+`verification`；禁 `issue_tracking` | +`lesson_learned?` |
+| Overall Conclusion | 可选 | 必填 |
+
+**priority 展示**：CRITICAL→Critical(1)…LOW→Low(4)，空→Unspecified(5)。
+
+**type 展示**：BUGFIX→BugFix(1)，FEATURE→Feature(2)，其他原样字母序。
+
+**Verification 桶顺序**（空桶跳过）：failed→pass_with_issue→（COMPLETION：passed/key_test_points）→active_testing→pending_verification→not_yet_submitted。
+
+PROGRESS：`verified_passed` 仍可分桶供 R1–R8/coverage，但**不得**进 Verification HTML/预览 Passed；可选 `verified_passed_count`。
+
+## §IssueSummary Step 5b
+
+质量洞察（非工单清单）。读者规范：`publish §Audience`。
+
+**对象**：D1–D3 + relation BUGFIX；anchor 仅 Part A。
+
+**字段**：type、priority、status、assignees/reporter（**仅计数**）、parent、祖先 FEATURE、`module_tree_node`（RequirementLookup）、`root_cause`（BUGFIX，多来自 anchor get）、execution、links[]。不采集 labels。
+
+**模块 fallback**：① Requirement.module_tree 名 → ② 祖先 FEATURE description≤60 → ③ Unscoped。正文仅可读模块名。
+
+**history（默认不拉）**：仅 REOPEN/BLOCKED 或 CRITICAL/HIGH BUGFIX 或同模块 BUGFIX≥3；上限 20 票→`ISSUE_SUMMARY_HISTORY_CAP`。子任务>80→B/C 仅 Top2→`ISSUE_SUMMARY_LARGE_SCOPE`。
+
+**易损分（内部，不写 details）**：`bugfix×2 + critical_high×3 + reopen×4 + open_bugfix×1 + (failed+pwi)×1.5`
+
+| Part | 必出/隐藏 | 条数 |
+|------|-----------|------|
+| A Type 计数 | 必出；无链接 | — |
+| B 模块易损 | 子任务≥3且BUGFIX≥2且模块≥2→展示；否则 1 模块+BUGFIX≥2→1 条；无→**隐藏整段** | Top2 或 1 |
+| C Collaboration Hotspots | 同模块 Dev≥2 / QA≥3；双侧无→隐藏 Part C | 每侧 Top2 或 1 |
+| D 建议 | 有 B/C→2(PROGRESS)/3(COMPLETION)；仅 A→1；子任务<3且无 BUGFIX→隐藏 | — |
+
+匿名；默认无链接；必要时每块最多 1 条 BugFix。Insight 1–2 句、基于数字。
+
+**Issue Summary HTML（MUST）**：
+
+| Part | 标题标签 | 标题文案（中/英随 §Locale） |
+|------|----------|------------------------------|
+| A | `<h5>` | Type Overview / 类型概览 |
+| B | `<h5>` | Module Fragility / 模块易损 |
+| C | `<h5>` | **Collaboration Hotspots** / 协作热点 — **仅此**，禁 `(Development)`、`(QA)`、`QA Filing` 等括号后缀 |
+| D | `<h5>` | Recommendations / 建议 |
+| Lesson | `<h5>` 或段内一句 | Lesson Learned（COMPLETION 可选） |
+
+**Part C 结构**（双侧或单侧均适用）：
+
+```html
+<h5>Collaboration Hotspots</h5>
+<ul>
+  <li><strong>Development</strong> …洞察句或子 <ul>…</ul></li>
+  <li><strong>QA</strong> …</li>
+</ul>
 ```
 
-按 ticket `unique_id` 过滤；缓存 module 列表。
+- Dev 与 QA **均有**热点 → 同一 `<h5>Collaboration Hotspots</h5>` 下用 **两个** `<li><strong>Development</strong>` / `<li><strong>QA</strong>` 子项（**禁止**拆成两个带括号后缀的 `<h5>`）。
+- **仅一侧**有热点 → 仍只一个 `<h5>Collaboration Hotspots</h5>`；可只列对应 `<li><strong>Development</strong>` 或 `<li><strong>QA</strong>`，或直接 `<ul>` 列要点（无 Development/QA 字样亦可）。
+- **禁止**：`<h5>Collaboration Hotspots (Development)</h5>`、`<h3>…</h3>`、并列两个 Hotspots 标题。
 
-**TestPoints**（命中 Requirement 的 scope ticket）：
-
-```bash
-cawplan qa-insights testpoints list <product_id> <requirement_id>
-```
-
-按 `group` 聚类。启发式：条数多+主路径标签→核心场景；条数少+技术轴标签→基本核对。COMPLETION：`key_test_points` 1–5 条（核心场景优先，去重精炼）；PROGRESS 不产出。
+**`issue_summary` payload**：`type_overview`、`fragile_modules[]`、`dev_hotspots[]`、`qa_hotspots[]`、`recommendations[]`、`lesson_learned?`（数组空→对应 Part 不渲染；HTML 仍遵守上表 `<h5>` 与 Part C 嵌套规则）。
 
 ## §Buckets
 
-scope ticket（含 relation）分桶（完成态见 `publish §Rules`）：
+**分桶对象**：`verification_ids`（D1–D3 子单，**不含 anchor**、不含 relation）。execution/coverage/R1–R8 仍用全 `scope_ids`。
 
-| key | 条件 |
-|-----|------|
-| `verified_failed` | BLOCKED/REOPEN 或完成态+失败突出 |
-| `verified_pass_with_issue` | 完成态+`passed_with_issue>0` 或非 CRITICAL 缺陷证据 |
-| `verified_passed` | 完成态+执行质量良好 |
-| `under_active_testing` | QA_TESTING |
-| `pending_verification` | READY_FOR_QA |
-| `not_yet_submitted` | NOT_STARTED/IN_PROGRESS/NEED_BUILD |
+完成态见 `publish §Rules`。优先级：failed > pass_with_issue > passed > status 桶。未映射→`STATUS_UNMAPPED`→`not_yet_submitted`。
 
-优先级：failed > pass_with_issue > passed > status 桶。未映射 status→warning `STATUS_UNMAPPED`，默认 `not_yet_submitted`。
+| key | HTML | 条件 |
+|-----|------|------|
+| `verified_failed` | ❌ Verified & Failed | BLOCKED/REOPEN 或完成态+失败突出 |
+| `verified_pass_with_issue` | ⚠️ Verified & Passed with Issue | 完成态+pwi>0 或非 CRITICAL 缺陷证据 |
+| `verified_passed` | ✅ Verified & Passed | 完成态+执行质量良好 |
+| `under_active_testing` | 🔍 Under Active Testing | QA_TESTING |
+| `pending_verification` | ⏳ Pending Verification | READY_FOR_QA |
+| `not_yet_submitted` | 🚧 Under Development | NOT_STARTED/IN_PROGRESS/NEED_BUILD |
 
-**渲染**：空桶整段省略，禁止 `（无）`；ticket 逐条 `<ul><li>` 超链接；PROGRESS 各桶列 ticket；COMPLETION Passed 用 `key_test_points` `<ul>` 纯文本（0 条整桶省略），pass_with_issue/failed 列 ticket（排除 total=0 的 BUGFIX）。
+桶内 **priority → type → ticket** 嵌套（已完成桶同样）。禁 Issue Tracking。空层/空桶省略，禁 `（无）`。同组内 ticket 按 `display_id` 序。
 
-`template_payload.verification`：PROGRESS→`verified_passed[]` 有值、`key_test_points=[]`；COMPLETION 反之。
+渲染：PROGRESS 禁 passed 桶；COMPLETION passed→`key_test_points` `<ul>`；pass_with_issue/failed 排除 total=0 的 BUGFIX。HTML 骨架见 `publish §Template`。
+
+**`verification` payload**：桶→priority→type→uuid[]（uuid **仅**来自 `verification_ids`）；禁 `issue_tracking`。COMPLETION：`key_test_points` 1–5，passed 桶不列 uuid。PROGRESS：`key_test_points=[]`，可选 `verified_passed_count`（计数亦不含 anchor）。
