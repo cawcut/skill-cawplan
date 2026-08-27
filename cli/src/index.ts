@@ -2,6 +2,7 @@
 
 import {Command} from "commander";
 import {createRequire} from "node:module";
+import {ApiError} from "./lib/http.js";
 import {registerAuthCommand} from "./commands/auth.js";
 import {registerProductsCommand} from "./commands/products.js";
 import {registerVersionsCommand} from "./commands/versions.js";
@@ -118,4 +119,14 @@ program
         console.log(JSON.stringify({code: "SUCCESS", msg: "cache cleared"}, null, 2));
     });
 
-await program.parseAsync(process.argv);
+try {
+    await program.parseAsync(process.argv);
+} catch (err) {
+    if (err instanceof ApiError) {
+        const payload = err.body && typeof err.body === "object" ? err.body : {code: "ERROR", data: null, msg: err.message};
+        console.error(JSON.stringify(payload, null, 2));
+    } else {
+        console.error(JSON.stringify({code: "ERROR", data: null, msg: err instanceof Error ? err.message : String(err)}, null, 2));
+    }
+    process.exit(1);
+}

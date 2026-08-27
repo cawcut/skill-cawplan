@@ -16,7 +16,7 @@
 
 ## §Suite
 
-preview / convert **前** `mappings get <product_id>`，记录 `suites[]`、`default_suite_id`、`section_mappings`、`case_template_id`。
+preview / convert **前** `mappings get <product_id>`，记录 `suites[]`、`default_suite_id`、`section_mappings`、`case_template_id`、`testrail_project_url`（解析 `testrail_origin`，见 `ux §TestRailLinks`）。
 
 | 规则 | 行为 |
 |------|------|
@@ -61,6 +61,7 @@ Agent 须记住（内部，不对用户默认展示）：
 | `confirmed_parent_section_name` / `confirmed_parent_section_path` | 对应名称/父级路径（展示用） |
 | `confirmed_version_name` | Intent 命中后的版本（无弹窗，见 §Version） |
 | `cached_sections_by_suite` | 本会话内 `sections list` 结果缓存，key 为 `suite_id`（内部用，不对用户展示） |
+| `testrail_origin` | `testrail_project_url` 或 Suite `url` 解析出的 `https://{host}`（`ux §TestRailLinks`） |
 
 **复用**：同会话重 preview（仅改数据源/修正用例、**未换 Suite/Section 归属**）→ **免框 3/3.5**，仍须在 `§Preview` 表头与框 4 展示已确认值。
 
@@ -197,6 +198,23 @@ Preview 响应：`to_fail>0` 不得 execute；`section_creates` 需在框 4 一�
 | 完成 | `COMPLETED` → `ux §Result` |
 | 禁止 | Job 非终态重复 `execute` |
 | 存储 | `product_id` + `job_id` + ConfirmState |
+
+## §Diagnosis（execute 失败信号识别）
+
+| 信号 | 含义 | 处理 |
+|------|------|------|
+| preview 阶段 `to_fail === 0`，但 execute 返回 `failed === to_create`（100% 失败），且 `failed_cases[].error` 全部是同一个 code | 大概率是系统性/BE 侧问题，而不是本批次用例数据有问题 | 不引导用户"改数据重试"；先走 `§RetrySafety` 核实副作用，再决定是否上报或重试 |
+| execute 返回的 `error` code 不在 `SKILL.md §错误` 表内 | 未知错误码，Skill 无预置处理路径 | `ux §UnknownError`；停止，不擅自重试或静默重新 preview |
+
+## §RetrySafety（execute 失败后重试前必须核实副作用）
+
+`execute`（同步响应或 Job 终态）判定为失败后——不论是已知错误码还是未知错误码——**禁止**直接复用旧 `preview_id`，也**禁止**立即新开一次 preview 再重新 `execute`。原因：`execute` 内部的写操作有先后顺序（例如先建 Section 再建 Case），批次级"失败"不代表没有产生真实副作用；盲目重试可能在 TestRail 里造成重复目录。
+
+处理顺序（MUST）：
+
+1. `sections list <product_id> <suite_id> --refresh` 核实本次涉及的目标 Section 是否已经在 TestRail 生成；
+2. 若已生成：告知用户"目录已建好，但用例未导入成功"；后续若要重新导入，新的 preview 会在匹配到已存在同名 Section 时直接复用其 ID（不会重复创建），可以正常继续；
+3. 若未生成：说明失败发生在更早的阶段，走 `SKILL.md §错误` 对应行的常规处理即可。
 
 ## §BE 缺口（2026-08-20）
 

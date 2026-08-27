@@ -8,7 +8,7 @@
 ### Local Caching (CLI)
 - Cache file: `~/.cawplan/cache.json` (override with `CAWPLAN_CACHE_PATH`)
 - TTL: `CAWPLAN_CACHE_TTL_HOURS` (default 12)
-- Commands with cache: users list/query, products list, product-lines list/get, tickets search, critical search
+- Commands with cache: users list/query, products list, product-lines list/get, tickets search, critical search, knowledge documents get
 - Bypass cache: add `--refresh`
 - Clear cache: `cawplan cache clear`
 
@@ -303,6 +303,16 @@
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/qa_report/{qa_report_id}`
 - Maps to cawplan CLI: `cawplan qa-reports get <product_id> <version_id> <qa_report_id>`.
 
+### Create QA Report (Portal)
+- Endpoint: `POST /api/v1/product/{product_id}/versions/{version_id}/qa_report`
+- Body: `QAReportCreateRequest` (`topic` required; `details`, `type`, `result`, `status`, `ticket_id`, `links`, `date_start`, `date_end`, …)
+- Maps to cawplan CLI: `cawplan qa-reports create <product_id> <version_id> --body-file <path>` or `--body <json>`.
+
+### Update QA Report (Portal)
+- Endpoint: `PUT /api/v1/product/{product_id}/versions/{version_id}/qa_report/{qa_report_id}`
+- Body: `QAReportUpdateRequest` (partial fields)
+- Maps to cawplan CLI: `cawplan qa-reports update <product_id> <version_id> <qa_report_id> --body-file <path>` or `--body <json>`.
+
 ## 11) Community APIs
 ### Get Community Release Timeline
 - Endpoint: `GET /api/v1/public/openapi/community/timeline`
@@ -311,11 +321,134 @@
 - Maps to cawplan CLI: `cawplan community timeline`.
 
 ## 12) Knowledge APIs
+### List Knowledge Datasets
+- Endpoint: `GET /api/v1/public/openapi/knowledge/datasets`
+- Response: `data.datasets[]` — every dataset the caller can access, each `{id, name, document_count}`. `id` is the raw dataset id used by the other two knowledge endpoints below.
+- Maps to cawplan CLI: `cawplan knowledge datasets list`.
+
+### Create Knowledge Dataset
+- Endpoint: `POST /api/v1/public/openapi/knowledge/datasets`
+- Body: `name` (required), `description` (optional), `permission` (optional: `only_me` | `all_team_members` | `partial_members`, default `only_me`); also accepts the other `KBCreateDatasetRequest` fields (`indexing_technique`, `embedding_model`, ...) if needed, passed straight through to Dify.
+- Response: the created dataset — the raw Dify id, name, etc., plus `document_count: 0` patched in for shape-consistency with the datasets-list response.
+- Maps to cawplan CLI: `cawplan knowledge datasets create --name <name> [--description <text>] [--permission <level>]`.
+- Implementation note: proxies to Dify's `POST /api/v1/datasets` and also creates a PRM `knowledge_dataset` tracking record (same as the internal `KbCreateDataset`), but — unlike the internal API, which swaps the response id for the PRM `unique_id` — the public response keeps the raw Dify id, consistent with every other public knowledge endpoint.
+
+### List Documents in a Dataset
+- Endpoint: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents`
+- Query params: `keyword` (optional), `page` (optional), `limit` (optional)
+- `dataset_id` must be one of the ids returned by the datasets-list endpoint above; an inaccessible or unknown id returns `NOT_FOUND`.
+- Maps to cawplan CLI: `cawplan knowledge documents list --dataset <id>`.
+
+### Get Document Content
+- Endpoint: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/{document_id}/content`
+- `dataset_id` and `document_id` must come from the datasets-list and documents-list endpoints above; an inaccessible or unknown id returns `NOT_FOUND`.
+- Reads the original source file directly (e.g. from S3 via the document's stored file reference) and returns it verbatim — not reassembled from search-index segments/chunks, so formatting and content lost to indexing are preserved.
+- Response: `data.content` (full raw text of the document), plus `data.name`.
+- Maps to cawplan CLI: `cawplan knowledge documents get --dataset <id> --document <id>`.
+  - Add `--output <path>` to also write `data.content` to a file.
+  - Add `--grep <pattern>` (with `--context <n>`, default 3, like `grep -C`) to have the CLI itself
+    filter `data.content` client-side and return only matching line ranges with context — for a large
+    document, this locates one section precisely in a single call instead of loading the whole
+    response into an agent's context or piping to a separate shell `grep`. Best for freeform pattern
+    search in body text, or non-Markdown sources; `--section` (below) is better once you know the
+    exact heading, since a fixed-line-count `--context` can bleed into a neighboring section.
+  - Add `--outline` to get the document's Markdown heading tree as structured JSON
+    (`{level, title, line, preview, children}`) instead of the content — built client-side from the
+    cached content (`cli/src/lib/knowledge/outline.ts`, skips lines inside fenced ` ``` ` code blocks
+    so a `#`-prefixed shell comment in a curl example is never mistaken for a heading). Each node's
+    `preview` is its own first few body lines, so one `--outline` call already carries enough to
+    describe every heading for a browsing menu — no follow-up fetch per heading needed. Previews
+    are converted to plain text (`src/lib/knowledge/plaintext.ts`): headings, `**bold**`, inline
+    code and table pipes are stripped, tables become space-aligned columns. Preview consumers (a
+    chat client's preview panel, a terminal picker's description line) display text verbatim, so
+    raw Markdown would show its syntax as visible noise. Cannot be combined with `--grep`,
+    `--section`, or `--interactive`.
+  - Add `--section <heading>` to get the complete, cleanly-bounded content of the heading(s) whose
+    title contains this text (case-insensitive substring match, returns every match) — from that
+    heading's own line up to (not including) the next heading at the same or a shallower level, so
+    nested subsections are included and neighboring sections never bleed in. Use after `--outline`
+    once you know which heading you want. Cannot be combined with `--grep`, `--outline`, or
+    `--interactive`.
+  - The raw response is cached locally per `(dataset_id, document_id)`, scoped per workspace, for the
+    same TTL as the rest of the CLI's local cache (`~/.cawplan/cache.json`, default 12h, see Local
+    Caching (CLI) above) — repeated `--grep`/`--outline`/`--section`/`--output` calls against the same
+    document re-filter the cached content instead of re-fetching it. Add `--refresh` to bypass the
+    cache and re-fetch.
+  - Interactive browsing (CLI-only, no backend/response change): browse the document's markdown
+    headings as a live `select` menu in the terminal instead of printing JSON — pick a heading to
+    print that section, then the menu reappears (Esc or "Exit" to quit). This is the **default**
+    when both stdin and stdout are a real TTY and none of `--grep`/`--outline`/`--section` are given;
+    pass `--no-interactive` to force plain JSON at a terminal instead, or `-i, --interactive` to be
+    explicit (also errors clearly if forced without a real TTY). Cannot be combined with `--grep`.
+    Agent/skill invocations are unaffected — `cawplan` run as a subprocess never has a real TTY, so
+    they always get plain JSON regardless of these flags; agents should use `--outline`/`--section`
+    (see the `cawplan-knowledge` skill's Navigation Model for the drill-down pattern).
+
+### Browse the Knowledge Base Interactively (CLI-only, real TTY required)
+- No new endpoint — composes the three GET endpoints above (datasets list → documents list →
+  document content) into one live picker.
+- CLI: `cawplan knowledge browse` — pick a dataset (name + `document_count`), then a document
+  (previewing its first lines as you highlight it), then browse that document's heading tree
+  exactly like `documents get --interactive`. Esc goes back one level; Esc at the dataset list
+  exits. Shows only the first 10 documents per dataset — fall back to
+  `documents list --dataset <id> --keyword ...` to search a larger set.
+- Requires a real interactive terminal, same restriction as `documents get --interactive` — errors
+  with `"cawplan knowledge browse requires an interactive terminal"` if run as a subprocess (e.g.
+  from an agent). Agents should use the `--outline`/`--section` drill-down pattern instead.
+
+### Upload Document to a Dataset — File (async)
+- Endpoint: `POST /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/create-by-file`
+- Body: `multipart/form-data` with **one** `file` part per call, plus an optional `data` part (a JSON
+  string with indexing config, same shape as create-by-text minus `name`/`text`). One file per request —
+  there is no multi-file batch body; batching means issuing this call once per file.
+- `dataset_id` must come from the datasets-list (or datasets-create) endpoint above.
+- This mirrors the internal `create-by-file` endpoint's real behavior: it does **not** block on
+  processing. It runs a background pipeline (convert-to-markdown → S3 → create-by-text — the same
+  pipeline the internal Knowledge Base UI uses) and returns immediately with
+  `data: {status: "pending", job_id}`. Poll the job status endpoint below for completion and the
+  resulting `document_id`.
+- Maps to cawplan CLI: `cawplan knowledge documents upload --dataset <id> --file <path> [--file <path> ...]`
+  — repeat `--file` to batch multiple files into the same dataset; the CLI submits one request per file
+  and then polls each job to completion by default (`--no-wait` to just return job ids;
+  `--poll-interval`/`--poll-timeout` control the polling, default 3s / 180s per file).
+- Implementation note: the CLI sends real multipart (Node's native `FormData`/`Blob`, no base64
+  encoding) via a `formData` option added to `cawplanRequest` (`cli/src/lib/http.ts`) — everything else
+  on this CLI is JSON-only.
+
+### Poll File-Upload Job Status
+- Endpoint: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/ai-jobs/{job_id}`
+- `job_id` comes from the create-by-file response above.
+- Response: `data.status` (`pending` / `processing` / `succeeded` / `failed`), `data.document_id` once
+  succeeded, `data.error_message` if failed, `data.batch` (Dify's indexing batch id) once the document
+  is created — `succeeded` only means Dify accepted the document, not that embedding has finished.
+- Maps to cawplan CLI: `cawplan knowledge documents job-status --dataset <id> --job <job_id>` (used
+  automatically by `documents upload --file` unless `--no-wait` is passed).
+
+### Upload Document to a Dataset — Text (sync)
+- Endpoint: `POST /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/create-by-text`
+- Body: `name` (required), `text` (required); also accepts the other `KBCreateDocumentByTextRequest`
+  fields (`indexing_technique`, `doc_form`, `doc_language`, ...) if needed. One document per call — no
+  batch array; batching means issuing this call once per document.
+- `dataset_id` must come from the datasets-list (or datasets-create) endpoint above.
+- If `indexing_technique` is omitted, the server resolves it from the dataset automatically (Dify
+  requires it explicitly for create-by-text, unlike create-by-file which inherits it), so a bare
+  `{name, text}` body works.
+- Response: the created document (Dify's create-by-text response, `{document: {...}, batch}`) —
+  synchronous, no polling needed. The text is also best-effort mirrored into S3 so
+  `documents get`/`--content` works for these documents too.
+- Maps to cawplan CLI: `cawplan knowledge documents upload --dataset <id> --text-file <path> [--text-file <path> ...]`
+  — the CLI reads each local file's content and sends it as `text`, named after the file's basename;
+  repeat `--text-file` to batch multiple text documents into the same dataset (one request per file).
+  Do not mix `--file` and `--text-file` in the same invocation — the CLI rejects that locally; run it
+  twice for a mixed batch.
+
 ### Search Knowledge Base
 - Endpoint: `POST /api/v1/public/openapi/knowledge/search`
-- Body: `query` (required), `product_id` (optional, scopes search to a product's knowledge datasets), `limit` (default 10)
+- Body: `query` (required), `dataset_id` (optional, narrows to a single dataset), `dataset_ids` (optional array, narrows to multiple datasets — takes precedence over `dataset_id` if both are set), `product_id` (optional, scopes search to a product's knowledge datasets), `limit` (default 10)
+- Dataset ids must come from the datasets-list endpoint above; if any requested id isn't accessible, the request fails closed.
+- When neither `dataset_id` nor `dataset_ids` is set, all datasets accessible to the caller are searched.
 - Response: ranked knowledge fragments with source metadata
-- Maps to cawplan CLI: `cawplan knowledge search`.
+- Maps to cawplan CLI: `cawplan knowledge search`, or repeat `--dataset <id>` one or more times to narrow (single repeat sends `dataset_id`, multiple repeats send `dataset_ids`).
 
 ## 13) Activity APIs
 ### Query Activities
