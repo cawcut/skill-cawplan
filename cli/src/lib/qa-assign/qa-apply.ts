@@ -60,6 +60,7 @@ function createSupplementedSession(
         ticket_display_ids: [],
         requirement_ids: [],
         skill_layers: [],
+        models: [],
         testpoint: emptyAssetChange(),
         testcase: emptyAssetChange(),
     };

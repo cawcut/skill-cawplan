@@ -21,6 +21,7 @@ import {
   FORBIDDEN_WRITE_BODY_KEYS,
   IS_AI_GENERATED,
   TESTPOINT_CALLER_KEYS,
+  TESTPOINT_PRIORITIES,
   type ImportStepDraft,
   type ImportPreviewSource,
   type ImportSourceType,
@@ -184,10 +185,18 @@ export function buildTestPointBatchBody(input: unknown): { test_points: TestPoin
       throw new BodyValidationError(`test_points[${index}].is_edited must be a boolean`);
     }
 
+    const priority = point.priority;
+    if (typeof priority !== "string" || !TESTPOINT_PRIORITIES.includes(priority as never)) {
+      throw new BodyValidationError(
+        `test_points[${index}].priority must be one of ${TESTPOINT_PRIORITIES.join(", ")}`,
+      );
+    }
+
     return {
       title,
       tags,
       group: normalizeField(point.group),
+      priority: priority as TestPointDraft["priority"],
       is_edited: point.is_edited === true,
       is_ai_generated: IS_AI_GENERATED,
     } satisfies TestPointDraft;

@@ -28,6 +28,19 @@ function sessionTicketDisplayIds(session: QaSessionData): string[] {
     return [...new Set((session.ticket_display_ids ?? []).filter(Boolean).map(String))];
 }
 
+/** Mirrors coding assignment-html sessionModelsText (text-only; icons are client-side only). */
+function sessionModelsText(session: QaSessionData): string {
+    const models = Array.isArray(session.models) ? session.models : [];
+    return [...new Set(models.filter(Boolean).map(String))].join(", ");
+}
+
+/** Mirrors coding assignment-html sessionStartMs; reads display_time_range only. */
+function sessionStartMs(session: QaSessionData): number {
+    const start = session.display_time_range?.start;
+    const ms = start ? Date.parse(start) : NaN;
+    return Number.isFinite(ms) ? ms : Number.MAX_SAFE_INTEGER;
+}
+
 /** Mirrors coding assignment-html sessionDateTimeText; reads display_time_range only. */
 export function sessionDateTimeText(session: QaSessionData): string {
     const range = session.display_time_range;
@@ -58,7 +71,6 @@ export function renderQaSessionRowHtml(
     const interactive = opts.interactive ?? false;
     const title = resolveSessionTitle(session, "qa");
     const report = {human_inputs: opts.daily?.human_inputs ?? []};
-    const reqCount = (session.requirement_ids ?? []).length;
     const tpAdded = session.testpoint?.added ?? 0;
     const productCell = interactive
         ? productInputHtml(session, products)
@@ -69,6 +81,7 @@ export function renderQaSessionRowHtml(
         `<td class="title-cell">${escapeHtml(title)}</td>` +
         `<td class="input-cell">${humanInputsHtml(report, session)}</td>` +
         `<td class="agent-cell">${escapeHtml(session.agent || "—")}</td>` +
+        `<td class="models-cell" title="${escapeHtml(sessionModelsText(session))}">${escapeHtml(sessionModelsText(session)) || `<span class="muted">—</span>`}</td>` +
         `<td class="num-cell">${tpAdded}</td>` +
         `<td class="product-cell">${productCell}</td>` +
         (interactive
@@ -78,7 +91,6 @@ export function renderQaSessionRowHtml(
                 opts.allTicketDisplayIds,
             )}</td>`
             : "") +
-        `<td class="num-cell">${reqCount}</td>` +
         `<td class="dt-cell">${escapeHtml(sessionDateTimeText(session))}</td>` +
         `</tr>`;
 }
@@ -160,7 +172,8 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
             .map((item) => String(item).trim().toUpperCase()))].sort()
         : [];
     const preRenderedTable = opts.bootstrap
-        ? `<tbody id="qa-rows">${opts.bootstrap.daily.sessions
+        ? `<tbody id="qa-rows">${[...opts.bootstrap.daily.sessions]
+            .sort((a, b) => sessionStartMs(a) - sessionStartMs(b))
             .map((session) => renderQaSessionRowHtml(
                 session,
                 opts.bootstrap!.products,
@@ -247,6 +260,9 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     button { font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer; border: 0; background: transparent; }
     .product-cell, .tickets-cell { vertical-align: middle; }
     .tickets-cell { font-size: 12px; color: var(--text-02); overflow: visible; }
+    .models-cell { font-size: 12px; color: var(--text-02); vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .model-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; vertical-align: middle; }
+    .model-icon img { width: 24px; height: 24px; display: block; border-radius: 6px; }
     .ticket-picker { position: relative; min-width: 180px; }
     .ticket-trigger { min-height: 32px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 4px 26px 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); cursor: pointer; position: relative; }
     .ticket-trigger::after { content: "▾"; position: absolute; right: 8px; top: 5px; color: var(--text-03); font-size: 12px; }
@@ -311,10 +327,10 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
               <th>Title</th>
               <th>Input</th>
               <th>Agent</th>
+              <th>Models</th>
               <th>Test points added</th>
               <th>Product</th>
               ${ticketHeader}
-              <th>Requirements</th>
               <th>Date / Time</th>
             </tr>
           </thead>
@@ -329,6 +345,12 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
   ${readonly ? "" : `<script type="module">
     const token = new URLSearchParams(location.search).get("token") || "";
     const CAWPLAN_PORTAL_BASE = ${JSON.stringify(portalBase)};
+    const MODEL_ICON_PATHS = {
+      gpt: "/assets/model-gpt.png",
+      claude: "/assets/model-claude.png",
+      cursor: "/assets/model-cursor.png",
+      deepseek: "/assets/model-deepseek.svg",
+    };
 
     const api = (path, options = {}) => fetch(path + "?token=" + encodeURIComponent(token), {
       ...options,
@@ -380,6 +402,40 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     function sessionTickets(session) {
       const displayIds = Array.isArray(session.ticket_display_ids) ? session.ticket_display_ids : [];
       return [...new Set(displayIds.filter(Boolean).map(String))];
+    }
+
+    function sessionModels(session) {
+      const models = Array.isArray(session.models) ? session.models : [];
+      return [...new Set(models.filter(Boolean).map(String))];
+    }
+
+    function sessionModelsText(session) {
+      return sessionModels(session).join(', ');
+    }
+
+    function modelIconKind(model) {
+      const value = String(model || '').toLowerCase();
+      if (value.includes('claude')) return 'claude';
+      if (value.includes('deepseek')) return 'deepseek';
+      if (value.includes('gpt')) return 'gpt';
+      if (value.includes('default') || value.includes('composer')) return 'cursor';
+      return '';
+    }
+
+    function modelIcon(kind, title) {
+      if (MODEL_ICON_PATHS[kind]) {
+        return '<span class="model-icon" title="' + escapeHtml(title) + '"><img src="' + MODEL_ICON_PATHS[kind] + '?token=' + encodeURIComponent(token) + '" alt="' + escapeHtml(title) + '" /></span>';
+      }
+      return '';
+    }
+
+    function sessionModelsHtml(session) {
+      const models = sessionModels(session);
+      if (models.length === 0) return '<span class="muted">—</span>';
+      return models.map((model) => {
+        const kind = modelIconKind(model);
+        return kind ? modelIcon(kind, model) : '<span>' + escapeHtml(model) + '</span>';
+      }).join(' ');
     }
 
     function allTicketDisplayIds() {
@@ -445,6 +501,12 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
 
     ${INLINE_HUMAN_INPUTS_HTML}
 
+    function sessionStartMs(session) {
+      const value = session.display_time_range && session.display_time_range.start;
+      const ms = value ? Date.parse(value) : NaN;
+      return Number.isFinite(ms) ? ms : Number.MAX_SAFE_INTEGER;
+    }
+
     function sessionDateTimeText(session) {
       const range = session.display_time_range;
       const start = range && range.start;
@@ -462,17 +524,16 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
 
     function sessionRowHtml(session) {
       const title = resolveSessionTitle(session);
-      const reqCount = (Array.isArray(session.requirement_ids) ? session.requirement_ids : []).length;
       const tpAdded = session.testpoint && typeof session.testpoint.added === "number" ? session.testpoint.added : 0;
       return '<tr data-session-id="' + escapeHtml(session.session_id) + '">' +
         '<td class="sid-cell"><code>' + escapeHtml(session.session_id) + '</code></td>' +
         '<td class="title-cell">' + escapeHtml(title) + '</td>' +
         '<td class="input-cell">' + humanInputsHtml(daily, session) + '</td>' +
         '<td class="agent-cell">' + escapeHtml(session.agent || "—") + '</td>' +
+        '<td class="models-cell" title="' + escapeHtml(sessionModelsText(session)) + '">' + sessionModelsHtml(session) + '</td>' +
         '<td class="num-cell">' + tpAdded + '</td>' +
         '<td class="product-cell">' + productInputHtml(session) + '</td>' +
         '<td class="tickets-cell">' + ticketPickerHtml(session) + '</td>' +
-        '<td class="num-cell">' + reqCount + '</td>' +
         '<td class="dt-cell">' + escapeHtml(sessionDateTimeText(session)) + '</td>' +
         '</tr>';
     }
@@ -677,7 +738,8 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
         tbody.innerHTML = '<tr><td colspan="${colSpan}" class="muted" style="text-align:center;padding:32px;">No QA sessions in this report.</td></tr>';
         return;
       }
-      tbody.innerHTML = sessions.map(sessionRowHtml).join("");
+      const sorted = [...sessions].sort((a, b) => sessionStartMs(a) - sessionStartMs(b));
+      tbody.innerHTML = sorted.map(sessionRowHtml).join("");
       wireSessionRows();
     }
 

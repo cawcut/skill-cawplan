@@ -254,6 +254,21 @@ Bad (too fine — split): `选择 5s 挡位后视频时长应为 5s` + `选择 1
 
 Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s 导出并逐档检查时长` (executable script → A3)
 
+**Priority rules (每条测试点必填)**:
+
+每条生成的测试点（含 §6 自查补的行）**都要**带一个 `priority`，取值 `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` 之一，**不留空、不设"待定"态**。按路径类型（第三节 `正向`/`异常`/`边界`）+ 是否核心链路 / 资金权限风险判断，拿不准时按下表兜底档：
+
+| 判断依据 | priority |
+|---|---|
+| 覆盖 `正向` / 基本主路径，或涉及资金/权限/数据丢失风险的点 | `HIGH`（默认档，拿不准时落这里） |
+| 覆盖核心链路的 `异常` / `边界` | `MEDIUM` |
+| 覆盖非核心、辅助性、UI 细节类的点 | `LOW` |
+
+- **AI 自动推断不产出 `CRITICAL`**——该枚举值保留供 SQA 事后手动指定，生成/自查阶段不主动打这个档。
+- 存疑清单条目不是测试点，不需要 `priority`。
+- SQA 可像改标题/标签一样，在 §8 修订阶段口头指定或调整某条的 `priority`（含改成 `CRITICAL`）；不新增独立弹框。
+- **拼写必须逐字符精确匹配** `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` 这四个字符串之一，不得有多字/少字/变形（如 `MEDIUUM`）；生成后按 §6 自查逐条核对。
+
 ### 6. Post-generation self-critique (internal — before first present)
 
 **Skip** when §5 step 7 triggered (**truly thin** five fields — no draft to review). Otherwise, after §5 produces an **internal draft** (test-point rows + 存疑) and **before** any output to SQA:
@@ -267,7 +282,7 @@ Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s
 3. **Compare draft against each A-layer item**. On a hit:
    - **Direction-clear universal baseline** (title needs only directional assertions per **红线 0**) → **add test-point row(s)**; merge into the formal list indistinguishably from §5 rows — **no source marking**; **re-group and re-number** as needed.
    - **Specific value / implementation unclear**, or a **B 层** theme → **add 存疑** (at most one line per B-layer theme); do **not** invent coverage or pretend covered.
-   - All supplements obey **红线 0**, no coverage matrix, **宁少不宁多**. **A 层模式项**笃定不适用 → silent；**C/D 八轴**按 §5 存疑兜底，自审不得用「笃定不适用」把 C/D 轴静默掉。Self-critique补 rows must obey **granularity rules** §2.
+   - All supplements obey **红线 0**, no coverage matrix, **宁少不宁多**. **A 层模式项**笃定不适用 → silent；**C/D 八轴**按 §5 存疑兜底，自审不得用「笃定不适用」把 C/D 轴静默掉。Self-critique补 rows must obey **granularity rules** §2 and **Priority rules** — every added row needs a `priority`, same as §5 rows.
 
 4. **Hard rules** (non-negotiable):
    - **Internal only, one version to SQA**: 生成初稿 → 自审补漏 → **only then** §7 present. **Forbidden**: show draft first, then a revised version; SQA sees **one** table set.
@@ -307,20 +322,22 @@ Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s
    ```text
    **N. {组名}**
 
-   | 序号 | 标题 | 标签 |
-   |------|------|------|
-   | N.1 | … | … |
-   | N.2 | … | … |
+   | 序号 | 标题 | 标签 | 优先级 |
+   |------|------|------|--------|
+   | N.1 | … | … | … |
+   | N.2 | … | … | … |
    ```
 
    - **组标题格式（硬性）**：单独一行，形如 `**1. 分享创建**`、`**2. 权限与访问控制**`。`{组名}` = 该节 `group` 字段原文（空则用 `未分组`）。**每一组都必须有标题行**——单组时也输出 `**1. …**`，不得省略。
    - **每节一张小表**：表内只放该 `group` 的行；**禁止**跨组合并成一张大表。
    - **每次呈现都要分节**：首次生成、SQA 修订后重展、增量合并展示——规则相同，组标题不可漏。
+   - **组内顺序不变**：加 `优先级` 列**不改**组内行序，不按 priority 重排。
 
    **列定义**：
 
-   - **First batch** (library empty): `序号 | 标题 | 标签` — no status column; no row bolding.
-   - **Incremental** (library has archived rows): `序号 | 标题 | 标签 | 状态` — see rules below.
+   - **First batch** (library empty): `序号 | 标题 | 标签 | 优先级` — no status column; no row bolding.
+   - **Incremental** (library has archived rows): `序号 | 标题 | 标签 | 优先级 | 状态` — see rules below.
+   - **已存行（无 `priority` 字段的老数据）**：`优先级` 列显示 `—`，不臆造、不补算。
 
 2. **存疑清单** after **all** group sections (§5): 〔指向哪〕+〔为什么疑〕+〔建议动作〕; no coverage checkbox matrix. If none: say so explicitly.
 
@@ -336,7 +353,7 @@ Per §7 step 1: **one section per `group`** (group title line + small table). Wi
 **Distinguish 新增 vs 已存** (two means — status column is required; bold is optional):
 
 1. **Status column** (primary, plain text): `已存` (has `id`, read-only) or `新增` (this round's draft, no `id`). This column alone must make the distinction clear even if other formatting fails.
-2. **Bold entire rows** (enhancement): status `新增` → bold all four cells (`**…**`); `已存` rows not bold. May write `🆕 新增` in the status column.
+2. **Bold entire rows** (enhancement): status `新增` → bold all five cells (`**…**`); `已存` rows not bold. May write `🆕 新增` in the status column.
 
 **No count summary after tables** — do **not** write `本轮新增 M 条` / `其余 K 条为已存` / `共 N 条` (agents cannot reliably count rows; see Rules Index · Draft totals). Optional **non-numeric** footer after all group sections: `已存的标「已存」（只读，改/删请去 Test Suites 后台）；「新增」为本轮新测试点，确认后只保存新增的。`
 
@@ -423,10 +440,10 @@ POST **only drafts without `id`**, in display order:
 
 ```bash
 cawplan qa-insights testpoints archive <product_id> <requirement_id> \
-  --body-file <path>   # {"test_points":[{"title":"...","tags":["边界"],"group":"...","is_edited":false}]}
+  --body-file <path>   # {"test_points":[{"title":"...","tags":["边界"],"group":"...","priority":"HIGH","is_edited":false}]}
 ```
 
-Body per item (skill/agent): **only** `title`, `tags`, `group`, `is_edited`. The CLI injects `is_ai_generated: true` on **each** item before POST — do not put it in `--body-file`. The command rejects the batch and sends nothing if an item carries anything else (an `id` here usually means an already-archived row is being re-posted).
+Body per item (skill/agent): **only** `title`, `tags`, `group`, `priority`, `is_edited`. `priority` is required, one of `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` (§5 **Priority rules**) — the command hard-rejects a missing or invalid value. The CLI injects `is_ai_generated: true` on **each** item before POST — do not put it in `--body-file`. The command rejects the batch and sends nothing if an item carries anything else (an `id` here usually means an already-archived row is being re-posted).
 
 **`is_edited`**: `false` if untouched since 原稿 (includes rows added in §6 self-critique — AI-generated, no source tag); `true` if SQA edited or added (including adopting 存疑). Incremental batch: only for **new** M drafts vs their 原稿; archived N rows excluded. The command passes this through verbatim — **it never infers the value**, so getting it right is this skill's job.
 
@@ -509,12 +526,12 @@ Refresh binding + stubs before each generate. Rebind clears all. After successfu
 
 **1. 复制与命名**
 
-| 序号 | 标题 | 标签 |
-|------|------|------|
-| 1.1 | 本人拥有的 workflow 项目点击 Duplicate 后应在列表出现名为「Copy of 原项目名」的副本 | `正向` |
-| 1.2 | Free plan 账号已有 50 个 workflow 时再 Duplicate 应提示超过最大限制且无法复制 | `边界` |
-| 1.3 | 连续快速点击 Duplicate 应仅创建一份副本 | `幂等` |
-| 1.4 | Duplicate 进行中应有进行中态，且完成前入口不可重复触发 | `交互反馈` |
+| 序号 | 标题 | 标签 | 优先级 |
+|------|------|------|--------|
+| 1.1 | 本人拥有的 workflow 项目点击 Duplicate 后应在列表出现名为「Copy of 原项目名」的副本 | `正向` | `HIGH` |
+| 1.2 | Free plan 账号已有 50 个 workflow 时再 Duplicate 应提示超过最大限制且无法复制 | `边界` | `MEDIUM` |
+| 1.3 | 连续快速点击 Duplicate 应仅创建一份副本 | `幂等` | `HIGH` |
+| 1.4 | Duplicate 进行中应有进行中态，且完成前入口不可重复触发 | `交互反馈` | `LOW` |
 
 **存疑（两条，不同缺口不合并）**：
 
@@ -529,10 +546,10 @@ Refresh binding + stubs before each generate. Rebind clears all. After successfu
 
 **1. 登录校验**
 
-| 序号 | 标题 | 标签 |
-|------|------|------|
-| 1.1 | 正确账号和密码登录应成功并进入预期页面 | `正向` |
-| 1.2 | 错误账号或密码登录应失败并给出明确提示 | `异常` |
+| 序号 | 标题 | 标签 | 优先级 |
+|------|------|------|--------|
+| 1.1 | 正确账号和密码登录应成功并进入预期页面 | `正向` | `HIGH` |
+| 1.2 | 错误账号或密码登录应失败并给出明确提示 | `异常` | `MEDIUM` |
 
 **存疑（可选一条）**：连续登录失败是否触发账户锁定 — 五字段未写策略，请确认是否在本次范围内。
 
@@ -548,9 +565,9 @@ Refresh binding + stubs before each generate. Rebind clears all. After successfu
 
 **1. 导出与时长**
 
-| 序号 | 标题 | 标签 |
-|------|------|------|
-| 1.1 | 选择各 Duration 挡位（5s/10s/15s，含默认 15s）后，导出视频时长应与所选挡位一致 | `正向` |
+| 序号 | 标题 | 标签 | 优先级 |
+|------|------|------|--------|
+| 1.1 | 选择各 Duration 挡位（5s/10s/15s，含默认 15s）后，导出视频时长应与所选挡位一致 | `正向` | `HIGH` |
 
 ## Rules Index
 
@@ -560,6 +577,7 @@ Authoritative rules live in **Workflow**; this section is navigation only. On co
 |------|-----------|
 | **红线 0** — 防臆造 | §5 **红线 0** + step 4 closure |
 | **Granularity** — outline vs A3 | §5 **Title rules & granularity** |
+| **Priority** — 每条测试点必填 CRITICAL/HIGH/MEDIUM/LOW | §5 **Priority rules** |
 | **存疑清单** — format & discipline | §5 **存疑清单纪律**; presentation → §7 step 3 |
 | **Coverage closure** (a)(b)(c) | §5 step 4 |
 | **Self-critique** | §6 |

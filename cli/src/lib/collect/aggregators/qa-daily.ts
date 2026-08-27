@@ -21,6 +21,14 @@ function qaBucketsToMap(buckets: UsageBucket[]): Record<string, UsageBucket> {
     return map;
 }
 
+/** DB column is varchar(512); truncate defensively so an oversized title can't fail the whole upload. */
+const SESSION_TITLE_MAX_LEN = 512;
+
+function truncateSessionTitle(title: string | undefined): string | undefined {
+    if (!title || title.length <= SESSION_TITLE_MAX_LEN) return title;
+    return title.slice(0, SESSION_TITLE_MAX_LEN);
+}
+
 function qaAgentDisplay(session: SessionData): string {
     if (session.agent === "cursor-cli" || session.agent === "cursor-gui") return session.agent;
     if (session.agent === "cursor") {
@@ -183,13 +191,14 @@ export function buildQaDailyPayload(
             session_id: session.session_id,
             agent: qaAgentDisplay(session),
             source: session.source ?? qaSessionSource(session),
-            session_title: session.session_title ?? session.session_name,
+            session_title: truncateSessionTitle(session.session_title ?? session.session_name),
             product_id: session.product_id ?? resolveProductId(jsonlPath, date),
             cwd: session.cwd,
             session_cost: session.session_cost ?? qaSessionCost(session),
             ticket_ids: session.ticket_ids ?? [],
             ticket_display_ids: session.ticket_display_ids ?? [],
             skill_layers: skillLayers,
+            models: session.models ?? Object.keys(session.model_usage),
             requirement_ids: requirementIds,
             testpoint: assetChanges.testpoint,
             testcase: assetChanges.testcase,

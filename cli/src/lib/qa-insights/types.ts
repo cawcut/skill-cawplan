@@ -94,13 +94,19 @@ export interface RequirementRow extends Partial<RequirementFiveFields> {
 export const IS_AI_GENERATED = true as const;
 
 /** Skill-supplied keys per test-point item (before CLI injects `is_ai_generated`). */
-export const TESTPOINT_CALLER_KEYS = ["title", "tags", "group", "is_edited"] as const;
+export const TESTPOINT_CALLER_KEYS = ["title", "tags", "group", "priority", "is_edited"] as const;
+
+/** Allowed values for a test-point's `priority`. */
+export const TESTPOINT_PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
+
+export type TestPointPriority = (typeof TESTPOINT_PRIORITIES)[number];
 
 /** One test-point item as sent to the API (caller keys + `is_ai_generated`). */
 export interface TestPointDraft {
   title: string;
   tags: string[];
   group: string;
+  priority: TestPointPriority;
   is_edited: boolean;
   is_ai_generated: typeof IS_AI_GENERATED;
 }

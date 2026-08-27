@@ -50,6 +50,7 @@ function sampleDaily(overrides: Partial<QaDailyApiJson> = {}): QaDailyApiJson {
             ticket_display_ids: [],
             requirement_ids: ["req-1"],
             skill_layers: ["cawplan-testpoint-generate"],
+            models: ["claude-sonnet-5"],
             testpoint: {added: 2, modified: 0, deleted: 0},
             testcase: {added: 0, modified: 0, deleted: 0},
         }],
@@ -106,6 +107,7 @@ describe("applyQaWebAssignments", () => {
         expect(daily.sessions).toHaveLength(1);
         expect(Object.keys(daily.sessions[0]!).sort()).toEqual([
             "agent",
+            "models",
             "product_id",
             "requirement_ids",
             "session_id",

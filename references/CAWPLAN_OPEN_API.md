@@ -753,7 +753,7 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 ### List TestPoints (read — probe, incremental, UNKNOWN reconcile)
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints`
 - Path params: `product_id`, `requirement_id`
-- Response: `test_points[]` for the requirement, stable order by `sort_order` (backend-assigned). Each item includes `id`, `requirement_id`, `title`, `tags[]`, `group`, `is_edited`, `created_by`, `created_at`, `updated_at`.
+- Response: `test_points[]` for the requirement, stable order by `sort_order` (backend-assigned). Each item includes `id`, `requirement_id`, `title`, `tags[]`, `group`, `priority`, `is_edited`, `created_by`, `created_at`, `updated_at`.
 - Notes:
     - **No sequence number in response** — caller computes N / N.M from `group` + return order (empty `group` → "未分组", last). See `cawplan-testpoint-generate` A2_SPEC §4.4.
     - Used before generate (first vs incremental, stubs), and after ambiguous POST (count reconcile). `cawplan-testpoint-generate` does **not** use PATCH/DELETE on archived rows.
@@ -762,17 +762,17 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 ### Batch Create TestPoints (write — archive drafts)
 - Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints/batch`
 - Path params: `product_id`, `requirement_id` (**do not include in body**)
-- Body: `{ "test_points": [ { "title", "tags", "group", "is_edited" }, ... ] }` — skill/agent supply four keys per item; CLI injects `is_ai_generated: true` on each element before POST
+- Body: `{ "test_points": [ { "title", "tags", "group", "priority", "is_edited" }, ... ] }` — skill/agent supply five keys per item; CLI injects `is_ai_generated: true` on each element before POST
 - Notes:
-    - Each item (caller): **only** `title`, `tags`, `group`, `is_edited`. `tags` may be `[]`; `group` may be empty (display as 未分组).
+    - Each item (caller): **only** `title`, `tags`, `group`, `priority`, `is_edited`. `tags` may be `[]`; `group` may be empty (display as 未分组). `priority` is required and must be one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`.
     - CLI POST payload: each item also carries `is_ai_generated: true` (inside the object, not at batch top level).
     - **Do not send**: `id`, `sort_order`, `product_id`, `requirement_id`, review fields, or display sequence N/N.M.
     - Array order = display order = backend `sort_order`. Batch is all-or-nothing (no partial success).
-    - Response on `code: SUCCESS`: `data.test_points[]` — same length as POST array; each item echoes `title`, `tags`, `group`, `is_edited` from the request plus server-assigned `id`, `requirement_id`, `created_by`, `created_at`, `updated_at` (same shape as List TestPoints rows).
+    - Response on `code: SUCCESS`: `data.test_points[]` — same length as POST array; each item echoes `title`, `tags`, `group`, `priority`, `is_edited` from the request plus server-assigned `id`, `requirement_id`, `created_by`, `created_at`, `updated_at` (same shape as List TestPoints rows).
     - **`cawplan-testpoint-generate` counts shown to SQA**: **only** in post-POST success receipt (`已归档 N 条…`, N = `body.test_points.length`). **Do not** output `共 N 条草稿`, `本轮新增 M 条`, `其余 K 条为已存`, or any other row-count summary after tables; do not put counts in archive prompts or §8.4 read-back — agents cannot reliably count table rows in chat. Incremental display uses per-row `已存`/`新增` status column only (optional non-numeric footer allowed).
     - **`cawplan-testpoint-generate` success receipt**: agent stores returned `id`s in session stubs only; tells SQA a one-line count confirmation (e.g. `已归档 N 条到 Requirement〔标题〕下`, N = POST length) — **does not** list per-row `id`s or titles, **does not** re-generate or summarize titles after POST, **does not** post-hoc apologize for miscounts; appends Requirement `url` from refresh **only when non-empty** — **never** mentions missing `url` (no "未返回 url"/"无法附链接").
 - Maps to cawplan CLI: `cawplan qa-insights testpoints archive {product_id} {requirement_id} --body-file <path>`
-- Example body: `{"test_points":[{"title":"用户名含特殊字符注册时应被拦截并明确提示","tags":["异常"],"group":"注册校验","is_edited":false}]}`
+- Example body: `{"test_points":[{"title":"用户名含特殊字符注册时应被拦截并明确提示","tags":["异常"],"group":"注册校验","priority":"HIGH","is_edited":false}]}`
 
 ## Error Responses
 - `401` Unauthorized

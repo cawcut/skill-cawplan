@@ -170,16 +170,35 @@ describe("CWP-18709 applyAiGeneratedToRequirementPatch", () => {
   });
 });
 
-describe("A2-§9-body / P10 testpoint batch — caller four keys; CLI injects is_ai_generated per item", () => {
-  const point = { title: "用户名含特殊字符应被拦截", tags: ["异常"], group: "注册校验", is_edited: false };
+describe("A2-§9-body / P10 testpoint batch — caller five keys; CLI injects is_ai_generated per item", () => {
+  const point = {
+    title: "用户名含特殊字符应被拦截",
+    tags: ["异常"],
+    group: "注册校验",
+    priority: "HIGH",
+    is_edited: false,
+  };
 
-  test("A2-§9-body valid four-key item is accepted and injects is_ai_generated per element", () => {
+  test("A2-§9-body valid five-key item is accepted and injects is_ai_generated per element", () => {
     const body = buildTestPointBatchBody({ test_points: [point] });
     expect(body.test_points).toHaveLength(1);
     expect(Object.keys(body.test_points[0]).sort()).toEqual(
-      ["group", "is_ai_generated", "is_edited", "tags", "title"],
+      ["group", "is_ai_generated", "is_edited", "priority", "tags", "title"],
     );
     expect(body.test_points[0].is_ai_generated).toBe(IS_AI_GENERATED);
+  });
+  test("A2-§9-body priority is passed through, never inferred", () => {
+    const body = buildTestPointBatchBody({ test_points: [{ ...point, priority: "CRITICAL" }] });
+    expect(body.test_points[0].priority).toBe("CRITICAL");
+  });
+  test("A2-§9-body missing priority is a hard failure", () => {
+    const { priority, ...withoutPriority } = point;
+    expect(() => buildTestPointBatchBody({ test_points: [withoutPriority] }))
+      .toThrow(/priority/);
+  });
+  test("A2-§9-body invalid priority value is a hard failure", () => {
+    expect(() => buildTestPointBatchBody({ test_points: [{ ...point, priority: "URGENT" }] }))
+      .toThrow(/priority/);
   });
   test("P10 caller-supplied is_ai_generated is a hard failure (CLI injects it)", () => {
     expect(() =>

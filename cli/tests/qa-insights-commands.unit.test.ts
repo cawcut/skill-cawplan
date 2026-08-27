@@ -495,8 +495,8 @@ describe("A1-TA-1 / P2 / P13 requirements reconcile — read-only Table A", () =
 describe("A2-§9.5 / A2-§8.5 / P7 testpoints archive — POST only, no follow-up GET", () => {
   const batch = {
     test_points: [
-      { title: "第一条", tags: ["异常"], group: "注册", is_edited: false },
-      { title: "第二条", tags: [], group: "", is_edited: true },
+      { title: "第一条", tags: ["异常"], group: "注册", priority: "HIGH", is_edited: false },
+      { title: "第二条", tags: [], group: "", priority: "MEDIUM", is_edited: true },
     ],
   };
 
