@@ -500,6 +500,10 @@ export function registerKnowledgeCommand(program: Command): void {
           const bytes = readFileSync(filePath);
           const formData = new FormData();
           formData.append("file", new Blob([new Uint8Array(bytes)]), basename(filePath));
+          // Dify requires indexing_technique on the resulting create-by-text call; it's only
+          // inherited from the dataset's own config, which is unset for datasets created without
+          // it, so send it explicitly here rather than relying on that inheritance.
+          formData.append("data", JSON.stringify({ indexing_technique: "high_quality" }));
           try {
             const result = await cawplanRequest({
               method: "POST",
