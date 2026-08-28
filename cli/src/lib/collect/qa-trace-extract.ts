@@ -152,9 +152,16 @@ export function tracesFromToolResultStdout(jsonlPath: string, date?: string): Qa
         const stdout = (event["toolUseResult"] as {stdout?: unknown} | undefined)?.stdout;
         if (typeof stdout !== "string") continue;
 
+        // Node emits runtime warnings (e.g. the experimental SQLite notice) on
+        // stdout ahead of the CLI's JSON receipt in some environments. Strip
+        // any such prefix by slicing from the first '{' so the parse below
+        // sees only the JSON object; well-formed stdout is unaffected.
+        const jsonStart = stdout.indexOf("{");
+        if (jsonStart === -1) continue;
+
         let parsed: Record<string, unknown>;
         try {
-            parsed = JSON.parse(stdout);
+            parsed = JSON.parse(stdout.slice(jsonStart));
         } catch {
             continue;
         }
