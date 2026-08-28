@@ -2,7 +2,7 @@ import {existsSync, mkdtempSync, rmSync, writeFileSync} from "node:fs";
 import {homedir, tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, test} from "vitest";
-import {layersFromAttributionSkill, QA_SKILLS} from "../src/lib/collect/qa-trace-extract.js";
+import {layersFromAttributionSkill, QA_SKILLS, tracesFromToolResultStdout} from "../src/lib/collect/qa-trace-extract.js";
 
 // S3.1 判据 1: attributionSkill -> skill_layers[]. Real QA sessions per
 // 方案 §0.7 实测表. Depends on this machine's local Claude Code session
@@ -47,5 +47,46 @@ describe("layersFromAttributionSkill whitelist filtering", () => {
         writeFileSync(jsonlPath, lines.map((l) => JSON.stringify(l)).join("\n"), "utf-8");
 
         expect(layersFromAttributionSkill(jsonlPath)).toEqual(["cawplan-testpoint-generate"]);
+    });
+});
+
+describe("tracesFromToolResultStdout Node warning prefix", () => {
+    let tmpDir: string | undefined;
+
+    afterEach(() => {
+        if (tmpDir) rmSync(tmpDir, {recursive: true, force: true});
+        tmpDir = undefined;
+    });
+
+    test("parses the JSON receipt even when Node prints an ExperimentalWarning before it", () => {
+        tmpDir = mkdtempSync(join(tmpdir(), "qa-trace-extract-"));
+        const jsonlPath = join(tmpDir, "synthetic.jsonl");
+        const receipt = {
+            outcome: "SUCCESS",
+            command: "testpoints archive",
+            meta: {product_id: "p1", requirement_id: "r1", dry_run: false},
+            api: {data: {test_points: [{id: "tp1"}, {id: "tp2"}]}},
+        };
+        const stdout =
+            "(node:12345) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n" +
+            "(Use `node --trace-warnings ...` to show where the warning was created)\n" +
+            JSON.stringify(receipt);
+        const lines = [{type: "user", toolUseResult: {stdout}}];
+        writeFileSync(jsonlPath, lines.map((l) => JSON.stringify(l)).join("\n"), "utf-8");
+
+        const traces = tracesFromToolResultStdout(jsonlPath);
+        expect(traces).toEqual([
+            {
+                command: "testpoints archive",
+                outcome: "SUCCESS",
+                productId: "p1",
+                requirementId: "r1",
+                dryRun: false,
+                landedCount: 2,
+                reconcileDecision: undefined,
+                batchSize: undefined,
+                skillLayer: "cawplan-testpoint-generate",
+            },
+        ]);
     });
 });
