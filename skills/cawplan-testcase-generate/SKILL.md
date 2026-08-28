@@ -11,6 +11,8 @@ allowed-tools: Bash
 
 # CawPlan TestCase Generate
 
+**跟随用户主语言**生成文案；禁止同一段中英各写一遍。
+
 ## Bootstrap
 
 ```bash
@@ -20,8 +22,9 @@ cawplan skill check
 ## 红线 0 — 防臆造（最高优先级，压过一切展开与导出）
 
 - 用例 Title / Preconditions / Step / Expected 里的**具体值**（次数、阈值、错误码、提示文案）**只能来自测试点或五字段**。
-- 源里没有 → 方向占位或 **(甲) 诚实带尾巴**（如「应提示密码长度不符(具体文案以实现为准)」），**绝不落成硬值**。
+- 源里没有 → 方向占位或 **(甲) 诚实带尾巴**（如「应提示密码长度不符(具体文案以实现为准)」/ "should prompt that the password length is invalid (exact copy per implementation)"），**绝不落成硬值**。
 - 源里**逐字给了** → **必须原样带入** Title / Expected，**禁止**降级为抽象描述、**禁止**再挂 `(以实现为准)` 等诚实尾巴（分拣式提炼与保真区判据见 `references/testcase-writing-spec.md` Title 节）。
+- **诚实尾巴固定短语（中英对照，二选一，不同时输出；已冻结见 `docs/bedoc/qa-insights-layer1-copy-draft.md`）**：`(以实现为准)` → `(per implementation)`；`(具体文案以实现为准)` → `(exact copy per implementation)`；`(文案以实现为准)` → `(copy per implementation)`；`(上限/阈值以实现为准)` → `(limit/threshold per implementation)`。**语言跟测试点/五字段本身的语言走**（同 `references/testcase-writing-spec.md` 通用底线"语言跟需求走"），**不是**跟当下会话语言走——用例内容是数据，不是界面文案。
 - 四法只建议取哪一类值、铺哪几步；细则见 `references/test-design-methods.md`，但红线 0 不可外包给 reference。
 
 ## Workflow
@@ -49,18 +52,18 @@ On each **generate test cases** request, resolve the target in this order (**fal
 
 **禁止**选项「用上面出好的」（属有效 P2）。
 
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具会自动追加 Other 自由输入行，**标题/占位不可自定义**——**不要**在 skill 里定义或手写 Other / 自由输入行）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具会自动追加 Other 自由输入行，**标题/占位不可自定义**——**不要**在 skill 里定义或手写 Other / 自由输入行；**跟随会话语言**整框二选一，不同时输出）：
 
-| 字段 | 值 |
-|------|-----|
-| `header` | 锁定 Requirement |
-| `question` | 生成用例前，先确定是哪条 Requirement？ |
-| option 1 · `label` | 已有 Requirement 链接 |
-| option 1 · `description` | 把链接发我 |
-| option 2 · `label` | 没有 Requirement |
-| option 2 · `description` | 马上生成并保存到 CawPlan |
+| 字段 | 中文值 | English value |
+|------|-----|-----|
+| `header` | 锁定 Requirement | Lock Requirement |
+| `question` | 生成用例前，先确定是哪条 Requirement？ | Before generating test cases, let's confirm which Requirement this is |
+| option 1 · `label` | 已有 Requirement 链接 | I have a Requirement link |
+| option 1 · `description` | 把链接发我 | Send me the link |
+| option 2 · `label` | 没有 Requirement | No Requirement yet |
+| option 2 · `description` | 马上生成并保存到 CawPlan | Generate and save to CawPlan now |
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 锁定 Requirement
@@ -68,6 +71,14 @@ On each **generate test cases** request, resolve the target in this order (**fal
 1. 已有 Requirement 链接 —— 选这个，把 Requirement 链接发我
 2. 没有 Requirement —— 马上生成并保存到 CawPlan
 请回复序号，或直接粘贴 Requirement 链接、或直接说你想怎么做。
+```
+
+```text
+Lock Requirement
+Before generating test cases, let's confirm which Requirement this is
+1. I have a Requirement link — pick this, then send me the link
+2. No Requirement yet — generate and save to CawPlan now
+Reply with a number, paste the Requirement link directly, or just tell me what you'd like to do.
 ```
 
 **落点**：
@@ -79,18 +90,18 @@ On each **generate test cases** request, resolve the target in this order (**fal
 
 **触发**：上表 **P3**；或原 unarchived branch 条件（测试点草稿/表 + 无 `requirement_id`）。
 
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**；**跟随会话语言**整框二选一，不同时输出）：
 
-| 字段 | 值 |
-|------|-----|
-| `header` | 需求还没保存 |
-| `question` | 这份需求还没保存到 CawPlan，先保存再来展开用例 |
-| option 1 · `label` | 马上保存 |
-| option 1 · `description` | 存好再接着展开用例 |
-| option 2 · `label` | 先不保存 |
-| option 2 · `description` | 先停一下，我再看看这份需求 |
+| 字段 | 中文值 | English value |
+|------|-----|-----|
+| `header` | 需求还没保存 | Requirement Not Saved Yet |
+| `question` | 这份需求还没保存到 CawPlan，先保存再来展开用例 | This requirement hasn't been saved to CawPlan yet — save it first, then expand test cases |
+| option 1 · `label` | 马上保存 | Save now |
+| option 1 · `description` | 存好再接着展开用例 | Save it, then continue to expand test cases |
+| option 2 · `label` | 先不保存 | Not yet |
+| option 2 · `description` | 先停一下，我再看看这份需求 | Pause for now, I'll review this requirement again |
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 需求还没保存
@@ -98,6 +109,14 @@ On each **generate test cases** request, resolve the target in this order (**fal
 1. 马上保存 —— 存好再接着展开用例
 2. 先不保存 —— 先停一下，我再看看这份需求
 请回复序号，或直接说你想怎么做。
+```
+
+```text
+Requirement Not Saved Yet
+This requirement hasn't been saved to CawPlan yet — save it first, then expand test cases
+1. Save now — save it, then continue to expand test cases
+2. Not yet — pause for now, I'll review this requirement again
+Reply with a number, or just tell me what you'd like to do.
 ```
 
 **落点**：「马上保存」→ 会话写 `resume_intent = testcase`，读 `cawplan-requirement-analyze` skill 走保存/归档（**确认闸照旧**），`SUCCESS` 后回 **§2 refresh**；「先不保存」→ **stop**；若 SQA 用工具自动 Other 或自由回复 → 复述 / 按说明处理。
@@ -113,7 +132,7 @@ On each **generate test cases** request, resolve the target in this order (**fal
 **Anti-confusion**:
 
 - **Object unclear** — user says `生成用例` / `生成测试用例` / `展开用例` (or equivalent) with **no** Requirement in message or context, no valid binding, no draft → **框1** above (not a bare text ask). Missing `product_id` after link parse → ask in plain language; **do not** scan product lists.
-- **Draft already exists** + vague "生成用例" again → stop and ask: **重新生成** or **在现有基础上调整/展开?** (prevent overwriting SQA-edited draft).
+- **Draft already exists** + vague "生成用例" again → stop and ask: **重新生成** or **在现有基础上调整/展开?**（**跟随会话语言**：**regenerate** or **adjust or expand on the existing draft?**） (prevent overwriting SQA-edited draft).
 - A3 **never** invents new coverage surfaces — gaps go to 存疑清单, suggest back to **A2**.
 
 **Portal URL** (parse only — never fetch):
@@ -169,18 +188,18 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 
 **触发**：§2 refresh 后 `test_points.length === 0`；与 §1 未归档路径（框3）**互斥**。
 
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**；**跟随会话语言**整框二选一，不同时输出）：
 
-| 字段 | 值 |
-|------|-----|
-| `header` | 还没有测试点 |
-| `question` | 这条 Requirement 还没有测试点 |
-| option 1 · `label` | 马上生成测试点 |
-| option 1 · `description` | 生成好再接着展开用例 |
-| option 2 · `label` | 先看看需求内容 |
-| option 2 · `description` | 读一遍再决定 |
+| 字段 | 中文值 | English value |
+|------|-----|-----|
+| `header` | 还没有测试点 | No Test Points Yet |
+| `question` | 这条 Requirement 还没有测试点 | This Requirement doesn't have test points yet |
+| option 1 · `label` | 马上生成测试点 | Generate test points now |
+| option 1 · `description` | 生成好再接着展开用例 | Generate them, then continue to expand test cases |
+| option 2 · `label` | 先看看需求内容 | Review the requirement first |
+| option 2 · `description` | 读一遍再决定 | Read it through before deciding |
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 还没有测试点
@@ -188,6 +207,14 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 1. 马上生成测试点 —— 生成好再接着展开用例
 2. 先看看需求内容 —— 读一遍再决定
 请回复序号，或直接说你想怎么做。
+```
+
+```text
+No Test Points Yet
+This Requirement doesn't have test points yet
+1. Generate test points now — generate them, then continue to expand test cases
+2. Review the requirement first — read it through before deciding
+Reply with a number, or just tell me what you'd like to do.
 ```
 
 **落点**：
@@ -216,7 +243,7 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 - **一条用例 = 一个独立验证目标**（完整判据与 ✅❌ 对照表见 `references/testcase-writing-spec.md`「拆 / 合规则」层 1）。**先过层 2 形状分类**（A/B、EP、多对象、跨页）**,再过层 1 那一问**。
 - **生成后必答**：「这条会不会因为两个不同的验证目标分别挂？挂了我能不能一眼看出是哪个验证目标？」——会挂两次且分不清 → 拆到每条只剩一个验证目标。
 - Four methods expand **only on archived test points** — do not invent coverage.
-- Missing surface with no parent test point → **存疑 only**: "这一块没有对应的测试点,回去补一条测试点、刷新后再展开。" **No orphan cases.**
+- Missing surface with no parent test point → **存疑 only**（**跟随会话语言**二选一）: "这一块没有对应的测试点,回去补一条测试点、刷新后再展开。" / "There's no matching test point for this — go back and add one, then refresh and expand it." **No orphan cases.**
 - Every case under the **archived main path** must have non-empty `testPointId` + parent test point — in `cases[]`, preview, and export (see §8).
 - SQA **verbally adds** a new case → same rule: must attach non-empty `testPointId` + parent test point; if none → 存疑 back to **A2**, **not** into `cases[]` / preview / export.
 
@@ -244,20 +271,20 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 - **`batchCount ≤ 10`**：照旧直接展开 Markdown 预览块，**不问、不停**。
 - **`batchCount > 10`** 且 SQA **未**在请求里已表态 → **先不铺步骤**，只给 **框4「展开方式」**（载体分流，非确认闸；禁「确认 / confirm / 是否继续」）：
 
-**优先 AskUserQuestion**（**三个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**）：
+**优先 AskUserQuestion**（**三个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**；**跟随会话语言**整框二选一，不同时输出）：
 
-| 字段 | 值 |
-|------|-----|
-| `header` | 展开方式 |
-| `question` | 本次要展开 N 条,在对话里会很长。怎么弄? |
-| option 1 · `label` | 全部铺开 |
-| option 1 · `description` | 不管多长都在对话里展开 |
-| option 2 · `label` | 全部带步骤导出 |
-| option 2 · `description` | 缺步骤的自动补齐 |
-| option 3 · `label` | 先不展开 |
-| option 3 · `description` | 换个更小范围,比如「先展开 5 条」 |
+| 字段 | 中文值 | English value |
+|------|-----|-----|
+| `header` | 展开方式 | Expansion Method |
+| `question` | 本次要展开 N 条,在对话里会很长。怎么弄? | Expanding all N of these will make this reply very long — how should I proceed? |
+| option 1 · `label` | 全部铺开 | Expand all inline |
+| option 1 · `description` | 不管多长都在对话里展开 | Expand everything in this conversation, however long |
+| option 2 · `label` | 全部带步骤导出 | Export all with steps |
+| option 2 · `description` | 缺步骤的自动补齐 | Auto-fill any missing steps |
+| option 3 · `label` | 先不展开 | Not yet |
+| option 3 · `description` | 换个更小范围,比如「先展开 5 条」 | Narrow it down, e.g. "expand the first 5" |
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 展开方式
@@ -266,6 +293,15 @@ On `outcome: SUCCESS`, use `data.test_points[]` in `sort_order`. Map each row: `
 2. 全部带步骤导出 —— 缺步骤的自动补齐
 3. 先不展开 —— 换个更小范围,比如「先展开 5 条」
 请回复序号，或直接说你想怎么做。
+```
+
+```text
+Expansion Method
+Expanding all N of these will make this reply very long — how should I proceed?
+1. Expand all inline
+2. Export all with steps — auto-fill any missing steps
+3. Not yet — narrow it down, e.g. "expand the first 5"
+Reply with a number, or just tell me what you'd like to do.
 ```
 
 | 选择 | 动作 |
@@ -350,18 +386,18 @@ AI produces an **export-time snapshot** of current `cases[]` as interim JSON; `e
 
 **触发**：SQA **主动说**「导出 CSV」等导出意图，且**不是**从 §5 框4 已选「全部带步骤导出」进入（框4 已选则 **跳过框5**，直接 `exportMode = fill_then_export`）。
 
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**；**跟随会话语言**整框二选一，不同时输出）：
 
-| 字段 | 值 |
-|------|-----|
-| `header` | 导出方式 |
-| `question` | 这批用例要怎么导出? |
-| option 1 · `label` | 按当前状态导出 |
-| option 1 · `description` | 没展开的用例只有标题、没有步骤 |
-| option 2 · `label` | 全部带步骤导出 |
-| option 2 · `description` | 缺步骤的自动补齐再导,不在对话里铺开 |
+| 字段 | 中文值 | English value |
+|------|-----|-----|
+| `header` | 导出方式 | Export Method |
+| `question` | 这批用例要怎么导出? | How should this batch of test cases be exported? |
+| option 1 · `label` | 按当前状态导出 | Export as-is |
+| option 1 · `description` | 没展开的用例只有标题、没有步骤 | Un-expanded cases will export with title only, no steps |
+| option 2 · `label` | 全部带步骤导出 | Export all with steps |
+| option 2 · `description` | 缺步骤的自动补齐再导,不在对话里铺开 | Auto-fill any missing steps before export, without expanding inline |
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 导出方式
@@ -369,6 +405,14 @@ AI produces an **export-time snapshot** of current `cases[]` as interim JSON; `e
 1. 按当前状态导出 —— 没展开的用例只有标题、没有步骤
 2. 全部带步骤导出 —— 缺步骤的自动补齐再导,不在对话里铺开
 请回复序号，或直接说你想怎么做。
+```
+
+```text
+Export Method
+How should this batch of test cases be exported?
+1. Export as-is — un-expanded cases will export with title only, no steps
+2. Export all with steps — auto-fill any missing steps before export, without expanding inline
+Reply with a number, or just tell me what you'd like to do.
 ```
 
 | 选择 | `exportMode` | 动作 |
@@ -383,7 +427,7 @@ AI produces an **export-time snapshot** of current `cases[]` as interim JSON; `e
 - **`exportMode = as_is`**（框5 选项 1）：未展开行保持 `steps` / `expected` 为 `[]`。
 - May export at **any content state** (title-only / partial mix / full). Assemble interim JSON from current `cases[]` after mode handling. Mixed rows legal (see `references/csv-template-mapping.md` 「草稿态导出」). Export does **not** lock work state; may export multiple times (timestamp filenames do not overwrite). Do not rename files or add columns.
 - Before export: **filter out** entries with `status: 'removed'` — preview-only trace; **do not** put `status` or removed rows into interim JSON.
-- Before export: if any remaining row has `steps.length !== expected.length` → **refuse export**, point SQA to fix in preview (e.g. "第 3 条步骤与预期数量不一致,先修齐再导") — **do not** call §8 and dump script stderr.
+- Before export: if any remaining row has `steps.length !== expected.length` → **refuse export**, point SQA to fix in preview（**跟随会话语言**二选一，e.g. "第 3 条步骤与预期数量不一致,先修齐再导" / "Step 3's step count and expected-result count don't match — fix it before exporting"） — **do not** call §8 and dump script stderr.
 
 **Interim JSON contract** (`{ requirementTitle, cases: [...] }`):
 
@@ -416,7 +460,7 @@ rm -f "$TMP_JSON"
 - Default output dir: `testcases/` under cwd; override with `-o <dir>` when SQA specifies.
 - On script failure after a valid export attempt → report stderr honestly; fix JSON upstream, retry.
 - **Forbidden**: writing CSV by hand in chat or generating one-off Python/JS export snippets.
-- **To SQA**: do not say "脚本". `exportMode = as_is` 时可说「按当前状态导出」; `fill_then_export` 时不说「按当前状态导出」— 用 §9 补齐提示句。
+- **To SQA**: do not say "脚本" / "script". `exportMode = as_is` 时可说「按当前状态导出」/ "Export as-is"; `fill_then_export` 时不说「按当前状态导出」/ "Export as-is" — 用 §9 补齐提示句。
 
 ### 9. Present (preview + export receipt)
 
@@ -430,8 +474,9 @@ rm -f "$TMP_JSON"
 **Opening (title-list first pass — first SQA-visible line after §2 refresh)**:
 
 - **输出纪律**：承接「进场静默」;开场只说「需求(泛指) + 这是标题清单」;**禁止**念内部过程。其中「需求」为泛指,**不**填入 Requirement 显示标题。
-- Opening line（逐字模板; `{N}` = `test_points.length` from GET）:
+- Opening line（逐字模板; `{N}` = `test_points.length` from GET；**跟随会话语言**二选一，不同时输出）:
   > 已读取需求与 {N} 条测试点,先按测试点列出用例标题(未展开步骤):
+  > Read the requirement and {N} test points — listing test case titles by test point first (steps not yet expanded):
 
 **Preview state** (after title table / partial expand / full expand when SQA asked):
 
@@ -443,23 +488,28 @@ rm -f "$TMP_JSON"
   - SQA **免分流已表态**（§5：如「我知道很长，就是要全铺」）— still preview, not CSV.
   Title tables and partial expand blocks are always allowed as Markdown preview.
 
-**Three SQA hints** (after preview; no word "脚本"):
+**Three SQA hints** (after preview; no word "脚本"; **跟随会话语言**每处二选一，不同时输出):
 
 - **After title-list preview:**
   > 要改就直接说(改标题、增删);想看某条用例步骤说「展开第 X 条」;要导出就说「导出 CSV」。
+  > Just tell me if you want changes (edit title, add/remove); say "expand case X" to see its steps; say "export CSV" to export.
 
 - **After partial expand:**
   > 这 N 条的步骤已展开。想看别的就说「展开第 X 条」或「全部展开」;要导出就说「导出 CSV」(未展开用例,导出时只有标题)。
+  > Steps for these N cases are now expanded. Say "expand case X" or "expand all" to see more; say "export CSV" to export (un-expanded cases will export with title only).
 
 - **After full expand:**
   > 全部 N 条已展开完毕。要导出就说「导出 CSV」。
+  > All N cases are now expanded. Say "export CSV" to export.
 
 - **Export receipt** (after §8 only — thin summary, **no case body**):
   - 存疑清单 (if any, same list as preview state)
-  - Status line（逐字; `<路径>` from stdout `已导出: ...`）:
+  - Status line（逐字; `<路径>` from stdout `已导出: ...`；**跟随会话语言**二选一）:
     > 已导出:<路径>。
-  - **`exportMode = fill_then_export` 时**（框5 选项 2 或 §5 框4「全部带步骤导出」），Status line **后追加**一行（逐字）:
+    > Exported: <路径>.
+  - **`exportMode = fill_then_export` 时**（框5 选项 2 或 §5 框4「全部带步骤导出」），Status line **后追加**一行（逐字；**跟随会话语言**二选一）:
     > 已把未展开用例补齐步骤后导出(对话未铺开)。
+    > Un-expanded cases had their steps auto-filled before export (not expanded inline in this conversation).
 
 CSV is an **export snapshot**; Markdown preview is the **in-conversation work state**.
 

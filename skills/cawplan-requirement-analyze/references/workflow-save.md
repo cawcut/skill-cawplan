@@ -27,7 +27,7 @@ cawplan products list --page_size 100
 
 - **One call only** — `--page_size 100` 一次拉完，**禁止**翻页、**禁止** `--search`、**禁止**从五字段推断产品名再搜。
 - Parse products from the response; map each row's `name` → `unique_id`.
-- **产品数通常 > 4** — **不用 AskUserQuestion**；**直接**输出纯文字编号列表（逐字结构，填入实际产品名）：
+- **产品数通常 > 4** — **不用 AskUserQuestion**；**直接**输出纯文字编号列表（逐字结构，填入实际产品名；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 要保存到哪个产品？回复序号即可：
@@ -37,10 +37,18 @@ cawplan products list --page_size 100
 N. 【产品 name】
 ```
 
+```text
+Which product should this be saved to? Just reply with a number:
+1. [产品 name]
+2. [产品 name]
+…
+N. [产品 name]
+```
+
 **落点**：
 
 - SQA **回复序号**（也认 **产品名** 原文或大小写不敏感匹配）→ 取对应行的 `unique_id` 为 `product_id`，`name` 为 product name → 继续 step 8+。
-- **重复 / 没选对**（序号无效、产品名对不上、或 SQA 又说「保存」但未选产品）→ **短提示**（逐字）：`还差一步:先选个产品,回序号即可。` — 可重列同一编号列表，**不要**长篇解释或改走 search。
+- **重复 / 没选对**（序号无效、产品名对不上、或 SQA 又说「保存」但未选产品）→ **短提示**（逐字，跟随会话语言）：`还差一步:先选个产品,回序号即可。` / `One more step: please pick a product first — just reply with its number.` — 可重列同一编号列表，**不要**长篇解释或改走 search。
 - 列表为空 → 如实报告无可用产品，**stop**（无法继续保存）。
 - 返回超过 100 条时 **仍只展示本次 100 条**（不翻页）。若 SQA 称产品不在列表中 → 请提供工单链接或说明需管理员处理；**禁止**改走 `--search` 或口头「再报个产品名」老路。
 
@@ -86,18 +94,18 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 
 #### ① 选位置（AskUserQuestion 框）
 
-**优先 AskUserQuestion**（**三个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**）：
+**优先 AskUserQuestion**（**三个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**；**跟随会话语言**整框二选一，不同时输出）：
 
-| 字段 | 值 |
-|------|-----|
-| `header` | 选择位置 |
-| `question` | 是否要保存到「{推荐节点全路径}」节点下? |
-| option 1 · `label` | 就保存到这里 |
-| option 1 · `description` | 用推荐的这个位置 |
-| option 2 · `label` | 看看有哪些节点 |
-| option 2 · `description` | 列出模块树再选 |
-| option 3 · `label` | 新建一个节点 |
-| option 3 · `description` | 建个新的来放 |
+| 字段 | 中文值 | English value |
+|------|-----|-----|
+| `header` | 选择位置 | Choose Location |
+| `question` | 是否要保存到「{推荐节点全路径}」节点下? | Save under the "{推荐节点全路径}" node? |
+| option 1 · `label` | 就保存到这里 | Use this location |
+| option 1 · `description` | 用推荐的这个位置 | Go with the recommended location |
+| option 2 · `label` | 看看有哪些节点 | Browse nodes |
+| option 2 · `description` | 列出模块树再选 | List the module tree and pick |
+| option 3 · `label` | 新建一个节点 | Create a new node |
+| option 3 · `description` | 建个新的来放 | Create a new one to place it in |
 
 **落点**（**选位置即确认保存** — Requirement 写入在 step 11 执行，但**不再**二次弹保存确认框）：
 
@@ -105,10 +113,14 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 - **看看有哪些节点** → 展示节点树形列表（〔选②〕），SQA 选中一个 → 采用、`module_tree_node_id` 写入上下文；设 `location_confirmed = true` → step 11 **直接**写入。
 - **新建一个节点** → 进〔选③〕问名字+父节点。
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字，填入实际全路径）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字，填入实际全路径；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 是否要保存到「{推荐节点全路径}」节点下? 1. 就保存到这里 2. 看看有哪些节点 3. 新建一个节点(回序号)
+```
+
+```text
+Save under the "{推荐节点全路径}" node? 1. Use this location 2. Browse nodes 3. Create a new node (reply with a number)
 ```
 
 ---
@@ -118,10 +130,14 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 - **不使用框**（节点数量不定）。
 - 用**缩进体现层级**：顶级顶格，子级逐层缩进；**全量铺开、不折叠**。
 - **序号连续、跨层级不重号**；SQA 回序号即选中（**也认节点名**）。
-- 引导句（逐字）：
+- 引导句（逐字；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 有哪些节点?告诉我你要哪个(回序号或节点名):
+```
+
+```text
+Here are the nodes — tell me which one you want (reply with a number or node name):
 ```
 
 - 列表示例形态（序号与缩进按实际树生成；形态对齐方案）：
@@ -148,7 +164,7 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 
 #### 〔选③〕新建一个节点 · 问名字+父节点（纯文字）
 
-- 引导句（逐字）：`节点名叫什么,挂在哪个父节点下?不确定可先说「看看有哪些节点」。`
+- 引导句（逐字；**跟随会话语言**二选一，不同时输出）：`节点名叫什么,挂在哪个父节点下?不确定可先说「看看有哪些节点」。` / `What should the node be named, and under which parent node? If you're not sure, say "browse nodes" first.`
 - 父节点可以是**顶级**，也可以是**任意现有节点**（层级不限）。
 - SQA 不确定父级 → 引导走〔选②〕「看看有哪些节点」浏览后再回来。
 - 名字 + 父节点都齐 → 进「确认新建」②。
@@ -157,16 +173,16 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 
 #### ② 确认新建（AskUserQuestion 框 · 写库前确认闸）
 
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；**跟随会话语言**整框二选一，不同时输出）：
 
-| 字段 | 值 |
-|------|-----|
-| `header` | 确认新建 |
-| `question` | 新建节点「{新节点名}」(在「{父节点全路径}」下),对吗?（顶级父节点：`新建节点「{新节点名}」(顶级),对吗?`） |
-| option 1 · `label` | 对,新建 |
-| option 1 · `description` | 就按上面建 |
-| option 2 · `label` | 不对 |
-| option 2 · `description` | 改名字或位置 |
+| 字段 | 中文值 | English value |
+|------|-----|-----|
+| `header` | 确认新建 | Confirm Creation |
+| `question` | 新建节点「{新节点名}」(在「{父节点全路径}」下),对吗?（顶级父节点：`新建节点「{新节点名}」(顶级),对吗?`） | Create node "{新节点名}" under "{父节点全路径}"? (top-level: `Create node "{新节点名}" (top level)?`) |
+| option 1 · `label` | 对,新建 | Yes, create it |
+| option 1 · `description` | 就按上面建 | Create it as described above |
+| option 2 · `label` | 不对 | No |
+| option 2 · `description` | 改名字或位置 | Change the name or location |
 
 **落点**：
 
@@ -175,10 +191,14 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 
 **写库约束**：**这是唯一真正写库的一步** — 未经 SQA 明确选「对,新建」，**不许写库、不许自动确认、不许跳过**。
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字；顶级用 `(顶级)` 替换 `(在「…」下)`）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字；顶级用 `(顶级)` 替换 `(在「…」下)`；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 新建节点「{新节点名}」(在「{父节点全路径}」下),对吗? 1. 对,新建 2. 不对(回序号)
+```
+
+```text
+Create node "{新节点名}" under "{父节点全路径}"? 1. Yes, create it 2. No (reply with a number)
 ```
 
 ---

@@ -12,6 +12,8 @@ allowed-tools: Bash
 
 # CawPlan Requirement Analyze
 
+**跟随用户主语言**生成文案；禁止同一段中英各写一遍。
+
 ## Bootstrap
 
 ```bash
@@ -80,8 +82,15 @@ cawplan skill check
 > 3. 相关截图 / 设计稿（可多张）
 >
 > 三样都给，信息会更完整，我会先整理成一份完整需求给你确认。
+>
+> Want a requirement analyzed? Give me any one of these to start:
+> 1. Requirement text description
+> 2. Ticket link / ticket number
+> 3. Related screenshots / mockups (multiple OK)
+>
+> Providing all three gives more complete information — I'll draft a full requirement for you to confirm first.
 
-（结尾不提归档/保存。纯文字，不用 AskUserQuestion。）
+（结尾不提归档/保存。纯文字，不用 AskUserQuestion。**跟随会话语言**只输出中文或英文其中一版，不要两版同时输出。）
 
 **边界**：只贴工单链接 = 有素材，按下方 ticket 解析；裸 issue URL 且无分析意图 → 仍走 Rules **Trigger boundary**（`cawplan-ticket-context`），不走零素材分支。
 

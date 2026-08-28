@@ -98,7 +98,7 @@ When SQA signals archive/submit intent ("可以了", "存吧", "归档", "提交
 
 | `reconcile.decision` | Action |
 |----------------------|--------|
-| `strong_match_single` | Bind `reconcile.matched_requirement_ids[0]`; refresh snapshots from `api`/server; clear `pending_write` and UNKNOWN; **set `just_reconciled = true`**. Tell SQA（逐字，下接 **Confirmation** §6 成功回执）：`这条上次其实已经保存成功了(当时没返回确认)。已绑定到那一条,没有重复创建。` **Do not create.** |
+| `strong_match_single` | Bind `reconcile.matched_requirement_ids[0]`; refresh snapshots from `api`/server; clear `pending_write` and UNKNOWN; **set `just_reconciled = true`**. Tell SQA（逐字，**跟随会话语言**二选一，下接 **Confirmation** §6 成功回执）：`这条上次其实已经保存成功了(当时没返回确认)。已绑定到那一条,没有重复创建。` / `This was actually already saved last time (the confirmation just didn't come back). It's now bound to that entry — no duplicate was created.` **Do not create.** |
 | `strong_match_multiple` | **List every id in `reconcile.matched_requirement_ids`; ask SQA which to bind.** Do not pick one yourself; do not create. |
 | `patch_already_applied` | Treat PATCH as likely succeeded; refresh snapshots; clear UNKNOWN; **set `just_reconciled = true`**. |
 | `patch_still_old` | Read-back → **PATCH retry** via `requirements update` (not create). |
@@ -123,32 +123,38 @@ When Table B routes here (no bound, or SQA confirms另建 / different requiremen
 
 **乙式确认**（`location_confirmed` 为 false / 未设时）— AskUserQuestion 无「框上正文」字段 — **先**纯文字输出路径行，**再**弹框；**勿**把路径塞进 `question`。
 
-框上方正文（逐字，填入 `{模块树节点全路径}`）：
+框上方正文（逐字，填入 `{模块树节点全路径}`；**跟随会话语言**二选一，不同时输出）：
 
 > 将需求保存到「{模块树节点全路径}」下。
+> This requirement will be saved under "{模块树节点全路径}."
 
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**；**跟随会话语言**整框二选一，不同时输出）：
 
-| 字段 | 值 |
-|------|-----|
-| `header` | 确认保存 |
-| `question` | 确认保存这条需求? |
-| option 1 · `label` | 确认保存 |
-| option 1 · `description` | 存到 CawPlan |
-| option 2 · `label` | 先不保存 |
-| option 2 · `description` | 先留着草稿 |
+| 字段 | 中文值 | English value |
+|------|-----|-----|
+| `header` | 确认保存 | Confirm Save |
+| `question` | 确认保存这条需求? | Confirm saving this requirement? |
+| option 1 · `label` | 确认保存 | Confirm save |
+| option 1 · `description` | 存到 CawPlan | Save it to CawPlan |
+| option 2 · `label` | 先不保存 | Not yet |
+| option 2 · `description` | 先留着草稿 | Keep it as a draft for now |
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 将需求保存到「{模块树节点全路径}」下。 确认保存这条需求? 1. 确认保存 2. 先不保存(回序号)
 ```
 
+```text
+This requirement will be saved under "{模块树节点全路径}." Confirm saving this requirement? 1. Confirm save 2. Not yet (reply with a number)
+```
+
 **落点**（仅乙式路径）：
 
 - **确认保存**（或同义肯定）→ 记录 `pending_write` 后 POST（见下方）。
-- **先不保存** → 逐字回执，**不 POST**：
+- **先不保存** → 逐字回执，**不 POST**（**跟随会话语言**二选一，不同时输出）：
   > 好的,先不保存。需求草稿还在,你可以继续改;想好了说一声「保存到 CawPlan」。
+  > Okay, not saving for now. The requirement draft is still here — keep editing, and just say "save to CawPlan" when you're ready.
 
 **跳过乙式确认闸**（`location_confirmed = true`）— §8 选位置已肯定：
 
@@ -157,9 +163,10 @@ When Table B routes here (no bound, or SQA confirms另建 / different requiremen
 
 **重试保存**（Table A `no_match` 后重试 POST）：
 
-- `location_confirmed = true` → **仅**一行状态（逐字）：`上次保存没确认成功,查过没有重复,现在重存一次。` 然后**直接** POST；**勿**再接乙式框或路径复述。
-- `location_confirmed` 未设 → 乙式路径，框上方两行正文：
+- `location_confirmed = true` → **仅**一行状态（逐字，**跟随会话语言**二选一）：`上次保存没确认成功,查过没有重复,现在重存一次。` / `The last save wasn't confirmed successful — I checked and there's no duplicate, so I'm retrying the save now.` 然后**直接** POST；**勿**再接乙式框或路径复述。
+- `location_confirmed` 未设 → 乙式路径，框上方两行正文（**跟随会话语言**二选一，不同时输出）：
   > 上次保存没确认成功,查过没有重复,现在重存一次。将需求保存到「{模块树节点全路径}」下。
+  > The last save wasn't confirmed successful — I checked and there's no duplicate, so I'm retrying the save now. This requirement will be saved under "{模块树节点全路径}."
   再接 AskUserQuestion / 降级 / **先不保存** 落点。
 
 Wait for SQA confirmation **only on the 乙式 path**. On the skip path, **do not wait** — POST immediately after Gate/Table routing.
@@ -184,32 +191,38 @@ When Table B routes here (bound + snapshot diff shows changes).
 
 **乙式确认**（`location_confirmed` 为 false / 未设时）— 先路径正文，再弹框。若更新场景无节点上下文 / 位置不变，**可省**框上方路径行。
 
-框上方正文（逐字，填入 `{模块树节点全路径}`）：
+框上方正文（逐字，填入 `{模块树节点全路径}`；**跟随会话语言**二选一，不同时输出）：
 
 > 将需求更新到「{模块树节点全路径}」下。
+> This requirement will be updated under "{模块树节点全路径}."
 
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；**跟随会话语言**整框二选一，不同时输出）：
 
-| 字段 | 值 |
-|------|-----|
-| `header` | 确认更新 |
-| `question` | 确认更新这条需求? |
-| option 1 · `label` | 确认更新 |
-| option 1 · `description` | 更新到 CawPlan |
-| option 2 · `label` | 先不更新 |
-| option 2 · `description` | 先留着草稿 |
+| 字段 | 中文值 | English value |
+|------|-----|-----|
+| `header` | 确认更新 | Confirm Update |
+| `question` | 确认更新这条需求? | Confirm updating this requirement? |
+| option 1 · `label` | 确认更新 | Confirm update |
+| option 1 · `description` | 更新到 CawPlan | Update it in CawPlan |
+| option 2 · `label` | 先不更新 | Not yet |
+| option 2 · `description` | 先留着草稿 | Keep it as a draft for now |
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 将需求更新到「{模块树节点全路径}」下。 确认更新这条需求? 1. 确认更新 2. 先不更新(回序号)
 ```
 
+```text
+This requirement will be updated under "{模块树节点全路径}." Confirm updating this requirement? 1. Confirm update 2. Not yet (reply with a number)
+```
+
 **落点**（仅乙式路径）：
 
 - **确认更新**（或同义肯定）→ 记录 `pending_write` 后 PATCH（见下方）。
-- **先不更新** → 逐字回执，**不 PATCH**：
+- **先不更新** → 逐字回执，**不 PATCH**（**跟随会话语言**二选一，不同时输出）：
   > 好的,先不更新。需求草稿还在,你可以继续改;想好了说一声「保存到 CawPlan」。
+  > Okay, not updating for now. The requirement draft is still here — keep editing, and just say "save to CawPlan" when you're ready.
 
 **跳过乙式确认闸**（`location_confirmed = true`）— 直接记录 `pending_write` 后 PATCH。
 

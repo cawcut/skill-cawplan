@@ -6,13 +6,15 @@ Track source per fact (user text / ticket / screenshot; multiple screenshots by 
 
 ### 3. Produce the five-field draft
 
-Present exactly these five fields, in this order, as **section headings** (not a table):
+Present exactly these five fields, in this order, as **section headings** (not a table). **跟随会话语言**：中文会话用下方中文标题；英文会话改用 `references/terminology-en.md` 第 1 节对应的英文标题（`Function Description` / `Entry Point / Trigger Condition` / `Expected Behavior (Happy Path)` / `Constraints & Rules` / `Out of Scope`），**不要**同一份需求里中英标题混用：
 
 1. **功能描述** (`function_description`) — what the feature is and what problem it solves. No triggers or rules.
 2. **操作入口 / 触发条件** (`entry_trigger`) — where the user enters and what triggers it. No post-trigger expectations.
 3. **正常预期行为** (`normal_expectation`) — what should happen on the happy path. No errors or constraints.
 4. **约束与规则** (`constraints`) — validation and business rules: **material facts** (no source marker) or **惯例推断** (`（惯例推断）` prefix + step 3 fixed phrasing, Rules **红线 0** directional only). No happy-path-only content. Do not invent specific thresholds, copy, or URLs; **material enums explicitly listed in material must be retained per 枚举完整性** (Rules).
 5. **不测范围** (`out_of_scope`, may be empty) — what is explicitly out of scope for this round.
+
+**英文会话下的推断标记与固定措辞**：`惯例推断` / `界面推断` 分别用 `references/terminology-en.md` 第 2 节的 `(Convention-inferred)` / `(UI-inferred)`；`（素材未提及）` 用同表 `(Not mentioned in material)`；step 3 固定措辞表（下方）逐句对应 `references/terminology-en.md` 第 4 节的英文版，**同样逐字冻结、禁止同义改写**——英文固定措辞的逐字节比对约束与中文版完全相同（见下方「为什么表内必须照抄原句」）。
 
 **维度 / 取值二分**（贯穿以下全部规则）：**验证维度** = 有没有这条规则、这个分支、这个状态、这类枚举；**具体取值** = 阈值、次数、秒数、文案原文、错误码、URL。**总则**管维度取舍，**红线 0** 管取值表达 —— **缺取值不构成删除维度的理由**。
 
@@ -37,7 +39,7 @@ Present exactly these five fields, in this order, as **section headings** (not a
 
 **Constraints — no inline gaps**: ✗ `…红色提示；（素材未提及）密码错误次数、账户锁定` → ✓ field: `…红色提示` only; 账户锁定属**判据 1 第二类**（存在性依赖产品）→ **待确认**，不进字段、也不用 `需补充` 问具体政策（`需补充` 以「维度已在字段中」为前提）; 「不一致须提示」→ `（惯例推断）` fixed phrasing in field, not 需补充.
 
-**Fixed phrasing for inferred bullets** — use **exact** sentences below (do not synonym-rewrite); extend via walkthrough examples only, no separate checklist file:
+**Fixed phrasing for inferred bullets** — use **exact** sentences below (do not synonym-rewrite); extend via walkthrough examples only, no separate checklist file. **English session** → use the English sentences in `references/terminology-en.md` 第 4 节 instead of this table (same row-for-row scenarios, same 逐字冻结 constraint) — **do not** translate this Chinese table on the fly, **do not** mix languages within one requirement:
 
 | 场景 | 固定措辞 |
 |------|----------|
@@ -98,10 +100,13 @@ Immediately **after** the five fields and **before** the open-questions list, pr
 
 > **展示摘要**：道具图固定 1:1 裁剪输出
 
-If over 15 characters and not yet shortened:
+If over 15 characters and not yet shortened（**跟随会话语言**二选一，不同时输出）:
 
 > **展示摘要**：道具图上传后裁剪为固定比例输出  
 > （建议精简）
+
+> **Display summary**: Prop image cropped to a fixed aspect ratio after upload  
+> (Suggest trimming)
 
 ### 4b. 漏测自检（内部执行，不呈现）
 
@@ -130,7 +135,7 @@ If over 15 characters and not yet shortened:
 
 > **存疑清单不落库**：归档 body 只有五字段 + `summary`（+ `ticket_id`），下游 **A2 / A3 看不到存疑清单**。存在性已确定的维度**不得**只写在这里 —— 见 Rules **总则**。
 
-After the five fields and display summary, add an **存疑清单**. Classify each item as exactly one of:
+After the five fields and display summary, add an **存疑清单**. **跟随会话语言**：英文会话用 `references/terminology-en.md` 第 3 节对应词（`Needs Detail` / `To Be Confirmed` / `Needs Clarification`），判据不变，**不要**同一份需求里中英词混用。Classify each item as exactly one of:
 
 - **需补充** — 维度已在字段中（方向性），**仅缺**产品特有的具体取值（阈值、文案原文、落地 URL、非标规则）。**仅当该取值缺失会让下游无法设计验证时才列**（如上限数值 —— 边界用例需要它）；纯提示文案**不列**，`须有明确提示` 本身已是完整的方向性断言（红线 0）。**Forbidden sole triggers**: `素材未提及`, `未写明`, `未提及`.
 - **待确认** — **维度存在性不确定**（判据 1 第二类）或 **weak** inference / screenshot ambiguity（未写入字段者）。**只问维度本身，不预设产品策略 / 具体答案 / 实现方向**（红线 0）；问法**带判断线索**、不带答案。**Forbidden** if the same claim already appears under `（惯例推断）` / `（界面推断）` in the five fields.
@@ -314,9 +319,10 @@ Ask inline **only** when a fundamental gap blocks drafting (e.g. "what is this f
 
 After the open-questions list (step 5), append **exactly one** lightweight closing line — **first draft** (steps 3–5) and **every revision re-show** (step 6) use the **same** line.
 
-引导文案（**仅此一句**，逐字输出给用户；纯文字，不用 AskUserQuestion）：
+引导文案（**仅此一句**，逐字输出给用户；纯文字，不用 AskUserQuestion；**跟随会话语言**二选一，不同时输出）：
 
 > 以上是整理好的需求，你看看内容对不对。没问题就说一声「保存到 CawPlan」。
+> Here's the structured requirement — please check it over. If it looks good, just say "save to CawPlan."
 
 **输出纪律**：
 

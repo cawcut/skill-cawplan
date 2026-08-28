@@ -112,12 +112,17 @@ done
 
 echo "→ Validating references..."
 for skill_dir in skills/cawplan-*/; do
-  skill_md="${skill_dir}SKILL.md"
-  for ref in $(grep -oE 'references/[a-zA-Z0-9_./-]+\.md' "$skill_md" | sort -u || true); do
-    if [ ! -f "$ref" ] && [ ! -f "${skill_dir}${ref}" ]; then
-      echo "::error file=${skill_md}::references ${ref} but file is missing"
-      fail=1
-    fi
+  for src_file in "${skill_dir}SKILL.md" "${skill_dir}"references/*.md; do
+    [ -f "$src_file" ] || continue
+    src_basename="$(basename "$src_file")"
+    for ref in $(grep -oE 'references/[a-zA-Z0-9_./-]+\.md' "$src_file" | sort -u || true); do
+      # Skip a file referencing its own filename (self-description, not a real dependency).
+      [ "$ref" = "references/${src_basename}" ] && continue
+      if [ ! -f "$ref" ] && [ ! -f "${skill_dir}${ref}" ]; then
+        echo "::error file=${src_file}::references ${ref} but file is missing"
+        fail=1
+      fi
+    done
   done
 done
 [ "$fail" -eq 0 ] && echo "✓ all references resolve"
@@ -226,6 +231,21 @@ ok &= compare_block(
 if not ok:
     sys.exit(1)
 PY
+
+echo "→ Validating qa-insights terminology-en.md two-way byte-identical copy..."
+# Existence is covered by "Validating references" above (workflow-analysis.md /
+# coverage-dimensions.md reference these paths). This step only checks content drift.
+# A3 (cawplan-testcase-generate) has no copy — it never references terminology-en.md
+# (its Title/Expected honesty-tail phrasing is inlined in SKILL.md 红线 0 instead).
+TERM_A1="skills/cawplan-requirement-analyze/references/terminology-en.md"
+TERM_A2="skills/cawplan-testpoint-generate/references/terminology-en.md"
+if [ -f "$TERM_A1" ] && [ -f "$TERM_A2" ]; then
+  if ! diff -q "$TERM_A1" "$TERM_A2" >/dev/null; then
+    echo "::error file=${TERM_A2}::differs from ${TERM_A1} (terminology-en.md must be byte-identical across A1/A2)"
+    fail=1
+  fi
+fi
+[ "$fail" -eq 0 ] && echo "✓ terminology-en.md — byte-identical across A1/A2"
 
 [ "$fail" -eq 0 ] || exit 1
 echo "All skill validations passed."

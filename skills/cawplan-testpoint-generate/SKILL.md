@@ -11,6 +11,8 @@ allowed-tools: Bash
 
 # CawPlan TestPoint Generate
 
+**跟随用户主语言**生成文案；禁止同一段中英各写一遍。
+
 ## Bootstrap
 
 ```bash
@@ -45,18 +47,18 @@ On each **generate test points** request, resolve the target in this order (**fa
 
 **禁止**在选项中出现「用刚归档那条」（属有效 P2 热交接，自动走）。
 
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具会自动追加 Other 自由输入行，**标题/占位不可自定义**——**不要**在 skill 里定义或手写 Other / 自由输入行）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具会自动追加 Other 自由输入行，**标题/占位不可自定义**——**不要**在 skill 里定义或手写 Other / 自由输入行；**跟随会话语言**整框二选一，不同时输出）：
 
-| 字段 | 值 |
-|------|-----|
-| `header` | 锁定 Requirement |
-| `question` | 生成测试点前，先确定是哪条 Requirement？ |
-| option 1 · `label` | 已有 Requirement 链接 |
-| option 1 · `description` | 把链接发我 |
-| option 2 · `label` | 没有 Requirement |
-| option 2 · `description` | 马上生成并保存到 CawPlan |
+| 字段 | 中文值 | English value |
+|------|-----|-----|
+| `header` | 锁定 Requirement | Lock Requirement |
+| `question` | 生成测试点前，先确定是哪条 Requirement？ | Before generating test points, let's confirm which Requirement this is |
+| option 1 · `label` | 已有 Requirement 链接 | I have a Requirement link |
+| option 1 · `description` | 把链接发我 | Send me the link |
+| option 2 · `label` | 没有 Requirement | No Requirement yet |
+| option 2 · `description` | 马上生成并保存到 CawPlan | Generate and save to CawPlan now |
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 锁定 Requirement
@@ -64,6 +66,14 @@ On each **generate test points** request, resolve the target in this order (**fa
 1. 已有 Requirement 链接 —— 选这个，把 Requirement 链接发我
 2. 没有 Requirement —— 马上生成并保存到 CawPlan
 请回复序号，或直接粘贴 Requirement 链接、或直接说你想怎么做。
+```
+
+```text
+Lock Requirement
+Before generating test points, let's confirm which Requirement this is
+1. I have a Requirement link — pick this, then send me the link
+2. No Requirement yet — generate and save to CawPlan now
+Reply with a number, paste the Requirement link directly, or just tell me what you'd like to do.
 ```
 
 **落点**：
@@ -75,18 +85,18 @@ On each **generate test points** request, resolve the target in this order (**fa
 
 **触发**：上表 **P3**（有需求草稿、无 `requirement_id`）。有效热交接 / 已给 Requirement 链接 → **不弹**。
 
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；Other 行由工具自动追加，**勿定义**；**跟随会话语言**整框二选一，不同时输出）：
 
-| 字段 | 值 |
-|------|-----|
-| `header` | 需求还没保存 |
-| `question` | 这份需求还没保存到 CawPlan，先保存再来生成测试点 |
-| option 1 · `label` | 马上保存 |
-| option 1 · `description` | 存好再接着生成测试点 |
-| option 2 · `label` | 先不保存 |
-| option 2 · `description` | 先停一下，我再看看这份需求 |
+| 字段 | 中文值 | English value |
+|------|-----|-----|
+| `header` | 需求还没保存 | Requirement Not Saved Yet |
+| `question` | 这份需求还没保存到 CawPlan，先保存再来生成测试点 | This requirement hasn't been saved to CawPlan yet — save it first, then generate test points |
+| option 1 · `label` | 马上保存 | Save now |
+| option 1 · `description` | 存好再接着生成测试点 | Save it, then continue to generate test points |
+| option 2 · `label` | 先不保存 | Not yet |
+| option 2 · `description` | 先停一下，我再看看这份需求 | Pause for now, I'll review this requirement again |
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 需求还没保存
@@ -94,6 +104,14 @@ On each **generate test points** request, resolve the target in this order (**fa
 1. 马上保存 —— 存好再接着生成测试点
 2. 先不保存 —— 先停一下，我再看看这份需求
 请回复序号，或直接说你想怎么做。
+```
+
+```text
+Requirement Not Saved Yet
+This requirement hasn't been saved to CawPlan yet — save it first, then generate test points
+1. Save now — save it, then continue to generate test points
+2. Not yet — pause for now, I'll review this requirement again
+Reply with a number, or just tell me what you'd like to do.
 ```
 
 **落点**：
@@ -141,7 +159,7 @@ cawplan api GET /api/v1/public/openapi/product/<product_id>/qa/requirements/<req
 | Result | Action |
 |--------|--------|
 | Requirement found (`code: SUCCESS`) | Use **latest** five fields silently; do not diff against chat cache |
-| Requirement missing (`404` or explicit not-found) | Report "这条 Requirement 已不存在"; do not generate from stale context |
+| Requirement missing (`404` or explicit not-found) | Report "这条 Requirement 已不存在" / "This Requirement no longer exists"（**跟随会话语言**二选一）; do not generate from stale context |
 
 Use five fields for generation only. Do not track `module_tree_node_id`, `review_status`, or `ticket_id` for A2 logic.
 
@@ -300,11 +318,13 @@ Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s
 
 **开场**（`〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`，与保存确认等处显示名规则一致）：
 
-- **首批**（库为空，逐字）：
+- **首批**（库为空，逐字；**跟随会话语言**二选一，不同时输出）：
   > 需求「〔需求名〕」的测试点草稿如下（这条之前还没有测试点）：
+  > Draft test points for requirement "〔需求名〕" (no existing test points yet):
 
-- **增量**（库里已有，逐字）：
+- **增量**（库里已有，逐字；**跟随会话语言**二选一，不同时输出）：
   > 需求「〔需求名〕」的测试点如下（已有的标「已存」、本轮新增标「新增」）：
+  > Test points for requirement "〔需求名〕" (existing ones marked "Saved," new ones this round marked "New"):
 
 紧接下方分节表；**不要**在开场前另加覆盖面叙述或其它过程说明。
 
@@ -341,8 +361,9 @@ Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s
 
 2. **存疑清单** after **all** group sections (§5): 〔指向哪〕+〔为什么疑〕+〔建议动作〕; no coverage checkbox matrix. If none: say so explicitly.
 
-3. **尾巴**（草稿表 + 存疑清单之后，逐字；首次呈现与 §8 修订后重展均输出；**不做弹框**）：
+3. **尾巴**（草稿表 + 存疑清单之后，逐字；首次呈现与 §8 修订后重展均输出；**不做弹框**；**跟随会话语言**二选一，不同时输出）：
    > 要改就直接说（增删，或改标题/标签/分组）；没问题就说一声「保存到 CawPlan」。
+   > Just tell me if you want changes (add/remove, or edit title/tags/group); if it looks good, say "save to CawPlan."
 
 **Do not state draft totals** before save (no `共 N 条草稿`, no N in save prompts). SQA reviews the tables; **the only count SQA sees is in the post-POST success receipt** (§9.5).
 
@@ -355,7 +376,7 @@ Per §7 step 1: **one section per `group`** (group title line + small table). Wi
 1. **Status column** (primary, plain text): `已存` (has `id`, read-only) or `新增` (this round's draft, no `id`). This column alone must make the distinction clear even if other formatting fails.
 2. **Bold entire rows** (enhancement): status `新增` → bold all five cells (`**…**`); `已存` rows not bold. May write `🆕 新增` in the status column.
 
-**No count summary after tables** — do **not** write `本轮新增 M 条` / `其余 K 条为已存` / `共 N 条` (agents cannot reliably count rows; see Rules Index · Draft totals). Optional **non-numeric** footer after all group sections: `已存的标「已存」（只读，改/删请去 Test Suites 后台）；「新增」为本轮新测试点，确认后只保存新增的。`
+**No count summary after tables** — do **not** write `本轮新增 M 条` / `其余 K 条为已存` / `共 N 条` (agents cannot reliably count rows; see Rules Index · Draft totals). Optional **non-numeric** footer after all group sections（**跟随会话语言**二选一，不同时输出）: `已存的标「已存」（只读，改/删请去 Test Suites 后台）；「新增」为本轮新测试点，确认后只保存新增的。` / `Items marked "Saved" are read-only here (edit/delete via the Test Suites console); items marked "New" are this round's new test points — only the new ones will be saved once confirmed.`
 
 **Rendering discipline**:
 
@@ -373,7 +394,7 @@ After **any** revision round → **re-show the full 分节清单** (every group 
 
 **SQA insists on keeping two similar rows** → keep both; do not re-run §2.2 merge on those rows.
 
-**Never auto-save.** "看着不错" ≠ save → ask e.g. `要现在保存，还是再调调？` — **no draft count** in this prompt.
+**Never auto-save.** "看着不错" ≠ save → ask e.g. `要现在保存，还是再调调？` / `Save now, or keep adjusting?`（**跟随会话语言**二选一） — **no draft count** in this prompt.
 
 **原稿** = first table shown to SQA this working set (**after §6 self-critique** — §5 internal draft does not count). Self-critique补 rows are part of 原稿. Track which draft rows SQA touched for `is_edited` (§9).
 
@@ -387,52 +408,63 @@ Proceed only when SQA clearly says 保存 / 存 / 入库 / `保存到 CawPlan`.
 
 #### 首批保存
 
-框上方正文（逐字，填入 `〔需求名〕`）：
+框上方正文（逐字，填入 `〔需求名〕`；**跟随会话语言**二选一，不同时输出）：
 
 > 将测试点保存到需求「〔需求名〕」下。
+> These test points will be saved under requirement "〔需求名〕."
 
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**；**跟随会话语言**整框二选一，不同时输出）：
 
-| 字段 | 值 |
-|------|-----|
-| `header` | 确认保存 |
-| `question` | 确认保存这批测试点? |
-| option 1 · `label` | 确认保存 |
-| option 1 · `description` | 存到 CawPlan |
-| option 2 · `label` | 先不保存 |
-| option 2 · `description` | 先留着草稿 |
+| 字段 | 中文值 | English value |
+|------|-----|-----|
+| `header` | 确认保存 | Confirm Save |
+| `question` | 确认保存这批测试点? | Confirm saving this batch of test points? |
+| option 1 · `label` | 确认保存 | Confirm save |
+| option 1 · `description` | 存到 CawPlan | Save it to CawPlan |
+| option 2 · `label` | 先不保存 | Not yet |
+| option 2 · `description` | 先留着草稿 | Keep it as a draft for now |
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 将测试点保存到需求「〔需求名〕」下。 确认保存这批测试点? 1. 确认保存 2. 先不保存(回序号)
 ```
 
+```text
+These test points will be saved under requirement "〔需求名〕." Confirm saving this batch of test points? 1. Confirm save 2. Not yet (reply with a number)
+```
+
 #### 增量保存（库里已有，仅存本轮新增）
 
-框上方正文（逐字，填入 `〔需求名〕`）：
+框上方正文（逐字，填入 `〔需求名〕`；**跟随会话语言**二选一，不同时输出）：
 
 > 将本轮新测试点保存到需求「〔需求名〕」下（已存的不动）。
+> This round's new test points will be saved under requirement "〔需求名〕" (existing ones are untouched).
 
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**；**跟随会话语言**整框二选一，不同时输出）：
 
-| 字段 | 值 |
-|------|-----|
-| `header` | 确认保存 |
-| `question` | 确认保存本轮新测试点? |
-| option 1 · `label` | 确认保存 |
-| option 1 · `description` | 存到 CawPlan |
-| option 2 · `label` | 先不保存 |
-| option 2 · `description` | 先留着草稿 |
+| 字段 | 中文值 | English value |
+|------|-----|-----|
+| `header` | 确认保存 | Confirm Save |
+| `question` | 确认保存本轮新测试点? | Confirm saving this round's new test points? |
+| option 1 · `label` | 确认保存 | Confirm save |
+| option 1 · `description` | 存到 CawPlan | Save it to CawPlan |
+| option 2 · `label` | 先不保存 | Not yet |
+| option 2 · `description` | 先留着草稿 | Keep it as a draft for now |
 
-**AskUserQuestion 不可用时** — 纯文字降级（逐字）：
+**AskUserQuestion 不可用时** — 纯文字降级（逐字；**跟随会话语言**二选一，不同时输出）：
 
 ```text
 将本轮新测试点保存到需求「〔需求名〕」下（已存的不动）。 确认保存本轮新测试点? 1. 确认保存 2. 先不保存(回序号)
 ```
 
-**「先不保存」回执**（纯文字，逐字）：
+```text
+This round's new test points will be saved under requirement "〔需求名〕" (existing ones are untouched). Confirm saving this round's new test points? 1. Confirm save 2. Not yet (reply with a number)
+```
+
+**「先不保存」回执**（纯文字，逐字；**跟随会话语言**二选一，不同时输出）：
 > 好的，先不保存。测试点草稿还在，你可以继续改；想好了说一声「保存到 CawPlan」。
+> Okay, not saving for now. The test point draft is still here — keep editing, and just say "save to CawPlan" when you're ready.
 
 **Before POST**: build `test_points` from the last full table in display order — **one body entry per draft row without `id`**, same order as shown. Do not skip or duplicate rows.
 
@@ -457,16 +489,17 @@ Branch on `outcome`:
 
 **Success receipt (§9.5)** — **only place SQA sees a count**. **Two lines** when `url` is present; otherwise line 1 only. Use **`N` = `body.test_points.length`** (or response `test_points.length` on SUCCESS). `〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`.
 
-- **Line 1**（逐字）：`已保存 N 条测试点到需求「〔需求名〕」下。`
-- **Line 2**（仅当 refresh 返回非空 `url`；**单独一行**，不接到 line 1 句末；逐字）：`Requirement 链接:{url}`
+- **Line 1**（逐字；**跟随会话语言**二选一）：`已保存 N 条测试点到需求「〔需求名〕」下。` / `Saved N test points under requirement "〔需求名〕."`
+- **Line 2**（仅当 refresh 返回非空 `url`；**单独一行**，不接到 line 1 句末；逐字；**跟随会话语言**二选一）：`Requirement 链接:{url}` / `Requirement link: {url}`
 
 **If `url` is missing or null** — output line 1 only; say nothing about links — never construct portal URLs, never note that `url` was unavailable.
 
 **Forbidden in success receipt**: per-row tables; title lists; `id` lists; re-generated or summarized titles; any line about missing `url` (e.g. "未返回 url"/"无法附 Requirement 链接"); **apology or post-hoc recount explanations** (e.g. "之前误算成 13 条").
 
-**§9.5 末尾引导（可选追加）** — 满足**全部**条件时，在成功回执**最后**另起一行逐字追加（不弹框、不追问、**仅本轮一次**）：
+**§9.5 末尾引导（可选追加）** — 满足**全部**条件时，在成功回执**最后**另起一行逐字追加（不弹框、不追问、**仅本轮一次**；**跟随会话语言**二选一，不同时输出）：
 
 > 想继续生成测试用例？说「马上生成测试用例」，我会在当前会话直接生成。
+> Want to generate test cases next? Say "generate test cases now" and I'll do it right in this session.
 
 **追加条件**（须同时满足）：
 
