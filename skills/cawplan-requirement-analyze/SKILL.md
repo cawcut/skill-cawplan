@@ -12,6 +12,8 @@ allowed-tools: Bash
 
 # CawPlan Requirement Analyze
 
+**跟随用户主语言**生成文案；禁止同一段中英各写一遍。
+
 ## Bootstrap
 
 ```bash
@@ -80,8 +82,15 @@ cawplan skill check
 > 3. 相关截图 / 设计稿（可多张）
 >
 > 三样都给，信息会更完整，我会先整理成一份完整需求给你确认。
+>
+> Want a requirement analyzed? Give me any one of these to start:
+> 1. Requirement text description
+> 2. Ticket link / ticket number
+> 3. Related screenshots / mockups (multiple OK)
+>
+> Providing all three gives more complete information — I'll draft a full requirement for you to confirm first.
 
-（结尾不提归档/保存。纯文字，不用 AskUserQuestion。）
+（结尾不提归档/保存。纯文字，不用 AskUserQuestion。**跟随会话语言**只输出中文或英文其中一版，不要两版同时输出。）
 
 **边界**：只贴工单链接 = 有素材，按下方 ticket 解析；裸 issue URL 且无分析意图 → 仍走 Rules **Trigger boundary**（`cawplan-ticket-context`），不走零素材分支。
 
@@ -126,7 +135,7 @@ Before steps 2–5b: on each new user message, read `references/workflow-analysi
 
 Detail: `references/workflow-analysis.md` — Tag sources (step 2), five-field draft (step 3), display summary (step 4), 漏测自检 (step 4b), open-questions list (step 5), 五字段呈现尾巴 (step 5b).
 
-Before analysis Output: on each new user message, read `references/output-confirmation.md` (Output section) unless you loaded it via Read in this same agent response already.
+Before analysis Output: on each new user message, read `references/output-confirmation.md` (Output section) unless you loaded it via Read in this same agent response already. **Mandatory** — call the Read tool on this file before emitting any Output text; a similar-looking format seen elsewhere (e.g. `workflow-analysis.md`) does **not** substitute for this Read.
 
 ### 6. Revise from SQA feedback
 
@@ -160,7 +169,7 @@ Before steps 10–11: on each new user message, read `references/workflow-archiv
 
 Detail: `references/workflow-archive.md` — Bind requirement context (step 10), Reconcile (step 10b), Archive or update (step 11), Command outcomes, Write body rules.
 
-Before archive Confirmation: on each new user message, read `references/output-confirmation.md` (Confirmation section) unless you loaded it via Read in this same agent response already.
+Before archive Confirmation: on each new user message, read `references/output-confirmation.md` (Confirmation section) unless you loaded it via Read in this same agent response already. **Mandatory** — call the Read tool on this file before emitting any Confirmation text; do **not** compose the success/failure receipt from memory or improvisation.
 
 ## Rules (hot path — full rules in `references/rules-global.md`)
 

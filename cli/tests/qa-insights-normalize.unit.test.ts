@@ -42,10 +42,20 @@ describe("A1-FC-2 normalize — out_of_scope three-state equivalence", () => {
   test("A1-FC-2 halfwidth (素材未提及) is empty", () => {
     expect(normalizeOutOfScope("(素材未提及)")).toBe("");
   });
+  test("A1-FC-2 English placeholder (Not mentioned in material) is empty", () => {
+    expect(normalizeOutOfScope("(Not mentioned in material)")).toBe("");
+  });
+  test("A1-FC-2 English placeholder with surrounding whitespace is empty", () => {
+    expect(normalizeOutOfScope("  (Not mentioned in material)  ")).toBe("");
+  });
   test("A1-FC-2 all three states compare equal to one another", () => {
     expect(fieldsEqual("out_of_scope", null, "")).toBe(true);
     expect(fieldsEqual("out_of_scope", "", "（素材未提及）")).toBe(true);
     expect(fieldsEqual("out_of_scope", null, "（素材未提及）")).toBe(true);
+  });
+  test("A1-FC-2 Chinese and English placeholders compare equal to one another", () => {
+    expect(fieldsEqual("out_of_scope", "（素材未提及）", "(Not mentioned in material)")).toBe(true);
+    expect(fieldsEqual("out_of_scope", null, "(Not mentioned in material)")).toBe(true);
   });
 });
 
