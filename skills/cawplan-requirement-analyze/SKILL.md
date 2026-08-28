@@ -135,7 +135,7 @@ Before steps 2–5b: on each new user message, read `references/workflow-analysi
 
 Detail: `references/workflow-analysis.md` — Tag sources (step 2), five-field draft (step 3), display summary (step 4), 漏测自检 (step 4b), open-questions list (step 5), 五字段呈现尾巴 (step 5b).
 
-Before analysis Output: on each new user message, read `references/output-confirmation.md` (Output section) unless you loaded it via Read in this same agent response already.
+Before analysis Output: on each new user message, read `references/output-confirmation.md` (Output section) unless you loaded it via Read in this same agent response already. **Mandatory** — call the Read tool on this file before emitting any Output text; a similar-looking format seen elsewhere (e.g. `workflow-analysis.md`) does **not** substitute for this Read.
 
 ### 6. Revise from SQA feedback
 
@@ -169,7 +169,7 @@ Before steps 10–11: on each new user message, read `references/workflow-archiv
 
 Detail: `references/workflow-archive.md` — Bind requirement context (step 10), Reconcile (step 10b), Archive or update (step 11), Command outcomes, Write body rules.
 
-Before archive Confirmation: on each new user message, read `references/output-confirmation.md` (Confirmation section) unless you loaded it via Read in this same agent response already.
+Before archive Confirmation: on each new user message, read `references/output-confirmation.md` (Confirmation section) unless you loaded it via Read in this same agent response already. **Mandatory** — call the Read tool on this file before emitting any Confirmation text; do **not** compose the success/failure receipt from memory or improvisation.
 
 ## Rules (hot path — full rules in `references/rules-global.md`)
 
