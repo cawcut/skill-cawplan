@@ -21,6 +21,16 @@ Install only selected skills:
 npx skills add cawcut/skill-cawplan --skill cawplan-ticket-create -g
 ```
 
+**Optional — human-input classify QA** (not in the default Cursor/Codex plugin bundle):
+
+```bash
+npx skills add cawcut/skill-cawplan --skill cawplan-internal-qa-coding-humaninputs -g
+npx skills add cawcut/skill-cawplan --skill cawplan-internal-qa-coding-humaninputs-test -g
+npx skills add cawcut/skill-cawplan --skill cawplan-internal-qa-coding-humaninputs-sample -g
+```
+
+Or from a cloned repo: `./setup --optional-qa` (see `scripts/optional-skills.json`).
+
 Update to latest:
 
 ```bash

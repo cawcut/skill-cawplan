@@ -29,6 +29,7 @@ AGENT_OVERRIDE=""
 SKIP_CLI=0
 SKIP_AUTH=0
 INSTALL_ALL=0
+INSTALL_OPTIONAL_QA=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -45,6 +46,7 @@ while [ $# -gt 0 ]; do
     --skip-cli) SKIP_CLI=1; shift ;;
     --skip-auth) SKIP_AUTH=1; shift ;;
     --all) INSTALL_ALL=1; shift ;;
+    --optional-qa) INSTALL_OPTIONAL_QA=1; shift ;;
     --help|-h)
       cat <<'EOF'
 Usage: ./setup [options]
@@ -52,6 +54,7 @@ Usage: ./setup [options]
   --agent <name>  Force install path for: claude, cursor, codex
                   (auto-detected if omitted)
   --all           Install into all existing agent skill directories
+  --optional-qa   Also symlink human-input classify QA skills (off by default)
   --skip-cli      Skip 'npm install -g cawplan' (assumes CLI on PATH)
   --skip-auth     Skip 'cawplan auth status' check
   --help          Show this message
@@ -118,6 +121,13 @@ SKILLS=(
   cawplan-testpoint-generate
   cawplan-testcase-generate
   cawplan-qa-commit
+)
+
+# Not installed by default — see scripts/optional-skills.json and --optional-qa.
+OPTIONAL_QA_SKILLS=(
+  cawplan-internal-qa-coding-humaninputs
+  cawplan-internal-qa-coding-humaninputs-test
+  cawplan-internal-qa-coding-humaninputs-sample
 )
 
 LEGACY_SKILLS=(
@@ -218,6 +228,30 @@ install_for_agent() {
       fi
     fi
   done
+
+  if [ "${INSTALL_OPTIONAL_QA}" -eq 1 ]; then
+    info "Installing optional human-input QA skills..."
+    for skill in "${OPTIONAL_QA_SKILLS[@]}"; do
+      src="${ROOT}/skills/${skill}"
+      dst="${target_dir}/${skill}"
+      if [ ! -d "${src}" ]; then
+        err "Source missing: ${src}"
+        continue
+      fi
+      if [ -L "${dst}" ] && [ "$(readlink "${dst}")" = "${src}" ]; then
+        ok "${skill} already symlinked (optional)"
+      elif [ -e "${dst}" ] && [ ! -L "${dst}" ]; then
+        warn "${dst} exists but is not a managed symlink — leaving alone."
+      else
+        rm -f "${dst}" 2>/dev/null || true
+        if ln -s "${src}" "${dst}"; then
+          ok "${skill} symlinked (optional)"
+        else
+          err "${skill}: failed to create symlink at ${dst}"
+        fi
+      fi
+    done
+  fi
   echo
 
   info "Verifying ${agent} install..."
@@ -230,6 +264,16 @@ install_for_agent() {
       verify_fail=1
     fi
   done
+  if [ "${INSTALL_OPTIONAL_QA}" -eq 1 ]; then
+    for skill in "${OPTIONAL_QA_SKILLS[@]}"; do
+      if [ -f "${target_dir}/${skill}/SKILL.md" ]; then
+        ok "${skill} present (optional)"
+      else
+        err "${skill} missing at ${target_dir}/${skill}/SKILL.md"
+        verify_fail=1
+      fi
+    done
+  fi
   echo
   return "${verify_fail}"
 }
@@ -270,6 +314,10 @@ Next: cawplan auth login    (if not done)
 
 Alternative install (skills only, no CLI):
   gh skill install cawcut/skill-cawplan --agent <agent> --scope user
+
+Optional human-input classify QA skills (not in default bundle):
+  ./setup --optional-qa
+  npx skills add cawcut/skill-cawplan --skill cawplan-internal-qa-coding-humaninputs -g
 EOF
 else
   exit 1

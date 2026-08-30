@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Human Input Label Editor</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --border: #2d3a4d;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #4da3ff;
+      --accent-dim: #2a5f99;
+      --ok: #3dd68c;
+      --warn: #ffb020;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(15, 20, 25, 0.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 20px;
+    }
+    header h1 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .toolbar label.file-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      cursor: pointer;
+    }
+    .toolbar label.file-btn input { display: none; }
+    button {
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+    }
+    button.primary {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+    }
+    button:hover, .toolbar label.file-btn:hover { filter: brightness(1.08); }
+    .status { margin-left: auto; color: var(--muted); font-size: 12px; }
+    .status.dirty { color: var(--warn); }
+    .status.saved { color: var(--ok); }
+    main { max-width: 1100px; margin: 0 auto; padding: 16px 20px 40px; }
+    .meta {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .meta strong { color: var(--text); }
+    .item {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+    .item-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(0,0,0,0.15);
+    }
+    .turn { font-weight: 700; font-size: 15px; min-width: 72px; }
+    .time { color: var(--muted); font-size: 12px; }
+    .content-preview { flex: 1; min-width: 200px; font-weight: 500; }
+    .badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(77, 163, 255, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(77, 163, 255, 0.35);
+    }
+    .badge.missing {
+      background: rgba(255, 176, 32, 0.12);
+      color: var(--warn);
+      border-color: rgba(255, 176, 32, 0.35);
+    }
+    .badge.cloud {
+      background: rgba(255,255,255,0.06);
+      color: var(--muted);
+      border-color: var(--border);
+    }
+    .badge.review {
+      background: rgba(255, 176, 32, 0.12);
+      color: var(--warn);
+      border-color: rgba(255, 176, 32, 0.35);
+    }
+    .item.needs-review {
+      border-color: rgba(255, 176, 32, 0.45);
+    }
+    .item-body { padding: 14px 16px; }
+    .field-block { margin-bottom: 14px; }
+    .field-block:last-child { margin-bottom: 0; }
+    .field-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .text-box {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: rgba(0,0,0,0.2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      max-height: 160px;
+      overflow: auto;
+      font-size: 13px;
+    }
+    .text-box.empty { color: var(--muted); font-style: italic; }
+    .text-box.collapsed { max-height: 56px; }
+    .toggle-link {
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 12px;
+      margin-top: 4px;
+      display: inline-block;
+    }
+    .label-row {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      gap: 16px;
+    }
+    @media (max-width: 800px) {
+      .label-row { grid-template-columns: 1fr; }
+    }
+    .chip-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.2);
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .chip input { margin: 0; accent-color: var(--accent); }
+    .chip.selected {
+      border-color: var(--accent);
+      background: rgba(77, 163, 255, 0.12);
+    }
+    select.topic-select {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.25);
+      color: var(--text);
+      font: inherit;
+    }
+    .priority-hint { margin-top: 8px; font-size: 12px; color: var(--muted); }
+    .priority-hint code {
+      background: rgba(0,0,0,0.3);
+      padding: 1px 4px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .selected-summary { margin-top: 8px; font-size: 12px; }
+    .reason-input {
+      width: 100%;
+      min-height: 72px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.25);
+      color: var(--text);
+      font: inherit;
+      line-height: 1.45;
+      resize: vertical;
+    }
+    .reason-input::placeholder { color: var(--muted); }
+    .field-hint {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .review-flag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.15);
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .review-flag.checked {
+      border-color: rgba(255, 176, 32, 0.45);
+      background: rgba(255, 176, 32, 0.08);
+      color: var(--warn);
+    }
+    .review-flag input { margin: 0; accent-color: var(--warn); }
+    .help {
+      margin-bottom: 16px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(77, 163, 255, 0.08);
+      border: 1px solid rgba(77, 163, 255, 0.2);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Human Input Label Editor</h1>
+    <div class="toolbar">
+      <label class="file-btn">
+        Load JSON
+        <input type="file" id="fileInput" accept=".json,application/json" />
+      </label>
+      <button type="button" id="btnLoadLatest">Load latest sample</button>
+      <button type="button" class="primary" id="btnExport">Download labeled JSON</button>
+      <button type="button" id="btnClearStorage">Clear saved draft</button>
+      <span class="status" id="status">No file loaded</span>
+    </div>
+  </header>
+  <main>
+    <div class="help">
+      Annotate <strong>expected_categories</strong> (multi-select, priority-ordered),
+      <strong>expected_topic</strong>, optionally <strong>expected_reason</strong>, and
+      check <strong>review_required</strong> when category/topic labels need a second opinion.
+      Display mirrors production classify context:
+      <strong>prev_assistant_message</strong> = last paragraph of previous assistant;
+      <strong>assistant_message (classify view)</strong> = first 3 paragraphs, max 1200 runes.
+      After <code>build_sample.mjs --copy-for-editor</code>, run
+      <code>python3 -m http.server 8765</code> in this folder and open this page.
+    </div>
+    <div id="meta" class="meta" hidden></div>
+    <div id="list"></div>
+    <div id="empty" class="empty-state">Load a JSON file or click “Load latest sample”.</div>
+  </main>
+
+  <script type="module">
+    import {
+      classifyPrevAssistantTail,
+      classifyAssistantSnippet,
+    } from "./js/classify_context.mjs";
+
+    const DEFAULT_JSON = "samples/latest.json";
+    const STORAGE_KEY = "human-input-label-editor-draft-v4";
+
+    const CATEGORY_PRIORITY = [
+      "rejection_rollback", "correction_quality", "correction_intent", "correction_defect",
+      "direction_constraint", "planning", "decision", "requirement", "verification", "approval",
+      "question_clarification", "exploration", "context_supply", "process_control", "other_meta",
+    ];
+
+    const CATEGORIES = [
+      { value: "requirement", label: "requirement" },
+      { value: "direction_constraint", label: "direction_constraint" },
+      { value: "planning", label: "planning" },
+      { value: "context_supply", label: "context_supply" },
+      { value: "correction_defect", label: "correction_defect" },
+      { value: "correction_intent", label: "correction_intent" },
+      { value: "correction_quality", label: "correction_quality" },
+      { value: "rejection_rollback", label: "rejection_rollback" },
+      { value: "decision", label: "decision" },
+      { value: "approval", label: "approval" },
+      { value: "verification", label: "verification" },
+      { value: "question_clarification", label: "question_clarification" },
+      { value: "exploration", label: "exploration" },
+      { value: "process_control", label: "process_control" },
+      { value: "other_meta", label: "other_meta" },
+    ];
+
+    const TOPICS = [
+      "bug", "new_feature", "refactor", "performance", "test", "docs", "infra",
+      "config_environment", "security", "data_migration", "integration_api", "design_ui",
+      "investigation", "deprecation_cleanup", "git_ops", "revert_rollback", "other",
+    ];
+
+    let doc = null;
+    let dirty = false;
+    let sourceName = "";
+
+    const els = {
+      list: document.getElementById("list"),
+      meta: document.getElementById("meta"),
+      empty: document.getElementById("empty"),
+      status: document.getElementById("status"),
+      fileInput: document.getElementById("fileInput"),
+      btnLoadLatest: document.getElementById("btnLoadLatest"),
+      btnExport: document.getElementById("btnExport"),
+      btnClearStorage: document.getElementById("btnClearStorage"),
+    };
+
+    function sortCategories(cats) {
+      const set = new Set((cats || []).filter(Boolean));
+      return CATEGORY_PRIORITY.filter((c) => set.has(c));
+    }
+
+    function ensureItemFields(item) {
+      if (!Array.isArray(item.expected_categories)) item.expected_categories = [];
+      if (typeof item.expected_topic !== "string") item.expected_topic = "";
+      if (typeof item.expected_reason !== "string") item.expected_reason = "";
+      item.review_required = Boolean(item.review_required);
+      item.expected_categories = sortCategories(item.expected_categories);
+    }
+
+    function normalizeDoc(data) {
+      doc = data;
+      (doc.items || []).forEach(ensureItemFields);
+      render();
+      saveDraft();
+    }
+
+    function setStatus(text, kind) {
+      els.status.textContent = text;
+      els.status.className = "status" + (kind ? " " + kind : "");
+    }
+
+    function markDirty() {
+      dirty = true;
+      setStatus((sourceName || "Untitled") + " — unsaved (draft in localStorage)", "dirty");
+      saveDraft();
+    }
+
+    function markClean() {
+      dirty = false;
+      setStatus((sourceName || "Untitled") + " — draft saved", "saved");
+    }
+
+    function saveDraft() {
+      if (!doc) return;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ sourceName, doc }));
+      if (!dirty) markClean();
+    }
+
+    function loadDraft() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        if (!parsed.doc || !Array.isArray(parsed.doc.items)) return false;
+        sourceName = parsed.sourceName || "draft";
+        normalizeDoc(parsed.doc);
+        markClean();
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function renderTextBlock(text, emptyLabel) {
+      const wrap = document.createElement("div");
+      const box = document.createElement("div");
+      box.className = "text-box" + (text ? " collapsed" : " empty");
+      box.textContent = text || emptyLabel;
+      wrap.appendChild(box);
+      if (text && text.length > 140) {
+        const link = document.createElement("span");
+        link.className = "toggle-link";
+        link.textContent = "Show more";
+        link.onclick = () => {
+          box.classList.toggle("collapsed");
+          link.textContent = box.classList.contains("collapsed") ? "Show more" : "Show less";
+        };
+        wrap.appendChild(link);
+      }
+      return wrap;
+    }
+
+    function render() {
+      els.list.innerHTML = "";
+      if (!doc || !doc.items || !doc.items.length) {
+        els.meta.hidden = true;
+        els.empty.hidden = false;
+        return;
+      }
+      els.empty.hidden = true;
+      els.meta.hidden = false;
+      const q = doc.source_query
+        ? JSON.stringify(doc.source_query)
+        : (doc.source_file || "");
+      const reviewCount = doc.items.filter((i) => i.review_required).length;
+      els.meta.innerHTML =
+        "<strong>Session:</strong> " + escapeHtml(doc.session_title || doc.session_id || "—") +
+        " &nbsp;|&nbsp; <strong>Items:</strong> " + doc.items.length +
+        (reviewCount
+          ? ' &nbsp;|&nbsp; <strong style="color:var(--warn)">Review:</strong> ' + reviewCount
+          : "") +
+        (q ? " &nbsp;|&nbsp; <strong>Query:</strong> " + escapeHtml(q) : "");
+
+      doc.items.forEach((item) => {
+        ensureItemFields(item);
+        const card = document.createElement("article");
+        card.className = "item" + (item.review_required ? " needs-review" : "");
+
+        const labeled = item.expected_categories.length > 0 && item.expected_topic;
+        const head = document.createElement("div");
+        head.className = "item-head";
+        head.innerHTML =
+          '<span class="turn">Turn ' + item.turn_index + "</span>" +
+          '<span class="time">' + escapeHtml(item.start_time || "") + "</span>" +
+          '<span class="content-preview">' + escapeHtml(item.content || "") + "</span>" +
+          (item.cloud_category || item.cloud_topic
+            ? '<span class="badge cloud">cloud: ' +
+              escapeHtml(String(item.cloud_category || "—") + " / " + String(item.cloud_topic || "—")) +
+              "</span>"
+            : "") +
+          (item.review_required ? '<span class="badge review">review required</span>' : "") +
+          '<span class="badge' + (labeled ? "" : " missing") + '">' +
+          (labeled
+            ? escapeHtml(item.expected_categories[0] + " / " + item.expected_topic)
+            : "not labeled") +
+          "</span>";
+        card.appendChild(head);
+
+        const body = document.createElement("div");
+        body.className = "item-body";
+
+        function addField(label, node) {
+          const block = document.createElement("div");
+          block.className = "field-block";
+          const lbl = document.createElement("div");
+          lbl.className = "field-label";
+          lbl.textContent = label;
+          block.appendChild(lbl);
+          block.appendChild(node);
+          body.appendChild(block);
+        }
+
+        addField("content", renderTextBlock(item.content, "(empty)"));
+        addField(
+          "prev_assistant_message (classify prev slot)",
+          renderTextBlock(item.prev_assistant_message, "(null)"),
+        );
+        addField(
+          "assistant_message (classify view: first 3 paragraphs)",
+          renderTextBlock(classifyAssistantSnippet(item.assistant_message), "(empty)"),
+        );
+
+        const reviewFlag = document.createElement("label");
+        reviewFlag.className = "review-flag" + (item.review_required ? " checked" : "");
+        const reviewCb = document.createElement("input");
+        reviewCb.type = "checkbox";
+        reviewCb.checked = item.review_required;
+        reviewCb.addEventListener("change", () => {
+          item.review_required = reviewCb.checked;
+          reviewFlag.classList.toggle("checked", reviewCb.checked);
+          markDirty();
+          renderReviewFlag();
+        });
+        reviewFlag.appendChild(reviewCb);
+        reviewFlag.appendChild(
+          document.createTextNode("review_required — need second opinion on category/topic"),
+        );
+
+        const labelRow = document.createElement("div");
+        labelRow.className = "label-row";
+
+        const catCol = document.createElement("div");
+        catCol.innerHTML = '<div class="field-label">expected_categories</div>';
+        const chipGrid = document.createElement("div");
+        chipGrid.className = "chip-grid";
+
+        const summary = document.createElement("div");
+        summary.className = "selected-summary";
+
+        function updateSummary() {
+          summary.innerHTML = item.expected_categories.length
+            ? "Ordered: " + item.expected_categories.map((c) => "<code>" + escapeHtml(c) + "</code>").join(" &gt; ")
+            : '<span style="color:var(--warn)">No category selected</span>';
+        }
+
+        function renderHeadBadge() {
+          const badge = head.querySelector(".badge:not(.cloud):not(.review)");
+          const ok = item.expected_categories.length > 0 && item.expected_topic;
+          badge.className = "badge" + (ok ? "" : " missing");
+          badge.textContent = ok
+            ? item.expected_categories[0] + " / " + item.expected_topic
+            : "not labeled";
+        }
+
+        function renderReviewFlag() {
+          card.classList.toggle("needs-review", item.review_required);
+          let reviewBadge = head.querySelector(".badge.review");
+          if (item.review_required) {
+            if (!reviewBadge) {
+              reviewBadge = document.createElement("span");
+              reviewBadge.className = "badge review";
+              reviewBadge.textContent = "review required";
+              head.insertBefore(reviewBadge, head.querySelector(".badge:not(.cloud):not(.review)"));
+            }
+          } else if (reviewBadge) {
+            reviewBadge.remove();
+          }
+          const metaReview = doc.items.filter((i) => i.review_required).length;
+          const metaEl = els.meta;
+          if (!metaEl.hidden) {
+            const q = doc.source_query
+              ? JSON.stringify(doc.source_query)
+              : (doc.source_file || "");
+            metaEl.innerHTML =
+              "<strong>Session:</strong> " + escapeHtml(doc.session_title || doc.session_id || "—") +
+              " &nbsp;|&nbsp; <strong>Items:</strong> " + doc.items.length +
+              (metaReview
+                ? ' &nbsp;|&nbsp; <strong style="color:var(--warn)">Review:</strong> ' + metaReview
+                : "") +
+              (q ? " &nbsp;|&nbsp; <strong>Query:</strong> " + escapeHtml(q) : "");
+          }
+        }
+
+        CATEGORIES.forEach((cat) => {
+          const chip = document.createElement("label");
+          chip.className = "chip" + (item.expected_categories.includes(cat.value) ? " selected" : "");
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = item.expected_categories.includes(cat.value);
+          cb.addEventListener("change", () => {
+            const set = new Set(item.expected_categories);
+            if (cb.checked) set.add(cat.value);
+            else set.delete(cat.value);
+            item.expected_categories = sortCategories([...set]);
+            chip.classList.toggle("selected", cb.checked);
+            updateSummary();
+            markDirty();
+            renderHeadBadge();
+          });
+          chip.appendChild(cb);
+          chip.appendChild(document.createTextNode(cat.value));
+          chipGrid.appendChild(chip);
+        });
+        catCol.appendChild(chipGrid);
+        catCol.appendChild(summary);
+        updateSummary();
+
+        const topicCol = document.createElement("div");
+        topicCol.innerHTML = '<div class="field-label">expected_topic</div>';
+        const sel = document.createElement("select");
+        sel.className = "topic-select";
+        const emptyOpt = document.createElement("option");
+        emptyOpt.value = "";
+        emptyOpt.textContent = "— select topic —";
+        sel.appendChild(emptyOpt);
+        TOPICS.forEach((t) => {
+          const opt = document.createElement("option");
+          opt.value = t;
+          opt.textContent = t;
+          if (item.expected_topic === t) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        sel.addEventListener("change", () => {
+          item.expected_topic = sel.value;
+          markDirty();
+          renderHeadBadge();
+        });
+        topicCol.appendChild(sel);
+
+        labelRow.appendChild(catCol);
+        labelRow.appendChild(topicCol);
+        const labelsWrap = document.createElement("div");
+        labelsWrap.appendChild(reviewFlag);
+        labelsWrap.appendChild(labelRow);
+        addField("labels", labelsWrap);
+
+        const reasonInput = document.createElement("textarea");
+        reasonInput.className = "reason-input";
+        reasonInput.rows = 3;
+        reasonInput.placeholder =
+          "Optional: why this category/topic? e.g. prev shows wrong output; human asks to keep original wording.";
+        reasonInput.value = item.expected_reason || "";
+        reasonInput.addEventListener("input", () => {
+          item.expected_reason = reasonInput.value;
+          markDirty();
+        });
+        const reasonWrap = document.createElement("div");
+        reasonWrap.appendChild(reasonInput);
+        const reasonHint = document.createElement("div");
+        reasonHint.className = "field-hint";
+        reasonHint.textContent =
+          "Optional note for eval reviewers — not sent to the classify LLM.";
+        reasonWrap.appendChild(reasonHint);
+        addField("expected_reason", reasonWrap);
+
+        card.appendChild(body);
+        els.list.appendChild(card);
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function loadFromText(text, name) {
+      const data = JSON.parse(text);
+      if (!Array.isArray(data.items)) throw new Error("JSON must contain an items array");
+      sourceName = name;
+      dirty = false;
+      normalizeDoc(data);
+      markClean();
+    }
+
+    async function loadFromUrl(url, name) {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      loadFromText(await resp.text(), name);
+    }
+
+    els.fileInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          loadFromText(reader.result, file.name);
+        } catch (err) {
+          alert("Failed to parse JSON: " + err.message);
+        }
+      };
+      reader.readAsText(file, "UTF-8");
+    });
+
+    els.btnLoadLatest.addEventListener("click", async () => {
+      try {
+        await loadFromUrl(DEFAULT_JSON, DEFAULT_JSON);
+      } catch (err) {
+        alert(
+          "Could not load " + DEFAULT_JSON + ".\n\n" +
+          "Run build_sample.mjs with --copy-for-editor, then:\n" +
+          "  cd assets && python3 -m http.server 8765\n\n" +
+          "Error: " + err.message,
+        );
+      }
+    });
+
+    els.btnExport.addEventListener("click", () => {
+      if (!doc) {
+        alert("Nothing to export");
+        return;
+      }
+      doc.items.forEach(ensureItemFields);
+      const out = {
+        ...doc,
+        labeled_at: new Date().toISOString(),
+        label_schema: {
+          expected_categories: "HumanInputCategoryLeaves, priority-ordered",
+          expected_topic: "HumanInputTopics, single value",
+          expected_reason: "Optional human rationale for the label (eval/review only)",
+          review_required: "Boolean — true when category/topic labels need reviewer follow-up",
+        },
+      };
+      const blob = new Blob([JSON.stringify(out, null, 2) + "\n"], { type: "application/json" });
+      const a = document.createElement("a");
+      const base = sourceName.replace(/\.json$/i, "") || "human-input-labeled";
+      a.href = URL.createObjectURL(blob);
+      a.download = base + "-labeled.json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      dirty = false;
+      markClean();
+    });
+
+    els.btnClearStorage.addEventListener("click", () => {
+      if (!confirm("Clear saved draft from localStorage?")) return;
+      localStorage.removeItem(STORAGE_KEY);
+      setStatus("Draft cleared");
+    });
+
+    const params = new URLSearchParams(location.search);
+    const paramFile = params.get("file");
+
+    async function boot() {
+      if (paramFile) {
+        try {
+          await loadFromUrl(paramFile, paramFile);
+        } catch (err) {
+          alert(err.message);
+        }
+        return;
+      }
+      try {
+        await loadFromUrl(DEFAULT_JSON, DEFAULT_JSON);
+      } catch (err) {
+        if (loadDraft()) return;
+        setStatus("Could not load " + DEFAULT_JSON + " — use file picker or run build_sample.mjs --copy-for-editor");
+      }
+    }
+
+    boot();
+  </script>
+</body>
+</html>

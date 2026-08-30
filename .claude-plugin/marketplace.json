@@ -107,6 +107,18 @@
           "invoke": "/cawplan-ticket-report-generate"
         },
         {
+          "name": "internal-qa-coding-session-test",
+          "path": "skills/cawplan-internal-qa-coding-session-test",
+          "invoke": "/cawplan-internal-qa-coding-session-test"
+        },
+        {
+          "name": "knowledge",
+          "path": "skills/cawplan-knowledge",
+          "invoke": "/cawplan-knowledge"
+        }
+      ],
+      "optionalSkills": [
+        {
           "name": "internal-qa-coding-humaninputs",
           "path": "skills/cawplan-internal-qa-coding-humaninputs",
           "invoke": "/cawplan-internal-qa-coding-humaninputs"
@@ -117,14 +129,9 @@
           "invoke": "/cawplan-internal-qa-coding-humaninputs-test"
         },
         {
-          "name": "internal-qa-coding-session-test",
-          "path": "skills/cawplan-internal-qa-coding-session-test",
-          "invoke": "/cawplan-internal-qa-coding-session-test"
-        },
-        {
-          "name": "knowledge",
-          "path": "skills/cawplan-knowledge",
-          "invoke": "/cawplan-knowledge"
+          "name": "internal-qa-coding-humaninputs-sample",
+          "path": "skills/cawplan-internal-qa-coding-humaninputs-sample",
+          "invoke": "/cawplan-internal-qa-coding-humaninputs-sample"
         }
       ]
     }

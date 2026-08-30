@@ -100,15 +100,41 @@ fi
 [ "$fail" -eq 0 ] && echo "✓ all version locations match ${ROOT_VERSION}"
 
 echo "→ Validating marketplace.json lists every skill folder..."
-listed=$(python3 -c "import json; print(' '.join(s['path'] for s in json.load(open('.claude-plugin/marketplace.json'))['plugins'][0]['skills']))")
+listed=$(python3 -c "
+import json
+m = json.load(open('.claude-plugin/marketplace.json'))['plugins'][0]
+paths = [s['path'] for s in m.get('skills', [])]
+paths += [s['path'] for s in m.get('optionalSkills', [])]
+print(' '.join(paths))
+")
 for skill_dir in skills/cawplan-*/; do
   skill_path="${skill_dir%/}"
   if ! echo " ${listed} " | grep -q " ${skill_path} "; then
-    echo "::error::skill folder '${skill_path}' is not listed in .claude-plugin/marketplace.json"
+    echo "::error::skill folder '${skill_path}' is not listed in .claude-plugin/marketplace.json (skills or optionalSkills)"
     fail=1
   fi
 done
 [ "$fail" -eq 0 ] && echo "✓ marketplace.json includes every skill folder"
+
+echo "→ Validating optional-skills.json matches marketplace optionalSkills..."
+python3 - <<'PY' || fail=1
+import json
+import pathlib
+
+opt_manifest = json.loads(pathlib.Path("scripts/optional-skills.json").read_text())
+expected = set(opt_manifest.get("skills", []))
+market = json.load(open(".claude-plugin/marketplace.json"))["plugins"][0]
+listed = {
+    pathlib.Path(s["path"]).name for s in market.get("optionalSkills", [])
+}
+if expected != listed:
+    print(
+        "::error::scripts/optional-skills.json skills "
+        f"{sorted(expected)} != marketplace optionalSkills {sorted(listed)}"
+    )
+    raise SystemExit(1)
+print(f"✓ optional-skills.json matches marketplace ({len(expected)} skills)")
+PY
 
 echo "→ Validating references..."
 for skill_dir in skills/cawplan-*/; do

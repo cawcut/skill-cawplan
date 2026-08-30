@@ -1,0 +1,8 @@
+{
+  "comment": "Skills shipped in-repo but not installed by default (./setup, Cursor/Codex plugin, npx --all). Install on demand via npx skills add ... --skill <name> or ./setup --optional-qa.",
+  "skills": [
+    "cawplan-internal-qa-coding-humaninputs",
+    "cawplan-internal-qa-coding-humaninputs-test",
+    "cawplan-internal-qa-coding-humaninputs-sample"
+  ]
+}

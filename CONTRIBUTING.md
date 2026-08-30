@@ -16,7 +16,11 @@ npm test
 
 skill 本地开发更新 （根目录运行）
 ```bash
+# Default bundle only (excludes human-input QA skills — see scripts/optional-skills.json)
 npx skills add ./ -a cursor claude-code codex -g -y
+
+# Or install optional human-input QA skills explicitly:
+# npx skills add ./ --skill cawplan-internal-qa-coding-humaninputs -g
 ```
 
 **验证 skills（从仓库根目录运行）：**
