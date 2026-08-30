@@ -7,8 +7,9 @@ mirrors the **category** half of that prompt so this skill stays faithful to pro
 `TOPIC_TAXONOMY.md` for the topic dimension. If this doc and uid.core-product ever disagree,
 treat the Go prompt as authoritative and update this doc.
 
-**Out of scope for this skill:** `search_keywords`, `topic_confidence` — production emits both;
-this skill classifies **category** + **topic** (+ `topic_reason`).
+**Out of scope for this skill:** `search_keywords` only.
+
+This skill classifies **category** + **topic** (+ `topic_reason`, `topic_confidence`).
 
 ## Task
 

@@ -6,8 +6,9 @@ Source of truth: `uid.core-product/internal/pkg/genai/ai_session_prompts.go`
 If this doc and uid.core-product ever disagree, treat the Go prompt as authoritative and update
 this doc.
 
-**Out of scope for this skill:** `search_keywords`, `topic_confidence` (production emits both;
-this skill returns `topic` + `topic_reason` only).
+**Out of scope for this skill:** `search_keywords` only (production also extracts keywords).
+
+This skill returns **`topic`**, **`topic_reason`**, and **`topic_confidence`** (0.0–1.0).
 
 ## Task
 
@@ -124,3 +125,18 @@ Older enriched rows may still show legacy topic strings. Normalize before compar
 | `ux` | `design_ui` |
 
 The classify LLM must emit only the 17 values in the Topics list above, not legacy aliases.
+
+## topic_confidence
+
+Return a float between **0.0** and **1.0**, same as production (`promptAISessionClassifySystemBase`).
+
+Calibration guide:
+- **0.85–1.0** — unambiguous (bare `commit & push` → `git_ops`; clear defect → `bug`; explicit
+  net-new capability → `new_feature`)
+- **0.60–0.84** — best pick is reasonable but another topic was plausible (Slack
+  `question_clarification` turns where `investigation` vs `design_ui` both fit; assistant head
+  could sway either way)
+- **Below 0.60** — weak domain signal — still pick the most specific applicable topic; do **not**
+  choose `other` just because confidence is low
+
+`cawplan-internal-qa-coding-humaninputs-test` compares the **topic label** only, not confidence.
