@@ -1,5 +1,5 @@
 ---
-version: 0.1.2
+version: 0.2.8
 name: cawplan-internal-qa-coding-humaninputs-sample
 description: |
   Pull human-input logs from CawPlan (by product, user/member, date range, count, or session), preprocess prev/assistant context like production classify, and open a local web editor to annotate expected category/topic labels for prompt eval fixtures.
@@ -114,4 +114,4 @@ Report to the user:
 - `scripts/build_sample.mjs` — fetch + preprocess
 - `scripts/classify_context.mjs` — production-aligned paragraph rules
 - `assets/label-editor.html` — web UI
-- `../cawplan-internal-qa-coding-humaninputs/references/CATEGORY_TAXONOMY.md` — label definitions
+- `references/CATEGORY_TAXONOMY.md` — label definitions
