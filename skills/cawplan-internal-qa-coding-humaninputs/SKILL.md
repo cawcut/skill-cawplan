@@ -2,8 +2,8 @@
 version: 0.2.8
 name: cawplan-internal-qa-coding-humaninputs
 description: |
-  Classifies a single piece of text (an AI-coding human input, optionally with its paired assistant reply and previous-assistant tail) into the current v2 human-input category taxonomy, returning the primary category and the full priority-ordered categories array — a pure reasoning check against uid.core-product's classify rules, no CawPlan data or API calls involved.
-  Use when: asked to classify/categorize a specific sentence or human input against the current category rules — e.g. "what category is this: ...", "classify this with this assistant reply" — or as the per-row classification step used by cawplan-internal-qa-coding-humaninputs-test.
+  Classifies a single piece of text (an AI-coding human input, optionally with its paired assistant reply and previous-assistant tail) into the current v2 human-input category + topic taxonomies, returning the primary category, the full priority-ordered categories array, one topic, and a short topic_reason — a pure reasoning check against uid.core-product's classify rules, no CawPlan data or API calls involved.
+  Use when: asked to classify/categorize a specific sentence or human input against the current category and topic rules — e.g. "what category/topic is this: ...", "classify this with this assistant reply" — or as the per-row classification step used by cawplan-internal-qa-coding-humaninputs-test.
   NOT for: bulk/batch accuracy testing across many already-uploaded human inputs, or fetching data from CawPlan at all (use cawplan-internal-qa-coding-humaninputs-test for that), submitting reports, or creating tickets.
 argument-hint: "[content] [assistant_message?] [prev_message?]"
 allowed-tools: Bash
@@ -15,13 +15,14 @@ allowed-tools: Bash
 
 Given one piece of `content` (required) and, optionally, its paired `assistant_message` (this
 turn's AI reply) and `prev_message` (the **last paragraph** of the **immediately previous**
-assistant reply — not the previous human turn), classify using the rules in
-`references/CATEGORY_TAXONOMY.md`. This makes no CawPlan API calls and needs no `cawplan` auth —
+assistant reply — not the previous human turn), classify using `references/CATEGORY_TAXONOMY.md`
+and `references/TOPIC_TAXONOMY.md`. This makes no CawPlan API calls and needs no `cawplan` auth —
 it is a pure reasoning check against uid.core-product's current classify rules, not a lookup.
 
 ## Workflow
 
-1. Read `references/CATEGORY_TAXONOMY.md` if you haven't already this session.
+1. Read `references/CATEGORY_TAXONOMY.md` and `references/TOPIC_TAXONOMY.md` if you haven't
+   already this session.
 2. **Prepare `assistant_message`** the same way production does before reading it — don't reason
    over raw untruncated text:
    - Normalize literal `\n` / `\t` escapes and line endings to real whitespace.
@@ -37,7 +38,7 @@ it is a pure reasoning check against uid.core-product's current classify rules, 
    step 2, but take only the **last paragraph**; cap at **~500 runes**) — mirrors
    `ClassifyPrevAssistantTail` / `AISessionClassifyPrevMaxRunes`. When omitted, treat `prev` as
    empty; bare follow-ups ("commit & push", "直接改") may be ambiguous without it.
-4. **Route categories** exactly like production (see reference doc):
+4. **Route categories** exactly like production (see `CATEGORY_TAXONOMY.md`):
    - **Primary signal: `content`.** Always read this first.
    - **`prev`:** use ONLY on short bare follow-ups (typically ≤12 Han chars or ≤6 English
      words) to distinguish `decision` (human names/repeats the concrete action the assistant
@@ -52,17 +53,24 @@ it is a pure reasoning check against uid.core-product's current classify rules, 
    not shortened forms like `direction` / `rejection` / `question` / `other`). Don't invent a
    secondary category just to fill the list. When only one applies, the list has one element.
 6. The first element of that sorted list is the primary category.
+7. **Pick exactly one topic** from `TOPIC_TAXONOMY.md` using `content` + prepared
+   `assistant_message` only — **never** use `prev_message` for topic. Apply ASKING vs CHANGING,
+   bare `commit & push` → `git_ops`, and Slack-heavy hints from the reference doc.
+8. Write one short `topic_reason` sentence (mirrors production `topic_reason`).
 
 ## Output
 
 Report:
 - `category` — the primary category (single value, first element of `categories`).
 - `categories` — the full priority-ordered list (may be a single value).
-- One short sentence explaining the primary pick, citing the specific phrase in `content`,
-  `prev_message`, or prepared `assistant_message` that drove the decision — this is what makes a
-  caller's downstream disagreement (e.g. vs. an already-persisted cloud category) reviewable
-  rather than opaque.
+- `topic` — exactly one value from the 17-topic list in `TOPIC_TAXONOMY.md`.
+- `topic_reason` — one short sentence explaining the topic pick.
+- One short sentence explaining the primary **category** pick, citing the specific phrase in
+  `content`, `prev_message`, or prepared `assistant_message` that drove the decision — this is
+  what makes a caller's downstream disagreement (e.g. vs. an already-persisted cloud category)
+  reviewable rather than opaque.
 
 ## References
 
 - `references/CATEGORY_TAXONOMY.md`
+- `references/TOPIC_TAXONOMY.md`

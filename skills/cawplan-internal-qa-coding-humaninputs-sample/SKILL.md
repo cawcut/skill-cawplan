@@ -114,4 +114,5 @@ Report to the user:
 - `scripts/build_sample.mjs` — fetch + preprocess
 - `scripts/classify_context.mjs` — production-aligned paragraph rules
 - `assets/label-editor.html` — web UI
-- `references/CATEGORY_TAXONOMY.md` — label definitions
+- `references/CATEGORY_TAXONOMY.md` — category label definitions
+- `references/TOPIC_TAXONOMY.md` — topic label definitions

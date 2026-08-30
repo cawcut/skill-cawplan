@@ -3,11 +3,12 @@
 Source of truth: `uid.core-product/internal/pkg/genai/ai_session_prompts.go`
 (`promptAISessionClassifySystemBase` + `promptAISessionClassifyCategoryDefinitions`) and
 `internal/pkg/genai/ai_session_classify_context.go` (assistant/prev preprocessing). This doc
-mirrors the **category** half of that prompt so this skill stays faithful to production. If this
-doc and uid.core-product ever disagree, treat the Go prompt as authoritative and update this doc.
+mirrors the **category** half of that prompt so this skill stays faithful to production. Pair with
+`TOPIC_TAXONOMY.md` for the topic dimension. If this doc and uid.core-product ever disagree,
+treat the Go prompt as authoritative and update this doc.
 
-**Out of scope for this skill:** `topic`, `topic_confidence`, `search_keywords` — production emits
-those too, but this skill only classifies **category**.
+**Out of scope for this skill:** `search_keywords`, `topic_confidence` — production emits both;
+this skill classifies **category** + **topic** (+ `topic_reason`).
 
 ## Task
 
@@ -135,7 +136,9 @@ direction_constraint > planning > decision > requirement > verification > approv
 question_clarification > exploration > context_supply > process_control > other_meta
 ```
 
-## Worked examples (category only)
+## Worked examples (category / topic)
+
+See `TOPIC_TAXONOMY.md` for the topic column. Category primary only:
 
 | Input / context | Primary category |
 |-----------------|------------------|
