@@ -3,6 +3,7 @@ import { cawplanRequest } from "../lib/http.js";
 import { getCache, setCache, buildScopedCacheKey, buildQueryFromFlags, csvToArray } from "../lib/cache.js";
 import { resolveApiPath } from "../lib/products.js";
 import { resolveProductId, resolveVersionId, resolveUserIds } from "../lib/resolve.js";
+import { resolveTicketIdArg } from "../lib/resolve-ticket-id.js";
 import { normalizeTicketDetailFieldsCsv } from "../lib/ticket-detail-fields.js";
 
 export interface GetVersionTicketOptions {
@@ -17,6 +18,7 @@ export async function getVersionTicket(
   ticketId: string,
   options?: GetVersionTicketOptions,
 ): Promise<unknown> {
+  const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
   const flags: Record<string, string> = {};
   if (options?.fields !== undefined) {
     flags.fields = normalizeTicketDetailFieldsCsv(options.fields);
@@ -25,7 +27,7 @@ export async function getVersionTicket(
 
   return cawplanRequest({
     method: "GET",
-    path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}`,
+    path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${uniqueTicketId}`,
     query,
   });
 }
@@ -82,9 +84,10 @@ export function registerTicketsCommand(program: Command): void {
     .command("history <product_id> <version_id> <ticket_id>")
     .description("Get version ticket history")
     .action(async (productId: string, versionId: string, ticketId: string) => {
+      const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
       const result = await cawplanRequest({
         method: "GET",
-        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}/history`,
+        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${uniqueTicketId}/history`,
       });
       console.log(JSON.stringify(result, null, 2));
     });
@@ -366,6 +369,7 @@ export function registerTicketsCommand(program: Command): void {
     .option("--label_ids <csv>", "Label IDs (CSV)")
     .option("--expected_version <n>", "Optimistic lock version")
     .action(async (productId: string, versionId: string, ticketId: string, opts) => {
+      const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
       const body: Record<string, unknown> = {};
       const targetVersionId = opts.target_version_id
         ?? (opts.targetVer ? await resolveVersionId(productId, opts.targetVer) : undefined);
@@ -395,7 +399,7 @@ export function registerTicketsCommand(program: Command): void {
       try {
         const result = await cawplanRequest({
           method: "PUT",
-          path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}`,
+          path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${uniqueTicketId}`,
           body,
         });
         console.log(JSON.stringify(result, null, 2));
@@ -418,9 +422,10 @@ export function registerTicketsCommand(program: Command): void {
     .requiredOption("--target <ticket_uid>", "Target ticket UID")
     .requiredOption("--type <type>", "Relation type: RELATED|BLOCKING|BLOCKED_BY|DUPLICATE")
     .action(async (productId: string, versionId: string, ticketId: string, opts) => {
+      const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
       const result = await cawplanRequest({
         method: "POST",
-        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}/relations`,
+        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${uniqueTicketId}/relations`,
         body: { target_ticket_id: opts.target, relation_type: opts.type },
       });
       console.log(JSON.stringify(result, null, 2));
@@ -431,9 +436,10 @@ export function registerTicketsCommand(program: Command): void {
     .description("Update a relation")
     .requiredOption("--type <type>", "Relation type")
     .action(async (productId: string, versionId: string, ticketId: string, relationId: string, opts) => {
+      const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
       const result = await cawplanRequest({
         method: "PUT",
-        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}/relations/${relationId}`,
+        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${uniqueTicketId}/relations/${relationId}`,
         body: { relation_type: opts.type },
       });
       console.log(JSON.stringify(result, null, 2));
@@ -443,9 +449,10 @@ export function registerTicketsCommand(program: Command): void {
     .command("delete <product_id> <version_id> <ticket_id> <relation_id>")
     .description("Delete a relation")
     .action(async (productId: string, versionId: string, ticketId: string, relationId: string) => {
+      const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
       const result = await cawplanRequest({
         method: "DELETE",
-        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}/relations/${relationId}`,
+        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${uniqueTicketId}/relations/${relationId}`,
       });
       console.log(JSON.stringify(result, null, 2));
     });
@@ -454,9 +461,10 @@ export function registerTicketsCommand(program: Command): void {
     .command("list <product_id> <version_id> <ticket_id>")
     .description("List relations for a ticket")
     .action(async (productId: string, versionId: string, ticketId: string) => {
+      const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
       const result = await cawplanRequest({
         method: "GET",
-        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${ticketId}/relations`,
+        path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${uniqueTicketId}/relations`,
       });
       console.log(JSON.stringify(result, null, 2));
     });
@@ -486,9 +494,10 @@ export function registerTicketsCommand(program: Command): void {
     .command("get <product_id> <ticket_id>")
     .description("Get a backlog ticket")
     .action(async (productId: string, ticketId: string) => {
+      const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId });
       const result = await cawplanRequest({
         method: "GET",
-        path: `/api/v1/public/openapi/product/${productId}/tickets/${ticketId}`,
+        path: `/api/v1/public/openapi/product/${productId}/tickets/${uniqueTicketId}`,
       });
       console.log(JSON.stringify(result, null, 2));
     });

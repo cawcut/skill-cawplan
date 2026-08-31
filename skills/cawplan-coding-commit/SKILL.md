@@ -221,6 +221,7 @@ Use this step only after product/repo/ticket assignment has been reviewed and sa
    ```bash
    cawplan tickets update "<product_id>" "<version_id>" "<ticket_id>" --progress_comment "$progress_comment"
    ```
+   Prefer `unique_id` from step 3's search result. The CLI also accepts a ticket **display_id** (e.g. `CAWP-20544`) and resolves it automatically before the PUT; using display_id in raw HTTP without resolution causes RBAC `INSUFFICIENT_PERMISSIONS` even for product owners.
 
 After the write-back step, report which ticket display IDs were updated and which were skipped. Do not stop the upload workflow just because one ticket write-back was skipped or failed; mention the failure and continue with the report upload.
 
