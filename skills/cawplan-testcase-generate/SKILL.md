@@ -1,5 +1,5 @@
 ---
-version: 0.2.8
+version: 0.2.9
 name: cawplan-testcase-generate
 description: |
   Expand archived test points into executable test cases: Markdown title-state preview first, expand steps on demand, export team CSV when SQA actively requests after review (read-only — does not write to CawPlan).
@@ -336,13 +336,14 @@ Reply with a number, or just tell me what you'd like to do.
 - Partial expand: **SQA names every case** — do not proactively suggest which rows to expand. 本批点名条数用于上文 `batchCount`（见「本批展开分流」）。
 - Detail three columns (**Preconditions / Step / Expected**) are **always generated together** per case (all or none).
 - When expanding steps, follow `references/testcase-writing-spec.md` **「步骤粒度」**节: **after an action, if there is an observable page jump or state change → separate step**; do not merge cross-page / cross-state actions into one sentence. Same-page setup with no intermediate observable result may merge (不为拆而拆). Granularity SQA tuned on some rows → on Full expand, apply the same rules to the rest.
+- **Step/Expected 逐条对应（生成时自查，硬约束）**：每条用例展开完 `steps` / `expected` 后，**当场**核对两者行数是否相等；不等 → **立即自行修正**后再交付（如把误拆的两步合回一步、或把过粗的一条预期拆回对应几条），使每一步都恰好配一条预期。修正**只调整拆分/合并方式**，**不得**臆造新的具体值去凑数（仍受红线 0 约束）。此检查先于下方「Preview self-check」执行，避免带着不配对状态进入预览或导出。
 
 **Preview self-check** (when generating/updating preview):
 
 - **块首行写了 `同上`（硬修，非提示）**：逻辑上必错、无误报空间。渲染前若发现某 Group 块表格首行父测试点列为 `同上`（或「同第 N 条」）→ **不得**留 `⚠` 也不交付该预览；**当场**用该行 `cases[].testPointTitle` **全称**写回父测试点列，再输出预览。**do not block** expand 的其余项仍适用。
 - 父测试点列为 `同上`，但本行 `cases[].testPointTitle` ≠ 本块内紧邻上一行 `cases[].testPointTitle`（逐字）→ inline `⚠同上引用错误`（软提示，不阻断）
 - Step contains verification verbs (验证/检查/确认) → inline `⚠疑似预期混入步骤`
-- `step` line count ≠ `expected` line count → inline `⚠步骤/预期不配对`
+- **`step` line count ≠ `expected` line count（硬修，非提示）**：与「块首行写了 `同上`」同级。渲染前若发现 → **不得**只留 `⚠` 就交付；**当场**按上条「Step/Expected 逐条对应」规则修正 `cases[]` 后再输出预览。
 - Expected contains source-doubtful concrete values → inline `⚠具体值待核` (红线 0 backstop)
 - **源已有具体文案/错误码/阈值,但用例未保留（保真回归）**：
   - **判定**：父测试点（或五字段约束）含**源逐字给定**的具体值（见 `testcase-writing-spec.md` Title 节「两步门」），而本条出现以下任一 → 报警：
@@ -427,7 +428,7 @@ Reply with a number, or just tell me what you'd like to do.
 - **`exportMode = as_is`**（框5 选项 1）：未展开行保持 `steps` / `expected` 为 `[]`。
 - May export at **any content state** (title-only / partial mix / full). Assemble interim JSON from current `cases[]` after mode handling. Mixed rows legal (see `references/csv-template-mapping.md` 「草稿态导出」). Export does **not** lock work state; may export multiple times (timestamp filenames do not overwrite). Do not rename files or add columns.
 - Before export: **filter out** entries with `status: 'removed'` — preview-only trace; **do not** put `status` or removed rows into interim JSON.
-- Before export: if any remaining row has `steps.length !== expected.length` → **refuse export**, point SQA to fix in preview（**跟随会话语言**二选一，e.g. "第 3 条步骤与预期数量不一致,先修齐再导" / "Step 3's step count and expected-result count don't match — fix it before exporting"） — **do not** call §8 and dump script stderr.
+- **兜底重查**（正常流程下不应触发 — §5「Step/Expected 逐条对应」与「Preview self-check」已在生成/预览时当场修正）：Before export: if any remaining row has `steps.length !== expected.length` → 先按 §5 规则**当场修正** `cases[]`（不得跳过修正直接报错）；仅当修正后仍不等（如源信息本身无法判断如何配对）→ **refuse export**, point SQA to fix in preview（**跟随会话语言**二选一，e.g. "第 3 条步骤与预期数量不一致,先修齐再导" / "Step 3's step count and expected-result count don't match — fix it before exporting"） — **do not** call §8 and dump script stderr.
 
 **Interim JSON contract** (`{ requirementTitle, cases: [...] }`):
 

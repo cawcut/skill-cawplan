@@ -165,12 +165,13 @@ Use five fields for generation only. Do not track `module_tree_node_id`, `review
 
 ### 3. Incremental gate (§9.3)
 
-If `testpoints` is non-empty and intent is vague ("生成测试点" only) → stop and ask:
+Check in this order (**library-empty check first — do not evaluate intent wording before this**):
 
-1. Supplement a few more on top of existing?
-2. Show what's already archived first?
-
-If intent is clear ("再补两条并发的" / "看看已有的") → proceed. If library is empty → generate directly.
+1. **`testpoints` is empty** → **generate directly**. **Do not** ask, regardless of how vague the phrasing is (e.g. "生成测试点" alone). This is the most common case (first-time generation) and must never fall into step 2.
+2. **`testpoints` is non-empty** and intent is vague ("生成测试点" only, no indication of supplement vs. review) → stop and ask:
+   - Supplement a few more on top of existing?
+   - Show what's already archived first?
+3. **`testpoints` is non-empty** and intent is clear ("再补两条并发的" / "看看已有的") → proceed directly.
 
 ### 4. Read coverage dimensions (required)
 
