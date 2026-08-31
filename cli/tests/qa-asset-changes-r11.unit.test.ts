@@ -3,6 +3,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, test} from "vitest";
 import {collectQaAssetChanges} from "../src/lib/collect/qa-asset-changes.js";
+import {tracesFromToolResultStdout} from "../src/lib/collect/qa-trace-extract.js";
 
 /**
  * R11 synthetic fixtures — real session fcc914fb only has one SUCCESS archive (6).
@@ -50,7 +51,7 @@ describe("collectQaAssetChanges R11 scenarios (constructed fixtures)", () => {
                 api: {code: "SUCCESS", data: {test_points: Array.from({length: 4}, (_, i) => ({id: String(i + 6)}))}},
             }),
         ]);
-        expect(collectQaAssetChanges(path).testpoint.added).toBe(10);
+        expect(collectQaAssetChanges(tracesFromToolResultStdout(path)).testpoint.added).toBe(10);
     });
 
     test("UNKNOWN archive plus reconcile count_matched adds batch_size only", () => {
@@ -67,7 +68,7 @@ describe("collectQaAssetChanges R11 scenarios (constructed fixtures)", () => {
                 reconcile: {decision: "count_matched", batch_size: 5},
             }),
         ]);
-        expect(collectQaAssetChanges(path).testpoint.added).toBe(5);
+        expect(collectQaAssetChanges(tracesFromToolResultStdout(path)).testpoint.added).toBe(5);
     });
 
     test("reconcile retry_same_batch does not add to testpoint.added", () => {
@@ -86,7 +87,7 @@ describe("collectQaAssetChanges R11 scenarios (constructed fixtures)", () => {
             }),
         ]);
         // Constructed sample: real SUCCESS (6) must not be inflated by retry_same_batch reconcile.
-        expect(collectQaAssetChanges(path).testpoint.added).toBe(6);
+        expect(collectQaAssetChanges(tracesFromToolResultStdout(path)).testpoint.added).toBe(6);
     });
 
     test("dry_run SUCCESS archive is skipped", () => {
@@ -98,7 +99,7 @@ describe("collectQaAssetChanges R11 scenarios (constructed fixtures)", () => {
                 api: {code: "SUCCESS", data: {test_points: [{id: "1"}, {id: "2"}]}},
             }),
         ]);
-        expect(collectQaAssetChanges(path).testpoint.added).toBe(0);
+        expect(collectQaAssetChanges(tracesFromToolResultStdout(path)).testpoint.added).toBe(0);
     });
 
     test("FAILURE archive is skipped", () => {
@@ -109,6 +110,6 @@ describe("collectQaAssetChanges R11 scenarios (constructed fixtures)", () => {
                 meta: {product_id: "p1", requirement_id: "r1", dry_run: false},
             }),
         ]);
-        expect(collectQaAssetChanges(path).testpoint.added).toBe(0);
+        expect(collectQaAssetChanges(tracesFromToolResultStdout(path)).testpoint.added).toBe(0);
     });
 });
