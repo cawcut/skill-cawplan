@@ -82,7 +82,7 @@ export function renderQaSessionRowHtml(
         `<td class="input-cell">${humanInputsHtml(report, session)}</td>` +
         `<td class="agent-cell">${escapeHtml(session.agent || "—")}</td>` +
         `<td class="models-cell" title="${escapeHtml(sessionModelsText(session))}">${escapeHtml(sessionModelsText(session)) || `<span class="muted">—</span>`}</td>` +
-        `<td class="num-cell">${tpAdded}</td>` +
+        `<td class="num-cell">${tpAdded > 0 ? `<span class="testpoints-add">+${tpAdded}</span>` : `<span class="muted">—</span>`}</td>` +
         `<td class="product-cell">${productCell}</td>` +
         (interactive
             ? `<td class="tickets-cell">${ticketPickerHtmlServer(
@@ -195,13 +195,9 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     const ticketHeader = readonly ? "" : "<th>Tickets</th>";
     const colSpan = readonly ? 8 : 9;
 
-    const supplementSection = readonly
-        ? ""
-        : `<section id="qa-supplement-panel" class="supplement-panel hidden">
-            <h2 class="section-title">Add excluded sessions (optional)</h2>
-            <p class="section-help">Optional: add sessions filtered out as commit-only or empty. You do not need to type a session ID manually.</p>
-            <div id="qa-supplement-candidates"></div>
-          </section>`;
+    // Entry point hidden from the confirmation page per product request; underlying
+    // excluded-session data plumbing (collect sidecar, qa-apply, etc.) is untouched.
+    const supplementSection = "";
 
     const actions = readonly
         ? ""
@@ -260,6 +256,8 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     button { font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer; border: 0; background: transparent; }
     .product-cell, .tickets-cell { vertical-align: middle; }
     .tickets-cell { font-size: 12px; color: var(--text-02); overflow: visible; }
+    .num-cell { font-size: 13px; color: var(--text-01); vertical-align: middle; }
+    .testpoints-add { color: var(--green-07); font-size: 12px; font-weight: 700; }
     .models-cell { font-size: 12px; color: var(--text-02); vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .model-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; vertical-align: middle; }
     .model-icon img { width: 24px; height: 24px; display: block; border-radius: 6px; }
@@ -292,16 +290,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     .field-error:empty { display: none; }
     .section-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
     .section-help { color: var(--text-02); margin-bottom: 10px; }
-    ${readonly ? "" : `.supplement-panel { border: 1px solid var(--border-sub); border-radius: 8px; padding: 16px; }
-    .supplement-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
-    .supplement-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border-sub); border-radius: 6px; }
-    .supplement-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
-    .supplement-meta code { font-size: 11px; }
-    .supplement-agent, .supplement-reason { font-size: 12px; color: var(--text-02); }
-    .supplement-title { font-weight: 500; }
-    .supplement-add { height: 30px; padding: 0 12px; border: 1px solid var(--uBlue-06); background: var(--uBlue-01); color: var(--uBlue-07); border-radius: 4px; cursor: pointer; font: inherit; font-weight: 600; white-space: nowrap; }
-    .supplement-add:disabled { opacity: .5; cursor: not-allowed; }
-    .actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+    ${readonly ? "" : `.actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
     #save { background: var(--uBlue-06); color: #fff; border: 1px solid var(--uBlue-06); height: 32px; padding: 0 14px; border-radius: 4px; cursor: pointer; font: inherit; font-weight: 600; }
     #save:hover:not(:disabled) { background: hsl(214,100%,46%); border-color: hsl(214,100%,46%); }
     #save:disabled { opacity: .5; cursor: not-allowed; }
@@ -328,7 +317,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
               <th>Input</th>
               <th>Agent</th>
               <th>Models</th>
-              <th>Test points added</th>
+              <th>Test Points</th>
               <th>Product</th>
               ${ticketHeader}
               <th>Date / Time</th>
@@ -438,6 +427,12 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       }).join(' ');
     }
 
+    function testPointsHtml(session) {
+      const added = session.testpoint && typeof session.testpoint.added === "number" ? session.testpoint.added : 0;
+      if (added <= 0) return '<span class="muted">—</span>';
+      return '<span class="testpoints-add">+' + added + '</span>';
+    }
+
     function allTicketDisplayIds() {
       const sessions = Array.isArray(daily && daily.sessions) ? daily.sessions : [];
       const ids = sessions.flatMap((session) => Array.isArray(session.ticket_display_ids) ? session.ticket_display_ids : []);
@@ -524,14 +519,13 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
 
     function sessionRowHtml(session) {
       const title = resolveSessionTitle(session);
-      const tpAdded = session.testpoint && typeof session.testpoint.added === "number" ? session.testpoint.added : 0;
       return '<tr data-session-id="' + escapeHtml(session.session_id) + '">' +
         '<td class="sid-cell"><code>' + escapeHtml(session.session_id) + '</code></td>' +
         '<td class="title-cell">' + escapeHtml(title) + '</td>' +
         '<td class="input-cell">' + humanInputsHtml(daily, session) + '</td>' +
         '<td class="agent-cell">' + escapeHtml(session.agent || "—") + '</td>' +
         '<td class="models-cell" title="' + escapeHtml(sessionModelsText(session)) + '">' + sessionModelsHtml(session) + '</td>' +
-        '<td class="num-cell">' + tpAdded + '</td>' +
+        '<td class="num-cell">' + testPointsHtml(session) + '</td>' +
         '<td class="product-cell">' + productInputHtml(session) + '</td>' +
         '<td class="tickets-cell">' + ticketPickerHtml(session) + '</td>' +
         '<td class="dt-cell">' + escapeHtml(sessionDateTimeText(session)) + '</td>' +
@@ -746,6 +740,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     function renderSupplementCandidates() {
       const panel = document.getElementById("qa-supplement-panel");
       const container = document.getElementById("qa-supplement-candidates");
+      if (!panel || !container) return;
       const visible = Array.isArray(excludedSessions) ? excludedSessions.filter((entry) => {
         const inReport = (daily.sessions || []).some((s) => s.session_id === entry.session_id);
         return !inReport && !manuallyAddedIds.has(entry.session_id);

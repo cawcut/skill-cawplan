@@ -179,7 +179,7 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
             "Input",
             "Agent",
             "Models",
-            "Test points added",
+            "Test Points",
             "Product",
             "Tickets",
             "Requirements",
@@ -202,7 +202,7 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
             "Input",
             "Agent",
             "Models",
-            "Test points added",
+            "Test Points",
             "Product",
             "Requirements",
             "Date / Time",
@@ -261,24 +261,23 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
     });
 });
 
-describe("qaAssignmentHtml segment 3 — supplement excluded sessions", () => {
-    test("renders supplement panel with candidate list instead of manual session_id input", () => {
+describe("qaAssignmentHtml segment 3 — supplement excluded sessions entry point hidden", () => {
+    test("does not render the supplement panel entry point on the confirmation page", () => {
         const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
-        expect(html).toContain('id="qa-supplement-panel"');
-        expect(html).toContain("supplement-add");
-        expect(html).toContain("aaaa1111-1111-1111-1111-111111111111");
+        expect(html).not.toContain('id="qa-supplement-panel"');
+        expect(html).not.toContain("Add excluded sessions (optional)");
         expect(html).not.toContain('placeholder="session_id"');
         expect(html).not.toContain("type=\"text\" placeholder=\"Session ID");
     });
 
-    test("supplement candidate HTML exposes session metadata for one-click add", () => {
+    test("supplement candidate HTML helper still exposes session metadata (server-side helper retained)", () => {
         const list = renderExcludedSessionCandidatesHtml(sampleExcluded());
         expect(list).toContain("aaaa1111-1111-1111-1111-111111111111");
         expect(list).toContain("qa-commit-only");
         expect(list).toContain("Add session");
     });
 
-    test("added excluded session uses the same row shape as collected sessions", () => {
+    test("addExcludedSession row-building logic remains available client-side even though the panel is hidden", () => {
         const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
         expect(html).toContain("emptyAssetChange");
         expect(html).toContain("ticket_display_ids: []");
