@@ -1,11 +1,11 @@
-# Human-Input Category Taxonomy (v2 production, CWP-19828/19829)
+# Human-Input Category Taxonomy (v2 production, CWP-19829 / gpt-4o)
 
 Source of truth: `uid.core-product/internal/pkg/genai/ai_session_prompts.go`
-(`promptAISessionClassifySystemBase` + `promptAISessionClassifyCategoryDefinitions`) and
-`internal/pkg/genai/ai_session_classify_context.go` (assistant/prev preprocessing). This doc
-mirrors the **category** half of that prompt so this skill stays faithful to production. Pair with
-`TOPIC_TAXONOMY.md` for the topic dimension. If this doc and uid.core-product ever disagree,
-treat the Go prompt as authoritative and update this doc.
+(`promptAISessionClassifySystemBase` + `promptAISessionClassifyCategoryDefinitions` +
+`promptAISessionClassifyGapAnalysisGuard`) and `internal/pkg/genai/ai_session_classify_context.go`.
+**Full snapshot:** `references/PRODUCTION_CLASSIFY_PROMPT.md` (sync via
+`scripts/sync-classify-prompt-from-core-product.mjs`). This doc mirrors the **category** half.
+Pair with `TOPIC_TAXONOMY.md`. If this doc and uid.core-product disagree, follow the snapshot.
 
 **Out of scope for this skill:** `search_keywords` only.
 
@@ -29,6 +29,18 @@ Each slot is **not** interchangeable:
 | `assistant_message` | **Secondary only** when `content` is a bare URL/file/screenshot/log hand-off with no intent words |
 
 **Do not** infer category from what the assistant already did or verified.
+
+### Category vs topic routing (production mid-base)
+
+- **NEW-vs-EXISTING:** `"帮实现/帮加/新增/帮调整 + deliverable"` → `requirement`, even on a
+  follow-up turn. Only narrowing/restyling/hiding/renaming something the assistant **already built
+  in this thread** without a new capability → `direction_constraint`. Do NOT default follow-up
+  turns to `direction_constraint`.
+- **SHAPE REFINEMENT** without evaluative judgment (`"改成/对齐/迁移/改名/隐藏/只留/去掉"`) →
+  `direction_constraint`, NOT `correction_*` unless the human says wrong/broken/不符合预期/有问题.
+- **GUARD — correction vs shape:** `"帮改成 X"`, `"对齐 JIRA"`, `"迁移到 index"`, `"只留三项"`,
+  `"Assign To 改成 Assignee"` → `direction_constraint` unless paired with evaluative complaint
+  (错了/不对/有问题/不符合预期) or a factual defect symptom.
 
 ### Feasibility / capability questions (disambiguate 我们 vs 也能)
 
@@ -65,13 +77,14 @@ Use these exact snake_case strings (not shortened forms).
 
 - `requirement` — introduces a deliverable, capability, screen, endpoint, or behavior that
   **does not exist yet**. Test: "does this ask bring something new into existence?" Includes
-  switching/replacing ONE named thing scoped to this task, even with soft guidance referencing an
-  existing pattern for the **same** feature. If instead the human adjusts something that **already
-  exists** (remove/rename/reorder/drop/narrow/restyle a column, field, parameter, component,
-  layout), that is `direction_constraint`, not `requirement` — even when short and scoped to this
-  one task. A follow-up turn that modifies what the assistant just produced is almost always
-  `direction_constraint`. Adding a genuinely new sub-capability ("add an export button") is still
-  `requirement` — discriminator is new-vs-existing, not big-vs-small.
+  build-task verbs (`帮加`, help implement, help adjust styling, wire a new Slack message path) —
+  **even on a follow-up turn**. **EXCEPTION — status-inventory deliverable:** explicit help-me
+  organize/summarize of what currently exists (`帮我整理`, `整理目前`, `目前支持`) → `requirement`
+  (deliverable is the organized list), NOT `question_clarification`. If instead the human adjusts
+  something that **already exists** in this thread (remove/rename/reorder/drop/narrow/restyle),
+  that is `direction_constraint`, not `requirement`. Adding a genuinely new sub-capability
+  (`slack_watcher` field, share-link card styling) is `requirement` — discriminator is
+  new-vs-existing, not big-vs-small.
 - `direction_constraint` — scope/style boundary on **existing** work (see above). **GUARD:** this
   existing-artifact rule only decides between `requirement` and `direction_constraint`. It never
   overrides correction, decision, or rejection. Also covers explicit **breadth/scope** signals
@@ -94,8 +107,11 @@ Use these exact snake_case strings (not shortened forms).
 **Correction** (pick ONE subtype when correction applies; rhetorical "is this X?" complaint about
 existing output counts as correction, not question)
 
+**GUARD:** do NOT use `correction_*` for shape/layout refinements without saying prior output was
+wrong — see SHAPE REFINEMENT above.
+
 - `correction_defect` — behavior, data, or logic is factually wrong (crash, wrong data, broken
-  display).
+  display; e.g. "状态过滤里面 Processing 没有数量").
 - `correction_intent` — runs without error but result/order/flow/wording isn't wanted; feature flow
   feels wrong (not code structure).
 - `correction_quality` — works and outcome OK, but code/architecture over-engineered or poorly
@@ -108,8 +124,9 @@ existing output counts as correction, not question)
 
 **Judgment**
 
-- `decision` — human **explicitly picked** one option ("use X", "go with option B", "commit & push"
-  after assistant offered it). "you decide" is NOT `decision`.
+- `decision` — human **explicitly picked** one option ("use X", "go with option B"). Routine
+  `"commit & push"` / `"commit with prefix & push"` after implementation → `approval` or
+  `process_control`, NOT `decision`. `"you decide"` is NOT `decision`.
 - `approval` — positive evaluation or accepting word ("looks good", "可以", "同意", "that works, go
   ahead"). Bare "continue"/"继续" without evaluative word → `process_control`.
 - `verification` — testing, validation, self-check ("add a unit test", "verify this works").
@@ -117,9 +134,12 @@ existing output counts as correction, not question)
 **Reverse acquisition**
 
 - `question_clarification` — explains/facts about something that **already exists**; status quo,
-  no change requested. NOT hypothetical-change probes (see `exploration`).
-- `exploration` — proposes a hypothetical **change** or named alternative ("what if we used
-  microservices?", "should we try X instead").
+  no change requested. **Gap-analysis** (`哪些没有实现`, `缺什么`, `还缺什么`) with NO help-me
+  organize verb → `question_clarification`, NOT `requirement`. NOT hypothetical-change probes (see
+  `exploration`).
+- `exploration` — proposes a hypothetical **change** or soft suggestion (`要不加一个…吧？`) —
+  only when NOT a concrete build ask; `"要不加 slack_watcher 字段"` with implementation detail →
+  `requirement`, NOT `exploration`.
 
 **Process control**
 
@@ -137,12 +157,32 @@ direction_constraint > planning > decision > requirement > verification > approv
 question_clarification > exploration > context_supply > process_control > other_meta
 ```
 
+## Gap-analysis guard (production tail)
+
+- Help-me organize/summarize current support (`帮我整理`, `整理目前`, `目前支持`) →
+  `requirement` (NOT `question_clarification`).
+- Which-parts-missing questions (`哪些没有实现`, `缺什么`) with NO implement-now verb →
+  `question_clarification` + topic `investigation` (NOT `new_feature`).
+- Do not let another batch item's assistant "missing modules" list override ASKING vs CHANGING on
+  the current item.
+
 ## Worked examples (category / topic)
 
 See `TOPIC_TAXONOMY.md` for the topic column. Category primary only:
 
 | Input / context | Primary category |
 |-----------------|------------------|
+| "帮实现 share-link message styling with reference JSON" | `requirement` |
+| "要不加 slack_watcher 字段并支持 Slack 移除 watch" | `requirement` |
+| "commit with prefix [CWP-xxx] & push, also alembic" | `approval` |
+| "重新执行一遍，不要把 LineBarListCard 放在 costCard 导出" | `correction_intent` |
+| "需要迁移" (after assistant admitted incomplete migration) | `approval` or `correction_intent` |
+| "Request 改名 Approval ID，然后去掉#号" | `direction_constraint` |
+| "merge Approval state and Terminal state into Status + rules" | `requirement` |
+| "状态过滤里面 Processing 没有数量" | `correction_defect` |
+| "那就统一不要显示数量" | `decision` |
+| "string 类型可以看看是不是 RFC3339 格式" | `verification` |
+| "第6怎么设计比较合适" (follow-up to deploy checklist) | `planning` |
 | "comment没有生效" | `correction_defect` |
 | prev ends with "需要我 commit & push 吗？" + content "commit & push" | `decision` |
 | prev offers to implement + content "直接改" | `approval` |
