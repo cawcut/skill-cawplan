@@ -3,11 +3,39 @@ import {extractDataObject, extractList} from "../ai-session/helpers.js";
 import type {AiSessionReportItem} from "../ai-session/types.js";
 import type {DailyApiJson} from "../collect/types.js";
 
+const MAX_SESSION_ID_LENGTH = 64;
+
+function truncateSessionId(sessionId: string | undefined): string | undefined {
+    return sessionId && sessionId.length > MAX_SESSION_ID_LENGTH
+        ? sessionId.slice(-MAX_SESSION_ID_LENGTH)
+        : sessionId;
+}
+
+function normalizeSessionIdsForUpload(payload: DailyApiJson): DailyApiJson {
+    return {
+        ...payload,
+        sessions: payload.sessions.map((session) => ({
+            ...session,
+            session_id: truncateSessionId(session.session_id) ?? session.session_id,
+            human_inputs: session.human_inputs?.map((input) => ({
+                ...input,
+                session_id: truncateSessionId(input.session_id),
+            })),
+        })),
+        human_inputs: payload.human_inputs.map((input) => ({
+            ...input,
+            session_id: truncateSessionId(input.session_id),
+        })),
+    };
+}
+
 export async function uploadDailyReport(payload: DailyApiJson): Promise<unknown> {
     return cawplanRequest({
         method: "POST",
         path: "/api/v1/public/openapi/ai-session-usage/reports",
-        body: payload,
+        // The service persists session IDs in varchar(64). Preserve the trailing
+        // identifier portion when collector-specific prefixes make an ID longer.
+        body: normalizeSessionIdsForUpload(payload),
     });
 }
 
