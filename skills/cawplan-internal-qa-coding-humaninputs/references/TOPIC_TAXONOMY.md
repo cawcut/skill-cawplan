@@ -31,6 +31,10 @@ only.
 - Derive topic primarily from `content` + `assistant_message`.
 - Bare `"commit & push"` / `"commit and push"` → topic is always **`git_ops`** — do **not**
   inherit Slack/integration topic from the session or assistant head.
+- **TOPIC INHERITANCE:** short approval/process_control with no feature noun (`开始执行`, `更新吧`,
+  `帮我试试`, "go ahead") and no commit/branch/push → inherit active work topic from assistant
+  head (`new_feature`, `integration_api`, `design_ui`, `security`, `bug`, …) — not `other` or
+  `git_ops`.
 - **ASKING vs CHANGING:** when the human asks how/why **current** behavior works (`有没有/是不是/
   怎么做的/会带哪些/看下/你打算怎么做`) and requests no change, topic is **`investigation`**
   regardless of subject (Slack, API, UI, etc.).
@@ -136,6 +140,14 @@ if two apply, pick the **more specific** one.
 | "fallback对齐上周样式，加硬编码开关" | `direction_constraint` | `new_feature` |
 | "频道里Bot未加入，也可以是work Object形态吗。如果可以，帮实现" | `question_clarification` | `design_ui` or `investigation` |
 | "work object对齐上周样式，icon对齐本周" | `direction_constraint` | `design_ui` |
+| prev offers plan + "开始执行" | `approval` | `new_feature` |
+| PR + curl to simulate STT/API | `requirement` | `integration_api` |
+| "这个需要改什么" (CSP/browser mismatch diagnosis) | `question_clarification` | `investigation` |
+| approving api-gateway strip_length simplification | `approval` | `infra` |
+| browser WebSocket blocked by CSP (connection fails) | `correction_defect` | `bug` |
+| "文档需要更新吗" | `question_clarification` | `investigation` |
+| "你加好后发我" (CSP fix) | `requirement` | `security` |
+| CloudFront CSP policy too long error | `correction_defect` | `bug` |
 
 ## Legacy topic values (cloud read paths)
 

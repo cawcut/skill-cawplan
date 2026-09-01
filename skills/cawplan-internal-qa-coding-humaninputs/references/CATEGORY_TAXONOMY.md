@@ -28,6 +28,9 @@ Each slot is **not** interchangeable:
 | `prev_message` | **Only** on bare follow-ups: `decision` vs `approval` (see SKILL.md step 4). Never for other categories. Never treat as prior human task text. |
 | `assistant_message` | **Secondary only** when `content` is a bare URL/file/screenshot/log hand-off with no intent words |
 
+**Ignore for classification:** `in-app-browser-context` blocks, Files-mentioned-by-user wrappers,
+Response-annotations — use only the human's actual request (typically after `My request:`).
+
 **Do not** infer category from what the assistant already did or verified.
 
 ### Category vs topic routing (production mid-base)
@@ -198,6 +201,14 @@ See `TOPIC_TAXONOMY.md` for the topic column. Category primary only:
 | "fallback对齐上周样式，加硬编码开关" | `direction_constraint` |
 | "频道里Bot未加入，也可以是work Object形态吗。如果可以，帮实现" | `question_clarification` |
 | "work object对齐上周样式，icon对齐本周" | `direction_constraint` |
+| attached API doc + "帮我review整理…方案" (review only, no code yet) | `planning` |
+| prev offers plan + content "开始执行" | `approval` |
+| adjust voice-to-text end-of-recording UI (send+mic buttons, manual send) | `direction_constraint` |
+| PR link + curl to simulate STT/API | `requirement` |
+| "分别修复吧" (fix two repos separately) | `decision` |
+| pasted iOS allow-dialog symptom narrative (no question) | `context_supply` |
+| "你加好后发我" (implement CSP fix) | `requirement` |
+| CloudFront CSP policy length limit error | `correction_defect` |
 
 ## Legacy taxonomy (pre-v2 cloud rows)
 

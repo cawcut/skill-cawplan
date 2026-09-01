@@ -1,5 +1,5 @@
 ---
-version: 0.4.0
+version: 0.5.0
 name: cawplan-internal-qa-coding-humaninputs
 description: |
   Classifies a single piece of text (an AI-coding human input, optionally with its paired assistant reply and previous-assistant tail) into the current v2 human-input category + topic taxonomies, returning the primary category, the full priority-ordered categories array, one topic, topic_reason, and topic_confidence — a pure reasoning check against uid.core-product's classify rules (gpt-4o production prompt, postprocess off), no CawPlan data or API calls involved.
