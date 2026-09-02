@@ -1,8 +1,8 @@
 ---
-version: 0.2.8
+version: 0.5.1
 name: cawplan-internal-qa-coding-humaninputs
 description: |
-  Classifies a single piece of text (an AI-coding human input, optionally with its paired assistant reply and previous-assistant tail) into the current v2 human-input category + topic taxonomies, returning the primary category, the full priority-ordered categories array, one topic, topic_reason, and topic_confidence — a pure reasoning check against uid.core-product's classify rules, no CawPlan data or API calls involved.
+  Classifies a single piece of text (an AI-coding human input, optionally with its paired assistant reply and previous-assistant tail) into the current v2 human-input category + topic taxonomies, returning the primary category, the full priority-ordered categories array, one topic, topic_reason, and topic_confidence — a pure reasoning check against uid.core-product's classify rules (gpt-4o production prompt, postprocess off), no CawPlan data or API calls involved.
   Use when: asked to classify/categorize a specific sentence or human input against the current category and topic rules — e.g. "what category/topic is this: ...", "classify this with this assistant reply" — or as the per-row classification step used by cawplan-internal-qa-coding-humaninputs-test.
   NOT for: bulk/batch accuracy testing across many already-uploaded human inputs, or fetching data from CawPlan at all (use cawplan-internal-qa-coding-humaninputs-test for that), submitting reports, or creating tickets.
 argument-hint: "[content] [assistant_message?] [prev_message?]"
@@ -21,8 +21,9 @@ it is a pure reasoning check against uid.core-product's current classify rules, 
 
 ## Workflow
 
-1. Read `references/CATEGORY_TAXONOMY.md` and `references/TOPIC_TAXONOMY.md` if you haven't
-   already this session.
+1. Read `references/CATEGORY_TAXONOMY.md`, `references/TOPIC_TAXONOMY.md`, and
+   `references/PRODUCTION_CLASSIFY_PROMPT.md` (full production snapshot) if you haven't already
+   this session. When the curated docs and the snapshot disagree, follow the snapshot.
 2. **Prepare `assistant_message`** the same way production does before reading it — don't reason
    over raw untruncated text:
    - Normalize literal `\n` / `\t` escapes and line endings to real whitespace.
@@ -74,5 +75,12 @@ Report:
 
 ## References
 
-- `references/CATEGORY_TAXONOMY.md`
-- `references/TOPIC_TAXONOMY.md`
+- `references/PRODUCTION_CLASSIFY_PROMPT.md` — full prompt exported from uid.core-product
+- `references/CATEGORY_TAXONOMY.md` — curated category routing + examples
+- `references/TOPIC_TAXONOMY.md` — curated topic routing + examples
+
+Sync snapshot after prompt ships:
+
+```bash
+node skills/cawplan-internal-qa-coding-humaninputs/scripts/sync-classify-prompt-from-core-product.mjs
+```

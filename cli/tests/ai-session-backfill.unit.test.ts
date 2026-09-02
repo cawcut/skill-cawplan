@@ -184,6 +184,38 @@ describe("session report and backfill", () => {
     expect(uploadedDates).toEqual(["2026-06-02"]);
   });
 
+  test("report keeps the trailing 64 characters of long session IDs", async () => {
+    const report = dailyReport("2026-06-02");
+    const longSessionId = `rollout-${"x".repeat(70)}`;
+    const expectedSessionId = longSessionId.slice(-64);
+    report.sessions[0]!.session_id = longSessionId;
+    report.human_inputs = [{
+      category: "direction",
+      content: "upload the report",
+      session_id: longSessionId,
+    }];
+    await writeFile("ai-daily-2026-06-02.json", JSON.stringify(report, null, 2));
+
+    let uploadedBody: {sessions?: Array<{session_id?: string}>; human_inputs?: Array<{session_id?: string}>} | undefined;
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input.toString());
+      if ((init?.method ?? "GET") === "POST" && openApiPath(url) === "/api/v1/public/openapi/ai-session-usage/reports") {
+        uploadedBody = JSON.parse(String(init?.body ?? "{}"));
+        return new Response(JSON.stringify({code: "SUCCESS"}), {
+          status: 200,
+          headers: {"content-type": "application/json"},
+        });
+      }
+      return new Response(JSON.stringify({message: "unexpected request"}), {status: 500});
+    };
+
+    await runSessionReport("ai-daily-2026-06-02.json");
+
+    expect(uploadedBody?.sessions?.[0]?.session_id).toBe(expectedSessionId);
+    expect(uploadedBody?.human_inputs?.[0]?.session_id).toBe(expectedSessionId);
+    expect(report.sessions[0]!.session_id).toBe(longSessionId);
+  });
+
   test("backfills missing local reports when reports query only returns items[0]", async () => {
     await writeFile("ai-daily-2026-06-01.json", JSON.stringify(dailyReport("2026-06-01"), null, 2));
     await writeFile("ai-daily-2026-06-02.json", JSON.stringify(dailyReport("2026-06-02"), null, 2));
