@@ -130,12 +130,15 @@ wrong — see SHAPE REFINEMENT above.
 
 - `decision` — human **explicitly picked** one option ("use X", "go with option B"). Choosing after
   the assistant offered alternatives (`那就统一不要显示数量`, "then do it uniformly that way") →
-  `decision`, NOT `direction_constraint`. Routine `"commit & push"` / `"commit with prefix & push"`
-  after implementation → `approval` or `process_control`, NOT `decision`. `"you decide"` is NOT
-  `decision`.
+  `decision`, NOT `direction_constraint`. Interim workaround until backend ships (`你可以先这么做，等
+  /purchase/lines 支持分页`) → `decision`. `需要迁移` when choosing to proceed with migration the
+  assistant offered → `decision`. Routine `"commit & push"` → `approval` or `process_control`, NOT
+  `decision`. `"you decide"` is NOT `decision`.
 - `approval` — positive evaluation or accepting word ("looks good", "可以", "同意", "that works, go
   ahead"). Bare "continue"/"继续" without evaluative word → `process_control`.
-- `verification` — testing, validation, self-check ("add a unit test", "verify this works").
+- `verification` — testing, validation, self-check ("add a unit test", "verify this works"). Post-deploy
+  / post-restart retries (`再试试`, "retry the flow above" in `My request:`) → `verification`, NOT
+  `process_control`. RFC3339 / field-format checks → `verification` + topic `integration_api`.
 
 **Reverse acquisition**
 
@@ -186,7 +189,10 @@ See `TOPIC_TAXONOMY.md` for the topic column. Category primary only:
 | "Request 改名 Approval ID，然后去掉#号" | `direction_constraint` |
 | "merge Approval state and Terminal state into Status + rules" | `requirement` |
 | "状态过滤里面 Processing 没有数量" | `correction_defect` |
-| "帮我对齐JIRA" (fix Slack card semantics vs JIRA reference) | `correction_intent` |
+| ambient + My request "api-gw restarted, retry flow" | `verification` |
+| ambient + My request `再试试` after deploy/smoke | `verification` |
+| bare `帮实现` after assistant proposed feature | `requirement` |
+| "Briefly inform the user about the task result…" | `other_meta` |
 | "那就统一不要显示数量" (after assistant offered count vs no-count) | `decision` |
 | "string 类型可以看看是不是 RFC3339 格式" | `verification` |
 | "第6怎么设计比较合适" (follow-up to deploy checklist) | `planning` |

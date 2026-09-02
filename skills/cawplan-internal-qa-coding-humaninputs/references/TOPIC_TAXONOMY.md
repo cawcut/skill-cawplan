@@ -33,8 +33,11 @@ only.
   inherit Slack/integration topic from the session or assistant head.
 - **TOPIC INHERITANCE:** short approval/process_control with no feature noun (`开始执行`, `更新吧`,
   `帮我试试`, "go ahead") and no commit/branch/push → inherit active work topic from assistant
-  head (`new_feature`, `integration_api`, `design_ui`, `security`, `bug`, …) — not `other` or
-  `git_ops`.
+  head — not `other` or `git_ops`. Bare `帮实现` after assistant proposed implementation →
+  **`requirement`** (build hand-off), NOT approval.
+- **Post-deploy retry:** ambient browser + `My request` "api-gw restarted, retry the flow" / `再试试`
+  after smoke → category **`verification`**, topic **`integration_api`** (NOT `process_control` or
+  `infra`).
 - **ASKING vs CHANGING:** when the human asks how/why **current** behavior works (`有没有/是不是/
   怎么做的/会带哪些/看下/你打算怎么做`) and requests no change, topic is **`investigation`**
   regardless of subject (Slack, API, UI, etc.).
@@ -66,7 +69,7 @@ only.
   `planning`.
 - Bare screenshot / image hand-off with UI context → **`design_ui`** (NOT `investigation`).
 - English system-style relay ("Briefly inform the user about the task result…") with no product ask
-  → topic follows assistant head (`new_feature` if assistant discusses in-flight Slack feature work).
+  → **`other`** topic (NOT `new_feature`).
 
 ### Category-linked topic hints
 
@@ -149,6 +152,7 @@ if two apply, pick the **more specific** one.
 | "帮我对齐JIRA" | `correction_intent` | `new_feature` |
 | "checkout_error hide when approval_state=pass; retry rules" | `direction_constraint` | `new_feature` |
 | prev offers plan + "开始执行" | `approval` | `new_feature` |
+| ambient + My request `再试试` after deploy/smoke | `verification` | `integration_api` |
 | PR + curl to simulate STT/API | `requirement` | `integration_api` |
 | "这个需要改什么" (CSP/browser mismatch diagnosis) | `question_clarification` | `investigation` |
 | approving api-gateway strip_length simplification | `approval` | `infra` |
