@@ -93,15 +93,42 @@ export interface RequirementRow extends Partial<RequirementFiveFields> {
  */
 export const IS_AI_GENERATED = true as const;
 
-/** Skill-supplied keys per test-point item (before CLI injects `is_ai_generated`). */
+/** Skill-supplied keys per test-point item (before CLI injects `is_ai_generated` and `category_code`). */
 export const TESTPOINT_CALLER_KEYS = ["title", "tags", "group", "priority", "is_edited"] as const;
+
+/** Stable machine categories accepted by the TestPoint API payload. */
+export const TESTPOINT_CATEGORY_CODES = [
+  "POSITIVE",
+  "BOUNDARY",
+  "EXCEPTION",
+  "REVERSE_ACTION",
+  "INPUT_TYPE",
+  "INTERACTION_FEEDBACK",
+  "STATE_TRANSITION",
+  "ROLE_PERMISSION",
+  "SOURCE_ENTRY",
+  "IDEMPOTENCY",
+  "CONCURRENCY",
+  "CONSISTENCY",
+  "BACKWARD_COMPATIBILITY",
+  "ENVIRONMENT_COMPATIBILITY",
+  "PERFORMANCE",
+  "SECURITY_AUDIT",
+  "OBSERVABILITY",
+  "OTHER",
+] as const;
+
+export type TestPointCategoryCode = (typeof TESTPOINT_CATEGORY_CODES)[number];
+
+/** Category codes that automatic tag classification may produce; `OTHER` is manual-only. */
+export type AutoMappableCategoryCode = Exclude<TestPointCategoryCode, "OTHER">;
 
 /** Allowed values for a test-point's `priority`. */
 export const TESTPOINT_PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 
 export type TestPointPriority = (typeof TESTPOINT_PRIORITIES)[number];
 
-/** One test-point item as sent to the API (caller keys + `is_ai_generated`). */
+/** One test-point item as sent to the API (five caller keys + two CLI-injected fields). */
 export interface TestPointDraft {
   title: string;
   tags: string[];
@@ -109,9 +136,10 @@ export interface TestPointDraft {
   priority: TestPointPriority;
   is_edited: boolean;
   is_ai_generated: typeof IS_AI_GENERATED;
+  category_code: TestPointCategoryCode | null;
 }
 
-/** @deprecated Use TESTPOINT_CALLER_KEYS — kept for tests referencing the four-key caller contract. */
+/** @deprecated Use TESTPOINT_CALLER_KEYS — legacy alias for the five-key caller contract. */
 export const TESTPOINT_BODY_KEYS = TESTPOINT_CALLER_KEYS;
 
 /**

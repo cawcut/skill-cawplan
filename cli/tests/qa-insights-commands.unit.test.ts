@@ -554,6 +554,52 @@ describe("A2-§9.5 / A2-§8.5 / P7 testpoints archive — POST only, no follow-u
     expect(h.calls).toHaveLength(0);
     expect(h.envelope.outcome).toBe("SUCCESS");
   });
+  test("CATEGORY-V1-22 dry-run shows final category_code values", async () => {
+    const h = harness([]);
+    await runTestPointsArchive(
+      PRODUCT,
+      REQUIREMENT,
+      { body: JSON.stringify(batch), dryRun: true },
+      h.deps,
+    );
+    const dryRunBody = h.envelope.post_body as {
+      test_points: Array<{ category_code: string | null }>;
+    };
+    expect(dryRunBody.test_points.map((point) => point.category_code))
+      .toEqual(["EXCEPTION", null]);
+  });
+  test("CATEGORY-V1-23 actual POST sends the same category_code values as dry-run", async () => {
+    const h = harness([ok({ test_points: [{ id: "1" }, { id: "2" }] })]);
+    await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
+    const sent = h.calls[0].body as {
+      test_points: Array<{ category_code: string | null }>;
+    };
+    expect(sent.test_points.map((point) => point.category_code))
+      .toEqual(["EXCEPTION", null]);
+  });
+  test("CATEGORY-V1-24 category injection preserves tag content and order", async () => {
+    const tags = ["异常", "补充标签", "正向"];
+    const taggedBatch = {
+      test_points: [{ ...batch.test_points[0], tags }],
+    };
+    const h = harness([ok({ test_points: [{ id: "1" }] })]);
+    await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(taggedBatch) }, h.deps);
+    const sent = h.calls[0].body as {
+      test_points: Array<{ tags: string[]; category_code: string | null }>;
+    };
+    expect(sent.test_points[0].tags).toEqual(tags);
+    expect(sent.test_points[0].category_code).toBe("EXCEPTION");
+  });
+  test("CATEGORY-V1-25 is_ai_generated injection remains unchanged", async () => {
+    const h = harness([ok({ test_points: [{ id: "1" }, { id: "2" }] })]);
+    await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
+    const sent = h.calls[0].body as {
+      test_points: Array<{ is_ai_generated: boolean; category_code: string | null }>;
+    };
+    expect(sent.test_points.every((point) => point.is_ai_generated === true)).toBe(true);
+    expect(sent.test_points.map((point) => point.category_code))
+      .toEqual(["EXCEPTION", null]);
+  });
 });
 
 describe("A2-§9.4 / P8 / P9 testpoints reconcile — one GET, never a POST", () => {

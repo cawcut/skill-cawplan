@@ -1,0 +1,243 @@
+{
+  "version": "qa-testpoint-category/v1",
+  "classification": {
+    "source": "tags[0]",
+    "source_index": 0,
+    "unmatched_result": null,
+    "automatic_other": false
+  },
+  "normalization": {
+    "unicode": "NFKC",
+    "trim": true,
+    "english_case": "lowercase",
+    "match": "exact",
+    "collapse_internal_whitespace": false,
+    "substring_match": false,
+    "fuzzy_match": false,
+    "llm_fallback": false
+  },
+  "categories": [
+    {
+      "code": "POSITIVE",
+      "labels": {
+        "zh": "正向",
+        "en": "Positive"
+      },
+      "aliases": {
+        "zh": [
+          "正面",
+          "主流程"
+        ],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "BOUNDARY",
+      "labels": {
+        "zh": "边界",
+        "en": "Boundary"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "EXCEPTION",
+      "labels": {
+        "zh": "异常",
+        "en": "Exception"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "REVERSE_ACTION",
+      "labels": {
+        "zh": "逆向",
+        "en": "Reverse Action"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "INPUT_TYPE",
+      "labels": {
+        "zh": "输入类型",
+        "en": "Input Type"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "INTERACTION_FEEDBACK",
+      "labels": {
+        "zh": "交互反馈",
+        "en": "Interaction Feedback"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "STATE_TRANSITION",
+      "labels": {
+        "zh": "状态迁移",
+        "en": "State Transition"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "ROLE_PERMISSION",
+      "labels": {
+        "zh": "角色权限",
+        "en": "Role & Permission"
+      },
+      "aliases": {
+        "zh": [],
+        "en": [
+          "Permission"
+        ]
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "SOURCE_ENTRY",
+      "labels": {
+        "zh": "来源入口",
+        "en": "Source Entry"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "IDEMPOTENCY",
+      "labels": {
+        "zh": "幂等",
+        "en": "Idempotency"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "CONCURRENCY",
+      "labels": {
+        "zh": "并发",
+        "en": "Concurrency"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "CONSISTENCY",
+      "labels": {
+        "zh": "一致性",
+        "en": "Consistency"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "BACKWARD_COMPATIBILITY",
+      "labels": {
+        "zh": "存量兼容",
+        "en": "Backward Compatibility"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "ENVIRONMENT_COMPATIBILITY",
+      "labels": {
+        "zh": "环境兼容",
+        "en": "Environment Compatibility"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "PERFORMANCE",
+      "labels": {
+        "zh": "性能",
+        "en": "Performance"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "SECURITY_AUDIT",
+      "labels": {
+        "zh": "安全审计",
+        "en": "Security Audit"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "OBSERVABILITY",
+      "labels": {
+        "zh": "可观测",
+        "en": "Observability"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "OTHER",
+      "labels": {
+        "zh": "其他",
+        "en": "Other"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": false,
+      "meaning": "Human-confirmed other category; never produced by automatic tag mapping."
+    }
+  ]
+}

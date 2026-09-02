@@ -699,7 +699,7 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
 ## 15) QA Insights APIs
 Module tree and Requirement archive for Test Suites. **Public Open API only** — do not use Internal routes (`/api/v1/product/{unique_id}/qa/...`).
 
-**CLI routing**: the four **write** endpoints go through the `cawplan qa-insights` command family, which owns the correctness-critical rules (five-field strong match, PATCH changed-keys diff, batch all-or-nothing, forbidden-field rejection, UNKNOWN handling). **`cawplan-testcase-generate` reads** (single Requirement, List TestPoints) also go through `cawplan qa-insights` (`requirements get`, `testpoints list`); other reads (module tree, requirement list) still use the `cawplan api GET` escape hatch. Reconcile paths (`requirements reconcile`, `testpoints reconcile`) are read-only and never write.
+**CLI routing**: the four **write** endpoints used by QA Skills go through the `cawplan qa-insights` command family, which owns the correctness-critical rules (five-field strong match, PATCH changed-keys diff, batch all-or-nothing, forbidden-field rejection, UNKNOWN handling). The manual TestPoint category PATCH documented below is a frontend/manual-classification path, not a QA Skill write. **`cawplan-testcase-generate` reads** (single Requirement, List TestPoints) also go through `cawplan qa-insights` (`requirements get`, `testpoints list`); other reads (module tree, requirement list) still use the `cawplan api GET` escape hatch. Reconcile paths (`requirements reconcile`, `testpoints reconcile`) are read-only and never write.
 
 ### Get Module Tree
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/module-tree`
@@ -753,26 +753,70 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 ### List TestPoints (read — probe, incremental, UNKNOWN reconcile)
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints`
 - Path params: `product_id`, `requirement_id`
-- Response: `test_points[]` for the requirement, stable order by `sort_order` (backend-assigned). Each item includes `id`, `requirement_id`, `title`, `tags[]`, `group`, `priority`, `is_edited`, `created_by`, `created_at`, `updated_at`.
+- Response: `test_points[]` for the requirement, stable order by `sort_order` (backend-assigned). Each item includes `id`, `requirement_id`, `title`, `tags[]`, nullable `category_code`, `group`, `priority`, `is_edited`, `created_by`, `created_at`, `updated_at`.
 - Notes:
     - **No sequence number in response** — caller computes N / N.M from `group` + return order (empty `group` → "未分组", last). See `cawplan-testpoint-generate` A2_SPEC §4.4.
     - Used before generate (first vs incremental, stubs), and after ambiguous POST (count reconcile). `cawplan-testpoint-generate` does **not** use PATCH/DELETE on archived rows.
 - Maps to cawplan CLI: `cawplan api GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints`
 
+### TestPoint `category_code` contract (V1)
+
+Contract version: `qa-testpoint-category/v1`. `category_code` is a nullable enum; its only 18 non-null values are:
+
+| Code | Chinese label | English label |
+|------|---------------|---------------|
+| `POSITIVE` | 正向 | Positive |
+| `BOUNDARY` | 边界 | Boundary |
+| `EXCEPTION` | 异常 | Exception |
+| `REVERSE_ACTION` | 逆向 | Reverse Action |
+| `INPUT_TYPE` | 输入类型 | Input Type |
+| `INTERACTION_FEEDBACK` | 交互反馈 | Interaction Feedback |
+| `STATE_TRANSITION` | 状态迁移 | State Transition |
+| `ROLE_PERMISSION` | 角色权限 | Role & Permission |
+| `SOURCE_ENTRY` | 来源入口 | Source Entry |
+| `IDEMPOTENCY` | 幂等 | Idempotency |
+| `CONCURRENCY` | 并发 | Concurrency |
+| `CONSISTENCY` | 一致性 | Consistency |
+| `BACKWARD_COMPATIBILITY` | 存量兼容 | Backward Compatibility |
+| `ENVIRONMENT_COMPATIBILITY` | 环境兼容 | Environment Compatibility |
+| `PERFORMANCE` | 性能 | Performance |
+| `SECURITY_AUDIT` | 安全审计 | Security Audit |
+| `OBSERVABILITY` | 可观测 | Observability |
+| `OTHER` | 其他 | Other |
+
+- `null` is not an enum value. It means automatic classification could not determine a category; clients display it as `Unclassified` / 「待归类」.
+- `OTHER` means a human has confirmed that the test point belongs to another category. Only a manual categorization operation may write it; automatic tag mapping must never produce `OTHER`.
+- Batch create accepts an omitted `category_code`, explicit `null`, or one of the valid codes above. The new CLI computes and injects it once at creation from `tags[0]`; the server only accepts, stores, and validates it and does not derive it from tags.
+- Unmatched example: `{"tags":["自定义"],"category_code":null}`. A standard primary tag such as `正向` maps to `POSITIVE`, not `null`.
+- TestPoint create and list/detail responses return nullable `category_code`.
+- PATCH may update or clear `category_code` independently. Updating `tags` does not recalculate `category_code`; updating `category_code` does not change `tags`. A mismatch between them is valid.
+- Historical records are not backfilled. Creates from old clients that omit `category_code` are stored as `null`.
+
 ### Batch Create TestPoints (write — archive drafts)
 - Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints/batch`
 - Path params: `product_id`, `requirement_id` (**do not include in body**)
-- Body: `{ "test_points": [ { "title", "tags", "group", "priority", "is_edited" }, ... ] }` — skill/agent supply five keys per item; CLI injects `is_ai_generated: true` on each element before POST
+- Body: `{ "test_points": [ { "title", "tags", "group", "priority", "is_edited", "is_ai_generated", "category_code" }, ... ] }` — skill/agent supply only the five caller keys `title`, `tags`, `group`, `priority`, `is_edited`; CLI injects `is_ai_generated: true` and nullable `category_code` on each element before POST
 - Notes:
     - Each item (caller): **only** `title`, `tags`, `group`, `priority`, `is_edited`. `tags` may be `[]`; `group` may be empty (display as 未分组). `priority` is required and must be one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`.
-    - CLI POST payload: each item also carries `is_ai_generated: true` (inside the object, not at batch top level).
+    - CLI POST payload: each item also carries `is_ai_generated: true` and `category_code` (a valid V1 code or explicit `null`; both are inside the object, not at batch top level).
+    - Old clients may omit `category_code`; the server stores it as `null`. Explicit `null` is also valid. Unknown codes are rejected as invalid input.
     - **Do not send**: `id`, `sort_order`, `product_id`, `requirement_id`, review fields, or display sequence N/N.M.
     - Array order = display order = backend `sort_order`. Batch is all-or-nothing (no partial success).
-    - Response on `code: SUCCESS`: `data.test_points[]` — same length as POST array; each item echoes `title`, `tags`, `group`, `priority`, `is_edited` from the request plus server-assigned `id`, `requirement_id`, `created_by`, `created_at`, `updated_at` (same shape as List TestPoints rows).
+    - Response on `code: SUCCESS`: `data.test_points[]` — same length as POST array; each item echoes `title`, `tags`, nullable `category_code`, `group`, `priority`, `is_edited` from the request plus server-assigned `id`, `requirement_id`, `created_by`, `created_at`, `updated_at` (same shape as List TestPoints rows).
     - **`cawplan-testpoint-generate` counts shown to SQA**: **only** in post-POST success receipt (`已归档 N 条…`, N = `body.test_points.length`). **Do not** output `共 N 条草稿`, `本轮新增 M 条`, `其余 K 条为已存`, or any other row-count summary after tables; do not put counts in archive prompts or §8.4 read-back — agents cannot reliably count table rows in chat. Incremental display uses per-row `已存`/`新增` status column only (optional non-numeric footer allowed).
     - **`cawplan-testpoint-generate` success receipt**: agent stores returned `id`s in session stubs only; tells SQA a one-line count confirmation (e.g. `已归档 N 条到 Requirement〔标题〕下`, N = POST length) — **does not** list per-row `id`s or titles, **does not** re-generate or summarize titles after POST, **does not** post-hoc apologize for miscounts; appends Requirement `url` from refresh **only when non-empty** — **never** mentions missing `url` (no "未返回 url"/"无法附链接").
 - Maps to cawplan CLI: `cawplan qa-insights testpoints archive {product_id} {requirement_id} --body-file <path>`
 - Example body: `{"test_points":[{"title":"用户名含特殊字符注册时应被拦截并明确提示","tags":["异常"],"group":"注册校验","priority":"HIGH","is_edited":false}]}`
+
+### Update TestPoint category (manual write)
+- Endpoint: `PATCH /api/v1/public/openapi/product/{product_id}/qa/testpoints/{test_point_id}`
+- Path params: `product_id`, `test_point_id`
+- Body: any supported changed fields; for manual categorization, send only `category_code` with one valid V1 code or `null`, for example `{"category_code":"OTHER"}`.
+- Notes:
+    - Unknown codes are rejected as invalid input.
+    - Updating `tags` does not recalculate `category_code`.
+    - Updating or clearing `category_code` does not modify `tags`.
+    - QA Skills do not call this endpoint for archived-row edits; it is the frontend/manual classification path.
 
 ## Error Responses
 - `401` Unauthorized

@@ -6,7 +6,8 @@
  *   (product_id only in URL; never send review_status / is_edited;
  *   POST = five fields + non-empty summary + module_tree_node_id).
  * - A2: skills/cawplan-testpoint-generate/SKILL.md §9 (caller supplies title,
- *   tags, group, is_edited; CLI injects is_ai_generated per item).
+ *   tags, group, priority, is_edited; CLI injects is_ai_generated and
+ *   category_code per item).
  *
  * Forbidden keys are HARD-REJECTED, never silently stripped (OQ#2): silently
  * dropping a caller-supplied review_status would hide a real bug in the caller.
@@ -16,6 +17,7 @@
  */
 
 import { normalizeField, normalizeOutOfScope } from "./normalize.js";
+import { classifyTestPointCategory } from "./testpoint-category.js";
 import {
   FIVE_FIELD_KEYS,
   FORBIDDEN_WRITE_BODY_KEYS,
@@ -136,10 +138,11 @@ export function validateRequirementPatchBody(input: unknown): Record<string, unk
 /**
  * Build the batch body for `testpoints archive`.
  *
- * Each item must carry exactly the four allowed keys. Extra keys (id,
- * sort_order, requirement_id, …) are a hard failure rather than being stripped:
- * an `id` in a create batch usually means the caller is re-posting an
- * already-archived row, which is a real bug worth surfacing (A2 §9 / P10).
+ * Each item must carry only the five allowed caller keys. The CLI injects
+ * `is_ai_generated` and `category_code`. Extra keys (id, sort_order,
+ * requirement_id, …) are a hard failure rather than being stripped: an `id`
+ * in a create batch usually means the caller is re-posting an already-archived
+ * row, which is a real bug worth surfacing (A2 §9 / P10).
  */
 export function buildTestPointBatchBody(input: unknown): { test_points: TestPointDraft[] } {
   const body = assertPlainObject(input, "testpoint batch body");
@@ -199,6 +202,7 @@ export function buildTestPointBatchBody(input: unknown): { test_points: TestPoin
       priority: priority as TestPointDraft["priority"],
       is_edited: point.is_edited === true,
       is_ai_generated: IS_AI_GENERATED,
+      category_code: classifyTestPointCategory(tags),
     } satisfies TestPointDraft;
   });
 
