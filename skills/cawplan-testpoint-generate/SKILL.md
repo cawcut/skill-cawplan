@@ -165,12 +165,13 @@ Use five fields for generation only. Do not track `module_tree_node_id`, `review
 
 ### 3. Incremental gate (§9.3)
 
-If `testpoints` is non-empty and intent is vague ("生成测试点" only) → stop and ask:
+Check in this order (**library-empty check first — do not evaluate intent wording before this**):
 
-1. Supplement a few more on top of existing?
-2. Show what's already archived first?
-
-If intent is clear ("再补两条并发的" / "看看已有的") → proceed. If library is empty → generate directly.
+1. **`testpoints` is empty** → **generate directly**. **Do not** ask, regardless of how vague the phrasing is (e.g. "生成测试点" alone). This is the most common case (first-time generation) and must never fall into step 2.
+2. **`testpoints` is non-empty** and intent is vague ("生成测试点" only, no indication of supplement vs. review) → stop and ask:
+   - Supplement a few more on top of existing?
+   - Show what's already archived first?
+3. **`testpoints` is non-empty** and intent is clear ("再补两条并发的" / "看看已有的") → proceed directly.
 
 ### 4. Read coverage dimensions (required)
 
@@ -475,7 +476,9 @@ cawplan qa-insights testpoints archive <product_id> <requirement_id> \
   --body-file <path>   # {"test_points":[{"title":"...","tags":["边界"],"group":"...","priority":"HIGH","is_edited":false}]}
 ```
 
-Body per item (skill/agent): **only** `title`, `tags`, `group`, `priority`, `is_edited`. `priority` is required, one of `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` (§5 **Priority rules**) — the command hard-rejects a missing or invalid value. The CLI injects `is_ai_generated: true` on **each** item before POST — do not put it in `--body-file`. The command rejects the batch and sends nothing if an item carries anything else (an `id` here usually means an already-archived row is being re-posted).
+**Never pipe this command through `head`/`tail`/other output-truncating filters** (e.g. `... | head -30`) — the full stdout JSON receipt is the only source for the `outcome` branch below and for the archived-count downstream (`Test points added` in QA daily reports). A truncated receipt can't be parsed and silently counts as zero, even when the batch actually landed.
+
+Body per item (skill/agent): **only** `title`, `tags`, `group`, `priority`, `is_edited`. `priority` is required, one of `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` (§5 **Priority rules**) — the command hard-rejects a missing or invalid value. The Skill/agent must not submit `category_code` manually. The CLI injects `is_ai_generated: true` and `category_code` on **each** item before POST — do not put either field in `--body-file`. `category_code` is calculated once, only when the test point is created; later Skill-side changes to `tags` do not trigger recalculation, and the stored `category_code` remains unchanged. The command rejects the batch and sends nothing if an item carries anything else (an `id` here usually means an already-archived row is being re-posted).
 
 **`is_edited`**: `false` if untouched since 原稿 (includes rows added in §6 self-critique — AI-generated, no source tag); `true` if SQA edited or added (including adopting 存疑). Incremental batch: only for **new** M drafts vs their 原稿; archived N rows excluded. The command passes this through verbatim — **it never infers the value**, so getting it right is this skill's job.
 
@@ -524,6 +527,8 @@ cawplan qa-insights testpoints reconcile <product_id> <requirement_id> \
 ```
 
 `--count-before` is the baseline recorded at the §2 refresh, **before** the archive. The command will not guess it. Read-only — it never writes.
+
+Same rule as §9: **never pipe this command through `head`/`tail`/other output-truncating filters** — the full stdout JSON receipt is what the `reconcile.decision` branch below reads.
 
 | `reconcile.decision` | Action |
 |----------------------|--------|

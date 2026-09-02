@@ -3,6 +3,7 @@ import {homedir} from "node:os";
 import {join} from "node:path";
 import {describe, expect, test} from "vitest";
 import {collectQaAssetChanges} from "../src/lib/collect/qa-asset-changes.js";
+import {tracesFromToolResultStdout} from "../src/lib/collect/qa-trace-extract.js";
 
 const QA_DIR = join(homedir(), ".claude/projects/-Users-zhenling-zeng-ui-com-Documents-skill-claud");
 
@@ -16,12 +17,14 @@ const availableCases = REAL_SESSION_CASES.filter((c) => existsSync(join(QA_DIR, 
 
 describe.skipIf(availableCases.length === 0)("collectQaAssetChanges (real sessions)", () => {
     test.each(availableCases)("session $id resolves the expected testpoint.added", ({id, expectedTestpointAdded}) => {
-        const changes = collectQaAssetChanges(join(QA_DIR, `${id}.jsonl`));
+        const traces = tracesFromToolResultStdout(join(QA_DIR, `${id}.jsonl`));
+        const changes = collectQaAssetChanges(traces);
         expect(changes.testpoint.added).toBe(expectedTestpointAdded);
     });
 
     test("A3-only sessions have all six numbers at zero", () => {
-        const changes = collectQaAssetChanges(join(QA_DIR, "87a6526b-63fa-42a6-bb6e-c3c497b42485.jsonl"));
+        const traces = tracesFromToolResultStdout(join(QA_DIR, "87a6526b-63fa-42a6-bb6e-c3c497b42485.jsonl"));
+        const changes = collectQaAssetChanges(traces);
         expect(changes).toEqual({
             testpoint: {added: 0, modified: 0, deleted: 0},
             testcase: {added: 0, modified: 0, deleted: 0},

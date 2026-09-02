@@ -1,4 +1,8 @@
+import {DatabaseSync} from "node:sqlite";
+import {existsSync} from "node:fs";
 import {findSessionsByDate, parseEvents} from "./agents/claude-code.js";
+import {selectCursorDiskKvByKeyPrefix} from "./agents/cursor-gui.js";
+import {cursorStateDbCandidates} from "./paths.js";
 import {QaSkillLayer} from "./qa-types.js";
 
 /**
@@ -135,13 +139,58 @@ export interface QaStdoutTrace {
 }
 
 /**
- * Signal 3 — parse structured JSON from user toolUseResult.stdout
- * (outcome / command / meta / api.data / reconcile). Authoritative source for
- * testpoint.added counts and stdout-derived product_id / requirement_id.
+ * Parses one raw stdout string into a QaStdoutTrace, or undefined when it
+ * doesn't contain a structured cawplan qa-insights JSON receipt.
+ *
+ * Shared core for signal 3 across data sources: Claude Code JSONL
+ * (toolUseResult.stdout) and Cursor GUI vscdb (toolFormerData.result.output)
+ * both emit the same `cawplan qa-insights ...` receipt shape on stdout — only
+ * how the raw string is located differs per source.
  *
  * Template-trap guard: SKILL files inject Chinese receipt boilerplate into user
  * events with wording similar to real receipts. Only structured JSON is parsed;
  * never match on free-text Chinese phrases.
+ */
+function parseQaStdoutTrace(stdout: string): QaStdoutTrace | undefined {
+    // Node emits runtime warnings (e.g. the experimental SQLite notice) on
+    // stdout ahead of the CLI's JSON receipt in some environments. Strip
+    // any such prefix by slicing from the first '{' so the parse below
+    // sees only the JSON object; well-formed stdout is unaffected.
+    const jsonStart = stdout.indexOf("{");
+    if (jsonStart === -1) return undefined;
+
+    let parsed: Record<string, unknown>;
+    try {
+        parsed = JSON.parse(stdout.slice(jsonStart));
+    } catch {
+        return undefined;
+    }
+
+    const command = parsed["command"];
+    const outcome = parsed["outcome"];
+    if (typeof command !== "string" || typeof outcome !== "string") return undefined;
+
+    const meta = parsed["meta"] as {product_id?: string; requirement_id?: string; dry_run?: boolean} | undefined;
+    const api = parsed["api"] as {data?: {test_points?: unknown[]}} | undefined;
+    const reconcile = parsed["reconcile"] as {decision?: string; batch_size?: number} | undefined;
+
+    return {
+        command,
+        outcome,
+        productId: meta?.product_id,
+        requirementId: meta?.requirement_id,
+        dryRun: meta?.dry_run,
+        landedCount: Array.isArray(api?.data?.test_points) ? api!.data!.test_points!.length : undefined,
+        reconcileDecision: reconcile?.decision,
+        batchSize: reconcile?.batch_size,
+        skillLayer: inferSkillFromCommand(command),
+    };
+}
+
+/**
+ * Signal 3 — parse structured JSON from user toolUseResult.stdout
+ * (outcome / command / meta / api.data / reconcile). Authoritative source for
+ * testpoint.added counts and stdout-derived product_id / requirement_id.
  */
 export function tracesFromToolResultStdout(jsonlPath: string, date?: string): QaStdoutTrace[] {
     const events = parseEvents(jsonlPath, date);
@@ -152,39 +201,8 @@ export function tracesFromToolResultStdout(jsonlPath: string, date?: string): Qa
         const stdout = (event["toolUseResult"] as {stdout?: unknown} | undefined)?.stdout;
         if (typeof stdout !== "string") continue;
 
-        // Node emits runtime warnings (e.g. the experimental SQLite notice) on
-        // stdout ahead of the CLI's JSON receipt in some environments. Strip
-        // any such prefix by slicing from the first '{' so the parse below
-        // sees only the JSON object; well-formed stdout is unaffected.
-        const jsonStart = stdout.indexOf("{");
-        if (jsonStart === -1) continue;
-
-        let parsed: Record<string, unknown>;
-        try {
-            parsed = JSON.parse(stdout.slice(jsonStart));
-        } catch {
-            continue;
-        }
-
-        const command = parsed["command"];
-        const outcome = parsed["outcome"];
-        if (typeof command !== "string" || typeof outcome !== "string") continue;
-
-        const meta = parsed["meta"] as {product_id?: string; requirement_id?: string; dry_run?: boolean} | undefined;
-        const api = parsed["api"] as {data?: {test_points?: unknown[]}} | undefined;
-        const reconcile = parsed["reconcile"] as {decision?: string; batch_size?: number} | undefined;
-
-        traces.push({
-            command,
-            outcome,
-            productId: meta?.product_id,
-            requirementId: meta?.requirement_id,
-            dryRun: meta?.dry_run,
-            landedCount: Array.isArray(api?.data?.test_points) ? api!.data!.test_points!.length : undefined,
-            reconcileDecision: reconcile?.decision,
-            batchSize: reconcile?.batch_size,
-            skillLayer: inferSkillFromCommand(command),
-        });
+        const trace = parseQaStdoutTrace(stdout);
+        if (trace) traces.push(trace);
     }
 
     return traces;
@@ -217,4 +235,107 @@ export function productIdFromStdoutTraces(jsonlPath: string, date?: string): str
         if (t.productId) return t.productId;
     }
     return undefined;
+}
+
+/**
+ * GUI-only skill_layers source: signal 3 (stdout receipts) only. Cursor GUI
+ * has no attributionSkill equivalent (signal 1) and no Bash tool_use blocks
+ * to scan (signal 2) — this is intentionally narrower than collectSkillLayers,
+ * not a partial/broken copy of it. Do not merge the two.
+ */
+export function skillLayersFromTraces(traces: QaStdoutTrace[]): QaSkillLayer[] {
+    const found = new Set<QaSkillLayer>();
+    for (const t of traces) {
+        if (t.skillLayer) found.add(t.skillLayer);
+    }
+    return Array.from(found).sort();
+}
+
+interface GuiToolFormerData {
+    name?: string;
+    result?: unknown;
+    additionalData?: {startedAtMs?: number};
+}
+
+function toolFormerDataFromBubbleValue(value: string): GuiToolFormerData | undefined {
+    try {
+        const parsed = JSON.parse(value) as {toolFormerData?: GuiToolFormerData};
+        return parsed.toolFormerData;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * Signal 3 for Cursor GUI sessions — same JSON receipt shape as Claude Code's
+ * toolUseResult.stdout, but sourced from state.vscdb: each `bubbleId:<composerId>:*`
+ * row that ran a terminal command stores its output at
+ * toolFormerData.result.output (JSON-encoded string).
+ *
+ * Bubble rows are keyed by a random per-call uuid, not insertion order, so
+ * they are re-sorted by toolFormerData.additionalData.startedAtMs before
+ * parsing — otherwise "first receipt with a product_id" (productIdFromTraces
+ * tier 1) could pick the wrong one on multi-product sessions. Rows without a
+ * timestamp sort last rather than aborting the scan.
+ *
+ * Opens/closes its own DB connection per call (no long-lived handle is shared
+ * across sessions) — the simplest option for the current low daily volume of
+ * Cursor GUI QA sessions; revisit only if this becomes a measured bottleneck.
+ * Any missing DB file, unreadable bubble row, or non-receipt tool result is
+ * skipped rather than thrown — a GUI session with no readable trace data
+ * yields [], the same "leave it for manual assignment" fallback as other
+ * agents without a trace adapter.
+ */
+export function tracesFromGuiToolResults(composerId: string): QaStdoutTrace[] {
+    const dbPath = cursorStateDbCandidates().find((p) => existsSync(p));
+    if (!dbPath) return [];
+
+    let db: DatabaseSync;
+    try {
+        db = new DatabaseSync(dbPath, {readOnly: true});
+    } catch {
+        return [];
+    }
+
+    try {
+        let rows: Array<{key: string; value: string}>;
+        try {
+            rows = selectCursorDiskKvByKeyPrefix(db, `bubbleId:${composerId}:`);
+        } catch {
+            return [];
+        }
+
+        const withTiming = rows
+            .map((row) => ({row, tfd: toolFormerDataFromBubbleValue(row.value)}))
+            .filter((r): r is {row: {key: string; value: string}; tfd: GuiToolFormerData} => r.tfd !== undefined)
+            .filter((r) => r.tfd.name === "run_terminal_command_v2");
+
+        withTiming.sort((a, b) => {
+            const aMs = a.tfd.additionalData?.startedAtMs;
+            const bMs = b.tfd.additionalData?.startedAtMs;
+            if (aMs == null && bMs == null) return 0;
+            if (aMs == null) return 1;
+            if (bMs == null) return -1;
+            return aMs - bMs;
+        });
+
+        const traces: QaStdoutTrace[] = [];
+        for (const {tfd} of withTiming) {
+            if (typeof tfd.result !== "string") continue;
+            let output: unknown;
+            try {
+                output = (JSON.parse(tfd.result) as {output?: unknown}).output;
+            } catch {
+                continue;
+            }
+            if (typeof output !== "string") continue;
+
+            const trace = parseQaStdoutTrace(output);
+            if (trace) traces.push(trace);
+        }
+
+        return traces;
+    } finally {
+        db.close();
+    }
 }

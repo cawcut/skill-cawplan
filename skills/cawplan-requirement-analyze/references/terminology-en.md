@@ -72,6 +72,7 @@
 | 正向 | Positive |
 | 边界 | Boundary |
 | 异常 | Exception |
+| 逆向 | Reverse Action |
 | 幂等 | Idempotency |
 | 角色权限 | Role & Permission |
 | 一致性 | Consistency |

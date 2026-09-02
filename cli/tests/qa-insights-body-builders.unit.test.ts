@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   BodyValidationError,
   assertNoForbiddenKeys,
@@ -8,7 +9,15 @@ import {
   buildTestPointBatchBody,
   buildModuleTreeNodeBody,
 } from "../src/lib/qa-insights/body-builders";
-import { IS_AI_GENERATED } from "../src/lib/qa-insights/types";
+import {
+  classifyTestPointCategory,
+  createTestPointCategoryMapping,
+  TESTPOINT_CATEGORY_MAPPING_VERSION,
+} from "../src/lib/qa-insights/testpoint-category";
+import {
+  IS_AI_GENERATED,
+  TESTPOINT_CALLER_KEYS,
+} from "../src/lib/qa-insights/types";
 
 const validCreate = {
   module_tree_node_id: "019fcf73-7fd1-7b6a-8745-97c2ffaded05",
@@ -170,6 +179,164 @@ describe("CWP-18709 applyAiGeneratedToRequirementPatch", () => {
   });
 });
 
+describe("qa-testpoint-category/v1 mapping and injection contract", () => {
+  const officialZh = [
+    ["正向", "POSITIVE"],
+    ["边界", "BOUNDARY"],
+    ["异常", "EXCEPTION"],
+    ["逆向", "REVERSE_ACTION"],
+    ["输入类型", "INPUT_TYPE"],
+    ["交互反馈", "INTERACTION_FEEDBACK"],
+    ["状态迁移", "STATE_TRANSITION"],
+    ["角色权限", "ROLE_PERMISSION"],
+    ["来源入口", "SOURCE_ENTRY"],
+    ["幂等", "IDEMPOTENCY"],
+    ["并发", "CONCURRENCY"],
+    ["一致性", "CONSISTENCY"],
+    ["存量兼容", "BACKWARD_COMPATIBILITY"],
+    ["环境兼容", "ENVIRONMENT_COMPATIBILITY"],
+    ["性能", "PERFORMANCE"],
+    ["安全审计", "SECURITY_AUDIT"],
+    ["可观测", "OBSERVABILITY"],
+  ] as const;
+  const officialEn = [
+    ["Positive", "POSITIVE"],
+    ["Boundary", "BOUNDARY"],
+    ["Exception", "EXCEPTION"],
+    ["Reverse Action", "REVERSE_ACTION"],
+    ["Input Type", "INPUT_TYPE"],
+    ["Interaction Feedback", "INTERACTION_FEEDBACK"],
+    ["State Transition", "STATE_TRANSITION"],
+    ["Role & Permission", "ROLE_PERMISSION"],
+    ["Source Entry", "SOURCE_ENTRY"],
+    ["Idempotency", "IDEMPOTENCY"],
+    ["Concurrency", "CONCURRENCY"],
+    ["Consistency", "CONSISTENCY"],
+    ["Backward Compatibility", "BACKWARD_COMPATIBILITY"],
+    ["Environment Compatibility", "ENVIRONMENT_COMPATIBILITY"],
+    ["Performance", "PERFORMANCE"],
+    ["Security Audit", "SECURITY_AUDIT"],
+    ["Observability", "OBSERVABILITY"],
+  ] as const;
+  const categoryPoint = {
+    title: "分类测试点",
+    tags: ["正向"],
+    group: "分类",
+    priority: "HIGH",
+    is_edited: false,
+  };
+
+  test("CATEGORY-V1-01 maps all 17 official Chinese terms", () => {
+    for (const [term, code] of officialZh) {
+      expect(classifyTestPointCategory([term]), term).toBe(code);
+    }
+  });
+
+  test("CATEGORY-V1-02 maps all 17 official English terms", () => {
+    for (const [term, code] of officialEn) {
+      expect(classifyTestPointCategory([term]), term).toBe(code);
+    }
+  });
+
+  test("CATEGORY-V1-03 maps Reverse Action to REVERSE_ACTION", () => {
+    expect(classifyTestPointCategory(["Reverse Action"])).toBe("REVERSE_ACTION");
+  });
+
+  test("CATEGORY-V1-04 maps 正面 and 主流程 aliases to POSITIVE", () => {
+    expect(classifyTestPointCategory(["正面"])).toBe("POSITIVE");
+    expect(classifyTestPointCategory(["主流程"])).toBe("POSITIVE");
+  });
+
+  test("CATEGORY-V1-05 maps Permission alias to ROLE_PERMISSION", () => {
+    expect(classifyTestPointCategory(["Permission"])).toBe("ROLE_PERMISSION");
+  });
+
+  test("CATEGORY-V1-06 normalizes English letter case", () => {
+    expect(classifyTestPointCategory(["pOsItIvE"])).toBe("POSITIVE");
+    expect(classifyTestPointCategory(["ROLE & PERMISSION"])).toBe("ROLE_PERMISSION");
+  });
+
+  test("CATEGORY-V1-07 trims surrounding whitespace", () => {
+    expect(classifyTestPointCategory([" \tPositive\n"])).toBe("POSITIVE");
+  });
+
+  test("CATEGORY-V1-08 applies NFKC to full-width English and ampersand", () => {
+    expect(classifyTestPointCategory(["Ｒｏｌｅ ＆ Ｐｅｒｍｉｓｓｉｏｎ"]))
+      .toBe("ROLE_PERMISSION");
+  });
+
+  test("CATEGORY-V1-09 returns null for an unknown term", () => {
+    expect(classifyTestPointCategory(["自定义"])).toBeNull();
+  });
+
+  test("CATEGORY-V1-10 returns null for a misspelling", () => {
+    expect(classifyTestPointCategory(["Positve"])).toBeNull();
+  });
+
+  test("CATEGORY-V1-11 returns null for an empty primary tag", () => {
+    expect(classifyTestPointCategory([""])).toBeNull();
+    expect(classifyTestPointCategory(["   "])).toBeNull();
+  });
+
+  test("CATEGORY-V1-12 returns null for an empty tags array", () => {
+    expect(classifyTestPointCategory([])).toBeNull();
+  });
+
+  test("CATEGORY-V1-13 only uses tags[0] when multiple tags are present", () => {
+    expect(classifyTestPointCategory(["异常", "正向"])).toBe("EXCEPTION");
+  });
+
+  test("CATEGORY-V1-14 ignores a recognized tags[1] when tags[0] is unknown", () => {
+    expect(classifyTestPointCategory(["自定义", "正向"])).toBeNull();
+  });
+
+  test("CATEGORY-V1-15 does not perform substring matching", () => {
+    expect(classifyTestPointCategory(["正向流程"])).toBeNull();
+    expect(classifyTestPointCategory(["Permission Check"])).toBeNull();
+  });
+
+  test("CATEGORY-V1-16 does not collapse internal whitespace", () => {
+    expect(classifyTestPointCategory(["Role  & Permission"])).toBeNull();
+  });
+
+  test("CATEGORY-V1-17 automatic mapping never returns OTHER", () => {
+    for (const [term] of [...officialZh, ...officialEn]) {
+      expect(classifyTestPointCategory([term])).not.toBe("OTHER");
+    }
+    expect(classifyTestPointCategory(["Other"])).toBeNull();
+    expect(classifyTestPointCategory(["其他"])).toBeNull();
+  });
+
+  test("CATEGORY-V1-18 duplicate normalized keys make initialization fail", () => {
+    const manifest = JSON.parse(
+      readFileSync(
+        new URL("../config/qa-testpoint-category-mapping.v1.json", import.meta.url),
+        "utf8",
+      ),
+    ) as {
+      categories: Array<{ code: string; aliases: { en: string[] } }>;
+    };
+    const boundary = manifest.categories.find((category) => category.code === "BOUNDARY");
+    if (!boundary) throw new Error("test fixture is missing BOUNDARY");
+    boundary.aliases.en.push(" ＰＯＳＩＴＩＶＥ ");
+    expect(() => createTestPointCategoryMapping(manifest)).toThrow(/duplicate normalized mapping key/);
+  });
+
+  test("CATEGORY-V1-19 exposes the frozen mapping version", () => {
+    expect(TESTPOINT_CATEGORY_MAPPING_VERSION).toBe("qa-testpoint-category/v1");
+  });
+
+  test("CATEGORY-V1-20 rejects caller-supplied category_code", () => {
+    expect(() => buildTestPointBatchBody({
+      test_points: [{ ...categoryPoint, category_code: "POSITIVE" }],
+    })).toThrow(/category_code/);
+  });
+
+  test("CATEGORY-V1-21 keeps caller keys strictly at five", () => {
+    expect(TESTPOINT_CALLER_KEYS).toEqual(["title", "tags", "group", "priority", "is_edited"]);
+  });
+});
+
 describe("A2-§9-body / P10 testpoint batch — caller five keys; CLI injects is_ai_generated per item", () => {
   const point = {
     title: "用户名含特殊字符应被拦截",
@@ -183,9 +350,10 @@ describe("A2-§9-body / P10 testpoint batch — caller five keys; CLI injects is
     const body = buildTestPointBatchBody({ test_points: [point] });
     expect(body.test_points).toHaveLength(1);
     expect(Object.keys(body.test_points[0]).sort()).toEqual(
-      ["group", "is_ai_generated", "is_edited", "priority", "tags", "title"],
+      ["category_code", "group", "is_ai_generated", "is_edited", "priority", "tags", "title"],
     );
     expect(body.test_points[0].is_ai_generated).toBe(IS_AI_GENERATED);
+    expect(body.test_points[0].category_code).toBe("EXCEPTION");
   });
   test("A2-§9-body priority is passed through, never inferred", () => {
     const body = buildTestPointBatchBody({ test_points: [{ ...point, priority: "CRITICAL" }] });
@@ -228,6 +396,7 @@ describe("A2-§9-body / P10 testpoint batch — caller five keys; CLI injects is
   test("A2-§9-body empty tags array is allowed", () => {
     const body = buildTestPointBatchBody({ test_points: [{ ...point, tags: [] }] });
     expect(body.test_points[0].tags).toEqual([]);
+    expect(body.test_points[0].category_code).toBeNull();
   });
   test("A2-§9-body empty group is allowed (displays as 未分组)", () => {
     const body = buildTestPointBatchBody({ test_points: [{ ...point, group: "" }] });

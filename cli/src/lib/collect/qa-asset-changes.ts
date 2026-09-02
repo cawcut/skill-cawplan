@@ -1,13 +1,12 @@
 import {QaAssetChange} from "./qa-types.js";
-import {tracesFromToolResultStdout} from "./qa-trace-extract.js";
+import {QaStdoutTrace} from "./qa-trace-extract.js";
 
 /**
  * Counts test points landed via a direct "testpoints archive" success — the
  * archive endpoint is all-or-nothing, so every entry in api.data.test_points
  * on a SUCCESS, non-dry-run call actually made it into CawPlan.
  */
-function countArchivedTestPoints(jsonlPath: string, date?: string): number {
-    const traces = tracesFromToolResultStdout(jsonlPath, date);
+function countArchivedTestPoints(traces: QaStdoutTrace[]): number {
     let count = 0;
     for (const t of traces) {
         if (t.command !== "testpoints archive") continue;
@@ -25,8 +24,7 @@ function countArchivedTestPoints(jsonlPath: string, date?: string): number {
  * own response didn't confirm success, so the batch_size (not landedCount,
  * which is unavailable on this path) is the number that actually landed.
  */
-function countReconciledTestPoints(jsonlPath: string, date?: string): number {
-    const traces = tracesFromToolResultStdout(jsonlPath, date);
+function countReconciledTestPoints(traces: QaStdoutTrace[]): number {
     let count = 0;
     for (const t of traces) {
         if (t.command !== "testpoints reconcile") continue;
@@ -79,10 +77,10 @@ export interface QaAssetChanges {
  * source yet) visible and auditable in one place instead of scattered as
  * ad-hoc zeros across the builder.
  */
-export function collectQaAssetChanges(jsonlPath: string, date?: string): QaAssetChanges {
+export function collectQaAssetChanges(traces: QaStdoutTrace[]): QaAssetChanges {
     return {
         testpoint: {
-            added: countArchivedTestPoints(jsonlPath, date) + countReconciledTestPoints(jsonlPath, date),
+            added: countArchivedTestPoints(traces) + countReconciledTestPoints(traces),
             modified: countModifiedTestPoints(),
             deleted: countDeletedTestPoints(),
         },

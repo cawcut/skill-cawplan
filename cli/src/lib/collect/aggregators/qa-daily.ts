@@ -1,8 +1,15 @@
 import {SessionData, UsageBucket} from "../types.js";
 import {QaDailyApiJson, QaDisplayTimeRange, QaHumanInput, QaSessionData, QaSkillLayer} from "../qa-types.js";
-import {collectSkillLayers, findClaudeCodeJsonlPathBySessionId, productIdFromStdoutTraces} from "../qa-trace-extract.js";
+import {
+    collectSkillLayers,
+    findClaudeCodeJsonlPathBySessionId,
+    QaStdoutTrace,
+    skillLayersFromTraces,
+    tracesFromGuiToolResults,
+    tracesFromToolResultStdout,
+} from "../qa-trace-extract.js";
 import {collectQaAssetChanges} from "../qa-asset-changes.js";
-import {requirementIdsFromJsonl, requirementRefsFromJsonl} from "../qa-requirement-url.js";
+import {requirementRefsFromJsonl} from "../qa-requirement-url.js";
 import {
     foldBucketsToModel,
     mergeUsageBuckets,
@@ -60,31 +67,73 @@ function qaSessionCost(session: SessionData): number {
 }
 
 /**
- * Best-effort skill_layers extraction. Claude Code reads JSONL traces; other agents
- * return [] until a trace adapter exists — empty arrays are valid on included sessions.
- *
- * Future: Cursor GUI stores qa-insights commands in state.vscdb bubble toolFormerData
- * (run_terminal_command_v2 params/result) with stdout-shaped JSON — enough for Bash
- * and stdout signals, but no attributionSkill equivalent. Adding it requires a storage
- * adapter in qa-trace-extract.ts; existing parsers assume Claude Code JSONL events.
+ * session_id doubles as the Cursor GUI composerId — both the agent-transcripts
+ * jsonl filename and the vscdb composerData/bubbleId rows are keyed by the
+ * same id, so no separate lookup is needed to go from a cursor-gui session to
+ * its vscdb trace rows.
  */
-function resolveSkillLayers(session: SessionData, date: string): QaSkillLayer[] {
-    if (session.agent !== "claude-code") return [];
-    const jsonlPath = findClaudeCodeJsonlPathBySessionId(session.session_id, date);
-    if (!jsonlPath) return [];
-    return collectSkillLayers(jsonlPath, date);
+function isGuiAgent(session: SessionData): boolean {
+    return session.agent === "cursor-gui" || (session.agent === "cursor" && qaSessionSource(session) === "gui");
 }
 
 /**
- * One product per session. Tier 1 — product_id from structured stdout receipts.
- * Tier 2 — product_id parsed from a requirement URL in conversation text (read-only
- * sessions that never archive). Tier 3 — leave undefined for manual fill on the web page.
+ * Signal-3 stdout traces (`cawplan qa-insights ...` JSON receipts) for a
+ * session, keyed by data source: Claude Code reads its JSONL file,
+ * Cursor GUI reads vscdb. Other agents (e.g. cursor-cli) have no trace
+ * source yet — their sessions get skill_layers: [], empty requirement_ids,
+ * and no auto-resolved product_id, same as before this data source existed.
  */
-function resolveProductId(jsonlPath: string | null | undefined, date: string): string | undefined {
-    if (!jsonlPath) return undefined;
-    const fromStdout = productIdFromStdoutTraces(jsonlPath, date);
+function resolveTraces(session: SessionData, jsonlPath: string | null | undefined, date: string): QaStdoutTrace[] {
+    if (session.agent === "claude-code") {
+        return jsonlPath ? tracesFromToolResultStdout(jsonlPath, date) : [];
+    }
+    if (isGuiAgent(session)) {
+        return tracesFromGuiToolResults(session.session_id);
+    }
+    return [];
+}
+
+/**
+ * Best-effort skill_layers extraction.
+ * - Claude Code: full signal 1+2+3 union (collectSkillLayers) via its JSONL file.
+ * - Cursor GUI: signal 3 only (skillLayersFromTraces) — no attributionSkill or
+ *   Bash tool_use blocks to scan in vscdb.
+ * - Other agents: [] until a trace adapter exists.
+ */
+function resolveSkillLayers(
+    session: SessionData,
+    jsonlPath: string | null | undefined,
+    traces: QaStdoutTrace[],
+    date: string,
+): QaSkillLayer[] {
+    if (session.agent === "claude-code") {
+        return jsonlPath ? collectSkillLayers(jsonlPath, date) : [];
+    }
+    if (isGuiAgent(session)) {
+        return skillLayersFromTraces(traces);
+    }
+    return [];
+}
+
+/**
+ * One product per session. Tier 1 — product_id from structured stdout receipts
+ * (Claude Code and Cursor GUI both feed this from their own traces[]).
+ * Tier 2 — product_id parsed from a requirement URL in conversation text
+ * (Claude Code only; read-only sessions that never archive). Tier 3 — leave
+ * undefined for manual fill on the web page.
+ */
+function resolveProductId(
+    session: SessionData,
+    jsonlPath: string | null | undefined,
+    traces: QaStdoutTrace[],
+    date: string,
+): string | undefined {
+    const fromStdout = traces.find((t) => t.productId)?.productId;
     if (fromStdout) return fromStdout;
-    return requirementRefsFromJsonl(jsonlPath, date)[0]?.productId;
+    if (session.agent === "claude-code" && jsonlPath) {
+        return requirementRefsFromJsonl(jsonlPath, date)[0]?.productId;
+    }
+    return undefined;
 }
 
 /** Exclude sessions whose human inputs are only cawplan-qa-commit invocations (mirrors coding commit-only filter). */
@@ -102,7 +151,12 @@ export interface QaExcludedSession {
 }
 
 export interface QaFilterResult {
-    included: Array<{session: SessionData; skillLayers: QaSkillLayer[]}>;
+    included: Array<{
+        session: SessionData;
+        skillLayers: QaSkillLayer[];
+        jsonlPath: string | null | undefined;
+        traces: QaStdoutTrace[];
+    }>;
     excluded: QaExcludedSession[];
 }
 
@@ -112,6 +166,10 @@ export interface QaFilterResult {
  * 2. Exclude sessions with no human_input
  *
  * Excluded sessions are logged to stderr (session_id / agent / title) — never silent drops.
+ *
+ * jsonlPath and traces are resolved once here (not per-field later) so
+ * skill_layers, product_id, requirement_ids, and testpoint counts all read
+ * from the same parse of the same underlying trace source.
  */
 export function filterQaSessions(sessions: SessionData[], date: string): QaFilterResult {
     const included: QaFilterResult["included"] = [];
@@ -119,7 +177,11 @@ export function filterQaSessions(sessions: SessionData[], date: string): QaFilte
 
     for (const session of sessions) {
         const title = session.session_title ?? session.session_name;
-        const skillLayers = resolveSkillLayers(session, date);
+        const jsonlPath = session.agent === "claude-code"
+            ? findClaudeCodeJsonlPathBySessionId(session.session_id, date)
+            : null;
+        const traces = resolveTraces(session, jsonlPath, date);
+        const skillLayers = resolveSkillLayers(session, jsonlPath, traces, date);
 
         if (isQaCommitOnlySession(session)) {
             excluded.push({session_id: session.session_id, agent: session.agent, title, reason: "qa-commit-only"});
@@ -130,7 +192,7 @@ export function filterQaSessions(sessions: SessionData[], date: string): QaFilte
             continue;
         }
 
-        included.push({session, skillLayers});
+        included.push({session, skillLayers, jsonlPath, traces});
     }
 
     return {included, excluded};
@@ -180,19 +242,18 @@ export function buildQaDailyPayload(
     const costByCurrency = sumCostByCurrency(allBuckets);
     const usageBreakdown = Object.values(allBuckets).sort((a, b) => b.cost - a.cost);
 
-    const qaSessions: QaSessionData[] = included.map(({session, skillLayers}) => {
-        const jsonlPath = session.agent === "claude-code"
-            ? findClaudeCodeJsonlPathBySessionId(session.session_id, date)
-            : null;
-        const assetChanges = jsonlPath ? collectQaAssetChanges(jsonlPath, date) : collectQaAssetChanges("", date);
-        const requirementIds = jsonlPath ? requirementIdsFromJsonl(jsonlPath, date) : [];
+    const qaSessions: QaSessionData[] = included.map(({session, skillLayers, jsonlPath, traces}) => {
+        const assetChanges = collectQaAssetChanges(traces);
+        const requirementIds = Array.from(
+            new Set(traces.map((t) => t.requirementId).filter((id): id is string => Boolean(id)))
+        );
 
         return {
             session_id: session.session_id,
             agent: qaAgentDisplay(session),
             source: session.source ?? qaSessionSource(session),
             session_title: truncateSessionTitle(session.session_title ?? session.session_name),
-            product_id: session.product_id ?? resolveProductId(jsonlPath, date),
+            product_id: session.product_id ?? resolveProductId(session, jsonlPath, traces, date),
             cwd: session.cwd,
             session_cost: session.session_cost ?? qaSessionCost(session),
             ticket_ids: session.ticket_ids ?? [],
