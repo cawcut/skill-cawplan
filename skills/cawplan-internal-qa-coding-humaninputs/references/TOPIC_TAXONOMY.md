@@ -74,6 +74,11 @@ only.
   even if category is `question_clarification`.
 - prev offers implement + content "直接改" → topic often follows the feature under discussion in
   assistant head (e.g. `new_feature`), not `git_ops`.
+- Bare `"帮实现"` alone after assistant proposed a feature → inherit **`new_feature`** from
+  assistant head (NOT `design_ui` when the assistant is implementing a new capability).
+- Cawpass / session-checkout display policies (hide `checkout_error` / `checkout_preview`, retry
+  rules, new Status-filter values like Purchase Failed / Session Expired) → **`new_feature`** even
+  when wording is only hide/show/rename/filter (NOT `design_ui` alone).
 
 ## Topics (17 values — pick exactly one)
 
@@ -140,6 +145,9 @@ if two apply, pick the **more specific** one.
 | "fallback对齐上周样式，加硬编码开关" | `direction_constraint` | `new_feature` |
 | "频道里Bot未加入，也可以是work Object形态吗。如果可以，帮实现" | `question_clarification` | `design_ui` or `investigation` |
 | "work object对齐上周样式，icon对齐本周" | `direction_constraint` | `design_ui` |
+| prev proposed refresh + bare "帮实现" | `requirement` | `new_feature` |
+| "帮我对齐JIRA" | `correction_intent` | `new_feature` |
+| "checkout_error hide when approval_state=pass; retry rules" | `direction_constraint` | `new_feature` |
 | prev offers plan + "开始执行" | `approval` | `new_feature` |
 | PR + curl to simulate STT/API | `requirement` | `integration_api` |
 | "这个需要改什么" (CSP/browser mismatch diagnosis) | `question_clarification` | `investigation` |

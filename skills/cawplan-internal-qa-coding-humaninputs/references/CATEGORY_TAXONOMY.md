@@ -116,7 +116,8 @@ wrong — see SHAPE REFINEMENT above.
 - `correction_defect` — behavior, data, or logic is factually wrong (crash, wrong data, broken
   display; e.g. "状态过滤里面 Processing 没有数量").
 - `correction_intent` — runs without error but result/order/flow/wording isn't wanted; feature flow
-  feels wrong (not code structure).
+  feels wrong (not code structure). `"帮我对齐JIRA"` / align existing Slack card semantics to a
+  reference product → `correction_intent`, NOT `requirement`.
 - `correction_quality` — works and outcome OK, but code/architecture over-engineered or poorly
   organized.
 - `rejection_rollback` — short evaluative judgment that something doesn't work/fit ("不合适", "不行",
@@ -127,9 +128,11 @@ wrong — see SHAPE REFINEMENT above.
 
 **Judgment**
 
-- `decision` — human **explicitly picked** one option ("use X", "go with option B"). Routine
-  `"commit & push"` / `"commit with prefix & push"` after implementation → `approval` or
-  `process_control`, NOT `decision`. `"you decide"` is NOT `decision`.
+- `decision` — human **explicitly picked** one option ("use X", "go with option B"). Choosing after
+  the assistant offered alternatives (`那就统一不要显示数量`, "then do it uniformly that way") →
+  `decision`, NOT `direction_constraint`. Routine `"commit & push"` / `"commit with prefix & push"`
+  after implementation → `approval` or `process_control`, NOT `decision`. `"you decide"` is NOT
+  `decision`.
 - `approval` — positive evaluation or accepting word ("looks good", "可以", "同意", "that works, go
   ahead"). Bare "continue"/"继续" without evaluative word → `process_control`.
 - `verification` — testing, validation, self-check ("add a unit test", "verify this works").
@@ -183,7 +186,8 @@ See `TOPIC_TAXONOMY.md` for the topic column. Category primary only:
 | "Request 改名 Approval ID，然后去掉#号" | `direction_constraint` |
 | "merge Approval state and Terminal state into Status + rules" | `requirement` |
 | "状态过滤里面 Processing 没有数量" | `correction_defect` |
-| "那就统一不要显示数量" | `decision` |
+| "帮我对齐JIRA" (fix Slack card semantics vs JIRA reference) | `correction_intent` |
+| "那就统一不要显示数量" (after assistant offered count vs no-count) | `decision` |
 | "string 类型可以看看是不是 RFC3339 格式" | `verification` |
 | "第6怎么设计比较合适" (follow-up to deploy checklist) | `planning` |
 | "comment没有生效" | `correction_defect` |
