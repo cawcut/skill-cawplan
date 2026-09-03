@@ -36,7 +36,7 @@ describe("qa-reports create", () => {
     await runQAReportsCreate(PRODUCT, VERSION, body, h.deps);
     expect(h.calls[0]).toEqual({
       method: "POST",
-      path: `/api/v1/product/${PRODUCT}/versions/${VERSION}/qa_report`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/versions/${VERSION}/qa_report`,
       body,
     });
   });
@@ -49,7 +49,7 @@ describe("qa-reports update", () => {
     await runQAReportsUpdate(PRODUCT, VERSION, REPORT, body, h.deps);
     expect(h.calls[0]).toEqual({
       method: "PUT",
-      path: `/api/v1/product/${PRODUCT}/versions/${VERSION}/qa_report/${REPORT}`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/versions/${VERSION}/qa_report/${REPORT}`,
       body,
     });
   });

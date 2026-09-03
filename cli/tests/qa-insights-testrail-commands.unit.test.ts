@@ -77,7 +77,7 @@ describe("A1 TestRail mappings get", () => {
   test("GET /qa/testrail/mappings", async () => {
     const h = harness([ok({ default_suite_id: 101 })]);
     await runTestrailMappingsGet(PRODUCT, h.deps);
-    expect(h.calls[0].path).toBe(`/api/v1/product/${PRODUCT}/qa/testrail/mappings`);
+    expect(h.calls[0].path).toBe(`/api/v1/public/openapi/product/${PRODUCT}/qa/testrail/mappings`);
     expect(h.envelope.command).toBe("qa-insights testrail mappings get");
     expect(h.envelope.outcome).toBe("SUCCESS");
   });
@@ -106,7 +106,7 @@ describe("A1 TestRail sections list (import pre-flight)", () => {
 
     expect(h.calls[0]).toMatchObject({
       method: "GET",
-      path: `/api/v1/product/${PRODUCT}/qa/testrail/suites/335210/sections`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/qa/testrail/suites/335210/sections`,
       query: {},
     });
     expect(h.envelope.command).toBe("qa-insights testrail sections list");
@@ -146,7 +146,7 @@ describe("A1 TestRail suite-create", () => {
 
     expect(h.calls[0]).toMatchObject({
       method: "POST",
-      path: `/api/v1/product/${PRODUCT}/qa/testrail/suites`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/qa/testrail/suites`,
       body: { name: "VN - Hotfix" },
     });
     expect(h.envelope.command).toBe("qa-insights testrail suite-create");
@@ -211,7 +211,7 @@ describe("A2 TestRail plan-rules", () => {
     await runTestrailPlanRulesGet(PRODUCT, h.deps);
     expect(h.calls[0]).toMatchObject({
       method: "GET",
-      path: `/api/v1/product/${PRODUCT}/qa/testrail/plan-rules`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/qa/testrail/plan-rules`,
     });
     expect(h.envelope.command).toBe("qa-insights testrail plan-rules get");
     expect(h.envelope.outcome).toBe("SUCCESS");
@@ -226,7 +226,7 @@ describe("A2 TestRail plan-rules", () => {
     );
     expect(h.calls[0]).toMatchObject({
       method: "PUT",
-      path: `/api/v1/product/${PRODUCT}/qa/testrail/plan-rules`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/qa/testrail/plan-rules`,
       body: { rules: { R1: { enabled: false } } },
     });
   });
@@ -254,7 +254,7 @@ describe("A2 TestRail plan preview", () => {
     await runTestrailPlanPreview(PRODUCT, { versionId: VERSION }, h.deps);
     expect(h.calls[0]).toMatchObject({
       method: "POST",
-      path: `/api/v1/product/${PRODUCT}/qa/testrail/plan/preview`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/qa/testrail/plan/preview`,
       body: { version_id: VERSION },
     });
     expect(h.envelope.command).toBe("qa-insights testrail plan preview");
@@ -383,7 +383,7 @@ describe("A2 TestRail plan execute", () => {
     await runTestrailPlanExecute(PRODUCT, { previewId: PREVIEW, confirm: true }, h.deps);
     expect(h.calls[0]).toMatchObject({
       method: "POST",
-      path: `/api/v1/product/${PRODUCT}/qa/testrail/plan/execute`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/qa/testrail/plan/execute`,
       body: { preview_id: PREVIEW, confirm: true },
     });
     expect(h.envelope.meta.job_id).toBe(JOB);
@@ -539,7 +539,7 @@ describe("A2 TestRail milestone binding probe", () => {
 
     expect(h.calls[0]).toMatchObject({
       method: "GET",
-      path: `/api/v1/product/${PRODUCT}/versions/${VERSION}/qa/testrail/milestone-mapping`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/versions/${VERSION}/qa/testrail/milestone-mapping`,
     });
     expect(h.envelope.command).toBe("qa-insights testrail milestone mapping-get");
     expect(h.envelope.meta.has_mapping).toBe(true);
@@ -580,7 +580,7 @@ describe("A2 TestRail milestone binding probe", () => {
 
     expect(h.calls[0]).toMatchObject({
       method: "GET",
-      path: `/api/v1/product/${PRODUCT}/qa/testrail/milestones/88/validate`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/qa/testrail/milestones/88/validate`,
       query: { version_id: VERSION },
     });
     expect(h.envelope.command).toBe("qa-insights testrail milestone validate");
@@ -656,7 +656,7 @@ describe("A3 TestRail execution progress", () => {
 
     expect(h.calls[0]).toMatchObject({
       method: "GET",
-      path: `/api/v1/product/${PRODUCT}/versions/${VERSION}/qa/testrail/execution/summary`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/versions/${VERSION}/qa/testrail/execution/summary`,
       query: {
         refresh: "true",
         ticket_id: TICKET,
@@ -704,7 +704,7 @@ describe("A3 TestRail execution progress", () => {
 
     expect(h.calls[0]).toMatchObject({
       method: "GET",
-      path: `/api/v1/product/${PRODUCT}/versions/${VERSION}/qa/testrail/execution/failures`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/versions/${VERSION}/qa/testrail/execution/failures`,
       query: { refresh: "true", run_id: "901", limit: "20", offset: "0" },
     });
     expect(h.envelope.command).toBe("qa-insights testrail execution failures");
@@ -748,7 +748,7 @@ describe("A3 TestRail execution progress", () => {
 
     expect(h.calls[0]).toMatchObject({
       method: "GET",
-      path: `/api/v1/product/${PRODUCT}/versions/${VERSION}/qa/testrail/execution/failures`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/versions/${VERSION}/qa/testrail/execution/failures`,
       query: { test_id: String(TEST_ID), include_flaky: "true" },
     });
     expect(h.envelope.meta.test_id).toBe(TEST_ID);
@@ -773,7 +773,7 @@ describe("A3 TestRail execution progress", () => {
 
     expect(h.calls[0]).toMatchObject({
       method: "POST",
-      path: `/api/v1/product/${PRODUCT}/qa/testrail/resolve-url`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/qa/testrail/resolve-url`,
       body: { url: "https://example.testrail.io/index.php?/runs/view/901" },
     });
     expect(h.envelope.command).toBe("qa-insights testrail resolve-url");
@@ -803,7 +803,7 @@ describe("A4 TestRail failure-to-defect", () => {
     );
     expect(h.calls[0]).toMatchObject({
       method: "POST",
-      path: `/api/v1/product/${PRODUCT}/qa/testrail/results/${RESULT}/defect-draft`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/qa/testrail/results/${RESULT}/defect-draft`,
       body: { version_id: VERSION, run_id: 901, case_id: 12345, test_id: 80001 },
     });
     expect(h.envelope.command).toBe("qa-insights testrail defects draft");
@@ -859,7 +859,7 @@ describe("A4 TestRail failure-to-defect", () => {
     );
     expect(h.calls[0]).toMatchObject({
       method: "POST",
-      path: `/api/v1/product/${PRODUCT}/qa/testrail/results/${RESULT}/create-ticket`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/qa/testrail/results/${RESULT}/create-ticket`,
       body,
     });
     expect(h.envelope.meta.version_id).toBe(VERSION);
@@ -877,7 +877,7 @@ describe("A4 TestRail failure-to-defect", () => {
     await runTestrailDefectLinkTicket(PRODUCT, RESULT, { ticketId: TICKET, confirm: true }, h.deps);
     expect(h.calls[0]).toMatchObject({
       method: "POST",
-      path: `/api/v1/product/${PRODUCT}/qa/testrail/results/${RESULT}/link-ticket`,
+      path: `/api/v1/public/openapi/product/${PRODUCT}/qa/testrail/results/${RESULT}/link-ticket`,
       body: { ticket_id: TICKET },
     });
     expect(h.envelope.meta.ticket_id).toBe(TICKET);

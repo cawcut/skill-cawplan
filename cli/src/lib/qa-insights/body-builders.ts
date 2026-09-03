@@ -36,6 +36,10 @@ import {
   type TestrailPlanRuleKey,
   type TestrailDefectCreateTicketInput,
   type TestrailDefectDraftInput,
+  type RiskAssessmentComputeInput,
+  type RiskAssessmentSaveBody,
+  type RiskLevel,
+  type RiskRulesBody,
   type TestPointDraft,
 } from "./types.js";
 
@@ -671,4 +675,240 @@ export function buildTestrailDefectLinkTicketBody(ticketId: unknown): { ticket_i
     throw new BodyValidationError("testrail defects link-ticket requires --ticket-id");
   }
   return { ticket_id: id };
+}
+
+const RISK_LEVELS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
+const RISK_LEVEL_SET = new Set<string>(RISK_LEVELS);
+
+function optionalNonNegativeInteger(value: unknown, label: string): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new BodyValidationError(`${label} must be a non-negative integer`);
+  }
+  return parsed;
+}
+
+function optionalRate(value: unknown, label: string): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    throw new BodyValidationError(`${label} must be a number between 0 and 1`);
+  }
+  return parsed;
+}
+
+function optionalRiskLevel(value: unknown, label: string): RiskLevel | undefined {
+  const level = optionalString(value)?.toUpperCase();
+  if (!level) return undefined;
+  if (!RISK_LEVEL_SET.has(level)) {
+    throw new BodyValidationError(`${label} must be one of ${RISK_LEVELS.join(", ")}`);
+  }
+  return level as RiskLevel;
+}
+
+function resolveRefreshExecution(input: RiskAssessmentComputeInput): boolean {
+  if (input.noRefreshExecution) return false;
+  if (input.refreshExecution !== undefined) return input.refreshExecution;
+  return true;
+}
+
+export function buildRiskAssessmentComputeBody(
+  input: RiskAssessmentComputeInput = {},
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    refresh_execution: resolveRefreshExecution(input),
+  };
+
+  const ticketId = optionalString(input.ticketId);
+  body.ticket_id = ticketId ?? null;
+
+  const planMappingIds = optionalStringArray(input.planMappingIds, "plan_mapping_ids");
+  body.plan_mapping_ids = planMappingIds ?? null;
+
+  return body;
+}
+
+export function mergeRiskAssessmentComputeBody(
+  parsed: unknown,
+  flags: Partial<RiskAssessmentComputeInput>,
+): Record<string, unknown> {
+  const body = assertPlainObject(parsed, "risk-assessment compute body");
+  const merged = buildRiskAssessmentComputeBody({
+    refreshExecution:
+      flags.noRefreshExecution !== undefined || flags.refreshExecution !== undefined
+        ? flags.noRefreshExecution
+          ? false
+          : flags.refreshExecution
+        : valueByNames<boolean>(body, "refresh_execution", "refreshExecution"),
+    noRefreshExecution: flags.noRefreshExecution,
+    ticketId:
+      flags.ticketId ??
+      valueByNames<string | null>(body, "ticket_id", "ticketId") ??
+      null,
+    planMappingIds:
+      flags.planMappingIds ??
+      valueByNames<string[] | string>(body, "plan_mapping_ids", "planMappingIds"),
+  });
+
+  const deprecatedPlanMappingId = optionalString(
+    valueByNames<string | null>(body, "plan_mapping_id", "planMappingId"),
+  );
+  if (deprecatedPlanMappingId) {
+    merged.plan_mapping_id = deprecatedPlanMappingId;
+  }
+
+  return merged;
+}
+
+export function buildRiskRulesBody(input: unknown): RiskRulesBody {
+  const body = assertPlainObject(input, "risk-rules body");
+  const out: Record<string, unknown> = {};
+
+  const passRateMin = optionalRate(
+    valueByNames<number>(body, "pass_rate_min", "passRateMin"),
+    "pass_rate_min",
+  );
+  if (passRateMin !== undefined) out.pass_rate_min = passRateMin;
+
+  const p1OpenFailuresMax = optionalNonNegativeInteger(
+    valueByNames<number>(body, "p1_open_failures_max", "p1OpenFailuresMax"),
+    "p1_open_failures_max",
+  );
+  if (p1OpenFailuresMax !== undefined) out.p1_open_failures_max = p1OpenFailuresMax;
+
+  const newFeatureUnexecutedRateMax = optionalRate(
+    valueByNames<number>(body, "new_feature_unexecuted_rate_max", "newFeatureUnexecutedRateMax"),
+    "new_feature_unexecuted_rate_max",
+  );
+  if (newFeatureUnexecutedRateMax !== undefined) {
+    out.new_feature_unexecuted_rate_max = newFeatureUnexecutedRateMax;
+  }
+
+  const highPlusOpenTicketsMax = optionalNonNegativeInteger(
+    valueByNames<number>(body, "high_plus_open_tickets_max", "highPlusOpenTicketsMax"),
+    "high_plus_open_tickets_max",
+  );
+  if (highPlusOpenTicketsMax !== undefined) {
+    out.high_plus_open_tickets_max = highPlusOpenTicketsMax;
+  }
+
+  const criticalCase = body.critical_case ?? body.criticalCase;
+  if (criticalCase !== undefined) {
+    const critical = assertPlainObject(criticalCase, "risk-rules body.critical_case");
+    const normalized: Record<string, unknown> = {};
+    const importanceField = optionalString(
+      valueByNames<string>(critical, "importance_field", "importanceField"),
+    );
+    if (importanceField) normalized.importance_field = importanceField;
+    const importanceValues = optionalStringArray(
+      valueByNames<string[] | string>(critical, "importance_values", "importanceValues"),
+      "critical_case.importance_values",
+    );
+    if (importanceValues) normalized.importance_values = importanceValues;
+    const priorityValues = optionalStringArray(
+      valueByNames<string[] | string>(critical, "priority_values", "priorityValues"),
+      "critical_case.priority_values",
+    );
+    if (priorityValues) normalized.priority_values = priorityValues;
+    if (Object.keys(normalized).length > 0) out.critical_case = normalized;
+  }
+
+  const flaky = body.flaky;
+  if (flaky !== undefined) {
+    const flakyBody = assertPlainObject(flaky, "risk-rules body.flaky");
+    const normalized: Record<string, unknown> = {};
+    const consecutiveFailures = optionalNonNegativeInteger(
+      valueByNames<number>(flakyBody, "consecutive_failures", "consecutiveFailures"),
+      "flaky.consecutive_failures",
+    );
+    if (consecutiveFailures !== undefined) {
+      normalized.consecutive_failures = consecutiveFailures;
+    }
+    const useHistoricalMark = valueByNames<boolean>(
+      flakyBody,
+      "use_historical_mark",
+      "useHistoricalMark",
+    );
+    if (typeof useHistoricalMark === "boolean") {
+      normalized.use_historical_mark = useHistoricalMark;
+    }
+    if (Object.keys(normalized).length > 0) out.flaky = normalized;
+  }
+
+  if (Object.keys(out).length === 0) {
+    throw new BodyValidationError(
+      "risk-rules body requires at least one of pass_rate_min, p1_open_failures_max, new_feature_unexecuted_rate_max, high_plus_open_tickets_max, critical_case, flaky",
+    );
+  }
+
+  return out as RiskRulesBody;
+}
+
+export function buildRiskAssessmentSaveBody(input: unknown): RiskAssessmentSaveBody {
+  const body = assertPlainObject(input, "risk-assessment save body");
+  const allowed = new Set([
+    "risk_level",
+    "reasons",
+    "note",
+    "ai_summary",
+    "override_rule_engine",
+    "riskLevel",
+    "aiSummary",
+    "overrideRuleEngine",
+  ]);
+  const extra = Object.keys(body).filter((key) => !allowed.has(key));
+  if (extra.length > 0) {
+    throw new BodyValidationError(
+      `risk-assessment save body must contain only risk_level, reasons, note, ai_summary, override_rule_engine — remove ${extra.join(", ")}`,
+    );
+  }
+
+  const out: RiskAssessmentSaveBody = {};
+  const riskLevel = optionalRiskLevel(
+    valueByNames<string>(body, "risk_level", "riskLevel"),
+    "risk_level",
+  );
+  if (riskLevel) out.risk_level = riskLevel;
+
+  if (body.reasons !== undefined) {
+    if (!Array.isArray(body.reasons)) {
+      throw new BodyValidationError("risk-assessment save body.reasons must be an array");
+    }
+    out.reasons = body.reasons;
+  }
+
+  const note = valueByNames<string>(body, "note", "note");
+  if (note !== undefined) {
+    if (typeof note !== "string") {
+      throw new BodyValidationError("risk-assessment save body.note must be a string");
+    }
+    out.note = note;
+  }
+
+  const aiSummary = valueByNames<string>(body, "ai_summary", "aiSummary");
+  if (aiSummary !== undefined) {
+    if (typeof aiSummary !== "string") {
+      throw new BodyValidationError("risk-assessment save body.ai_summary must be a string");
+    }
+    out.ai_summary = aiSummary;
+  }
+
+  const overrideRuleEngine = valueByNames<boolean>(
+    body,
+    "override_rule_engine",
+    "overrideRuleEngine",
+  );
+  if (overrideRuleEngine !== undefined) {
+    if (typeof overrideRuleEngine !== "boolean") {
+      throw new BodyValidationError("risk-assessment save body.override_rule_engine must be a boolean");
+    }
+    out.override_rule_engine = overrideRuleEngine;
+  }
+
+  if (Object.keys(out).length === 0) {
+    throw new BodyValidationError("risk-assessment save body must not be empty");
+  }
+
+  return out;
 }

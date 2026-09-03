@@ -304,3 +304,40 @@ export interface TestrailDefectCreateTicketInput {
   draft: Record<string, unknown>;
   link_existing_ticket_id?: string | null;
 }
+
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+export interface RiskRulesBody {
+  pass_rate_min?: number;
+  p1_open_failures_max?: number;
+  new_feature_unexecuted_rate_max?: number;
+  high_plus_open_tickets_max?: number;
+  critical_case?: {
+    importance_field?: string;
+    importance_values?: string[];
+    priority_values?: string[];
+    [key: string]: unknown;
+  };
+  flaky?: {
+    consecutive_failures?: number;
+    use_historical_mark?: boolean;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface RiskAssessmentComputeInput {
+  refreshExecution?: boolean;
+  noRefreshExecution?: boolean;
+  ticketId?: string | null;
+  planMappingIds?: string[] | string;
+}
+
+export interface RiskAssessmentSaveBody {
+  risk_level?: RiskLevel;
+  reasons?: unknown[];
+  note?: string;
+  ai_summary?: string;
+  override_rule_engine?: boolean;
+  [key: string]: unknown;
+}

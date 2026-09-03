@@ -17,6 +17,10 @@ import {
   buildTestrailPlanExecuteBody,
   buildTestrailPlanPreviewBody,
   buildTestrailPlanRulesBody,
+  buildRiskAssessmentComputeBody,
+  buildRiskAssessmentSaveBody,
+  buildRiskRulesBody,
+  mergeRiskAssessmentComputeBody,
   mergeTestrailImportPreviewBody,
   mergeTestrailDefectDraftBody,
   mergeTestrailPlanPreviewBody,
@@ -36,6 +40,7 @@ import {
   buildTestrailExecutionSummaryQuery,
   buildTestrailResolveUrlBody,
 } from "../lib/qa-insights/testrail-execution.js";
+import { qaApiPath, versionQaApiPath } from "../lib/qa-insights/risk-assessment.js";
 import { buildTestrailMilestoneValidateQuery } from "../lib/qa-insights/testrail-milestone.js";
 import {
   buildTestrailSuiteCreateBody,
@@ -68,7 +73,6 @@ import type {
  */
 
 const API_BASE = "/api/v1/public/openapi/product";
-const INTERNAL_PRODUCT_API_BASE = "/api/v1/product";
 
 /** Injectable for tests; defaults to the real HTTP client. */
 export type RequestFn = typeof cawplanRequest;
@@ -783,11 +787,11 @@ export async function runTestPointsReconcile(
 // ---------------------------------------------------------------------------
 
 function testrailApiPath(productId: string, suffix: string): string {
-  return `${INTERNAL_PRODUCT_API_BASE}/${productId}/qa/testrail${suffix}`;
+  return `${API_BASE}/${productId}/qa/testrail${suffix}`;
 }
 
 function versionTestrailApiPath(productId: string, versionId: string, suffix: string): string {
-  return `${INTERNAL_PRODUCT_API_BASE}/${productId}/versions/${versionId}/qa/testrail${suffix}`;
+  return `${API_BASE}/${productId}/versions/${versionId}/qa/testrail${suffix}`;
 }
 
 async function performTestrailPost(options: {
@@ -1810,6 +1814,225 @@ export async function runTestrailJobPoll(
 }
 
 // ---------------------------------------------------------------------------
+// Release risk assessment (T2-A5)
+// ---------------------------------------------------------------------------
+
+export async function runRiskRulesGet(productId: string, deps?: CommandDeps): Promise<void> {
+  const command = "qa-insights risk-rules get";
+  const meta: QAInsightsMeta = { product_id: productId, dry_run: false };
+  const emit = emitter(deps);
+
+  const read = await performRead({
+    request: requester(deps),
+    path: qaApiPath(productId, "/risk-rules"),
+    command,
+    meta,
+  });
+  if (read.envelope) return emit(read.envelope);
+
+  return emit(
+    buildEnvelope({
+      outcome: "SUCCESS",
+      command,
+      meta,
+      api: { code: "SUCCESS", msg: "success", data: read.data },
+    }),
+  );
+}
+
+export interface RiskRulesSetOptions {
+  bodyFile?: string;
+  body?: string;
+  dryRun?: boolean;
+}
+
+export async function runRiskRulesSet(
+  productId: string,
+  opts: RiskRulesSetOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights risk-rules set";
+  const meta: QAInsightsMeta = { product_id: productId, dry_run: Boolean(opts.dryRun) };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    body = buildRiskRulesBody(
+      await readJsonInput(opts.bodyFile, opts.body, "risk-rules set"),
+    ) as unknown as Record<string, unknown>;
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    method: "PUT",
+    path: qaApiPath(productId, "/risk-rules"),
+    body,
+    command,
+    meta,
+    isWrite: true,
+  });
+  return emit(envelope);
+}
+
+export interface RiskAssessmentComputeOptions {
+  bodyFile?: string;
+  body?: string;
+  refreshExecution?: boolean;
+  noRefreshExecution?: boolean;
+  ticketId?: string;
+  planMappingIds?: string[] | string;
+  dryRun?: boolean;
+}
+
+export async function runRiskAssessmentCompute(
+  productId: string,
+  versionId: string,
+  opts: RiskAssessmentComputeOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights risk-assessment compute";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    version_id: versionId,
+    dry_run: Boolean(opts.dryRun),
+  };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    const parsed = await readOptionalJsonInput(opts.bodyFile, opts.body, "risk-assessment compute");
+    body =
+      parsed === undefined
+        ? buildRiskAssessmentComputeBody({
+            refreshExecution: opts.refreshExecution,
+            noRefreshExecution: opts.noRefreshExecution,
+            ticketId: opts.ticketId,
+            planMappingIds: opts.planMappingIds,
+          })
+        : mergeRiskAssessmentComputeBody(parsed, {
+            refreshExecution: opts.refreshExecution,
+            noRefreshExecution: opts.noRefreshExecution,
+            ticketId: opts.ticketId,
+            planMappingIds: opts.planMappingIds,
+          });
+    if (typeof body.ticket_id === "string") meta.ticket_id = body.ticket_id;
+    if (Array.isArray(body.plan_mapping_ids)) {
+      meta.plan_mapping_ids = body.plan_mapping_ids as string[];
+    }
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: versionQaApiPath(productId, versionId, "/risk-assessment/compute"),
+    body,
+    command,
+    meta,
+    isWrite: false,
+  });
+  return emit(envelope);
+}
+
+export async function runRiskAssessmentGet(
+  productId: string,
+  versionId: string,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights risk-assessment get";
+  const meta: QAInsightsMeta = { product_id: productId, version_id: versionId, dry_run: false };
+  const emit = emitter(deps);
+
+  const read = await performRead({
+    request: requester(deps),
+    path: versionQaApiPath(productId, versionId, "/risk-assessment"),
+    command,
+    meta,
+  });
+  if (read.envelope) return emit(read.envelope);
+
+  return emit(
+    buildEnvelope({
+      outcome: "SUCCESS",
+      command,
+      meta,
+      api: { code: "SUCCESS", msg: "success", data: read.data },
+    }),
+  );
+}
+
+export interface RiskAssessmentSaveOptions {
+  bodyFile?: string;
+  body?: string;
+  confirm?: boolean;
+  dryRun?: boolean;
+}
+
+export async function runRiskAssessmentSave(
+  productId: string,
+  versionId: string,
+  opts: RiskAssessmentSaveOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights risk-assessment save";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    version_id: versionId,
+    dry_run: Boolean(opts.dryRun),
+  };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    body = buildRiskAssessmentSaveBody(
+      await readJsonInput(opts.bodyFile, opts.body, "risk-assessment save"),
+    ) as unknown as Record<string, unknown>;
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  if (!opts.confirm) {
+    return emit(
+      buildEnvelope({
+        outcome: "FAILURE",
+        command,
+        meta,
+        post_body: body,
+        error: {
+          type: "validation",
+          message: "risk-assessment save requires --confirm (assessment must be reviewed first)",
+          api_code: "CONFIRMATION_REQUIRED",
+        },
+      }),
+    );
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: versionQaApiPath(productId, versionId, "/risk-assessment"),
+    body,
+    command,
+    meta,
+    isWrite: true,
+  });
+  return emit(envelope);
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
@@ -2113,5 +2336,49 @@ export function registerQAInsightsCommand(program: Command): void {
     .option("--timeout-ms <n>", "Max wait in ms (default 600000)", (v: string) => Number(v))
     .action((productId: string, jobId: string, opts) =>
       runTestrailJobPoll(productId, jobId, opts),
+    );
+
+  const riskRules = qa.command("risk-rules").description("Release risk rule configuration (A5)");
+  riskRules
+    .command("get <product_id>")
+    .description("Get Product release risk rule thresholds")
+    .action((productId: string) => runRiskRulesGet(productId));
+  riskRules
+    .command("set <product_id>")
+    .description("Update Product release risk rule thresholds")
+    .option("--body-file <path>", "JSON file containing risk-rules body")
+    .option("--body <json>", "Inline JSON risk-rules body")
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, opts) => runRiskRulesSet(productId, opts));
+
+  const riskAssessment = qa
+    .command("risk-assessment")
+    .description("Version release risk assessment (A5)");
+  riskAssessment
+    .command("compute <product_id> <version_id>")
+    .description("Recompute release risk for a Version via the rule engine")
+    .option("--body-file <path>", "Full risk-assessment compute request JSON")
+    .option("--body <json>", "Inline risk-assessment compute request JSON")
+    .option("--refresh-execution", "Force refresh TestRail execution data (default)")
+    .option("--no-refresh-execution", "Use cached execution data")
+    .option("--ticket-id <id>", "Scope compute to one Ticket's Plan/Run mappings")
+    .option("--plan-mapping-ids <ids>", "Comma-separated PlanMapping ids")
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, versionId: string, opts) =>
+      runRiskAssessmentCompute(productId, versionId, opts),
+    );
+  riskAssessment
+    .command("get <product_id> <version_id>")
+    .description("Get the latest saved release risk assessment for a Version")
+    .action((productId: string, versionId: string) => runRiskAssessmentGet(productId, versionId));
+  riskAssessment
+    .command("save <product_id> <version_id>")
+    .description("Save a reviewed release risk assessment to a Version")
+    .option("--body-file <path>", "JSON body containing risk_level, reasons, note, ai_summary, override_rule_engine")
+    .option("--body <json>", "Inline JSON save body")
+    .option("--confirm", "Required safety gate — assessment must be reviewed first")
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, versionId: string, opts) =>
+      runRiskAssessmentSave(productId, versionId, opts),
     );
 }
