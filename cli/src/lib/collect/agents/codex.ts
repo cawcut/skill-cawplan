@@ -298,6 +298,7 @@ function parseRollout(
   model: string | null;
   rolloutPath: string | null;
   isSubagent: boolean;
+  toolOutputs: string[];
 } {
   const result = {
     userCount: 0,
@@ -315,6 +316,7 @@ function parseRollout(
     model: null as string | null,
     rolloutPath: null as string | null,
     isSubagent: false,
+    toolOutputs: [] as string[],
   };
 
   let content: string | null = null;
@@ -483,6 +485,11 @@ function parseRollout(
           }
         }
         result.filesChanged = allChangedFiles.size;
+      }
+
+      if (eventType === "response_item" && payloadType === "custom_tool_call_output") {
+        const text = extractTextContent(payload?.["output"]);
+        if (text) result.toolOutputs.push(text);
       }
 
       if (eventType === "event_msg" && payload?.["type"] === "patch_apply_end") {
@@ -667,6 +674,7 @@ export function collectCodexSessions(filterDate: string, opts?: CodexCollectOpti
         tool_calls: rolloutData.toolCallCount,
       },
       human_inputs: rolloutData.humanInputs.length > 0 ? rolloutData.humanInputs : undefined,
+      qa_tool_outputs: rolloutData.toolOutputs.length > 0 ? rolloutData.toolOutputs : undefined,
     }));
     logCodex(opts, `Collected Codex session ${id}: models=${Object.keys(modelUsage).join(",")}, users=${rolloutData.userCount}, assistants=${rolloutData.assistantCount}.`);
   }
