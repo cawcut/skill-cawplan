@@ -15,12 +15,14 @@ export interface QAReportsCommandDeps {
   request?: RequestFn;
 }
 
-function portalVersionQaReportPath(
+const API_BASE = "/api/v1/public/openapi/product";
+
+function versionQaReportPath(
   productId: string,
   versionId: string,
   qaReportId?: string,
 ): string {
-  const base = `/api/v1/product/${productId}/versions/${versionId}/qa_report`;
+  const base = `${API_BASE}/${productId}/versions/${versionId}/qa_report`;
   return qaReportId ? `${base}/${qaReportId}` : base;
 }
 
@@ -51,7 +53,7 @@ export async function runQAReportsCreate(
   const request = deps?.request ?? cawplanRequest;
   return request({
     method: "POST",
-    path: portalVersionQaReportPath(productId, versionId),
+    path: versionQaReportPath(productId, versionId),
     body,
   });
 }
@@ -66,7 +68,7 @@ export async function runQAReportsUpdate(
   const request = deps?.request ?? cawplanRequest;
   return request({
     method: "PUT",
-    path: portalVersionQaReportPath(productId, versionId, qaReportId),
+    path: versionQaReportPath(productId, versionId, qaReportId),
     body,
   });
 }
@@ -137,7 +139,7 @@ export function registerQAReportsCommand(program: Command): void {
 
   qa
     .command("create <product_id> <version_id>")
-    .description("Create a QA report for a version (Portal API)")
+    .description("Create a QA report for a version")
     .option("--body-file <path>", "JSON request body file")
     .option("--body <json>", "JSON request body string")
     .action(async (productId: string, versionId: string, opts) => {
@@ -153,7 +155,7 @@ export function registerQAReportsCommand(program: Command): void {
 
   qa
     .command("update <product_id> <version_id> <qa_report_id>")
-    .description("Update a QA report (Portal API)")
+    .description("Update a QA report")
     .option("--body-file <path>", "JSON request body file")
     .option("--body <json>", "JSON request body string")
     .action(async (productId: string, versionId: string, qaReportId: string, opts) => {

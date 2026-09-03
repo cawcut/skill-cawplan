@@ -92,6 +92,11 @@
           "invoke": "/cawplan-test-execution-progress"
         },
         {
+          "name": "risk-assessment",
+          "path": "skills/cawplan-risk-assessment",
+          "invoke": "/cawplan-risk-assessment"
+        },
+        {
           "name": "testcase-import",
           "path": "skills/cawplan-testcase-import",
           "invoke": "/cawplan-testcase-import"
