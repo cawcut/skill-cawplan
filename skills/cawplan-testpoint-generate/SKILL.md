@@ -251,7 +251,7 @@ For each axis, judge三态: **覆盖** / **不适用（具名跳过）** / **拿
 
 - Format: 〔指向哪〕+〔为什么疑〕+〔建议动作〕.
 - **Forbidden sole triggers**: `素材未提及` / `需补充` (A1 requirement-gap phrasing — A2 covers gaps with test-point rows or scope/ambiguity 存疑, not A1 copy).
-- **Unsure unique vs ambiguous** (implementation style, stretch scope) → lean **存疑**; do not skip B-class confirmation to seem helpful. **Unsure whether `异常` baseline applies** (e.g. wrong credentials on credential login) → follow checklist section 3 + step 1 / (a), not 存疑.
+- **Unsure unique vs ambiguous** (implementation style, stretch scope) → lean **存疑**; do not skip B-class confirmation to seem helpful. **This lean only applies when the ambiguity is about *which* direction is correct** (e.g. menu hidden vs click error — both plausible). **If the direction itself is not in doubt and the only open question is whether SQA wants it tested** → this is not "unsure unique vs ambiguous"; follow the **方向唯一未拍板** channel below, not this line. **Unsure whether `异常` baseline applies** (e.g. wrong credentials on credential login) → follow checklist section 3 + step 1 / (a), not 存疑.
 - **方向唯一、只是「要不要测」未定**（功能形态上适用某轴/某分区，但五字段既未确认也未排除，且不涉及「往哪个方向写」的歧义）→ **生成 1 条方向性代表行**（红线 0 约束不变，不含任何具体值/文案/阈值/错误码），标题末尾加 `（范围待确认）`；**不转存疑**。**与「多种合理实现方式」严格区分**：后者是「往哪个方向写都可能猜错」（如菜单隐藏 vs 点击报错，两种实现都合理）→ 仍然存疑；前者是「方向没有歧义，只是没人拍板测不测」（如功能形态判该测某个角色权限差异，但五字段没提也没排除）→ 转生成。判断不清归为「多种实现方式」时优先存疑，不得为了少写存疑而滥用本条。
 - When unsure whether to generate a **directional** baseline row vs 存疑 → **红线 0** first: if specifics would be invented, stop that part; if only directional, generate.
 
