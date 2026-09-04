@@ -185,7 +185,7 @@ Before enumerating axes, **read the file** (do not rely on memory or hardcoded a
 
 **六槎位记录**（对象／操作／关系／约束／变化／不变量）: 对象（涉及哪些实体）／操作（本次改动的动作是什么）／关系（是否有量与量、状态与状态之间的比较或关联）／约束（限制、上限、权限等条件）／变化（相对旧版本改了什么）／不变量（需求要求保持不变/不受影响的部分）。六项逐一过一遍：本次需求命中哪几项就记一行（`因素：xxx`），命中不到的直接跳过，不强填、不编造。这一行记录留在内部工作稿，不作为正式字段呈现给 SQA。
 
-**Model Self-check**：记完六槎位后，回头把五字段（尤其 `function_description` 与 `out_of_scope`/约束）完整重读一遍：原文里提到的、命中六槎位范畴的表述，是否都已经有对应记录？漏记的补一行。只做一轮，不循环。
+**Model Self-check**：记完六槎位后，回头把五字段（尤其 `function_description` 与 `out_of_scope`/约束）**逐句**完整重读一遍：原文里提到的、命中六槎位范畴的表述，是否都已经有对应记录？漏记的补一行——**重读时不因为已经找到几条就提前收尾，把五字段读完整篇再判断这一轮是否结束**。只做一轮（读完这一遍即结束），不循环（不重新从头再读第二遍）。
 
 **行为分区展开（P1）**：对上面记录的**每一条**因素，继续问一句——**这个因素上有哪些值 / 状态 / 条件 / 来源 / 适用层级，是需要分别覆盖的？**逐个记为一个分区（`因素：xxx → 分区：a / b / c`）。分区的作用是**划出覆盖空间**，不决定生成几条测试点。**分区之间行为是否相同，不在这一步判断**——行为相同的分区**照样各记一个**，它们会在下游按 verification goal 合并进同一条标题（**granularity rules** §2），但**分区本身不得在这一步被合并掉**。一条因素若确实只有一个分区，记一个，不强凑。**只展开一层，不对分区递归展开。**留在内部工作稿，与六槎位记录同级，不作为正式字段呈现给 SQA。仍受**红线 0**：分区只描述方向性差异，不据此编造具体数值、阈值、文案、错误码。
 
@@ -318,14 +318,14 @@ Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s
 
    `references/review-checklist.md` (in this skill's directory)
 
-2. **Switch perspective** to 「资深测试评审」. Walk **A 层** items **in list order**, **one round only** — no multi-round loop. For each A-layer item, read **only the bold check line**; parenthetical maintainer notes are **not** required reading. **B 层** is capability-boundary awareness only — do **not** read B-layer items line by line.
+2. **Switch perspective** to 「资深测试评审」. Walk **A 层** items **in list order**, **one round only** — no multi-round loop, but **walk all 12 items in this one round; do not stop early because the first several items already found something**. For each A-layer item, read **only the bold check line**; parenthetical maintainer notes are **not** required reading. **B 层** is capability-boundary awareness only — do **not** read B-layer items line by line.
 
 3. **Compare draft against each A-layer item**. On a hit:
    - **Direction-clear universal baseline** (title needs only directional assertions per **红线 0**) → **add test-point row(s)**; merge into the formal list indistinguishably from §5 rows — **no source marking**; **re-group and re-number** as needed.
    - **Specific value / implementation unclear**, or a **B 层** theme → **add 存疑** (at most one line per B-layer theme); do **not** invent coverage or pretend covered.
    - All supplements obey **红线 0**, no coverage matrix, **不编造具体值**. **A 层模式项**笃定不适用 → silent；**C/D 八轴**按 §5 存疑兜底，自审不得用「笃定不适用」把 C/D 轴静默掉。Self-critique补 rows must obey **granularity rules** §2 and **Priority rules** — every added row needs a `priority`, same as §5 rows.
 
-4. **开放式反查（清单之外，独立一步，仍一轮不循环）**：步骤 2-3 的清单核对完成后，**丢开清单**，把五字段原文和当前草稿表**并排重读一遍**，切到「拿这份表去找茬的评审」立场，只问自己一句：**"如果这份测试点表被拿去让人挑漏洞，最可能被挑出来的是哪个方向？"**——只问这一句、想到即记，**不追加第二轮、不为了凑数而想**。命中的方向按步骤 3 同样规则分流（方向明确→补行；具体值/实现不明→存疑）；命中不到就此停止，不勉强找。**本步骤仍受红线 0**，不改变「一轮不循环」的纪律——它是清单核对之外的**第二个输入源**，不是清单的第二轮。
+4. **开放式反查（清单之外，独立一步，仍一轮不循环）**：步骤 2-3 的清单核对完成后，**丢开清单**，把五字段原文和当前草稿表**并排重读一遍**，切到「拿这份表去找茬的评审」立场，问自己：**"如果这份测试点表被拿去让人挑漏洞，最可能被挑出来的是哪个方向？"**——**这一句是起点不是终点：想到一个方向后，追问"除此之外还有没有别的方向"，直到确实想不出新的方向为止，再停**；**不因为已经想到一个就满足收尾，也不为了凑数而在无关方向上硬想**。命中的方向按步骤 3 同样规则分流（方向明确→补行；具体值/实现不明→存疑）；确实想不出更多就此停止，不勉强找。**本步骤仍受红线 0**，不改变「一轮不循环」的纪律（仍是这一轮内走到头就停，不重新起一轮、不重复调用本步骤）——它是清单核对之外的**第二个输入源**，不是清单的第二轮。
 
 5. **Hard rules** (non-negotiable):
    - **Internal only, one version to SQA**: 生成初稿 → 自审补漏 → **only then** §7 present. **Forbidden**: show draft first, then a revised version; SQA sees **one** table set.
