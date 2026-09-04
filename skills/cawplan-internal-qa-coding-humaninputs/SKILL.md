@@ -1,5 +1,5 @@
 ---
-version: 0.5.2
+version: 0.5.3
 name: cawplan-internal-qa-coding-humaninputs
 description: |
   Classifies a single piece of text (an AI-coding human input, optionally with its paired assistant reply and previous-assistant tail) into the current v2 human-input category + topic taxonomies, returning the primary category, the full priority-ordered categories array, one topic, topic_reason, and topic_confidence — a pure reasoning check against uid.core-product's classify rules (gpt-4o production prompt, postprocess off), no CawPlan data or API calls involved.
@@ -24,7 +24,12 @@ it is a pure reasoning check against uid.core-product's current classify rules, 
 1. Read `references/CATEGORY_TAXONOMY.md`, `references/TOPIC_TAXONOMY.md`, and
    `references/PRODUCTION_CLASSIFY_PROMPT.md` (full production snapshot) if you haven't already
    this session. When the curated docs and the snapshot disagree, follow the snapshot.
-2. **Prepare `assistant_message`** the same way production does before reading it — don't reason
+2. **`new_feature` is the last resort topic.** When more than one topic plausibly fits, do not
+   pick it — prefer the specific one (`design_ui` for anything about how something is displayed,
+   including a NEW node/panel/screen whose ask is what it shows; `integration_api` for wiring or
+   for a field an external system must carry; `security`, `infra`, `refactor`, `bug`,
+   `investigation`). A new screen or a new field does not by itself make it `new_feature`.
+3. **Prepare `assistant_message`** the same way production does before reading it — don't reason
    over raw untruncated text:
    - Normalize literal `\n` / `\t` escapes and line endings to real whitespace.
    - Strip `[REDACTED]` placeholders (upload-time redaction — not real bracketed content like
@@ -35,11 +40,11 @@ it is a pure reasoning check against uid.core-product's current classify rules, 
    - Join those paragraphs with `\n\n`, then cap at **~1200 runes** (head cut with `...` if
      longer) — mirrors `ClassifyAssistantSnippet` /
      `AISessionClassifyAssistantMaxRunes`.
-3. **Prepare `prev_message`** when provided (same paragraph split + per-paragraph sanitize as
+4. **Prepare `prev_message`** when provided (same paragraph split + per-paragraph sanitize as
    step 2, but take only the **last paragraph**; cap at **~500 runes**) — mirrors
    `ClassifyPrevAssistantTail` / `AISessionClassifyPrevMaxRunes`. When omitted, treat `prev` as
    empty; bare follow-ups ("commit & push", "直接改") may be ambiguous without it.
-4. **Route categories** exactly like production (see `CATEGORY_TAXONOMY.md`):
+5. **Route categories** exactly like production (see `CATEGORY_TAXONOMY.md`):
    - **Primary signal: `content`.** Always read this first.
    - **`prev`:** use ONLY on short bare follow-ups (typically ≤12 Han chars or ≤6 English
      words) to distinguish `decision` (human names/repeats the concrete action the assistant
@@ -48,16 +53,16 @@ it is a pure reasoning check against uid.core-product's current classify rules, 
    - **`assistant_message`:** use for category ONLY when `content` is a bare hand-off (URL, file
      path, screenshot path, log path) with no intent words. Do **not** infer category from what
      the assistant already did or verified.
-5. Determine every category from the taxonomy that clearly applies, then sort by the priority
+6. Determine every category from the taxonomy that clearly applies, then sort by the priority
    order in the reference doc (highest → lowest). Use the exact **snake_case** leaf names
    (`direction_constraint`, `rejection_rollback`, `question_clarification`, `other_meta`, … —
    not shortened forms like `direction` / `rejection` / `question` / `other`). Don't invent a
    secondary category just to fill the list. When only one applies, the list has one element.
-6. The first element of that sorted list is the primary category.
-7. **Pick exactly one topic** from `TOPIC_TAXONOMY.md` using `content` + prepared
+7. The first element of that sorted list is the primary category.
+8. **Pick exactly one topic** from `TOPIC_TAXONOMY.md` using `content` + prepared
    `assistant_message` only — **never** use `prev_message` for topic. Apply ASKING vs CHANGING,
    bare `commit & push` → `git_ops`, and Slack-heavy hints from the reference doc.
-8. Write one short `topic_reason` sentence and **`topic_confidence`** (0.0–1.0 per
+9. Write one short `topic_reason` sentence and **`topic_confidence`** (0.0–1.0 per
    `TOPIC_TAXONOMY.md`) mirroring production.
 
 ## Output

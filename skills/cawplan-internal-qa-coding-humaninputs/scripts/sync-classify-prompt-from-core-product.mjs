@@ -32,6 +32,18 @@ const raw = execSync("go run ./tools/classify-prompt-export/", {
   cwd: coreProduct,
   encoding: "utf8",
 });
+
+// Record the source commit itself. The snapshot used to print "run `git -C <path>
+// rev-parse HEAD` locally", which baked whoever ran the sync's machine path into a
+// committed artifact and told the reader nothing about which prompt this actually is.
+let sourceCommit = "unknown";
+try {
+  sourceCommit = execSync("git rev-parse --short HEAD", { cwd: coreProduct, encoding: "utf8" }).trim();
+  const dirty = execSync("git status --porcelain internal/pkg/genai", { cwd: coreProduct, encoding: "utf8" }).trim();
+  if (dirty) sourceCommit += " (+uncommitted changes under internal/pkg/genai)";
+} catch {
+  /* not a git checkout; leave as unknown */
+}
 const d = JSON.parse(raw);
 const catTopic = d.category_definitions + d.topic_definitions;
 const gap =
@@ -42,7 +54,7 @@ const snapshot = `# Production Classify Prompt Snapshot
 Auto-synced from \`uid.core-product\` via \`go run ./tools/classify-prompt-export/\`.
 Re-run \`scripts/sync-classify-prompt-from-core-product.mjs\` after prompt changes ship.
 
-Source commit: run \`git -C ${coreProduct} rev-parse --short HEAD\` locally.
+Source commit: \`${sourceCommit}\` (uid.core-product)
 
 ---
 

@@ -44,11 +44,12 @@ only.
 - Use **`integration_api`** for third-party SDK / cross-service API **wiring** or field/format
   checks (`RFC3339`, curl debugging response shape).
 - Slack card / ephemeral / unfurl / Work Object **appearance** → **`design_ui`**.
-- Implementing a **new** Slack delivery path (share-link message styling, new watcher push path) →
-  **`new_feature`** — even when the message mentions "样式/styling".
+- Implementing a new Slack delivery path whose ask is its **styling** (share-link message styling)
+  → **`design_ui`**, not `new_feature`. The delivery path being new does not decide the topic;
+  what the human is asking ABOUT does.
 - Cawpass session-checkout **display policies** (hide/show fields, status-filter values,
-  pagination workarounds) → often **`new_feature`** when defining behavior for a flow; ongoing
-  hide/rename/show rules on an existing page → **`design_ui`**.
+  pagination workarounds) → **`design_ui`**. Hide/show/rename/filter wording is presentation.
+- Adding a field that an external system (Slack, Jira) must then carry → **`integration_api`**.
 
 ### Slack-heavy session hints (use with assistant head)
 
@@ -59,7 +60,8 @@ only.
   UI text. When assistant opening paragraphs describe fixing refresh losing creator/from-this-message
   data, topic is **`bug`**, not `design_ui`.
 - New delivery path (response_url reply, chat.unfurl fallback, DM/channel post fallback, hardcoded
-  kill switch) → `new_feature`.
+  kill switch) → `new_feature` only when the ask is the path itself and no specific topic fits;
+  if the ask is how it looks → `design_ui`, if it is API wiring → `integration_api`.
 - Checking logs / reproducing failure / "查一下日志" with a time window → topic **`bug`** when
   diagnosing a defect; **`investigation`** when explaining mechanics only.
 - **Local verify:** `"服务再跑起来我确认一下"` / restart dev server to check → **`config_environment`**
@@ -75,13 +77,13 @@ only.
 
 - "是不是可以X吗。如果可以，帮实现" → when X is Work Object/card appearance, topic **`design_ui`**
   even if category is `question_clarification`.
-- prev offers implement + content "直接改" → topic often follows the feature under discussion in
-  assistant head (e.g. `new_feature`), not `git_ops`.
-- Bare `"帮实现"` alone after assistant proposed a feature → inherit **`new_feature`** from
-  assistant head (NOT `design_ui` when the assistant is implementing a new capability).
+- prev offers implement + content "直接改" → topic follows the work under discussion in the
+  assistant head, not `git_ops`.
+- Bare `"帮实现"` / `"开始执行"` after the assistant proposed something → inherit the **specific**
+  topic of that work (`integration_api` when it is wiring an API, `design_ui` when it is a
+  screen/card/field's presentation). Never upgrade an inherited topic to `new_feature`.
 - Cawpass / session-checkout display policies (hide `checkout_error` / `checkout_preview`, retry
-  rules, new Status-filter values like Purchase Failed / Session Expired) → **`new_feature`** even
-  when wording is only hide/show/rename/filter (NOT `design_ui` alone).
+  rules, new Status-filter values like Purchase Failed / Session Expired) → **`design_ui`**.
 
 ## Topics (17 values — pick exactly one)
 
@@ -90,8 +92,12 @@ if two apply, pick the **more specific** one.
 
 - `bug` — fixing or reporting an actual defect, error, crash, or regression (NOT a general question
   about how existing code works)
-- `new_feature` — net-new product capability (new API surface, new session summary field, new skill
-  command, new Slack delivery path)
+- `new_feature` — the **last resort** topic. Net-new product capability (new API surface, new
+  session summary field, new skill command) AND no more specific topic fits. When several topics
+  are plausible, do NOT pick `new_feature`: prefer `design_ui` (anything about how something is
+  displayed, including a NEW node/panel/screen whose ask is what it shows), `integration_api`
+  (wiring, or a field an external system must carry), `security`, `infra`, `refactor`, `bug`, or
+  `investigation`. A new screen or a new field does not by itself make it `new_feature`.
 - `refactor` — behavior unchanged: restructure code, improve readability, reduce complexity,
   cleanup without a performance goal; ALSO prompt/skill/taxonomy/classify label alignment ("update
   skill prompt", "human input category", "整理修改方案") when NOT asking for a new product feature
@@ -123,17 +129,22 @@ if two apply, pick the **more specific** one.
 
 | Input / context | Category | Topic |
 |-----------------|----------|-------|
-| "帮实现 share-link message styling with reference JSON" | `requirement` | `new_feature` |
+| "帮实现 share-link message styling with reference JSON" | `requirement` | `design_ui` |
 | "帮实现 create-ticket message styling" | `requirement` | `design_ui` |
-| "要不加 slack_watcher 字段并支持 Slack 移除 watch" | `requirement` | `new_feature` |
+| "要不加 slack_watcher 字段并支持 Slack 移除 watch" | `requirement` | `integration_api` |
 | "commit with prefix & push, also alembic" | `approval` | `git_ops` |
 | bare screenshot after UI discussion | `context_supply` | `design_ui` |
 | "服务再跑起来我确认一下" | `verification` | `config_environment` |
 | "现在前端要部署到线上还差什么" | `question_clarification` | `infra` |
 | "string 类型可以看看是不是 RFC3339 格式" | `verification` | `integration_api` |
-| "状态过滤需要补上 Purchase Failed" | `direction_constraint` | `new_feature` |
+| "状态过滤需要补上 Purchase Failed" | `direction_constraint` | `design_ui` |
 | "透明度是不是哪里有差异" | `question_clarification` | `investigation` |
 | "comment没有生效" | `correction_defect` | `bug` |
+| "QAInsights 中增加 SessionReport 节点，通过 url search 打开 panel" | `requirement` | `design_ui` |
+| "帮我对齐JIRA"（既有卡片的观感/文案对齐参考产品） | `correction_intent` | `design_ui` |
+| "201 不需要显示 checkout_preview，successStates 归类 Completed" | `direction_constraint` | `design_ui` |
+| "后端加了 form_created_at 用于显示订单创建时间，Approval ID 改名 Order ID" | `direction_constraint` | `design_ui` |
+| 裸 "开始执行"（AI 上一轮在接 API 线路） | `approval` | `integration_api` |
 | prev offers commit + "commit & push" | `decision` | `git_ops` |
 | "JIRA可以post message卡片，CawPlan不可以，是什么原因" | `question_clarification` | `investigation` |
 | "创建ticket卡片标题去掉display_id" | `requirement` | `design_ui` |
