@@ -324,13 +324,15 @@ Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s
    - **Specific value / implementation unclear**, or a **B 层** theme → **add 存疑** (at most one line per B-layer theme); do **not** invent coverage or pretend covered.
    - All supplements obey **红线 0**, no coverage matrix, **不编造具体值**. **A 层模式项**笃定不适用 → silent；**C/D 八轴**按 §5 存疑兜底，自审不得用「笃定不适用」把 C/D 轴静默掉。Self-critique补 rows must obey **granularity rules** §2 and **Priority rules** — every added row needs a `priority`, same as §5 rows.
 
-4. **Hard rules** (non-negotiable):
+4. **开放式反查（清单之外，独立一步，仍一轮不循环）**：步骤 2-3 的清单核对完成后，**丢开清单**，把五字段原文和当前草稿表**并排重读一遍**，切到「拿这份表去找茬的评审」立场，只问自己一句：**"如果这份测试点表被拿去让人挑漏洞，最可能被挑出来的是哪个方向？"**——只问这一句、想到即记，**不追加第二轮、不为了凑数而想**。命中的方向按步骤 3 同样规则分流（方向明确→补行；具体值/实现不明→存疑）；命中不到就此停止，不勉强找。**本步骤仍受红线 0**，不改变「一轮不循环」的纪律——它是清单核对之外的**第二个输入源**，不是清单的第二轮。
+
+5. **Hard rules** (non-negotiable):
    - **Internal only, one version to SQA**: 生成初稿 → 自审补漏 → **only then** §7 present. **Forbidden**: show draft first, then a revised version; SQA sees **one** table set.
    - **Same turn, same context**: self-critique immediately follows §5 in **this** conversation — do **not** re-invoke as a separate pass re-feeding requirement + draft.
    - **No report, no checkmarks, no source tags**: do **not** tell SQA which checklist lines were applied; do **not** output per-line ☑/❌; do **not** mark which rows came from self-critique. Checklist is scaffolding, not an output artifact.
    - **Self-critique补 rows** are AI-generated → **`is_edited: false`** at archive (§9); not SQA edits.
 
-5. **Scope**: run **once** before **first present of that round** on every generate/supplement that produced a draft. **Incremental**: self-critique **only this round's M new drafts** (no `id`), not re-audit archived N rows. **Do not** re-run after §8 SQA revision rounds unless SQA explicitly asks to regenerate.
+6. **Scope**: run **once** before **first present of that round** on every generate/supplement that produced a draft. **Incremental**: self-critique **only this round's M new drafts** (no `id`), not re-audit archived N rows. **Do not** re-run after §8 SQA revision rounds unless SQA explicitly asks to regenerate.
 
 **Division of labor**: `coverage-dimensions.md` = generate-time axes (§4–§5). `review-checklist.md` = post-generate retrospective for gaps generation mechanics miss. Do **not** duplicate axis closure (a)(b)(c) here. §5 step 7 soft self-check (quantity/axes) stays in §5; this step is the fixed漏点 pattern pass.
 
