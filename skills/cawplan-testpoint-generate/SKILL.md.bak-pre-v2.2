@@ -183,38 +183,20 @@ Before enumerating axes, **read the file** (do not rely on memory or hardcoded a
 
 **Axis traversal (fixed order — A/B 与 C/D 三态纪律不同，见下)**:
 
-**六槎位记录**（对象／操作／关系／约束／变化／不变量）: 对象（涉及哪些实体）／操作（本次改动的动作是什么）／关系（是否有量与量、状态与状态之间的比较或关联）／约束（限制、上限、权限等条件）／变化（相对旧版本改了什么）／不变量（需求要求保持不变/不受影响的部分）。六项逐一过一遍：本次需求命中哪几项就记一行（`因素：xxx`），命中不到的直接跳过，不强填、不编造。这一行记录留在内部工作稿，不作为正式字段呈现给 SQA。
-
-**Model Self-check**：记完六槎位后，回头把五字段（尤其 `function_description` 与 `out_of_scope`/约束）完整重读一遍：原文里提到的、命中六槎位范畴的表述，是否都已经有对应记录？漏记的补一行。只做一轮，不循环。
-
-**行为分区展开（P1）**：对上面记录的**每一条**因素，继续问一句——**这个因素上有哪些值 / 状态 / 条件 / 来源 / 适用层级，是需要分别覆盖的？**逐个记为一个分区（`因素：xxx → 分区：a / b / c`）。分区的作用是**划出覆盖空间**，不决定生成几条测试点。**分区之间行为是否相同，不在这一步判断**——行为相同的分区**照样各记一个**，它们会在下游按 verification goal 合并进同一条标题（**granularity rules** §2），但**分区本身不得在这一步被合并掉**。一条因素若确实只有一个分区，记一个，不强凑。**只展开一层，不对分区递归展开。**留在内部工作稿，与六槎位记录同级，不作为正式字段呈现给 SQA。仍受**红线 0**：分区只描述方向性差异，不据此编造具体数值、阈值、文案、错误码。
-
 After reading `references/coverage-dimensions.md`, walk **variation axes** in **A → B → C → D** group order (within each group, top-to-bottom as listed). Do not jump randomly between groups.
 
 For each axis, judge三态: **覆盖** / **不适用（静默跳过）** / **拿不准（进存疑清单）**. Path types (`正向` / `异常` / `逆向` / `边界`) **label only** — not axes for cross-multiply.
 
-判断某轴是否适用时，依据**功能本身的形态**（是否有写入、是否多角色、是否改动存量、是否关键链路等），而不是依据需求原文是否出现该轴对应的关键词。需求未提及但功能形态符合适用条件的，仍按现有三态处理（A/B 明确不适用静默、拿不准存疑；C/D 默认存疑兜底）。
-
-**行为分区补充展开（P2）**：判某轴**适用**时，同时读该轴在 `coverage-dimensions.md` 的**「生成时的展开追问」列**，命中的方向**并入 P1 的分区清单**（**不逐项打钩、不做覆盖矩阵**，命中不到的静默跳过）。**P2 只往 P1 清单里补，不另起一份、不改写 P1 的骨架。**
-
 - **A/B 组变化轴**（`输入类型` / `交互反馈` / `状态迁移` / `角色权限` / `来源入口`）：维持原三态 — 笃定不适用 → **静默跳过**；拿不准 → 存疑清单。
-- **C/D 组技术轴**（`幂等` / `并发` / `一致性` / `存量兼容` / `环境兼容` / `性能` / `安全审计` / `可观测`）：**默认存疑兜底** — 仅当五字段能**正面证明**该轴不适用（对照 `coverage-dimensions.md` §二.1 形态门槛表）→ **静默跳过**；否则即便倾向判「不适用」，也须在存疑清单留一行：`〔X 轴〕判为本次不测（原因：…）/ 是否需覆盖，请确认`（仍受红线 0：方向性表述，不编造具体次数/文案/阈值/错误码，不因此生成测点）。多根 C/D 轴指向同一缺口时，按 step 6 结构型存疑合并规则并成一行。
-
-上述记录、核对与判断，仍受**红线 0** 约束——六槎位只记录方向性因素，不据此编造具体数值、文案、阈值、错误码或实现方式；这些因素最终能否落地成测试点，仍由现状 closure 与红线 0 决定。
+- **C/D 组技术轴**（`幂等` / `并发` / `一致性` / `存量兼容` / `环境兼容` / `性能` / `安全审计` / `可观测`）：**默认存疑兜底** — 仅当五字段能**正面证明**该轴不适用（对照 `coverage-dimensions.md` §二.1 形态门槛表）→ **静默跳过**；否则即便倾向判「不适用」，也须在存疑清单留一行：`〔X 轴〕判为本次不测（原因：…）/ 是否需覆盖，请确认`（仍受红线 0：方向性表述，不编造具体次数/文案/阈值/错误码，不因此生成测点）。多根 C/D 轴指向同一缺口时，按 step 5 结构型存疑合并规则并成一行。
 
 **Generate → prune → dedup → closure checks**:
 
-1. 从 **P1/P2 展开的因素及其分区**中**归纳出** **representative** verification goals（**不是**分区之间做叉乘/笛卡尔积——分区是用来逐个确认有没有被覆盖到的，不是用来相乘的）。五字段仍是分区的来源，但不再是生成的直接入口。Count is **coverage-driven** — no fixed min/max. When cross-multiplying enum/boundary values, follow **granularity rules** §2 (one row per verification goal, all values in title). When the five fields omit a case but `coverage-dimensions.md` judges a **基本盘** path type applicable (`正向` / `异常` / `边界` per section 3) and the title needs only **directional** assertions (**红线 0** below), add a representative row during cross-multiply (e.g. credential login → wrong credentials `异常`) — do not wait for closure to flag zero coverage. 前者管分区来源，后者管基本盘四轴零覆盖兜底，**互不替代**：基本盘兜底仍在五字段之外独立生效，不因生成入口换成分区而失效。
-2. **分区归属检查（Partition Accountability）**：P1/P2 展开出的**每一条分区**，在上一步归纳完 verification goals 后，必须能归入以下三类之一，**不允许"既不在标题、也不在存疑"地静默消失**：
-   - **①已体现**：分区对应的方向已被某条 draft row 的标题覆盖（含合并进其他分区、由 granularity §2 收敛的情况）；
-   - **②转存疑**：分区方向明确，但因红线 0（需编造具体数值/文案/阈值/错误码）或存在"多种合理实现方式"而无法直接生成 → 转一条存疑；
-   - **③归纳不出可执行断言，仍不得丢弃**：分区本身一时构不成"操作 + 预期方向"的完整验证目标（如状态类分区缺少明确触发条件）→ 同样转存疑，格式沿用存疑清单纪律：`〔来自因素 X 的分区 Y〕未能归纳出测试点，是否需要补充/确认`。
-   - 逐条过一遍 P1/P2 清单即可，**不是覆盖矩阵、不逐项打钩汇报给 SQA**（内部检查，与六槎位/P1 同级，不作为正式字段呈现）。**默认动作从"归纳不出就放弃"改为"归纳不出就转存疑"**。
-   - 本条**不改变** A/B/C/D 轴「笃定不适用」的静默判断——那是"轴不适用"，与本条要堵的"分区被识别却消失"是两回事；已判定不适用的轴不会产生分区，无需本条介入。
-3. Prune axes contradicted by `out_of_scope`.
-4. **Batch-internal dedup** (verification goal — §2.2): merge per **granularity rules** §2；被合并行携带的**分区信息并入保留行的标题**，不随合并丢弃（granularity §2 Merge ≠ omit partitions）; run on **all draft rows without `id`**, after generate/supplement, **before** closure checks and §6 self-critique. **Never** compare drafts to archived rows by semantics (cross-batch = id only, §10).
-5. **Coverage closure** (scoped — **not** a per-axis status report for the full checklist). All generated titles obey **红线 0** first:
-   - **(a) 基本盘四轴** — `正向` / `输入类型` / `边界` / `异常`: judged **适用** and **no draft row covers it** (standalone row **or** verification goal already covered per step 4):
+1. Cross-multiply **representative** combinations from the five fields. Count is **coverage-driven** — no fixed min/max. When cross-multiplying enum/boundary values, follow **granularity rules** §2 (one row per verification goal, all values in title). When the five fields omit a case but `coverage-dimensions.md` judges a **基本盘** path type applicable (`正向` / `异常` / `边界` per section 3) and the title needs only **directional** assertions (**红线 0** below), add a representative row during cross-multiply (e.g. credential login → wrong credentials `异常`) — do not wait for closure to flag zero coverage.
+2. Prune axes contradicted by `out_of_scope`.
+3. **Batch-internal dedup** (verification goal — §2.2): merge per **granularity rules** §2; run on **all draft rows without `id`**, after generate/supplement, **before** closure checks and §6 self-critique. **Never** compare drafts to archived rows by semantics (cross-batch = id only, §10).
+4. **Coverage closure** (scoped — **not** a per-axis status report for the full checklist). All generated titles obey **红线 0** first:
+   - **(a) 基本盘四轴** — `正向` / `输入类型` / `边界` / `异常`: judged **适用** and **no draft row covers it** (standalone row **or** verification goal already covered per step 3):
      1. **对照 `coverage-dimensions.md` 第三节适用判断 + 展开追问** — if a **标配方向** (no implementation ambiguity), title needs only directional assertions (红线 0) → **generate 1 representative row**; do not 存疑 solely because the requirement did not spell out the case.
      2. **Multiple reasonable implementations** (e.g. menu hidden vs click error) → **存疑**; do not generate guessing which.
      3. Assertion **requires specific numbers / copy / thresholds / error codes** not in the five fields → **do not generate** that part (红线 0); 存疑 or generate only the directional segment.
@@ -226,18 +208,18 @@ For each axis, judge三态: **覆盖** / **不适用（静默跳过）** / **拿
        2. Generation judged the axis **覆盖** or **拿不准** (A/B 轴的拿不准；**C/D 轴「判为本次不测」类存疑不算已适用**); or
        3. (a)/(b) already maps a rule to that axis (including 基本盘四轴 judged applicable).
      - **基本盘标配首条取值不归 (c)** — first baseline on `异常` / `边界` (wrong credentials, empty required field, boundary card from five fields) is handled in step 1 / (a); **do not** 存疑 those as "B/C 未覆盖".
-     - **Check**: for each applicable axis, compare draft coverage against that axis's **展开追问（取值提示）** column in `coverage-dimensions.md`. If a **明显常见** **stretch** key value **directly relevant to this requirement's shape** is not covered (no standalone row **and** verification goal not already covered per step 4) → one 存疑 line: `〔X 轴已测 A，B/C 未覆盖〕` + suggest补测试点或请确认. 已展开为分区的并入标题；需编造具体值的进存疑。
+     - **Check**: for each applicable axis, compare draft coverage against that axis's **展开追问（取值提示）** column in `coverage-dimensions.md`. If a **明显常见** **stretch** key value **directly relevant to this requirement's shape** is not covered (no standalone row **and** verification goal not already covered per step 3) → one 存疑 line: `〔X 轴已测 A，B/C 未覆盖〕` + suggest补测试点或请确认. **Do not** force-generate stretch values.
      - **明显常见**: anchor on 展开追问 only — no ad-hoc enumeration. Must be **directly relevant** to this requirement's inputs / constraints / states / technical shape. E.g. requirement mentions popup blocking and a row covers it → weak-net / disconnect / timeout on the same axis may enter 存疑; if the requirement does not involve multi-client, do **not** auto-raise old-app / resolution sub-items just because another value on the axis was tested.
-     - **Bounds**: applies only to axes already judged applicable — **A/B 笃定不适用 axes stay silent**; **C/D 八轴未正面证明不适用者已在遍历阶段进存疑，不得用 (c) 再拖入**。Do not use (c) to drag in C/D axes on features where they were only scope-confirmed as out-of-test. Value-level, **not** a per-value checkbox matrix. **Stretch** missing values：**已在 P1/P2 展开为分区的**，按 granularity §2 合并进已有标题；**确需编造具体值才能断言的**，才进存疑。Merge with structural 存疑 (step 6) when the same gap would appear twice.
+     - **Bounds**: applies only to axes already judged applicable — **A/B 笃定不适用 axes stay silent**; **C/D 八轴未正面证明不适用者已在遍历阶段进存疑，不得用 (c) 再拖入**。Do not use (c) to drag in C/D axes on features where they were only scope-confirmed as out-of-test. Value-level, **not** a per-value checkbox matrix. **Stretch** missing values → 存疑 by default, not force-generate. **宁少不宁多** — edge or stretch values stay out. Merge with structural 存疑 (step 5) when the same gap would appear twice.
      - **Example** (illustration only — not limited to `环境兼容`): `环境兼容` row covers popup blocking but not disconnect / timeout → 存疑 to补 or confirm scope.
    - **All other axes**:
      - **A/B 组**：笃定不适用仍静默；既未明写、又未按形态判适用 → 不陈述、不生成、不为轴或取值遗漏进存疑。
      - **C/D 八轴**：已在轴遍历时按 §二.1 处理（正面证明不适用 → 静默；否则默认存疑兜底）。closure 此处不为 C/D 轴重复开缺口。
-6. **Structural 存疑 self-check** (结构型 only — **no** lexical keyword triggers):
+5. **Structural 存疑 self-check** (结构型 only — **no** lexical keyword triggers):
    - When the five fields state a **rule or type difference** but not its **failure / exception / boundary behavior** (e.g. "AD Video/Story 不提供入口" — menu hidden vs click error?), add 存疑 for SQA to confirm.
-   - **Forbidden** as sole triggers: vague wording like `正常` / `正确` / `合理` / `若干` — **触发须结构型，不因措辞模糊而存疑**.
-7. **Soft self-check**: too many → case-level detail, **per-value row splits** (fix per granularity rules), or wrong axes? too few → missed applicable axes or obvious key values within (a)(b)(c)?
-8. **Truly thin** five fields (nothing to cross-multiply) → stop and ask SQA to enrich; **thin but testable** → generate + put gaps in 存疑清单.
+   - **Forbidden** as sole triggers: vague wording like `正常` / `正确` / `合理` / `若干` — 宁少不宁多.
+6. **Soft self-check**: too many → case-level detail, **per-value row splits** (fix per granularity rules), or wrong axes? too few → missed applicable axes or obvious key values within (a)(b)(c)?
+7. **Truly thin** five fields (nothing to cross-multiply) → stop and ask SQA to enrich; **thin but testable** → generate + put gaps in 存疑清单.
 
 **红线 0 — 防臆造（最高优先级，压过一切「直接生成」与 closure 补行）**:
 
@@ -245,9 +227,9 @@ For each axis, judge三态: **覆盖** / **不适用（静默跳过）** / **拿
 - **Forbidden** in titles without five-field source: specific copy, error codes, lockout counts, timeout seconds, invented thresholds.
 - Before writing: would this assertion need a **number / literal message / threshold / error code**? If yes and not in the five fields → **do not generate** that part; 存疑 instead. **Prefer fewer rows over invented specifics.**
 - Five-field numbers (e.g. 125-char limit, Free plan 50 cap) are **not** fabrication — use them.
-- **「宁可少生成」** means fewer invented details — **not** skipping directional rows **or dropping behaviorally distinct partitions** when `coverage-dimensions.md` section 3 applies.
+- **「宁可少生成」** means fewer invented details — **not** skipping basic directional rows when `coverage-dimensions.md` section 3 applies.
 
-**存疑清单纪律** (§5 — applies to step 2 partition accountability, step 5 closure, and §7 presentation):
+**存疑清单纪律** (§5 — applies to step 4 closure and §7 presentation):
 
 - Format: 〔指向哪〕+〔为什么疑〕+〔建议动作〕.
 - **Forbidden sole triggers**: `素材未提及` / `需补充` (A1 requirement-gap phrasing — A2 covers gaps with test-point rows or scope/ambiguity 存疑, not A1 copy).
@@ -258,28 +240,25 @@ For each axis, judge三态: **覆盖** / **不适用（静默跳过）** / **拿
 
 Test points are **coverage outlines (验证目标)**. Executable scripts (precondition + steps + per-value expected data) belong in **A3**.
 
-**责任边界**：A2 负责**发现测试空间**并按 verification goal 收敛成行，**且在标题中保留该 goal 下的关键分区**；A3 负责把 **A2 已表达的**空间展开成前置条件/数据/步骤/Expected，**不承担重新发现 A2 未表达测试空间的责任**。
-
 **Granularity rules**:
 
 1. **One row = one verification goal (测什么)** — no operation steps, no per-value row explosion at A2. Steps and data-driven per-value cases → A3.
-2. **Merge decision** (same verification goal only — also governs §5 step 4 batch-internal dedup):
+2. **Merge decision** (same verification goal only — also governs §5 step 3 batch-internal dedup):
    - **Merge** when: **same operation** + **same expectation direction** + **no extra precondition** (e.g. plan/permission) — **one row**, **list all values in the title** (e.g. `各挡位 5s/10s/15s`). **Do not** split into one row per value.
    - Same **what we verify** with different data states, **data values only**, or wording → one row.
    - (①) Same goal, different precondition data → one row.
    - (②) "混合时/同时存在/共存" wrapper when core assertion matches an existing row → merge.
    - (③) **Same operation, only test data values differ** (e.g. Duration 5s/10s/15s) → **one row listing all values** in the title; drop per-value duplicate rows.
    - **Do not merge** when: operation differs, expectation direction differs, or a value triggers **extra precondition** (e.g. `4K` needs paid plan vs normal resolution) → **separate rows** or 存疑.
-   - **Merge ≠ omit partitions** — 合并多个分区到一行时，该行标题必须**显式提及被合并的分区**（取值、状态、位置、条件、来源、适用范围等，**形态由分区本身决定，不限于枚举取值**），不得只写最抽象的那一层表述。默认值尤其不可省略（aligns with review-checklist A#2, closure (c)）。这份**分区清单**是 **A3 的展开依据**——**A3 只负责把 A2 已表达的测试空间展开成可执行用例，不承担重新发现 A2 未表达测试空间的责任。**
-   - **列分区 ≠ 写步骤**：✅ `删除展示顺序中的首张 / 中间 / 末张图片后，其余有效连接的相对展示顺序应保持正确`；❌ 展开成操作序列（→ A3）；❌ 拆成一个分区一行（违反「一行一个验证目标」）。
+   - **Merge ≠ omit values** — all values (especially default) must appear in that one row (aligns with review-checklist A#2, closure (c)). The value list is the **A3 expand basis**; per-value executable cases → A3.
 3. **Overline test** (pull back to goal layer):
    - If a draft has full **executable-case** structure (precondition + step sequence + per-value expected data) → **overline** — drop steps, keep **what** is verified; merge same-goal value splits per rule 2.
    - **Listing all values in one row ≠ listing operation steps per value.** ✅ `选择各 Duration 挡位（5s/10s/15s，含默认）后，导出视频时长应与所选挡位一致` — value inventory in one verification-goal sentence. ❌ `选 5s → 导出 → 验 5s；选 10s → 导出 → 验 10s…` — that packs multiple case scripts into one row; still overline. Splitting into three one-value rows is also wrong — merge values, not steps.
 
 **Relationships (do not conflict)**:
 
-- **Batch-internal dedup (step 4)**: apply granularity §2; different goals (e.g. `正常保存` vs `越权拦截`) → separate rows.
-- **Enum completeness** (review-checklist A#2): merge requires **full value / partition list in the title**（分区形态不限于枚举值，见 granularity §2）, not fewer rows with missing values.
+- **Batch-internal dedup (step 3)**: apply granularity §2; different goals (e.g. `正常保存` vs `越权拦截`) → separate rows.
+- **Enum completeness** (review-checklist A#2): merge requires **full value list in the title**, not fewer rows with missing values.
 
 **Title shape**:
 
@@ -311,7 +290,7 @@ Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s
 
 ### 6. Post-generation self-critique (internal — before first present)
 
-**Skip** when §5 step 8 triggered (**truly thin** five fields — no draft to review). Otherwise, after §5 produces an **internal draft** (test-point rows + 存疑) and **before** any output to SQA:
+**Skip** when §5 step 7 triggered (**truly thin** five fields — no draft to review). Otherwise, after §5 produces an **internal draft** (test-point rows + 存疑) and **before** any output to SQA:
 
 1. **Read the checklist file** (same as §4 — do not rely on memory):
 
@@ -322,7 +301,7 @@ Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s
 3. **Compare draft against each A-layer item**. On a hit:
    - **Direction-clear universal baseline** (title needs only directional assertions per **红线 0**) → **add test-point row(s)**; merge into the formal list indistinguishably from §5 rows — **no source marking**; **re-group and re-number** as needed.
    - **Specific value / implementation unclear**, or a **B 层** theme → **add 存疑** (at most one line per B-layer theme); do **not** invent coverage or pretend covered.
-   - All supplements obey **红线 0**, no coverage matrix, **不编造具体值**. **A 层模式项**笃定不适用 → silent；**C/D 八轴**按 §5 存疑兜底，自审不得用「笃定不适用」把 C/D 轴静默掉。Self-critique补 rows must obey **granularity rules** §2 and **Priority rules** — every added row needs a `priority`, same as §5 rows.
+   - All supplements obey **红线 0**, no coverage matrix, **宁少不宁多**. **A 层模式项**笃定不适用 → silent；**C/D 八轴**按 §5 存疑兜底，自审不得用「笃定不适用」把 C/D 轴静默掉。Self-critique补 rows must obey **granularity rules** §2 and **Priority rules** — every added row needs a `priority`, same as §5 rows.
 
 4. **Hard rules** (non-negotiable):
    - **Internal only, one version to SQA**: 生成初稿 → 自审补漏 → **only then** §7 present. **Forbidden**: show draft first, then a revised version; SQA sees **one** table set.
@@ -332,7 +311,7 @@ Bad (overline — steps packed): `打开视频配置 → 分别选择 5s/10s/15s
 
 5. **Scope**: run **once** before **first present of that round** on every generate/supplement that produced a draft. **Incremental**: self-critique **only this round's M new drafts** (no `id`), not re-audit archived N rows. **Do not** re-run after §8 SQA revision rounds unless SQA explicitly asks to regenerate.
 
-**Division of labor**: `coverage-dimensions.md` = generate-time axes (§4–§5). `review-checklist.md` = post-generate retrospective for gaps generation mechanics miss. Do **not** duplicate axis closure (a)(b)(c) here. §5 step 7 soft self-check (quantity/axes) stays in §5; this step is the fixed漏点 pattern pass.
+**Division of labor**: `coverage-dimensions.md` = generate-time axes (§4–§5). `review-checklist.md` = post-generate retrospective for gaps generation mechanics miss. Do **not** duplicate axis closure (a)(b)(c) here. §5 step 6 soft self-check (quantity/axes) stays in §5; this step is the fixed漏点 pattern pass.
 
 ### 7. Present to SQA
 
@@ -630,20 +609,20 @@ Refresh binding + stubs before each generate. Rebind clears all. After successfu
 
 ## Rules Index
 
-Authoritative rules live in **Workflow**; this section is navigation only. On conflict: **红线 0** > closure 补行 > 不编造优先.
+Authoritative rules live in **Workflow**; this section is navigation only. On conflict: **红线 0** > closure 补行 > 宁少不宁多.
 
 | Rule | Authority |
 |------|-----------|
-| **红线 0** — 防臆造 | §5 **红线 0** + step 5 closure |
+| **红线 0** — 防臆造 | §5 **红线 0** + step 4 closure |
 | **Granularity** — outline vs A3 | §5 **Title rules & granularity** |
 | **Priority** — 每条测试点必填 CRITICAL/HIGH/MEDIUM/LOW | §5 **Priority rules** |
 | **存疑清单** — format & discipline | §5 **存疑清单纪律**; presentation → §7 step 3 |
-| **Coverage closure** (a)(b)(c) | §5 step 5 |
+| **Coverage closure** (a)(b)(c) | §5 step 4 |
 | **Self-critique** | §6 |
 | **Presentation** — 分节、状态列 | §7 |
 | **Draft totals** — SQA 只看保存后条数 | §7 · §9.5 · §9 save confirm（禁草稿/保存前计数） |
 | **Archive / confirm / receipt** | §9; UNKNOWN → §10 (`testpoints reconcile`, needs `count_before` from §2) |
-| **Cross-batch dedup** | §10 (`id` stubs); batch-internal → §5 step 4 + granularity §2 |
+| **Cross-batch dedup** | §10 (`id` stubs); batch-internal → §5 step 3 + granularity §2 |
 | **API** | Writes → `cawplan qa-insights` (§9 archive, §10 reconcile); reads → `cawplan api GET` (§2); `references/CAWPLAN_OPEN_API.md` §15 |
 | **Trigger boundary** | §1 决策树 P3 → 框2；兜底 → 框1；ticket URL without test-point intent → not this skill |
 | **Failures** | §9 On failure; keep drafts |
