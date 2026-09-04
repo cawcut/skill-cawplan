@@ -231,7 +231,7 @@ For each axis, judge三态: **覆盖** / **不适用（具名跳过）** / **拿
      - **Bounds**: applies only to axes already judged applicable — **A/B 笃定不适用 axes stay silent**; **C/D 八轴未正面证明不适用者已在遍历阶段进存疑，不得用 (c) 再拖入**。Do not use (c) to drag in C/D axes on features where they were only scope-confirmed as out-of-test. Value-level, **not** a per-value checkbox matrix. **Stretch** missing values：**已在 P1/P2 展开为分区的**，按 granularity §2 合并进已有标题；**确需编造具体值才能断言的**，才进存疑。Merge with structural 存疑 (step 6) when the same gap would appear twice.
      - **Example** (illustration only — not limited to `环境兼容`): `环境兼容` row covers popup blocking but not disconnect / timeout → 存疑 to补 or confirm scope.
    - **All other axes**:
-     - **A/B 组**：笃定不适用仍具名跳过（判断前须先写原因，不进存疑）；既未明写、又未按形态判适用 → 不陈述、不生成、不为轴或取值遗漏进存疑。
+     - **A/B 组**：笃定不适用仍具名跳过（判断前须先写原因，不进存疑）；既未明写、又未按形态判适用 → 按 §5 存疑清单纪律「方向唯一未拍板→转生成」判断：功能形态本身指向该轴大概率适用、只是需求没写清楚 → 生成 1 条方向性代表行（标题末尾加 `（范围待确认）`，仍受红线 0）；确实连"形态上是否适用"都判不出方向 → 存疑。**不再允许"既不陈述也不生成也不存疑"这一沉默出口。**
      - **C/D 八轴**：已在轴遍历时按 §二.1 处理（正面证明不适用 → 静默；否则默认存疑兜底）。closure 此处不为 C/D 轴重复开缺口。
 6. **Structural 存疑 self-check** (结构型 only — **no** lexical keyword triggers):
    - When the five fields state a **rule or type difference** but not its **failure / exception / boundary behavior** (e.g. "AD Video/Story 不提供入口" — menu hidden vs click error?), add 存疑 for SQA to confirm.
