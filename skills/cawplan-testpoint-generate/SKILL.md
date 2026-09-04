@@ -191,13 +191,13 @@ Before enumerating axes, **read the file** (do not rely on memory or hardcoded a
 
 After reading `references/coverage-dimensions.md`, walk **variation axes** in **A → B → C → D** group order (within each group, top-to-bottom as listed). Do not jump randomly between groups.
 
-For each axis, judge三态: **覆盖** / **不适用（静默跳过）** / **拿不准（进存疑清单）**. Path types (`正向` / `异常` / `逆向` / `边界`) **label only** — not axes for cross-multiply.
+For each axis, judge三态: **覆盖** / **不适用（具名跳过）** / **拿不准（进存疑清单）**. Path types (`正向` / `异常` / `逆向` / `边界`) **label only** — not axes for cross-multiply.
 
-判断某轴是否适用时，依据**功能本身的形态**（是否有写入、是否多角色、是否改动存量、是否关键链路等），而不是依据需求原文是否出现该轴对应的关键词。需求未提及但功能形态符合适用条件的，仍按现有三态处理（A/B 明确不适用静默、拿不准存疑；C/D 默认存疑兜底）。
+判断某轴是否适用时，依据**功能本身的形态**（是否有写入、是否多角色、是否改动存量、是否关键链路等），而不是依据需求原文是否出现该轴对应的关键词。需求未提及但功能形态符合适用条件的，仍按现有三态处理（A/B 明确不适用具名跳过、拿不准存疑；C/D 默认存疑兜底）。
 
 **行为分区补充展开（P2）**：判某轴**适用**时，同时读该轴在 `coverage-dimensions.md` 的**「生成时的展开追问」列**，命中的方向**并入 P1 的分区清单**（**不逐项打钩、不做覆盖矩阵**，命中不到的静默跳过）。**P2 只往 P1 清单里补，不另起一份、不改写 P1 的骨架。**
 
-- **A/B 组变化轴**（`输入类型` / `交互反馈` / `状态迁移` / `角色权限` / `来源入口`）：维持原三态 — 笃定不适用 → **静默跳过**；拿不准 → 存疑清单。
+- **A/B 组变化轴**（`输入类型` / `交互反馈` / `状态迁移` / `角色权限` / `来源入口`）：维持原三态 — 笃定不适用 → **具名跳过**（判断前须先写出一句 `〔X 轴〕判不适用（原因：…）`，与六槎位记录同级，**不进存疑清单、不呈现给 SQA**；此句是否事后可查取决于运行环境，本 skill 不保证、不依赖其可查性）；拿不准 → 存疑清单。
 - **C/D 组技术轴**（`幂等` / `并发` / `一致性` / `存量兼容` / `环境兼容` / `性能` / `安全审计` / `可观测`）：**默认存疑兜底** — 仅当五字段能**正面证明**该轴不适用（对照 `coverage-dimensions.md` §二.1 形态门槛表）→ **静默跳过**；否则即便倾向判「不适用」，也须在存疑清单留一行：`〔X 轴〕判为本次不测（原因：…）/ 是否需覆盖，请确认`（仍受红线 0：方向性表述，不编造具体次数/文案/阈值/错误码，不因此生成测点）。多根 C/D 轴指向同一缺口时，按 step 6 结构型存疑合并规则并成一行。
 
 上述记录、核对与判断，仍受**红线 0** 约束——六槎位只记录方向性因素，不据此编造具体数值、文案、阈值、错误码或实现方式；这些因素最终能否落地成测试点，仍由现状 closure 与红线 0 决定。
@@ -231,7 +231,7 @@ For each axis, judge三态: **覆盖** / **不适用（静默跳过）** / **拿
      - **Bounds**: applies only to axes already judged applicable — **A/B 笃定不适用 axes stay silent**; **C/D 八轴未正面证明不适用者已在遍历阶段进存疑，不得用 (c) 再拖入**。Do not use (c) to drag in C/D axes on features where they were only scope-confirmed as out-of-test. Value-level, **not** a per-value checkbox matrix. **Stretch** missing values：**已在 P1/P2 展开为分区的**，按 granularity §2 合并进已有标题；**确需编造具体值才能断言的**，才进存疑。Merge with structural 存疑 (step 6) when the same gap would appear twice.
      - **Example** (illustration only — not limited to `环境兼容`): `环境兼容` row covers popup blocking but not disconnect / timeout → 存疑 to补 or confirm scope.
    - **All other axes**:
-     - **A/B 组**：笃定不适用仍静默；既未明写、又未按形态判适用 → 不陈述、不生成、不为轴或取值遗漏进存疑。
+     - **A/B 组**：笃定不适用仍具名跳过（判断前须先写原因，不进存疑）；既未明写、又未按形态判适用 → 不陈述、不生成、不为轴或取值遗漏进存疑。
      - **C/D 八轴**：已在轴遍历时按 §二.1 处理（正面证明不适用 → 静默；否则默认存疑兜底）。closure 此处不为 C/D 轴重复开缺口。
 6. **Structural 存疑 self-check** (结构型 only — **no** lexical keyword triggers):
    - When the five fields state a **rule or type difference** but not its **failure / exception / boundary behavior** (e.g. "AD Video/Story 不提供入口" — menu hidden vs click error?), add 存疑 for SQA to confirm.
