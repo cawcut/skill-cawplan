@@ -23,11 +23,27 @@ cawplan skill check
 
 ## Workflow
 
-1. Resolve product name to `product_id`:
+### Required product-access gate
+
+Before querying **any** product-, version-, release-, or ticket-scoped data, verify that the caller can see the product through `products list`. This applies even when the user supplied a `product_id` directly or it came from an earlier conversation — never treat a known ID as proof of access.
+
+```bash
+cawplan products list --search "<product name or product_id>"
+```
+
+Continue only when the response contains one exact intended product (`product_id` / `unique_id`). If it returns no matching product, do **not** call `versions`, `tickets`, `product-lines statuses`, or any other product-scoped endpoint. Return a clear failure instead, for example:
+
+```text
+NO_PERMISSION: You do not have access to product "CawCut Cloud".
+```
+
+Never convert an unavailable product into an empty result such as `Open Tickets: 0`; an empty ticket list is meaningful only after this access gate succeeds.
+
+1. Resolve product name to `product_id` and complete the required product-access gate:
    ```bash
    cawplan products list --search "<product name>"
    ```
-   If more than one product matches, list the candidates (name + `product_id`) and ask the user to pick — do not guess. Keep the `product_line_id` (or nested `product_line.unique_id` — check the actual field name in the response) from this record.
+   If no product matches, return `NO_PERMISSION` and stop. If more than one product matches, list the candidates (name + `product_id`) and ask the user to pick — do not guess. Keep the `product_line_id` (or nested `product_line.unique_id` — check the actual field name in the response) from this record.
 
 2. Resolve version name to `version_id` (skip if already known):
    ```bash

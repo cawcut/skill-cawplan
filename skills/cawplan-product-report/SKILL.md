@@ -29,11 +29,21 @@ If unsure whether a name is a product or a Team, resolve both (`products list --
 
 ## Workflow A — Product report
 
-1. Resolve product name to `product_id`:
+### Required product-access gate
+
+Before querying **any** product-, version-, or ticket-scoped data, confirm that the requested product appears in the caller's `products list` response. Apply this gate even when the caller supplied a product ID directly or the ID was retained from earlier context.
+
+```bash
+cawplan products list --search "<product name or product_id>"
+```
+
+Proceed only after identifying one exact intended product (`product_id` / `unique_id`). If no matching product is returned, stop and report `NO_PERMISSION`; do not issue product, version, activity, or ticket queries. Never report an inaccessible product as a successful empty result (for example, `Open Tickets: 0`).
+
+1. Resolve product name to `product_id` and complete the required product-access gate:
    ```bash
    cawplan products list --search "<product name>"
    ```
-   If more than one product matches, list the candidates (name + `product_id`) and ask the user to pick — do not guess. All three workflows in this skill resolve products this way.
+   If no product matches, return `NO_PERMISSION` and stop. If more than one product matches, list the candidates (name + `product_id`) and ask the user to pick — do not guess. All three workflows in this skill resolve products this way.
 
 2. Resolve version name to `version_id` if the user scopes to a version:
    ```bash
