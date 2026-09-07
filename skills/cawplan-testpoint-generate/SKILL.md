@@ -11,8 +11,6 @@ allowed-tools: Bash
 
 # CawPlan TestPoint Generate
 
-**Coverage workflow version**: v5.0 simplified obligation flow.
-
 **跟随用户主语言**生成文案；禁止同一段中英各写一遍。
 
 ## Bootstrap
@@ -201,6 +199,10 @@ Before discovering obligations, use the file-reading tool to **read both files c
 3. 逐项使用 `references/coverage-dimensions.md` 的路径类型和 A→B→C→D 变化轴作为**发现提示**。C/D 八轴必须逐项读到，不能因需求无关键词提前停止；是否有正面排除证据在 Step 3 统一判断。各轴不维护独立状态，也不做笛卡尔积。
 4. 基本盘方向只要与功能形态相符就进入候选：正常主路径；外部输入的异常；存在范围时的合法边界；存在取消/撤销/回退时的逆向。需求没写失败细节不等于不适用。
 5. 五字段**完全无法形成操作 + 方向性预期**时停止并请 SQA 补充；薄但可测时继续，缺口进入存疑。
+
+   **停止后话术**（纯文字，逐字；**跟随会话语言**二选一，不同时输出）：
+   > 这份需求的信息还不够生成测试点（缺操作或预期方向），麻烦补充一下具体是做什么、期望什么结果，我再继续。
+   > This requirement doesn't have enough detail to generate test points yet (missing the operation or expected direction) — please add what it does and what's expected, and I'll continue.
 
 #### Step 2 — 补齐关系分区与有意义组合
 

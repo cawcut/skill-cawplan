@@ -3,6 +3,7 @@
 > 本清单是测试点生成 Skill 的参考资产，落在 Skill 仓库 `references/coverage-dimensions.md`，随 Skill 分发、改动走版本控制。
 > **用途**：为 obligation 的发现提供稳定知识，并统一测试点标签；具体五步流程只在 `SKILL.md` 定义。
 > 本清单不落库、不进 CawPlan，也不是覆盖状态表。
+> `obligation` / `disposition` / `basis` 术语定义见 `SKILL.md` §5；本文件只使用这些术语，不重新定义。
 
 ---
 
