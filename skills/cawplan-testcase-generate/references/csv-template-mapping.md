@@ -8,7 +8,7 @@
 
 > 提醒:无 BOM 的 CSV 用中文版 Excel 双击易乱码(Excel 的毛病),它是给 TestRail 导入/程序读取用的;肉眼核对用 VS Code/Notepad++ 指定 UTF-8 打开。
 
-## 12 列映射
+## 13 列映射
 
 | # | 列名 | 填什么 | 来源 |
 |---|---|---|---|
@@ -24,20 +24,39 @@
 | 10 | moduleTreeNodeId | 需求归属模块树节点 id,整份同一 | GET 五字段 |
 | 11 | RequirementId | 需求 id,整份同一 | 入口 id / 冷接力解析 |
 | 12 | TestPointId | 父测试点 id,机器溯源 | GET testpoints |
+| 13 | Refs | TestRail References 埋点,脚本按 `buildRefs` 生成 | `scripts/refs_utils.js`(对齐 BE) |
 
 > 第 6+12 列(TestPointTitle+TestPointId)= "每条用例可溯源到父测试点"的物理载体,也是这份静态 CSV 唯一能自证漂移的抓手。**每条用例的 TestPointId 必须非空**(无孤儿)。
 
+### Refs 列规则(T2-A8 · link Workflow A)
+
+每条用例**首行**填写(续行留空,属**用例级列**):
+
+```text
+cawplan:{RequirementId};cawplan:{TestPointId};cawplan:case_{caseIdentity}
+```
+
+| 占位符 | 规则 |
+|--------|------|
+| `RequirementId` | 与第 11 列同源 |
+| `TestPointId` | 与第 12 列同源 |
+| `caseIdentity` | interim JSON 有 `sourceCaseKey` 用之,否则对 title/steps/preconditions/tag 计算 `content_hash`(`sha256:...`,与 BE `resolveCaseIdentity` 一致) |
+
+- **禁止** SQA 手填或 Agent 在对话内手写 Refs;仅 `export_to_csv.js` 生成。
+- TestRail 导入时须映射 `Refs` → **References** 字段。
+- 同一 `TestPointId` 多条用例时,`cawplan:case_*` 段必须互不相同(靠不同 `content_hash` 或 `sourceCaseKey`)。
+
 ## 用例级 vs 详情级(决定跨行与留空)
-- **用例级**(第 1–6、10–12 列):用例的身份,**只在用例首行填、续行留空**。
+- **用例级**(第 1–6、10–13 列):用例的身份,**只在用例首行填、续行留空**。
 - **详情级**(第 7 Preconditions、8 Step、9 Expected):用例的走法,**同批生成、同进退**——要么整条都有(已展开),要么整条都无(仅标题态)。
 
 ## 跨行布局(一条用例 = 连续 N 行,N=步骤数)
 ```
-首行     : 用例级列(6 个)+ Preconditions + 第1步 Step + 第1步 Expected
-续行×(N-1): 仅 Step + Expected,其余 10 列全空
+首行     : 用例级列(6 个)+ Preconditions + 第1步 Step + 第1步 Expected + Refs
+续行×(N-1): 仅 Step + Expected,其余 11 列全空
 下一条   : 紧接,用例间不空行
 ```
-- 单步 = 1 行全填;**仅标题态 = 1 行**(用例级填,详情三列空)。
+- 单步 = 1 行全填;**仅标题态 = 1 行**(用例级填,详情三列空,Refs 仍填)。
 - 半展开:已展开(N 行)与未展开(1 行)**同份混排合法**。
 - **草稿态导出**:SQA 可在任意内容状态(纯标题 / 部分展开混排)随时导出一份 CSV。此时未展开条目详情三列留空、混排合法,属**草稿态、非最终交付**(交付前通常应全展开)。导出不改变工作态、可多次导出(文件名带时间戳、互不覆盖);草稿态在对话回执里如实说明,不改文件名 / 不加列。
 - **判新用例起始:靠 CaseId 有值**(不受展开状态影响)。
@@ -45,15 +64,16 @@
 - CSV 无"格内换行"概念:Preconditions 的 `1.\n2.` 靠该格被双引号整体包裹保留(RFC4180),TestRail 亦认。
 
 ## 留空规则
-- 用例级列:只首行填、续行空。
+- 用例级列:只首行填、续行空(含 Refs)。
 - 详情三列:该用例已展开才填;未展开则整条 1 行、详情空。
 - **源里没有的信息一律不编造**:无特殊前置 → "无"或空;接口没返回 moduleTreeNodeId → 留空 + 存疑,不猜、不扫产品列表。
 
 ---
 
 ## ⚠️ 本文件(及导出实现)不得出现
-- ❌ 加模板外的列(如"设计方法""回归类型"):模板无列位,不扩。
-- ❌ 脚本生成/补全/改写任何内容:脚本只摆格子,内容全部来自上游 A3 定稿(红线 0 硬墙)。
+- ❌ 加模板外的列(如"设计方法""回归类型"):模板仅 13 列,不扩。
+- ❌ 脚本生成/补全/改写**用例内容**(标题/步骤/预期等):脚本只摆格子与 Refs 埋点,内容全部来自上游 A3 定稿(红线 0 硬墙)。
+- ❌ SQA 手改 Refs 后期望 link 仍成功:Refs 与用例内容绑定,改内容须重新导出。
 - ❌ TestPointId 为空的行(孤儿用例):每条必有非空父测试点 id。
 - ❌ TestPointTitle 为 `同上`、省略或预览缩写:数据层必须每行完整父测试点全称。
 - ❌ 带 BOM / 用非标准手拼转义 / 行尾非 CRLF。

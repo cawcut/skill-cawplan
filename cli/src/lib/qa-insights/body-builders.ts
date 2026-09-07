@@ -36,6 +36,9 @@ import {
   type TestrailPlanRuleKey,
   type TestrailDefectCreateTicketInput,
   type TestrailDefectDraftInput,
+  type TestrailLinkCasesPreviewInput,
+  type TestrailLinkPlanBindingInput,
+  type TestrailLinkPlansPreviewInput,
   type RiskAssessmentComputeInput,
   type RiskAssessmentSaveBody,
   type RiskLevel,
@@ -912,3 +915,163 @@ export function buildRiskAssessmentSaveBody(input: unknown): RiskAssessmentSaveB
 
   return out;
 }
+
+function parseIntegerArray(value: unknown, label: string): number[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) {
+    return value.map((item, index) => {
+      const n = optionalInteger(item, `${label}[${index}]`);
+      if (n === undefined) {
+        throw new BodyValidationError(`${label}[${index}] must be an integer`);
+      }
+      return n;
+    });
+  }
+  if (typeof value === "string") {
+    const parts = value
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    return parts.map((part, index) => {
+      const n = optionalInteger(part, `${label}[${index}]`);
+      if (n === undefined) {
+        throw new BodyValidationError(`${label} contains invalid integer at position ${index}`);
+      }
+      return n;
+    });
+  }
+  throw new BodyValidationError(`${label} must be an array of integers or a comma-separated string`);
+}
+
+function normalizeLinkPlanBinding(raw: unknown, index: number): Record<string, unknown> {
+  const item = assertPlainObject(raw, `bindings[${index}]`);
+  const ticketId = optionalString(valueByNames(item, "ticket_id", "ticketId"));
+  if (!ticketId) {
+    throw new BodyValidationError(`bindings[${index}].ticket_id is required`);
+  }
+  const planId = optionalNonNegativeInteger(valueByNames(item, "plan_id", "planId"), "plan_id");
+  if (planId === undefined) {
+    throw new BodyValidationError(`bindings[${index}].plan_id is required`);
+  }
+  const out: Record<string, unknown> = { ticket_id: ticketId, plan_id: planId };
+  const runIds = parseIntegerArray(valueByNames(item, "run_ids", "runIds"), `bindings[${index}].run_ids`);
+  if (runIds !== undefined) out.run_ids = runIds;
+  return out;
+}
+
+function normalizeLinkPlanBindings(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new BodyValidationError("testrail link plans preview requires at least one binding");
+  }
+  return value.map((item, index) => normalizeLinkPlanBinding(item, index));
+}
+
+function resolveLinkPlanBindings(
+  input: TestrailLinkPlansPreviewInput,
+): TestrailLinkPlanBindingInput[] {
+  if (input.bindings?.length) return input.bindings;
+  const ticketId = optionalString(input.ticketId);
+  const planId = optionalNonNegativeInteger(input.planId, "plan_id");
+  if (!ticketId || planId === undefined) {
+    throw new BodyValidationError(
+      "testrail link plans preview requires bindings in --body/--body-file or --ticket-id with --plan-id",
+    );
+  }
+  const runIds = parseIntegerArray(input.runIds, "run_ids");
+  return [{ ticketId, planId, runIds }];
+}
+
+export function buildTestrailLinkCasesPreviewBody(
+  input: TestrailLinkCasesPreviewInput,
+): Record<string, unknown> {
+  const suiteId = optionalInteger(input.suiteId, "suite_id");
+  if (suiteId === undefined || suiteId <= 0) {
+    throw new BodyValidationError("testrail link cases preview requires --suite-id");
+  }
+  const requirementId = optionalString(input.requirementId);
+  if (!requirementId) {
+    throw new BodyValidationError("testrail link cases preview requires --requirement-id");
+  }
+  const body: Record<string, unknown> = {
+    suite_id: suiteId,
+    source: { type: "REQUIREMENT", requirement_id: requirementId },
+  };
+  const parentSectionId = optionalInteger(input.parentSectionId, "parent_section_id");
+  if (parentSectionId !== undefined) body.parent_section_id = parentSectionId;
+  return body;
+}
+
+export function mergeTestrailLinkCasesPreviewBody(
+  parsed: unknown,
+  flags: Partial<TestrailLinkCasesPreviewInput>,
+): Record<string, unknown> {
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new BodyValidationError("testrail link cases preview body must be a JSON object");
+  }
+  const fromFile = parsed as Record<string, unknown>;
+  const source = (fromFile.source as Record<string, unknown> | undefined) ?? {};
+  return buildTestrailLinkCasesPreviewBody({
+    suiteId: flags.suiteId ?? valueByNames<number>(fromFile, "suite_id", "suiteId"),
+    requirementId:
+      flags.requirementId ?? valueByNames<string>(source, "requirement_id", "requirementId"),
+    parentSectionId:
+      flags.parentSectionId ??
+      valueByNames<number>(fromFile, "parent_section_id", "parentSectionId"),
+  });
+}
+
+export function buildTestrailLinkExecuteBody(
+  previewId: string,
+  confirm: boolean,
+  supersede?: boolean,
+): Record<string, unknown> {
+  const id = optionalString(previewId);
+  if (!id) throw new BodyValidationError("--preview-id is required");
+  const body: Record<string, unknown> = { preview_id: id, confirm };
+  if (supersede) body.supersede = true;
+  return body;
+}
+
+export function buildTestrailLinkPlansPreviewBody(
+  input: TestrailLinkPlansPreviewInput,
+): Record<string, unknown> {
+  const versionId = optionalString(input.versionId);
+  if (!versionId) {
+    throw new BodyValidationError("testrail link plans preview requires --version-id");
+  }
+  const bindings = resolveLinkPlanBindings(input).map((binding, index) =>
+    normalizeLinkPlanBinding(
+      {
+        ticket_id: binding.ticketId,
+        plan_id: binding.planId,
+        run_ids: binding.runIds,
+      },
+      index,
+    ),
+  );
+  return { version_id: versionId, bindings };
+}
+
+export function mergeTestrailLinkPlansPreviewBody(
+  parsed: unknown,
+  flags: Partial<TestrailLinkPlansPreviewInput>,
+): Record<string, unknown> {
+  const body = assertPlainObject(parsed, "testrail link plans preview body");
+  if (flags.bindings?.length || (flags.ticketId && flags.planId !== undefined)) {
+    return buildTestrailLinkPlansPreviewBody({
+      versionId: flags.versionId ?? valueByNames<string>(body, "version_id", "versionId"),
+      bindings: flags.bindings,
+      ticketId: flags.ticketId,
+      planId: flags.planId,
+      runIds: flags.runIds,
+    });
+  }
+  const versionId = optionalString(
+    flags.versionId ?? valueByNames<string>(body, "version_id", "versionId"),
+  );
+  if (!versionId) {
+    throw new BodyValidationError("testrail link plans preview requires --version-id");
+  }
+  return { version_id: versionId, bindings: normalizeLinkPlanBindings(body.bindings) };
+}
+

@@ -315,7 +315,7 @@ Reply with a number, or just tell me what you'd like to do.
 - **边界**：这不是给展开加确认闸；≤10 条、或已表态的 >10 条，展开仍无摩擦。框4**仅**在「本批 > 10 且未表态」时出现。
 
 - Default first pass: **title-state Markdown tables grouped by Group** (not CSV). **父测试点**列是拆分账核心：同一父测试点连出 N 行 = 逐项拆对；只出 1 行 = 可能错合；空 = 孤儿。
-- **Preview table columns ≠ CSV 12 columns** — preview is for human review; export column layout follows `assets/testcase-template.csv`. 预览层的 `同上` 是显示缩写；`cases[].testPointTitle` 与导出 JSON 始终保留全称（见下「预览呈现格式」）。
+- **Preview table columns ≠ CSV 13 columns** — preview is for human review; export column layout follows `assets/testcase-template.csv`. 预览层的 `同上` 是显示缩写；`cases[].testPointTitle` 与导出 JSON 始终保留全称（见下「预览呈现格式」）。
 - **预览一律按 Group 分块**（Title / Partial / Full 均适用；**即使仅 1 个 Group 也必须分块**，禁止单组平铺）：每个 Group 一块，块首为 `### {Group名}`；块内表列固定为 `#` / `用例标题` / `优先级` / `父测试点`。**禁止**在块内再加「分组」列（分组已由块标题表达）。分块仅影响 Markdown 布局，**不**决定 SQA 点名展开哪些条。
 - **父测试点列「同上」**（**仅** Markdown 预览显示层；`cases[].testPointTitle` 与 §8 导出**永远全称**，见下条）：
   1. **块首行强制全称**：每个 `### {Group名}` 块内表格的**第一行**，父测试点列**必须写全称**，**禁止** `同上`（块内无上一条用例可比）。
@@ -324,7 +324,7 @@ Reply with a number, or just tell me what you'd like to do.
      - 本行 `cases[].testPointTitle` 与**本块内紧邻上一行**的 `testPointTitle` **逐字完全相同**（比的是父测试点列字符串本身，**不是**用例标题、**不是**主题相似、**不是**全局 `#` 序号）。
   3. **块边界归零**：每个新 Group 块开始时，**不得**延续上一块的「同上」链；跨块**禁止** `同上` 或「同第 N 条」。
   4. **禁止写法**：预览中不得出现「同第 N 条」；连续多行 `同上` 仅表示**同一父测试点**在本块内拆出多条用例。
-- **与 CSV 导出无关（重要）**：上述分块与 `同上` **仅**作用于对话内 Markdown 预览。§8 导出时 interim JSON / CSV **每行**仍填完整 `testPointTitle` 与 `group`（12 列照常），**绝不**出现 `同上` 或省略。`cases[]` 内存真相源始终完整；预览只是渲染层缩写。
+- **与 CSV 导出无关（重要）**：上述分块与 `同上` **仅**作用于对话内 Markdown 预览。§8 导出时 interim JSON / CSV **每行**仍填完整 `testPointTitle` 与 `group`（13 列照常，含脚本生成的 `Refs`），**绝不**出现 `同上` 或省略。`cases[]` 内存真相源始终完整；预览只是渲染层缩写。
 
 #### 预览呈现格式（Markdown only — 不影响 §8 导出）
 
@@ -508,6 +508,9 @@ rm -f "$TMP_JSON"
   - Status line（逐字; `<路径>` from stdout `已导出: ...`；**跟随会话语言**二选一）:
     > 已导出:<路径>。
     > Exported: <路径>.
+  - Refs hint（Status line **后追加**一行；**跟随会话语言**二选一）:
+    > CSV 已含 Refs 列;导入 TestRail 时映射到 References 后,可用 testrail-link 回链用例。
+    > The CSV includes a Refs column; map it to References when importing into TestRail, then use testrail-link to link cases.
   - **`exportMode = fill_then_export` 时**（框5 选项 2 或 §5 框4「全部带步骤导出」），Status line **后追加**一行（逐字；**跟随会话语言**二选一）:
     > 已把未展开用例补齐步骤后导出(对话未铺开)。
     > Un-expanded cases had their steps auto-filled before export (not expanded inline in this conversation).
