@@ -3,9 +3,15 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { getBaseUrl, getCachePath, getCacheTtlMs } from "./config.js";
 import {readCredentials, userIdFromAccessToken} from "./credentials.js";
+import { readUserConfigSync } from "./user-config.js";
 
 type CacheEntry = { fetched_at: number; data: unknown };
 type CacheStore = { version: 1; entries: Record<string, CacheEntry> };
+
+/** Local response caching is opt-in to avoid serving stale project data by default. */
+export function isCacheEnabled(): boolean {
+  return readUserConfigSync()?.cache === true;
+}
 
 export function loadCache(): CacheStore {
   const cachePath = getCachePath();
@@ -33,7 +39,7 @@ export function saveCache(store: CacheStore): void {
 }
 
 export function getCache(key: string, refresh: boolean, ttlMs = getCacheTtlMs()): unknown | undefined {
-  if (refresh) return undefined;
+  if (!isCacheEnabled() || refresh) return undefined;
   const store = loadCache();
   const entry = store.entries[key];
   if (!entry) return undefined;
@@ -42,12 +48,14 @@ export function getCache(key: string, refresh: boolean, ttlMs = getCacheTtlMs())
 }
 
 export function setCache(key: string, data: unknown): void {
+  if (!isCacheEnabled()) return;
   const store = loadCache();
   store.entries[key] = { fetched_at: Date.now(), data };
   saveCache(store);
 }
 
 export function pruneCacheEntries(keyPrefix: string, ttlMs: number): number {
+  if (!isCacheEnabled()) return 0;
   const store = loadCache();
   const now = Date.now();
   let removed = 0;
