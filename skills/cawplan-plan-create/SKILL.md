@@ -24,6 +24,10 @@ cawplan skill check
 | Explicit version name + optional explicit ticket list | **A — Direct create** |
 | Pasted OKRs / stage goals, asking to generate a plan from them | **B — OKR-driven plan** |
 
+### Ticket field semantics
+
+For every ticket create or update, use `description` for the short **title/summary** and `remarks` for the detailed page **description/body** (HTML supported). Never put a long description body in `description`.
+
 ## Workflow A — Direct create
 
 1. Resolve product name to `product_id`:

@@ -238,6 +238,24 @@ export function productIdFromStdoutTraces(jsonlPath: string, date?: string): str
 }
 
 /**
+ * Codex signal 3 — same JSON receipt shape as Claude Code's toolUseResult.stdout
+ * and Cursor GUI's toolFormerData.result.output, sourced instead from Codex's
+ * own rollout JSONL: each `custom_tool_call_output` event's text blocks
+ * (collected by agents/codex.ts into SessionData.qa_tool_outputs). Codex has no
+ * attributionSkill equivalent (signal 1) and no Bash tool_use blocks to scan
+ * (signal 2, its tool name is "exec" with a different input shape) — same
+ * signal-3-only fallback as Cursor GUI.
+ */
+export function tracesFromCodexToolOutputs(outputs: string[]): QaStdoutTrace[] {
+    const traces: QaStdoutTrace[] = [];
+    for (const output of outputs) {
+        const trace = parseQaStdoutTrace(output);
+        if (trace) traces.push(trace);
+    }
+    return traces;
+}
+
+/**
  * GUI-only skill_layers source: signal 3 (stdout receipts) only. Cursor GUI
  * has no attributionSkill equivalent (signal 1) and no Bash tool_use blocks
  * to scan (signal 2) — this is intentionally narrower than collectSkillLayers,

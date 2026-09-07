@@ -341,3 +341,27 @@ export interface RiskAssessmentSaveBody {
   override_rule_engine?: boolean;
   [key: string]: unknown;
 }
+
+/** `POST .../qa/testrail/link/cases/preview` — Workflow A (T2-A8). */
+export interface TestrailLinkCasesPreviewInput {
+  suiteId?: number;
+  requirementId?: string;
+  parentSectionId?: number;
+}
+
+/** One Ticket ↔ TestRail Plan/Run binding for link plans preview. */
+export interface TestrailLinkPlanBindingInput {
+  ticketId: string;
+  planId: number;
+  runIds?: number[];
+}
+
+/** `POST .../qa/testrail/link/plans/preview` — Workflow B (T2-A8). */
+export interface TestrailLinkPlansPreviewInput {
+  versionId?: string;
+  bindings?: TestrailLinkPlanBindingInput[];
+  /** Single-binding shortcut when --body is omitted. */
+  ticketId?: string;
+  planId?: number;
+  runIds?: number[] | string;
+}

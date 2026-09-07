@@ -3,7 +3,7 @@
 /*
  * A3 测试用例导出 · export_to_csv.js
  *
- * 职责(且仅此职责):把 AI 已定稿的结构化用例数据(JSON),按团队 12 列模板
+ * 职责(且仅此职责):把 AI 已定稿的结构化用例数据(JSON),按团队 13 列模板
  * 写成 CSV。脚本只"摆格子",不生成、不补全、不改写任何内容 —— 红线 0 在导出层
  * 的硬墙:凡具体值(文案/阈值/次数)必须已由上游 AI 依据测试点/五字段填好,原样落盘。
  *
@@ -20,8 +20,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { buildRefsForCase } = require('./refs_utils');
 
-// ── 12 列表头(与团队模板逐字一致,顺序固定)──────────────────────
+// ── 13 列表头(与团队模板逐字一致,顺序固定)──────────────────────
 const HEADERS = [
   'CaseId',
   'Title',
@@ -35,6 +36,7 @@ const HEADERS = [
   'moduleTreeNodeId',
   'RequirementId',
   'TestPointId',
+  'Refs',
 ];
 
 const PRIORITY_MAP = { P0: 'Critical', P1: 'High', P2: 'Medium', P3: 'Low' };
@@ -75,7 +77,7 @@ function toCsvLine(cells) {
   return cells.map(csvEscape).join(',');
 }
 
-// 一条用例 → CSV 行数组(每行是 12 元素数组)
+// 一条用例 → CSV 行数组(每行是 13 元素数组)
 function rowsForCase(caseObj, caseId) {
   const steps = caseObj.steps || [];
   const expected = caseObj.expected || [];
@@ -115,6 +117,7 @@ function rowsForCase(caseObj, caseId) {
   const nodeId = s('moduleTreeNodeId');
   const reqId = s('requirementId');
   const tpId = s('testPointId');
+  const refs = buildRefsForCase(caseObj);
 
   const n = steps.length;
 
@@ -123,7 +126,7 @@ function rowsForCase(caseObj, caseId) {
     return [[
       String(caseId), title, priority, tag, group, tpTitle,
       '', '', '',
-      nodeId, reqId, tpId,
+      nodeId, reqId, tpId, refs,
     ]];
   }
 
@@ -133,14 +136,14 @@ function rowsForCase(caseObj, caseId) {
       rows.push([
         String(caseId), title, priority, tag, group, tpTitle,
         precond, String(steps[0]), String(expected[0]),
-        nodeId, reqId, tpId,
+        nodeId, reqId, tpId, refs,
       ]);
     } else {
-      // 续行:仅 Step + Expected,其余 10 列空
+      // 续行:仅 Step + Expected,其余 11 列空
       rows.push([
         '', '', '', '', '', '',
         '', String(steps[i]), String(expected[i]),
-        '', '', '',
+        '', '', '', '',
       ]);
     }
   }
@@ -224,4 +227,14 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { HEADERS, mapPriority, joinTag, joinMultiline, csvEscape, buildCsvText, exportToCsv, safeFilename };
+module.exports = {
+  HEADERS,
+  mapPriority,
+  joinTag,
+  joinMultiline,
+  csvEscape,
+  buildCsvText,
+  exportToCsv,
+  safeFilename,
+  rowsForCase,
+};

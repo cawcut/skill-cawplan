@@ -26,7 +26,7 @@ import {
   startOAuthLogin,
 } from "../src/lib/oauth";
 import { getAuthState } from "../src/lib/auth-state";
-import { buildScopedCacheKey, getCacheScope } from "../src/lib/cache";
+import { buildScopedCacheKey, getCache, getCacheScope, setCache } from "../src/lib/cache";
 import {
   apiBaseUsesGatewayPrefix,
   getApiBase,
@@ -276,6 +276,16 @@ describe("src lib products", () => {
     expect(await readUserConfig()).toEqual({ env: "proto" });
     expect(getApiBase()).toBe("https://core-api-gw.uid.dev.ui.com/core-product");
   });
+
+  test("config cache command is disabled by default and persists its setting", async () => {
+    const program = new Command();
+    program.exitOverride();
+    registerConfigCommand(program);
+
+    await program.parseAsync(["node", "cawplan", "config", "cache", "on"], { from: "node" });
+
+    expect(await readUserConfig()).toEqual({ cache: true });
+  });
 });
 
 describe("src lib auth-state", () => {
@@ -319,6 +329,15 @@ describe("src lib credentials", () => {
 });
 
 describe("src lib cache", () => {
+  test("does not read or write cache entries until cache is enabled", async () => {
+    setCache("test:key", { cached: true });
+    expect(getCache("test:key", false)).toBeUndefined();
+
+    await writeUserConfig({ cache: true });
+    setCache("test:key", { cached: true });
+    expect(getCache("test:key", false)).toEqual({ cached: true });
+  });
+
   test("scopes cache keys by OAuth workspace", async () => {
     await writeCredentials({
       accessToken: unsignedJwt({ workspace_id: "workspace-a", uid_id: "user-a" }),
@@ -586,7 +605,9 @@ describe("src lib collect cost currency", () => {
     expect(sessions[1]?.ticket_ids).toBeUndefined();
   });
 
-  test("caches assignment ticket refs by session for later collection", () => {
+  test("caches assignment ticket refs by session for later collection", async () => {
+    await writeUserConfig({ cache: true });
+
     setCachedAssignmentTicketRefsFromSession({
       schema: "2.0",
       date: "2026-08-10",
@@ -615,6 +636,8 @@ describe("src lib collect cost currency", () => {
   });
 
   test("prunes expired assignment ticket refs from cache file", async () => {
+    await writeUserConfig({ cache: true });
+
     const now = Date.now();
     const cachePath = process.env.CAWPLAN_CACHE_PATH!;
     await writeFile(cachePath, JSON.stringify({
@@ -769,20 +792,42 @@ describe("src lib collect cost currency", () => {
       output_tokens: 1_000_000,
     })).toBeCloseTo(60, 4);
 
-    // Sonnet 5 has temporary pricing through August 31, 2026.
+    // Fable/Mythos 5.1 cache hits use a 0.025x (rather than 0.1x) multiplier.
+    expect(calculateCost("claude-fable-5-1", {
+      input_tokens: 1_000_000,
+      cache_read_input_tokens: 1_000_000,
+    })).toBeCloseTo(0.25, 4);
+
+    // Sonnet 5's $2/$10 introductory pricing is now its standard price.
     expect(calculateCost("claude-sonnet-5", {
       input_tokens: 1_000_000,
       output_tokens: 1_000_000,
     })).toBeCloseTo(12, 4);
 
-    // Claude official pricing does not define a separate fast multiplier.
+    // Fast mode is not available for Opus 4.7, so use standard pricing.
     expect(calculateCost("claude-opus-4-7", {
       input_tokens: 1_000_000,
       output_tokens: 1_000_000,
     }, { speed: "fast" })).toBeCloseTo(30, 4);
+
+    expect(calculateCost("claude-opus-4-8", {
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+    }, { speed: "fast" })).toBeCloseTo(60, 4);
   });
 
   test("calculateCost matches dotted GPT-5.6 model IDs after normalization", () => {
+    // Sol promotional pricing is $4/$20 through at least 2026-11-21.
+    expect(calculateCost("gpt-5.6-sol", {
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+    })).toBeCloseTo(24, 4);
+
+    expect(calculateCost("gpt-5.6-sol", {
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+    }, { speed: "fast" })).toBeCloseTo(48, 4);
+
     // Terra's 2026-07-30 price cut: $2/$12 (was $2.5/$15).
     expect(calculateCost("gpt-5.6-terra", {
       input_tokens: 1_000_000,

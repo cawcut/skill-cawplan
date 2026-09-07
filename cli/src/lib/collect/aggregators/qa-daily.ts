@@ -5,6 +5,7 @@ import {
     findClaudeCodeJsonlPathBySessionId,
     QaStdoutTrace,
     skillLayersFromTraces,
+    tracesFromCodexToolOutputs,
     tracesFromGuiToolResults,
     tracesFromToolResultStdout,
 } from "../qa-trace-extract.js";
@@ -79,9 +80,11 @@ function isGuiAgent(session: SessionData): boolean {
 /**
  * Signal-3 stdout traces (`cawplan qa-insights ...` JSON receipts) for a
  * session, keyed by data source: Claude Code reads its JSONL file,
- * Cursor GUI reads vscdb. Other agents (e.g. cursor-cli) have no trace
- * source yet — their sessions get skill_layers: [], empty requirement_ids,
- * and no auto-resolved product_id, same as before this data source existed.
+ * Cursor GUI reads vscdb, Codex reads its own rollout JSONL (collected ahead
+ * of time into SessionData.qa_tool_outputs by agents/codex.ts). Other agents
+ * (e.g. cursor-cli) have no trace source yet — their sessions get
+ * skill_layers: [], empty requirement_ids, and no auto-resolved product_id,
+ * same as before this data source existed.
  */
 function resolveTraces(session: SessionData, jsonlPath: string | null | undefined, date: string): QaStdoutTrace[] {
     if (session.agent === "claude-code") {
@@ -89,6 +92,9 @@ function resolveTraces(session: SessionData, jsonlPath: string | null | undefine
     }
     if (isGuiAgent(session)) {
         return tracesFromGuiToolResults(session.session_id);
+    }
+    if (session.agent === "codex") {
+        return tracesFromCodexToolOutputs(session.qa_tool_outputs ?? []);
     }
     return [];
 }
@@ -98,6 +104,7 @@ function resolveTraces(session: SessionData, jsonlPath: string | null | undefine
  * - Claude Code: full signal 1+2+3 union (collectSkillLayers) via its JSONL file.
  * - Cursor GUI: signal 3 only (skillLayersFromTraces) — no attributionSkill or
  *   Bash tool_use blocks to scan in vscdb.
+ * - Codex: signal 3 only (skillLayersFromTraces) — same reasoning as Cursor GUI.
  * - Other agents: [] until a trace adapter exists.
  */
 function resolveSkillLayers(
@@ -109,7 +116,7 @@ function resolveSkillLayers(
     if (session.agent === "claude-code") {
         return jsonlPath ? collectSkillLayers(jsonlPath, date) : [];
     }
-    if (isGuiAgent(session)) {
+    if (isGuiAgent(session) || session.agent === "codex") {
         return skillLayersFromTraces(traces);
     }
     return [];

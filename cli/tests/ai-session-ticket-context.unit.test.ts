@@ -3,6 +3,7 @@ import {
     applyHumanInputTicketRefsToSessions,
     extractTicketRefsFromHumanInputs,
     normalizeSessionTicketIdsToUniqueIds,
+    ticketContextFromSearchItem,
     ticketContextIsResolved,
     ticketDisplayIdFromRef,
 } from "../src/lib/ai-session/ticket-context";
@@ -95,6 +96,22 @@ describe("ai-session ticket context", () => {
         ]);
 
         expect(new Set(refs)).toEqual(new Set(["ticket-14471", "CWP-14471", "CAW-04560", "CAW-04561", "CAW-04562"]));
+    });
+
+    test("maps description to the ticket title and remarks to its body", () => {
+        expect(ticketContextFromSearchItem({
+            unique_id: "ticket-14471",
+            display_id: "CWP-14471",
+            description: "Short ticket title",
+            remarks: "<p>Detailed ticket description</p>",
+            title: "legacy title",
+            content: "legacy content",
+        }, "CWP-14471")).toMatchObject({
+            ticket_id: "ticket-14471",
+            ticket_display_id: "CWP-14471",
+            title: "Short ticket title",
+            content: "<p>Detailed ticket description</p>",
+        });
     });
 
     test("does not treat fallback display ID contexts as resolved tickets", () => {

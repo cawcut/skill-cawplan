@@ -102,6 +102,8 @@ export interface SessionData {
     human_inputs?: HumanInput[];
     ticket_ids?: string[];
     ticket_display_ids?: string[];
+    /** Raw stdout text of `cawplan qa-insights ...` tool calls (Codex only; QA trace source 3). */
+    qa_tool_outputs?: string[];
 }
 
 export interface DailyApiJson {
