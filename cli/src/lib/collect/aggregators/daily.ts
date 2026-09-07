@@ -6,6 +6,7 @@ import {
     UsageBucket,
     MessageStats,
 } from "../types.js";
+import {getLocalLanguageTag} from "../date-utils.js";
 import {inferHumanInputTopicDetails} from "./human-topic.js";
 import {aggregateFileChanges, relativizeFileChanges} from "./tool-utils.js";
 
@@ -366,12 +367,14 @@ export function buildDailyApiJson(
         };
     });
     const reportHumanInputs = sessionEnrichments.flatMap((entry) => entry.humanInputs);
+    const clientLocale = getLocalLanguageTag();
 
     return {
         schema: "2.0",
         date,
         author,
         generated_at: new Date().toISOString(),
+        ...(clientLocale ? {client_locale: clientLocale} : {}),
         include_conversation: false,
         summary: buildTopLevelSummary(date, sessions, costByCurrency),
         totals: {

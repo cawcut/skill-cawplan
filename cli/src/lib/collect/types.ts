@@ -109,6 +109,12 @@ export interface DailyApiJson {
     date: string;
     author: string;
     generated_at: string;
+    /**
+     * BCP-47 language tag of the machine that produced this report, e.g. "zh-CN".
+     * Optional: omitted when the machine reports nothing meaningful, and the server then infers
+     * the language from the turn text instead.
+     */
+    client_locale?: string;
     include_conversation: boolean;
     summary?: string;
     totals: {
