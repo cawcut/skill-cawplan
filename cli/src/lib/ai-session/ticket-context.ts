@@ -4,7 +4,7 @@ import {extractList} from "./helpers.js";
 import type {AiSessionTicketContext, DailyApiJson, HumanInput, SessionData} from "../collect/types.js";
 import {buildScopedCacheKey, getCache, setCache} from "../cache.js";
 
-interface TicketSearchItem {
+export interface TicketSearchItem {
     unique_id?: string;
     display_id?: string;
     product_id?: string;
@@ -15,6 +15,7 @@ interface TicketSearchItem {
     summary?: string;
     content?: string;
     body?: string;
+    remarks?: string;
     description?: string;
     url?: string;
 }
@@ -32,17 +33,21 @@ export function ticketDisplayIdFromRef(ref: string): string | undefined {
     return displayMatch ? trimmed.toUpperCase() : undefined;
 }
 
-function ticketContextFromSearchItem(item: TicketSearchItem, fallbackRef: string): AiSessionTicketContext {
+/**
+ * CawPlan ticket fields use legacy names: `description` is the short title,
+ * while `remarks` is the page's detailed description/body.
+ */
+export function ticketContextFromSearchItem(item: TicketSearchItem, fallbackRef: string): AiSessionTicketContext {
     const displayId = item.display_id ?? ticketDisplayIdFromRef(fallbackRef);
     const ticketId = item.unique_id ?? displayId ?? fallbackRef;
-    const content = item.content ?? item.description ?? item.summary ?? item.body;
+    const content = item.remarks ?? item.content ?? item.body ?? item.summary;
     return {
         ticket_id: ticketId,
         ticket_display_id: displayId,
         product_id: item.product_id,
         product_line_id: item.product_line_id,
         version_id: item.version_id,
-        title: item.title ?? item.name,
+        title: item.description ?? item.title ?? item.name,
         content,
         url: item.url ?? (displayId ? `https://app.cawplan.com/issue/${displayId}` : undefined),
     };
@@ -52,7 +57,7 @@ export async function resolveTicketContexts(refs: string[]): Promise<AiSessionTi
     const uniqueRefs = [...new Set(refs.map((ref) => ref.trim()).filter(Boolean))];
     if (uniqueRefs.length === 0) throw new Error("at least one ticket ref is required");
 
-    const cacheKey = await buildScopedCacheKey("ai-session:ticket-contexts:v1", {
+    const cacheKey = await buildScopedCacheKey("ai-session:ticket-contexts:v2", {
         refs: uniqueRefs.join(","),
     });
     const cached = getCache(cacheKey, false);

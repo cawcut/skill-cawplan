@@ -19,6 +19,10 @@ cawplan skill check
 
 ## Workflow
 
+### Ticket field semantics
+
+For CawPlan tickets, `description` is the short **title** and `remarks` is the detailed page **description/body** (often HTML). Always label and present these fields accordingly; do not treat `description` as the body or omit `remarks` when showing ticket context.
+
 Use this skill when the user invokes `/cawplan-ticket-context`, asks to query ticket context, or mentions a CawPlan issue URL in the session.
 
 Automatically trigger this skill when the user message contains a CawPlan issue URL such as `https://app.cawplan.com/issue/CWP-14471` or `https://core-web-product.uid.dev.ui.com/issue/CAW-04560` **and** they are not asking for SQA requirement analysis, five-field structuring, module-tree selection, or QA Insights archiving — use `cawplan-requirement-analyze` for those. Do not wait for an explicit `/cawplan-ticket-context` command when only a bare issue URL is pasted.
@@ -54,7 +58,6 @@ After showing the ticket details, stop. Do not write local ticket-context files 
 After the search succeeds, summarize:
 
 - Queried ticket display IDs and unique IDs.
-- Show each ticket's title and content/description returned by `cawplan tickets search` so the current session has the ticket requirements in visible context.
+- Show each ticket's title from `description` and detailed description/body from `remarks` returned by `cawplan tickets search` so the current session has the ticket requirements in visible context.
 - Show each ticket's `progress_comment` as current progress when present. If it is empty or absent, state that no current progress summary was returned.
 - End the turn after displaying the ticket context unless the user explicitly requested additional work.
-
