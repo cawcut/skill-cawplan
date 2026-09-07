@@ -14,6 +14,9 @@ import {
   buildTestrailDefectCreateTicketBody,
   buildTestrailDefectDraftBody,
   buildTestrailDefectLinkTicketBody,
+  buildTestrailLinkCasesPreviewBody,
+  buildTestrailLinkExecuteBody,
+  buildTestrailLinkPlansPreviewBody,
   buildTestrailPlanExecuteBody,
   buildTestrailPlanPreviewBody,
   buildTestrailPlanRulesBody,
@@ -22,6 +25,8 @@ import {
   buildRiskRulesBody,
   mergeRiskAssessmentComputeBody,
   mergeTestrailImportPreviewBody,
+  mergeTestrailLinkCasesPreviewBody,
+  mergeTestrailLinkPlansPreviewBody,
   mergeTestrailDefectDraftBody,
   mergeTestrailPlanPreviewBody,
   requiredPositiveInteger,
@@ -54,6 +59,8 @@ import type {
   RequirementRow,
   SectionStrategy,
   TestrailDefectDraftInput,
+  TestrailLinkCasesPreviewInput,
+  TestrailLinkPlansPreviewInput,
   TestrailPlanPreviewInput,
 } from "../lib/qa-insights/types.js";
 
@@ -1143,6 +1150,235 @@ export async function runTestrailImportExecute(
   const data = envelope.api?.data as { job_id?: string; jobId?: string; status?: string } | undefined;
   const jobId = data?.job_id ?? data?.jobId;
   if (jobId) meta.job_id = jobId;
+  return emit(envelope);
+}
+
+// ---------------------------------------------------------------------------
+// TestRail integration (T2) — A8 manual link (cases / plans)
+// ---------------------------------------------------------------------------
+
+export interface TestrailLinkCasesPreviewOptions extends TestrailLinkCasesPreviewInput {
+  bodyFile?: string;
+  body?: string;
+  dryRun?: boolean;
+}
+
+export async function runTestrailLinkCasesPreview(
+  productId: string,
+  opts: TestrailLinkCasesPreviewOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail link cases preview";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    dry_run: Boolean(opts.dryRun),
+    requirement_id: opts.requirementId,
+    suite_id: opts.suiteId,
+  };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    const parsed = await readOptionalJsonInput(opts.bodyFile, opts.body, "testrail link cases preview");
+    body =
+      parsed === undefined
+        ? buildTestrailLinkCasesPreviewBody(opts)
+        : mergeTestrailLinkCasesPreviewBody(parsed, opts);
+    if (typeof body.suite_id === "number") meta.suite_id = body.suite_id;
+    const source = body.source as Record<string, unknown> | undefined;
+    const requirementId = source?.requirement_id;
+    if (typeof requirementId === "string") meta.requirement_id = requirementId;
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/link/cases/preview"),
+    body,
+    command,
+    meta,
+    isWrite: false,
+  });
+  const previewData = envelope.api?.data as { preview_id?: string; previewId?: string } | undefined;
+  const previewId = previewData?.preview_id ?? previewData?.previewId;
+  if (previewId) meta.preview_id = previewId;
+  return emit(envelope);
+}
+
+export interface TestrailLinkCasesExecuteOptions {
+  previewId: string;
+  confirm?: boolean;
+  dryRun?: boolean;
+}
+
+export async function runTestrailLinkCasesExecute(
+  productId: string,
+  opts: TestrailLinkCasesExecuteOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail link cases execute";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    preview_id: opts.previewId,
+    dry_run: Boolean(opts.dryRun),
+  };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    body = buildTestrailLinkExecuteBody(opts.previewId, Boolean(opts.confirm));
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  if (!opts.confirm) {
+    return emit(
+      buildEnvelope({
+        outcome: "FAILURE",
+        command,
+        meta,
+        post_body: body,
+        error: {
+          type: "validation",
+          message:
+            "testrail link cases execute requires --confirm (safety gate; preview must be reviewed first)",
+          api_code: "CONFIRMATION_REQUIRED",
+        },
+      }),
+    );
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/link/cases/execute"),
+    body,
+    command,
+    meta,
+    isWrite: true,
+  });
+  return emit(envelope);
+}
+
+export interface TestrailLinkPlansPreviewOptions extends TestrailLinkPlansPreviewInput {
+  bodyFile?: string;
+  body?: string;
+  dryRun?: boolean;
+}
+
+export async function runTestrailLinkPlansPreview(
+  productId: string,
+  opts: TestrailLinkPlansPreviewOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail link plans preview";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    dry_run: Boolean(opts.dryRun),
+    version_id: opts.versionId,
+  };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    const parsed = await readOptionalJsonInput(opts.bodyFile, opts.body, "testrail link plans preview");
+    body =
+      parsed === undefined
+        ? buildTestrailLinkPlansPreviewBody(opts)
+        : mergeTestrailLinkPlansPreviewBody(parsed, opts);
+    if (typeof body.version_id === "string") meta.version_id = body.version_id;
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/link/plans/preview"),
+    body,
+    command,
+    meta,
+    isWrite: false,
+  });
+  const previewData = envelope.api?.data as { preview_id?: string; previewId?: string } | undefined;
+  const previewId = previewData?.preview_id ?? previewData?.previewId;
+  if (previewId) meta.preview_id = previewId;
+  return emit(envelope);
+}
+
+export interface TestrailLinkPlansExecuteOptions {
+  previewId: string;
+  confirm?: boolean;
+  supersede?: boolean;
+  dryRun?: boolean;
+}
+
+export async function runTestrailLinkPlansExecute(
+  productId: string,
+  opts: TestrailLinkPlansExecuteOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail link plans execute";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    preview_id: opts.previewId,
+    dry_run: Boolean(opts.dryRun),
+  };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    body = buildTestrailLinkExecuteBody(opts.previewId, Boolean(opts.confirm), Boolean(opts.supersede));
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  if (!opts.confirm) {
+    return emit(
+      buildEnvelope({
+        outcome: "FAILURE",
+        command,
+        meta,
+        post_body: body,
+        error: {
+          type: "validation",
+          message:
+            "testrail link plans execute requires --confirm (safety gate; preview must be reviewed first)",
+          api_code: "CONFIRMATION_REQUIRED",
+        },
+      }),
+    );
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/link/plans/execute"),
+    body,
+    command,
+    meta,
+    isWrite: true,
+  });
+  const data = envelope.api?.data as {
+    plan_mapping_ids?: string[];
+    planMappingIds?: string[];
+  } | undefined;
+  const planMappingIds = data?.plan_mapping_ids ?? data?.planMappingIds;
+  if (planMappingIds?.length) meta.plan_mapping_ids = planMappingIds;
   return emit(envelope);
 }
 
@@ -2247,6 +2483,57 @@ export function registerQAInsightsCommand(program: Command): void {
     .option("--confirm", "Required safety gate — must be set to execute")
     .option("--dry-run", "Print request body without calling API")
     .action((productId: string, opts) => runTestrailImportExecute(productId, opts));
+
+  const testrailLink = testrail
+    .command("link")
+    .description("Manual TestRail mapping link (T2-A8)");
+  const testrailLinkCases = testrailLink
+    .command("cases")
+    .description("Link CSV-imported TestRail cases back to CawPlan test points");
+  testrailLinkCases
+    .command("preview <product_id>")
+    .description("Preview linking existing TestRail cases by refs (no mapping writes)")
+    .option("--body-file <path>", "Full link cases preview request JSON")
+    .option("--body <json>", "Inline link cases preview request JSON")
+    .option("--suite-id <n>", "TestRail suite id", (v: string) => Number(v))
+    .option("--requirement-id <id>", "CawPlan Requirement unique_id (source.type=REQUIREMENT)")
+    .option(
+      "--parent-section-id <n>",
+      "Narrow scan to this Section subtree (same semantics as import parent_section_id)",
+      (v: string) => Number(v),
+    )
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, opts) => runTestrailLinkCasesPreview(productId, opts));
+  testrailLinkCases
+    .command("execute <product_id>")
+    .description("Execute a confirmed link cases preview")
+    .requiredOption("--preview-id <id>", "preview_id from link cases preview response")
+    .option("--confirm", "Required safety gate — must be set to execute")
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, opts) => runTestrailLinkCasesExecute(productId, opts));
+
+  const testrailLinkPlans = testrailLink
+    .command("plans")
+    .description("Manually bind TestRail plans or runs to CawPlan tickets");
+  testrailLinkPlans
+    .command("preview <product_id>")
+    .description("Preview manual Ticket ↔ TestRail Plan/Run bindings (requires Milestone bound)")
+    .option("--body-file <path>", "Full link plans preview request JSON")
+    .option("--body <json>", "Inline link plans preview request JSON")
+    .option("--version-id <id>", "Version unique_id; required unless body provides version_id")
+    .option("--ticket-id <id>", "Single-binding shortcut: CawPlan Ticket unique_id")
+    .option("--plan-id <n>", "Single-binding shortcut: TestRail plan id (0 = run-only)", (v: string) => Number(v))
+    .option("--run-ids <ids>", "Single-binding shortcut: comma-separated TestRail run ids")
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, opts) => runTestrailLinkPlansPreview(productId, opts));
+  testrailLinkPlans
+    .command("execute <product_id>")
+    .description("Execute a confirmed link plans preview")
+    .requiredOption("--preview-id <id>", "preview_id from link plans preview response")
+    .option("--confirm", "Required safety gate — must be set to execute")
+    .option("--supersede", "Replace existing Ticket plan mapping when preview flagged supersede")
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, opts) => runTestrailLinkPlansExecute(productId, opts));
 
   const testrailExecution = testrail.command("execution").description("TestRail execution progress (A3)");
   testrailExecution
