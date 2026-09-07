@@ -97,9 +97,10 @@
 ### Search Version Tickets
 - Endpoint: `POST /api/v1/public/openapi/tickets/search`
 - Query params: `time_range` or (`start_date` + `end_date`), optionally also (`updated_start_date` + `updated_end_date`), `page_size`, `page_num`
-- Body: `product_ids[]`, `product_line_ids[]`, `version_ids[]`, `unique_ids[]`, `display_ids[]`, `parent_ids[]`, `type[]`, `status[]`, `priority[]`, `platform[]`, `assignees[]`, `search`
+- Body: `product_ids[]`, `product_line_ids[]`, `version_ids[]`, `unique_ids[]`, `display_ids[]`, `parent_ids[]`, `type[]`, `status[]`, `excluded_status[]`, `ux[]`, `priority[]`, `platform[]`, `assignees[]`, `search`
 - Notes:
     - OR within same field; AND across fields.
+    - `ux[]` filters by UX state (`NOT_REQUIRED`, `PENDING`, `READY`). `excluded_status[]` excludes tickets whose status key is in the supplied list. CLI: `--ux PENDING,READY --excluded_status DONE,CANCELED`.
     - `unique_ids[]` / `display_ids[]` are exact-match lookups (Linear `fetchIssuesByIds` / global `getIssue`). When either is set, **the time window is not required** (no `time_range` / date range needed).
     - `parent_ids[]` returns **all** sub-issues of the given parents (Linear `getChildIssues`). It is a bounded relationship lookup, so it also **exempts the time window** — the full child set is returned regardless of age (a dependency-aware scheduler must not lose old children). `time_range` is therefore not required when `parent_ids[]` is set.
 - **`start_date`/`end_date` filter `created_at`, not `updated_at`** — this is easy to miss since the field name isn't in the param name. A ticket created before the window but changed (status, assignee, comments, etc.) within it will **not** show up from `start_date`/`end_date` alone, no matter how the request is otherwise scoped (product/version/assignee filters don't change this). If the actual question is "what changed in this window" (release reports, member/team activity reports) rather than "what was created in this window," that's `updated_start_date`/`updated_end_date` (below), not `start_date`/`end_date`.

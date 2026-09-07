@@ -140,6 +140,8 @@ export function registerTicketsCommand(program: Command): void {
     .option("--parent_ids <csv>", "Parent ticket IDs")
     .option("--type <csv>", "Ticket types")
     .option("--status <csv>", "Ticket statuses")
+    .option("--excluded_status <csv>", "Statuses to exclude")
+    .option("--ux <csv>", "UX states: NOT_REQUIRED|PENDING|READY")
     .option("--priority <csv>", "Priorities")
     .option("--platform <csv>", "Platforms")
     .option("--assignees <csv>", "Assignees")
@@ -170,7 +172,15 @@ export function registerTicketsCommand(program: Command): void {
       if (opts.updated_end_date) flags.updated_end_date = opts.updated_end_date;
       if (opts.page_size) flags.page_size = opts.page_size;
       if (opts.page_num) flags.page_num = opts.page_num;
-      const query = buildQueryFromFlags(flags, ["time_range", "start_date", "end_date", "updated_start_date", "updated_end_date", "page_size", "page_num"]);
+      const query = buildQueryFromFlags(flags, [
+          "time_range",
+          "start_date",
+          "end_date",
+          "updated_start_date",
+          "updated_end_date",
+          "page_size",
+          "page_num"
+      ]);
 
       const body: Record<string, unknown> = {};
       const productIds = csvToArray(opts.product_ids);
@@ -178,6 +188,8 @@ export function registerTicketsCommand(program: Command): void {
       const versionIds = csvToArray(opts.version_ids);
       const type = csvToArray(opts.type);
       const status = csvToArray(opts.status);
+      const excludedStatus = csvToArray(opts.excluded_status);
+      const ux = csvToArray(opts.ux);
       const priority = csvToArray(opts.priority);
       const platform = csvToArray(opts.platform);
       const assignees = csvToArray(opts.assignees);
@@ -189,6 +201,8 @@ export function registerTicketsCommand(program: Command): void {
       if (parentIds) body.parent_ids = parentIds;
       if (type) body.type = type;
       if (status) body.status = status;
+      if (excludedStatus) body.excluded_status = excludedStatus;
+      if (ux) body.ux = ux;
       if (priority) body.priority = priority;
       if (platform) body.platform = platform;
       if (assignees) body.assignees = assignees;

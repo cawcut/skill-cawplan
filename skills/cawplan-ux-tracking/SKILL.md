@@ -31,7 +31,7 @@ A ticket can sit at `ux == "PENDING"` while the ticket itself is already done or
 ```
 State this window choice to the user once, so it's clear the query isn't missing anything for being "too recent."
 
-**Pagination**: every response is a `CommonPageResp` — `data`, plus `page_num`, `page_size`, `total`. Keep incrementing `page_num` and re-fetching while `page_num * page_size < total`; stop once you've fetched `total` results. Don't stop after one page just because it came back full or empty of `PENDING` matches — `total` is the only reliable signal, since a page can be full of non-matching tickets before the filter is applied.
+**Pagination**: every response is a `CommonPageResp` — `data`, plus `page_num`, `page_size`, `total`. Keep incrementing `page_num` and re-fetching while `page_num * page_size < total`; stop once you've fetched `total` results. `--ux PENDING` is applied by the API, so every returned ticket is UX-pending; still use `total`, rather than a full or short page, as the completion signal.
 
 ## Entry Routing
 
@@ -51,9 +51,9 @@ State this window choice to the user once, so it's clear the query isn't missing
    ```
 2. Fetch and filter:
    ```bash
-   cawplan tickets search --version_ids <version_id> --start_date 2000-01-01 --end_date <today> --page_size 100 --page_num 1
+   cawplan tickets search --version_ids <version_id> --ux PENDING --start_date 2000-01-01 --end_date <today> --page_size 100 --page_num 1
    ```
-   Page through fully (see Pagination above). Keep only results where `ux == "PENDING"` **and** `status_display.category` is not `COMPLETE`/`CANCELED` (see Background).
+   Page through fully (see Pagination above). The API returns only `ux == "PENDING"`; locally exclude results whose `status_display.category` is `COMPLETE` or `CANCELED` (see Background).
 
    For "all versions of this product" (per Entry Routing), drop `--version_ids` and use `--product_ids <product_id>` instead — everything else in this step is unchanged, and no priority filter is added just because there's no version.
 
@@ -62,18 +62,18 @@ State this window choice to the user once, so it's clear the query isn't missing
 1. If the user gave a product/version, resolve it the same way as Workflow A and add `--product_ids`/`--version_ids`. If they didn't, ask whether to scope to a product or search across everything they have access to — don't silently assume "everything."
 2. Fetch and filter:
    ```bash
-   cawplan tickets search --priority CRITICAL,HIGH --start_date 2000-01-01 --end_date <today> --page_size 100 --page_num 1 [--product_ids <id>] [--version_ids <id>]
+   cawplan tickets search --priority CRITICAL,HIGH --ux PENDING --start_date 2000-01-01 --end_date <today> --page_size 100 --page_num 1 [--product_ids <id>] [--version_ids <id>]
    ```
-   Page through fully (see Pagination above). Keep only results where `ux == "PENDING"` **and** `status_display.category` is not `COMPLETE`/`CANCELED` (see Background), and sort by priority `CRITICAL` → `HIGH` (same ordering as Workflow C) — the framing is "high-priority," so lead with the higher one.
+   Page through fully (see Pagination above). The API returns only `ux == "PENDING"`; locally exclude `COMPLETE`/`CANCELED` status categories (see Background), then sort by priority `CRITICAL` → `HIGH` (same ordering as Workflow C) — the framing is "high-priority," so lead with the higher one.
 
 ## Workflow C — Team scope
 
 1. Resolve the Team name to a `product_line_id` — same pattern as `cawplan-product-report`'s Team workflow: `cawplan product-lines list --page_size 100`, match by name client-side. Ask to disambiguate on multiple matches; if no name matches at all, say so and ask for the correct Team name rather than guessing the closest one.
 2. Fetch and filter:
    ```bash
-   cawplan tickets search --product_line_ids <product_line_id> --start_date 2000-01-01 --end_date <today> --page_size 100 --page_num 1
+   cawplan tickets search --product_line_ids <product_line_id> --ux PENDING --start_date 2000-01-01 --end_date <today> --page_size 100 --page_num 1
    ```
-   Page through fully (see Pagination above). Keep only results where `ux == "PENDING"` **and** `status_display.category` is not `COMPLETE`/`CANCELED` (see Background). Sort by priority `CRITICAL` → `HIGH` → `MEDIUM` → `LOW` (the scenario this covers explicitly asks for high-to-low ordering).
+   Page through fully (see Pagination above). The API returns only `ux == "PENDING"`; locally exclude `COMPLETE`/`CANCELED` status categories (see Background). Sort by priority `CRITICAL` → `HIGH` → `MEDIUM` → `LOW` (the scenario this covers explicitly asks for high-to-low ordering).
 
 ## Output
 

@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Command } from "commander";
 import { cawplanRequest, ApiError } from "../src/lib/http";
 import { registerConfigCommand } from "../src/commands/config";
+import { registerTicketsCommand } from "../src/commands/tickets";
 import { applyTicketRefsToSessions } from "../src/lib/ai-session/ticket-context";
 import {
   getCachedAssignmentTicketRefs,
@@ -977,6 +978,37 @@ describe("src lib oauth", () => {
 });
 
 describe("src lib http", () => {
+  test("tickets search sends UX and excluded-status filters as arrays", async () => {
+    await writeCredentials({
+      accessToken: "access",
+      refreshToken: "refresh",
+      expire: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const requestBodies: string[] = [];
+    globalThis.fetch = async (_url, init) => {
+      requestBodies.push(String(init?.body));
+      return new Response(JSON.stringify({ code: "SUCCESS", data: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const program = new Command();
+    registerTicketsCommand(program);
+
+    await program.parseAsync([
+      "node", "cawplan", "tickets", "search", "--time_range", "1m",
+      "--ux", "PENDING,READY", "--excluded_status", "DONE,CANCELED",
+    ], { from: "node" });
+
+    expect(requestBodies).toHaveLength(1);
+    expect(JSON.parse(requestBodies[0]!)).toEqual({
+      ux: ["PENDING", "READY"],
+      excluded_status: ["DONE", "CANCELED"],
+    });
+    output.mockRestore();
+  });
+
   test("refreshes OAuth token and retries once on API 401", async () => {
     await writeUserConfig({ env: "proto" });
     await writeCredentials({
