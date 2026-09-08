@@ -3,7 +3,7 @@ version: 0.2.8
 name: cawplan-product-report
 description: |
   Generate a CawPlan status report over a date range: for a single product (progress, risk analysis, priority recommendations, summaries), for a Team (CawPlan product line), or for a named member — ticket-change-based completion, in the last two cases.
-  Use when: the user asks for a product status report, progress report, risk summary, release readiness, or priority recommendations for a product over a date range; asks how a Team/product line is doing over a date range; or asks how a specific member's task completion looks over a date range (not their own — use `cawplan-my-work` for "my tasks").
+  Use when: the user asks for a product status report, progress report, risk summary, release readiness, priority recommendations, or the open/unclosed tickets in a product's current or named version; asks how a Team/product line is doing over a date range; or asks how a specific member's task completion looks over a date range (not their own — use `cawplan-my-work` for "my tasks").
   NOT for: raw activity feed, user activity, ticket creation, metrics dashboards, or critical issue lists.
 argument-hint: "[product name or ID, OR team/product-line name, OR member name/email, start date, end date, optional version]"
 allowed-tools: Bash
@@ -22,12 +22,33 @@ cawplan skill check
 | Input | Flow |
 |---|---|
 | A specific product (and optionally a version) | **A — Product report** |
+| Open/unclosed tickets in a product's current or named version | **A0 — Version open tickets** |
 | A Team / product line ("Team A", a squad/line name, not a product name) | **B — Team report** |
 | A product's UX members' UX/design completion | Use `cawplan-ux-tracking` **Workflow D**; it counts `ux → READY` events performed by the product's configured Designers, not reporters or assignees. |
 | A product's QA members' Ticket verification / acceptance status | **D — QA verification activities**; count status-change events performed by that product's configured QA members, not by current Assignee. |
 | A named member, someone other than the caller ("how's Alex doing on...") | **C — Member report** |
 
 If unsure whether a name is a product or a Team, resolve both (`products list --search`, `product-lines list`) and ask if either is ambiguous or both match. A user-supplied Team or product name must match an accessible record exactly (case-insensitively, after trimming whitespace), or be a unique short-form/token-prefix match. If it does not match uniquely, list the available or search-returned candidates and ask which Team/product they mean; never substitute a similarly named product or Team. If the user asks about their *own* task completion ("my tasks"), that's `cawplan-my-work`, not this skill.
+
+## Workflow A0 — Version open tickets
+
+Use this workflow for requests such as “查看 VN Cloud 当前 Version 的 Open Tickets” or “list the unclosed tickets for Product X 1.2.3.” Apply **Workflow A's required product-access gate before every other query**. Do not infer a product from a similar name, alias, prior query, or another product's current version.
+
+1. Resolve the requested product with:
+   ```bash
+   cawplan products list --search "<product name or product_id>"
+   ```
+   Continue only with an exact accessible-name match or a unique short-form/token-prefix match. If no candidate matches, report: “No accessible Product matched `<input>`; it may not exist, have a different name, or you may not have permission.” Do not query versions or tickets. If the API explicitly returns an access-denied error, report `NO_PERMISSION`; otherwise do not claim that lack of permission is certain.
+
+2. Resolve the version. For “current Version,” use the matched product's `inprogress_version_id` and `inprogress_version_name`; if either is absent, report that the product has no current in-progress version. For a named version, use `cawplan versions list <product_id>` and require an exact version-name match. Never borrow a version from another product.
+
+3. Fetch every ticket in that version, paging to `total`:
+   ```bash
+   cawplan tickets search --version_ids <version_id> --start_date 2000-01-01 --end_date <today> --page_size 100 --page_num 1
+   ```
+   Treat a ticket as open only when its inline `status_display.category` is neither `COMPLETE` nor `CANCELED`. Filter this client-side even if an `--excluded_status_categories COMPLETE,CANCELED` filter is also supplied; do not trust a server-side exclusion as the only safeguard.
+
+4. Report the resolved Product and Version, total open count, and a status/priority breakdown. For each listed ticket, show display ID, type, priority, status, and title. If the result is too large for a useful chat response, provide the count and breakdown first, then ask for a priority/status slice or an export; do not silently substitute another product or report a partial list as complete.
 
 ## Workflow A — Product report
 
