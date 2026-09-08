@@ -23,6 +23,7 @@ cawplan skill check
 |---|---|
 | A specific product (and optionally a version) | **A — Product report** |
 | A Team / product line ("Team A", a squad/line name, not a product name) | **B — Team report** |
+| UX Team's UX/design completion | Use `cawplan-ux-tracking` **Workflow D**; it counts history-verified `ux → READY` events by their Designer, not reporters or assignees. |
 | A named member, someone other than the caller ("how's Alex doing on...") | **C — Member report** |
 
 If unsure whether a name is a product or a Team, resolve both (`products list --search`, `product-lines list`) and ask if either is ambiguous or both match. A user-supplied Team or product name must match an accessible record exactly (case-insensitively, after trimming whitespace), or be a unique short-form/token-prefix match. If it does not match uniquely, list the available or search-returned candidates and ask which Team/product they mean; never substitute a similarly named product or Team. If the user asks about their *own* task completion ("my tasks"), that's `cawplan-my-work`, not this skill.
