@@ -89,11 +89,12 @@ line. If the product is omitted, ask which product's UX members should be report
    display names. If it has no Designers, report that the product has no configured UX roster and
    stop. Membership is product-scoped; use this returned roster, not a workspace-wide keyword
    search. Default the date window to the current week only when the user does not provide one.
-2. Fetch a broad candidate set. Do **not** add `--ux READY` or terminal-status exclusions: a
-   Ticket may have been marked `READY` in the requested window and later edited, closed, or moved
-   back to `PENDING`.
+2. Fetch candidates that currently need or have completed UX. Exclude `NOT_REQUIRED` tickets
+   with `--ux PENDING,READY`; `NOT_REQUIRED` is the default state and does not represent UX work.
+   Do **not** add terminal-status exclusions: a Ticket may have been marked `READY` in the
+   requested window and later edited, closed, or moved back to `PENDING`.
    ```bash
-   cawplan tickets search --product_ids <product_id> --start_date 2000-01-01 --end_date <today> --updated_start_date <window_start> --updated_end_date <today> --page_size 100 --page_num 1
+   cawplan tickets search --product_ids <product_id> --ux PENDING,READY --start_date 2000-01-01 --end_date <today> --updated_start_date <window_start> --updated_end_date <today> --page_size 100 --page_num 1
    ```
    Page through fully (see Pagination above). `updated_at` only produces candidates; it is not UX
    completion evidence.
