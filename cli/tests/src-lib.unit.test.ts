@@ -978,7 +978,7 @@ describe("src lib oauth", () => {
 });
 
 describe("src lib http", () => {
-  test("tickets search sends UX and excluded-status filters as arrays", async () => {
+  test("tickets search sends UX and status filters as arrays", async () => {
     await writeCredentials({
       accessToken: "access",
       refreshToken: "refresh",
@@ -998,13 +998,18 @@ describe("src lib http", () => {
 
     await program.parseAsync([
       "node", "cawplan", "tickets", "search", "--time_range", "1m",
-      "--ux", "PENDING,READY", "--excluded_status", "DONE,CANCELED",
+      "--ux", "PENDING,READY",
+      "--excluded_status", "DONE,CANCELED",
+      "--status_categories", "STARTED,TESTING",
+      "--excluded_status_categories", "COMPLETE,CANCELED",
     ], { from: "node" });
 
     expect(requestBodies).toHaveLength(1);
     expect(JSON.parse(requestBodies[0]!)).toEqual({
       ux: ["PENDING", "READY"],
       excluded_status: ["DONE", "CANCELED"],
+      status_categories: ["STARTED", "TESTING"],
+      excluded_status_categories: ["COMPLETE", "CANCELED"],
     });
     output.mockRestore();
   });

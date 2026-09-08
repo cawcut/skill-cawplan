@@ -142,6 +142,8 @@ export function registerTicketsCommand(program: Command): void {
     .option("--status <csv>", "Ticket statuses")
     .option("--excluded_status <csv>", "Statuses to exclude")
     .option("--ux <csv>", "UX states: NOT_REQUIRED|PENDING|READY")
+    .option("--status_categories <csv>", "Status categories: BACKLOG|UNSTARTED|STARTED|TESTING|COMPLETE|CANCELED|JIRA")
+    .option("--excluded_status_categories <csv>", "Status categories to exclude")
     .option("--priority <csv>", "Priorities")
     .option("--platform <csv>", "Platforms")
     .option("--assignees <csv>", "Assignees")
@@ -190,6 +192,8 @@ export function registerTicketsCommand(program: Command): void {
       const status = csvToArray(opts.status);
       const excludedStatus = csvToArray(opts.excluded_status);
       const ux = csvToArray(opts.ux);
+      const statusCategories = csvToArray(opts.status_categories);
+      const excludedStatusCategories = csvToArray(opts.excluded_status_categories);
       const priority = csvToArray(opts.priority);
       const platform = csvToArray(opts.platform);
       const assignees = csvToArray(opts.assignees);
@@ -203,6 +207,8 @@ export function registerTicketsCommand(program: Command): void {
       if (status) body.status = status;
       if (excludedStatus) body.excluded_status = excludedStatus;
       if (ux) body.ux = ux;
+      if (statusCategories) body.status_categories = statusCategories;
+      if (excludedStatusCategories) body.excluded_status_categories = excludedStatusCategories;
       if (priority) body.priority = priority;
       if (platform) body.platform = platform;
       if (assignees) body.assignees = assignees;
