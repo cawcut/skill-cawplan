@@ -31,7 +31,7 @@ Before querying **any** product-, version-, release-, or ticket-scoped data, ver
 cawplan products list --search "<product name or product_id>"
 ```
 
-Continue only when the response contains one intended product (`product_id` / `unique_id`). Match a supplied product name exactly (case-insensitively, after trimming whitespace), or accept a unique short-form/token-prefix match; a non-unique similarly named result is only a candidate, never an automatic replacement. If no unique accessible product matches, do **not** call `versions`, `tickets`, `product-lines statuses`, or any other product-scoped endpoint. List the candidate names and ask the user to confirm which product they mean. Return `NO_PERMISSION` only when the API explicitly reports denied access.
+Continue only when the response contains one intended product (`product_id` / `unique_id`). Match a supplied product name exactly (case-insensitively, after trimming whitespace), or accept a unique short-form/token-prefix match; a non-unique similarly named result is only a candidate, never an automatic replacement. If no unique accessible product matches, do **not** call `versions`, `tickets`, `product-lines statuses`, or any other product-scoped endpoint. If candidates were returned, list their names and ask the user to confirm which product they mean. If no candidates were returned, state that the named product either does not exist or is not accessible to the caller; do not report ticket counts or imply that its ticket list is empty. Return `NO_PERMISSION` only when the API explicitly reports denied access.
 
 ```text
 NO_PERMISSION: You do not have access to product "CawCut Cloud".
@@ -43,7 +43,7 @@ Never convert an unavailable product into an empty result such as `Open Tickets:
    ```bash
    cawplan products list --search "<product name>"
    ```
-If no exact or unique short-form product match exists, list the candidates (name + `product_id`) and ask the user to confirm which product they mean; do not guess. If more than one match exists, ask the user to pick. Keep the `product_line_id` (or nested `product_line.unique_id` — check the actual field name in the response) from the confirmed record.
+If no exact or unique short-form product match exists, list any candidates (name + `product_id`) and ask the user to confirm which product they mean; do not guess. If the lookup returns no candidates, say: `未找到可访问的 product “<name>”：该 product 可能不存在，或你当前没有访问权限，因此无法查询其 tickets。` If more than one match exists, ask the user to pick. Keep the `product_line_id` (or nested `product_line.unique_id` — check the actual field name in the response) from the confirmed record.
 
 2. Resolve version name to `version_id` (skip if already known):
    ```bash
