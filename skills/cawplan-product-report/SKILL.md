@@ -23,7 +23,8 @@ cawplan skill check
 |---|---|
 | A specific product (and optionally a version) | **A — Product report** |
 | A Team / product line ("Team A", a squad/line name, not a product name) | **B — Team report** |
-| UX Team's UX/design completion | Use `cawplan-ux-tracking` **Workflow D**; it counts history-verified `ux → READY` events by their Designer, not reporters or assignees. |
+| A product's UX members' UX/design completion | Use `cawplan-ux-tracking` **Workflow D**; it counts `ux → READY` events performed by the product's configured Designers, not reporters or assignees. |
+| A product's QA members' Ticket verification / acceptance status | **D — QA verification activities**; count status-change events performed by that product's configured QA members, not by current Assignee. |
 | A named member, someone other than the caller ("how's Alex doing on...") | **C — Member report** |
 
 If unsure whether a name is a product or a Team, resolve both (`products list --search`, `product-lines list`) and ask if either is ambiguous or both match. A user-supplied Team or product name must match an accessible record exactly (case-insensitively, after trimming whitespace), or be a unique short-form/token-prefix match. If it does not match uniquely, list the available or search-returned candidates and ask which Team/product they mean; never substitute a similarly named product or Team. If the user asks about their *own* task completion ("my tasks"), that's `cawplan-my-work`, not this skill.
@@ -115,6 +116,57 @@ There is no team-scoped activity endpoint — `product-activity get` only takes 
    cawplan products list --product_line_id <product_line_id>
    ```
 
+## Workflow D — QA verification activities
+
+Use this workflow for requests such as “汇总 CawCut Cloud 的 QA Team 本周的 Ticket 验收情况” or
+“Summarize this product's QA ticket verification status.” Here, **QA Team means the product's
+configured `members.qas` roster**, not a CawPlan product line. If the product is omitted, ask
+which product's QA members should be reported. This workflow measures **QA Activities**: actual
+Ticket status transitions performed by a QA member during the requested period. It does not use
+current Assignee, Reporter, or a Ticket's current status as a proxy for QA work.
+
+1. Resolve the product and complete Workflow A's required product-access gate:
+   ```bash
+   cawplan products list --search "<product name or product_id>"
+   ```
+   Read the matched product's `members.qas[]` roster and collect its `user_id` values and display
+   names. If it has no QA members, report that the product has no configured QA roster and stop.
+   Membership is product-scoped; use the roster returned for this product, not a workspace-wide
+   keyword search. Default an omitted range to the current week and state the inclusive date range
+   used.
+
+2. Build a complete candidate set exactly as in Workflow B step 2, including pagination:
+   ```bash
+   cawplan tickets search --product_ids <product_id> --start_date 2000-01-01 --end_date <today> --updated_start_date <window_start> --updated_end_date <today> --page_size 100 --page_num 1
+   ```
+   `updated_at` only identifies Tickets whose history may be relevant. Its end bound must remain
+   real today, not the report end date, because a later unrelated edit must not hide an earlier QA
+   activity.
+
+3. For **every** candidate, call:
+   ```bash
+   cawplan tickets history <product_id> <version_id> <ticket_id>
+   ```
+   Keep every `UPDATED` entry whose `changed_fields.status` is present, whose `created_at` is
+   inside `[window_start, window_end]`, and whose history-entry `user_id` belongs to the resolved
+   `members.qas` roster. Do not count `CREATED`, `TRANSFERRED`, an arbitrary `updated_at`, a
+   status change performed by a non-QA actor, or a Ticket merely because it is currently assigned
+   to QA. The status field is normally `{old, new}`; tolerate a legacy string value as the new
+   status.
+
+4. Treat each retained history entry as one QA activity — do **not** deduplicate by Ticket. A
+   Ticket can legitimately be moved through QA Testing, Done, Reopen, and Close within one week;
+   each status transition is useful verification evidence. Attribute the activity to the history
+   entry's `user_id` / `user_display_name`, the QA person who performed the change. Do not infer
+   that person from the Ticket's Reporter or Assignee. Exclude an entry with no actor that cannot
+   be matched to the product QA roster; identify it separately as an unassigned/integration event
+   only if relevant to explaining the exclusion.
+
+5. Resolve the product line's status definitions when a category breakdown is requested. Display
+   the actual transition (`old → new`) and, when available, its new-status category. Do not
+   hard-code `DONE`, `REOPEN`, `CLOSE`, or `QA Testing`: custom status keys and categories are
+   valid QA activities too.
+
 ## Workflow C — Member report
 
 Same ticket-change approach as Workflow B, scoped to one person instead of a whole product line.
@@ -150,6 +202,16 @@ Same ticket-change approach as Workflow B, scoped to one person instead of a who
 - **Per-product breakdown**: only if step 3 ran and the user asked for it.
 
 **Workflow C:** same shape as Workflow B (Summary + Completion + Notable items), scoped to the one person's tickets — no per-product breakdown section.
+
+**Workflow D:**
+
+- **QA activity summary**: total in-window status-change events and distinct Tickets involved.
+- **By QA member**: activity count and distinct Ticket count per history-event actor that matches
+  the product's configured `members.qas` roster; never use current Assignee or Reporter as the
+  grouping field.
+- **Verification transitions**: counts and Ticket evidence grouped by `old → new` status (and
+  new-status category when resolved), including QA Testing, Done, Reopen, Close, and custom
+  statuses as returned by the API.
 
 ## References
 
