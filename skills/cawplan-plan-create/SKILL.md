@@ -34,7 +34,7 @@ For every ticket create or update, use `description` for the short **title/summa
    ```bash
    cawplan products list --search "<product name>"
    ```
-   If more than one product matches, list the candidates (name + `product_id`) and ask the user to pick — do not guess. This applies whether reached from Workflow A or Workflow B.
+   Continue only after an exact accessible-name match (case-insensitive after trimming whitespace), a unique short-form/token-prefix match, or explicit user confirmation of a listed candidate. If the user's stated product is absent or ambiguous, list candidates (name + `product_id`) and ask which product they mean; do not guess or create anything. If more than one match exists, ask the user to pick. This applies whether reached from Workflow A or Workflow B.
 
 2. Create the version:
    ```bash

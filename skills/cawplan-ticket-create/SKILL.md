@@ -30,13 +30,14 @@ If the message mixes both (an explicit ask plus a wall of pasted context), treat
 
 ## Workflow A — Single ticket
 
-Use `--product` and `--version` by name when the user already provided both — the CLI resolves IDs internally.
+Always resolve a user-provided product before using it, even when the user also supplied a version. Accept an exact accessible-name match (case-insensitive after trimming whitespace), a unique short-form/token-prefix match, or a candidate the user explicitly confirms. If the stated product is absent or ambiguous, list candidates and ask which product they mean; do not create a ticket against a non-unique similarly named product. Once confirmed, prefer the resolved `product_id` for follow-on commands.
 
 If a product is provided but no version is provided:
 1. Resolve the product first:
    ```bash
    cawplan products list --search "<product name>"
    ```
+   Apply the product-resolution rule above; if the product is not confirmed, do not list versions or create a ticket.
 2. List versions for the resolved product:
    ```bash
    cawplan versions list <product_id> --page_size 100
@@ -82,7 +83,7 @@ For PRDs, Slack threads, and meeting transcripts pasted directly into the conver
 1. **Resolve destination scope — one product, or a Team with per-platform products:**
    - **Single product** (the common case): resolve it the same way as Workflow A, then resolve one version for it (list in-progress versions, ask the user to choose, or confirm backlog). If the text names a version, use it; otherwise ask. Apply this product/version to every extracted candidate unless a specific item explicitly names a different one.
    - **A Team, with platforms split across different products** (e.g. "add to VN Team, FE/BE/iOS/Android are different products") — a plain product search won't resolve this, since the destination isn't one product:
-     1. Resolve the Team name to a `product_line_id` (page and match by name client-side, same as `cawplan-product-report`'s Team workflow):
+     1. Resolve the Team name to a `product_line_id` (page and match by name client-side, same as `cawplan-product-report`'s Team workflow). Require an exact name match (case-insensitive after trimming whitespace), a unique short-form/token-prefix match, or explicit user confirmation of a listed candidate. If the stated Team is absent or ambiguous, list candidates and ask which Team they mean; do not list products or infer a closest Team:
         ```bash
         cawplan product-lines list --page_size 100
         ```

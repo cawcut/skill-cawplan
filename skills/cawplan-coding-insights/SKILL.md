@@ -119,7 +119,7 @@ cawplan session user-human-inputs --user-id <user_id> --from <YYYY-MM-DD> --to <
 
 Every product returned by `cawplan products list` carries a `controls` array (e.g. `["dashboard", "version-plans", "issues-suggestions", "knowledge", "test-suites", "coding-insights"]`) — the features enabled for that product. Only a product with `"coding-insights"` in its `controls` has any coding session data; treat every other product as out of scope for this skill and never call `product-*` session endpoints against it:
 
-- **Resolving a single product** (`cawplan products list --search "<name>"`): check the matched product's `controls` before querying. If `coding-insights` is missing, tell the user this product hasn't enabled coding insights and stop instead of calling `product-overview`/`product-trend`/etc.
+- **Resolving a single product** (`cawplan products list --search "<name>"`): accept an exact accessible-name match (case-insensitive after trimming whitespace), a unique short-form/token-prefix match, or a candidate the user explicitly confirms. If the stated product is absent or ambiguous, list candidates and ask which product they mean; never substitute a non-unique closest name. Then check the matched product's `controls` before querying. If `coding-insights` is missing, tell the user this product hasn't enabled coding insights and stop instead of calling `product-overview`/`product-trend`/etc.
 - **Building a Team roster or rollup** (`cawplan products list --product_line_id <id>`, used by Team Submission Gap and Team Cost Rollup below): drop any product whose `controls` lacks `coding-insights` *before* unioning `members.rds` or summing cost. Don't flag that product's R&D members for "hasn't submitted" and don't include the product in cost totals — it was never going to have session data. Name which products were excluded and why, so the exclusion isn't silent.
 
 ---
@@ -208,7 +208,7 @@ The roster comes straight from the team's products — no per-user reverse looku
    ```bash
    cawplan product-lines list --page_size 100
    ```
-   Ask the user to disambiguate if more than one name matches. If no name matches at all, say so and ask for the correct Team name rather than guessing the closest one.
+   Require an exact Team-name match (case-insensitive after trimming whitespace), a unique short-form/token-prefix match, or explicit user confirmation of a listed candidate. Ask the user to disambiguate if more than one name matches. If no unique name matches, list candidates and ask which Team they mean rather than guessing the closest one.
 
 2. Resolve the team's products **and build the roster from the same response**:
    ```bash

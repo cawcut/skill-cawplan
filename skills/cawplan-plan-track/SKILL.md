@@ -31,7 +31,7 @@ Before querying **any** product-, version-, release-, or ticket-scoped data, ver
 cawplan products list --search "<product name or product_id>"
 ```
 
-Continue only when the response contains one exact intended product (`product_id` / `unique_id`). If it returns no matching product, do **not** call `versions`, `tickets`, `product-lines statuses`, or any other product-scoped endpoint. Return a clear failure instead, for example:
+Continue only when the response contains one intended product (`product_id` / `unique_id`). Match a supplied product name exactly (case-insensitively, after trimming whitespace), or accept a unique short-form/token-prefix match; a non-unique similarly named result is only a candidate, never an automatic replacement. If no unique accessible product matches, do **not** call `versions`, `tickets`, `product-lines statuses`, or any other product-scoped endpoint. List the candidate names and ask the user to confirm which product they mean. Return `NO_PERMISSION` only when the API explicitly reports denied access.
 
 ```text
 NO_PERMISSION: You do not have access to product "CawCut Cloud".
@@ -43,7 +43,7 @@ Never convert an unavailable product into an empty result such as `Open Tickets:
    ```bash
    cawplan products list --search "<product name>"
    ```
-   If no product matches, return `NO_PERMISSION` and stop. If more than one product matches, list the candidates (name + `product_id`) and ask the user to pick — do not guess. Keep the `product_line_id` (or nested `product_line.unique_id` — check the actual field name in the response) from this record.
+If no exact or unique short-form product match exists, list the candidates (name + `product_id`) and ask the user to confirm which product they mean; do not guess. If more than one match exists, ask the user to pick. Keep the `product_line_id` (or nested `product_line.unique_id` — check the actual field name in the response) from the confirmed record.
 
 2. Resolve version name to `version_id` (skip if already known):
    ```bash

@@ -25,7 +25,7 @@ cawplan skill check
 | A Team / product line ("Team A", a squad/line name, not a product name) | **B — Team report** |
 | A named member, someone other than the caller ("how's Alex doing on...") | **C — Member report** |
 
-If unsure whether a name is a product or a Team, resolve both (`products list --search`, `product-lines list`) and ask if either is ambiguous or both match. If the user asks about their *own* task completion ("my tasks"), that's `cawplan-my-work`, not this skill.
+If unsure whether a name is a product or a Team, resolve both (`products list --search`, `product-lines list`) and ask if either is ambiguous or both match. A user-supplied Team or product name must match an accessible record exactly (case-insensitively, after trimming whitespace), or be a unique short-form/token-prefix match. If it does not match uniquely, list the available or search-returned candidates and ask which Team/product they mean; never substitute a similarly named product or Team. If the user asks about their *own* task completion ("my tasks"), that's `cawplan-my-work`, not this skill.
 
 ## Workflow A — Product report
 
@@ -37,13 +37,13 @@ Before querying **any** product-, version-, or ticket-scoped data, confirm that 
 cawplan products list --search "<product name or product_id>"
 ```
 
-Proceed only after identifying one exact intended product (`product_id` / `unique_id`). If no matching product is returned, stop and report `NO_PERMISSION`; do not issue product, version, activity, or ticket queries. Never report an inaccessible product as a successful empty result (for example, `Open Tickets: 0`).
+Proceed only after identifying one intended product (`product_id` / `unique_id`) through an exact match or unique short-form match. If the user's named product has no unique accessible match, stop and ask them to confirm the intended product from the candidates; do not issue product, version, activity, or ticket queries. Use `NO_PERMISSION` only when the API explicitly reports that access is denied. Never report an inaccessible or unresolved product as a successful empty result (for example, `Open Tickets: 0`).
 
 1. Resolve product name to `product_id` and complete the required product-access gate:
    ```bash
    cawplan products list --search "<product name>"
    ```
-   If no product matches, return `NO_PERMISSION` and stop. If more than one product matches, list the candidates (name + `product_id`) and ask the user to pick — do not guess. All three workflows in this skill resolve products this way.
+   If no exact or unique short-form product match exists, list the candidates (name + `product_id`) and ask the user to confirm which product they mean; do not guess. If more than one match exists, ask the user to pick. All three workflows in this skill resolve products this way.
 
 2. Resolve version name to `version_id` if the user scopes to a version:
    ```bash

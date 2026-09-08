@@ -23,6 +23,7 @@ cawplan skill check
    ```bash
    cawplan products list --search "<product name>"
    ```
+   Continue only after one exact accessible product-name match (case-insensitive after trimming whitespace), one unique short-form/token-prefix match, or an explicit user confirmation of a candidate. If the user's stated product is absent or ambiguous, list the candidates and ask which product they mean; never silently choose a non-unique similarly named product. Do not fetch insight sources until the product is confirmed. Report `NO_PERMISSION` only for an explicit access-denied response.
 
 2. Fetch all insight sources in parallel:
 

@@ -48,6 +48,7 @@ UX queries need the full window:
    cawplan products list --search "<product name>"
    cawplan versions list <product_id>
    ```
+   The supplied product must be an exact accessible-name match (case-insensitive after trimming whitespace), a unique short-form/token-prefix match, or a candidate the user explicitly confirms. If no unique match exists, show the candidates and ask which product they mean before listing versions or querying tickets; never use the closest product name.
 2. Fetch:
    ```bash
    cawplan tickets search --version_ids <version_id> --ux PENDING --excluded_status_categories COMPLETE,CANCELED --start_date 2000-01-01 --end_date <today> --page_size 100 --page_num 1
@@ -67,7 +68,7 @@ UX queries need the full window:
 
 ## Workflow C — Team scope
 
-1. Resolve the Team name to a `product_line_id` — same pattern as `cawplan-product-report`'s Team workflow: `cawplan product-lines list --page_size 100`, match by name client-side. Ask to disambiguate on multiple matches; if no name matches at all, say so and ask for the correct Team name rather than guessing the closest one.
+1. Resolve the Team name to a `product_line_id` — same pattern as `cawplan-product-report`'s Team workflow: `cawplan product-lines list --page_size 100`, match by name client-side. Require an exact name match (case-insensitive after trimming whitespace), a unique short-form/token-prefix match, or explicit user confirmation of a candidate. Ask to disambiguate on multiple matches; if no unique name match exists, list candidates and ask which Team the user means rather than guessing the closest one.
 2. Fetch:
    ```bash
    cawplan tickets search --product_line_ids <product_line_id> --ux PENDING --excluded_status_categories COMPLETE,CANCELED --start_date 2000-01-01 --end_date <today> --page_size 100 --page_num 1
