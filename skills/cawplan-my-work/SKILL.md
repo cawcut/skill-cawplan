@@ -2,9 +2,8 @@
 version: 0.2.8
 name: cawplan-my-work
 description: |
-  Show the current user's own CawPlan work: tickets and critical issues assigned to them, grouped by product line, product, and version, as a single priority-sorted open-ticket list, as a list of their own tickets that got reopened with the reason, their tickets' linked repo PRs/commits, or tickets that have a linked PR/commit but whose status hasn't moved forward — optionally narrowed to one project/version.
-  Use when: the user asks what's on their plate, their current tasks, "my tickets", "my open tickets by priority", "my work", their tasks for a specific project/version, which of their tickets got reopened and why, what PRs/commits are linked to today's tickets, or which tickets already have a PR/commit but the ticket status wasn't updated — without giving a ticket ID or asking to search/filter broadly across other people.
-  NOT for: another person's tasks, searching/filtering tickets by arbitrary criteria (use ad-hoc `cawplan tickets search`), creating or updating tickets, or release tracking.
+  Show the current user's CawPlan work: assigned tickets/critical issues, priority-sorted open tickets, a day/range status-change completion summary, reopened tickets, linked PRs/commits, or tickets with a PR/commit but no status progress — optionally scoped to a product/version.
+  Use when: the user asks for my work/tasks/tickets, my open tickets by priority, a summary of today's/recent task completion or status changes, reopened tickets, today's ticket PRs/commits, or tickets with a PR/commit but no status update. NOT for another person's work, broad ticket search/filtering, ticket changes, or release tracking.
 argument-hint: "[optional: product/version to narrow to]"
 allowed-tools: Bash
 ---
@@ -41,6 +40,22 @@ cawplan skill check
 
 5. **Priority-sorted flat list** (only when the user asks for "my open tickets by priority" / sorted-by-priority framing, rather than a project/version breakdown): flatten `tickets` across every product line/product/version into one list. This framing implies open-only even if not stated explicitly — run step 4's filtering for it. Then sort `CRITICAL` → `HIGH` → `MEDIUM` → `LOW`. Still show which product/version each ticket belongs to per row — flattening the grouping for sort order doesn't mean dropping that context.
 
+5a. **My task completion / status-change summary for a day or range** (only when the user asks “帮我总结今天的任务完成情况”, “今天哪些任务状态变更了”, or equivalent): this is not the current-todos view in step 2. Default the window to today; honor an explicit date/range.
+   ```bash
+   cawplan tickets search --assignees <user_id> --start_date 2000-01-01 --end_date <today> --updated_start_date <window_start> --updated_end_date <today> --page_size 100 --page_num 1
+   ```
+   Page through fully using `total`. The `updated_at` window supplies candidates only: a Parent
+   Ticket can be refreshed because a Sub-ticket changed, even when the Parent's own status did not.
+   For every candidate, fetch:
+   ```bash
+   cawplan tickets history <product_id> <version_id> <ticket_id>
+   ```
+   Keep a Ticket only if an `UPDATED` history entry contains `changed_fields.status` and its
+   `created_at` is in the requested window. `changed_fields.status` may be a new-status string or
+   an `{old, new}` object; support both. Do not use `updated_at` as final evidence and do not count
+   `CREATED` as a status change. Report each Ticket once, using its latest in-window status-change
+   entry; exclude an unchanged Parent Ticket even if a child transition refreshed its record.
+
 6. **My reopened tickets** (only when the user asks about reopened tickets / why something got reopened): there's no `REOPENED` status *category* (only `UNSTARTED`/`STARTED`/`TESTING`/`COMPLETE`/`CANCELED`) — reopening shows up as a status *key* whose name says so, or as a history transition backward out of a terminal category. History-scanning (bullet 2) is always the ground truth; the status-key check (bullet 1) is only a shortcut for the common case where a ticket is *currently sitting* on the reopen status — it does not replace history-scanning.
    - Check history for every one of your tickets, regardless of current status: `cawplan tickets history <product_id> <version_id> <ticket_id>`, looking for any transition *from* a `COMPLETE`/`CANCELED`-category status *back to* a non-terminal category — each such transition is a reopen event. A ticket can have more than one; report all of them (oldest to newest), not just the latest — don't assume a ticket is reopened at most once.
    - As a labeling aid only, resolve each distinct product line's statuses (`cawplan product-lines statuses <product_line_id>`) to check whether the ticket's status right after a reopen transition has "reopen" in its `display_name` — if so you can call it out as "reopened" by name in the report; if not (e.g. it went straight back to `in_progress` or `TESTING`), it's still a reopen per the history transition, just report the actual status name instead of assuming there's a dedicated label for it.
@@ -69,6 +84,9 @@ cawplan skill check
 - If step 6 ran: one entry per reopened ticket (display ID, title, reopened-at, reopened-by if known, reason or "not recorded"). If none of your tickets were reopened, say so explicitly rather than showing an empty list.
 - If step 7 ran: one entry per ticket in the fetched window, its PRs/commits/other links (or "no repo links"); note the date-field assumption once, not per ticket.
 - If step 8 ran: one entry per qualifying ticket — display ID, title, current status, and the PR/commit link(s) that triggered the flag. If none qualify, say so explicitly.
+- If step 5a ran: list only history-verified status changes, with display ID, title, old → new
+  status when available, change timestamp, and whether the new status is terminal. State that
+  unchanged Parent Tickets are intentionally excluded.
 
 ## References
 

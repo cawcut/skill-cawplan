@@ -90,10 +90,24 @@ There is no team-scoped activity endpoint — `product-activity get` only takes 
    - For "last N days" asks, compute `--updated_start_date` (today minus N days) client-side — `time_range` only applies to the created_at pair, not the updated_at pair.
    - The response is a `CommonPageResp` (`data`, `page_num`, `page_size`, `total`) — page through while `page_num * page_size < total`, the same rule used in `cawplan-my-work`/`cawplan-ux-tracking` for this identical shape. Don't stop on a page that happens to come back full without checking `total` first.
 
-2a. **Narrow the candidate set down to the real report window** — the widened end-bound in step 2 sweeps in tickets touched after the window for reasons unrelated to this report:
-   - For any candidate whose `status_display.category` is **not** `COMPLETE`/`CANCELED` (i.e. `UNSTARTED`/`STARTED`/`TESTING`): keep it only if its own `updated_at` falls inside `[window_start, window_end]` — these tickets aren't done, so there's no separate "completion timestamp" to check; their last-modified time is the best signal available and the widened end-bound would otherwise let in edits that happened after the report window closed.
-   - For any candidate whose `status_display.category` **is** `COMPLETE`/`CANCELED`: verify the *actual* completion timestamp with `cawplan tickets history <product_id> <version_id> <ticket_id>`, per the canonical pattern in `references/CAWPLAN_OPEN_API.md` (latest `UPDATED` entry whose `changed_fields.status.new` is a terminal-category status; fall back to the `CREATED` entry if none). Keep the ticket only if that timestamp falls inside `[window_start, window_end]` — this catches both directions of the bug: a ticket that completed inside the window but was edited again afterward (would otherwise be missed), and a ticket that completed *before* the window but was merely touched inside it for an unrelated reason (would otherwise be miscounted as "completed this period").
-   - This adds one `tickets history` call per COMPLETE/CANCELED-category candidate, not per candidate overall — usually a small fraction of the result set.
+2a. **Narrow the candidate set to actual status changes in the report window** — `updated_at`
+   is only a broad candidate filter: it is refreshed by any edit, including recomputing a Parent
+   Ticket after one of its Sub-tickets changes. It is never evidence that this Ticket changed
+   status.
+   - For **every** candidate, call `cawplan tickets history <product_id> <version_id> <ticket_id>`.
+     Keep the Ticket only when an `UPDATED` history entry has `changed_fields.status` and that
+     entry's `created_at` is inside `[window_start, window_end]`. Do not keep a Ticket solely
+     because its `updated_at` is in the window, and do not treat its `CREATED` entry as a status
+     change.
+   - `changed_fields.status` can be either the new status key string, or an object with `old` and
+     `new`; handle both shapes. Resolve the relevant product line's status definitions when a
+     terminal-completion breakdown is needed, then classify the event's **new** status by category
+     (`COMPLETE` / `CANCELED`), rather than hard-coding `DONE`.
+   - Count each Ticket once in the summary, retaining its latest in-window status-change event as
+     the displayed evidence. A Parent Ticket whose status did not change has no such history entry
+     and must be excluded even if a Sub-ticket change refreshed the Parent's `updated_at`.
+   - This adds one `tickets history` call per candidate. It is deliberate: the search endpoint
+     cannot distinguish a status change from an unrelated record edit.
 
 3. Optionally, resolve which products make up the team (for a per-product breakdown only if asked):
    ```bash
@@ -130,8 +144,8 @@ Same ticket-change approach as Workflow B, scoped to one person instead of a who
 **Workflow B:**
 
 - **Summary**: what changed across the team in the period (counts, not a risk verdict — this workflow has no `versions track`-style risk field; don't invent one).
-- **Completion**: ticket counts by status (done vs in-progress vs not-started), by type, by priority — the done/canceled counts are the history-verified set from step 2a, not a raw `updated_at`/current-status count.
-- **Notable items**: any CRITICAL/HIGH priority tickets touched in the period, and any ticket moved to a terminal status (done/canceled) per step 2a's verified completion timestamp.
+- **Completion**: counts by status, type, and priority for Tickets with a history-verified status change in the period; terminal counts are based on the event's new status category, never raw `updated_at` or current status alone.
+- **Notable items**: CRITICAL/HIGH priority Tickets that actually changed status in the period, plus any Ticket moved to a terminal category by its verified status-change event.
 - **Per-product breakdown**: only if step 3 ran and the user asked for it.
 
 **Workflow C:** same shape as Workflow B (Summary + Completion + Notable items), scoped to the one person's tickets — no per-product breakdown section.
