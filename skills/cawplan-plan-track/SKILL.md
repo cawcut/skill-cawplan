@@ -76,6 +76,13 @@ If no exact or unique short-form product match exists, list any candidates (name
 
    **This set includes sub-issues** (`parent_id` set) alongside top-level tickets — verified live (a version with `versions get`-reported progress of 6 top-level COMPLETE tickets out of ~60 top-level had 136 tickets total in poll once sub-issues were counted in). Keep sub-issues in every list below (steps 6-13) — a CRITICAL sub-issue bug is still a real, independently typed/prioritized/assigned ticket someone needs to see. But don't be surprised if a ticket *count* you report (e.g. "31 unstarted tickets") looks larger than what `versions get`'s `progress.status_counts` shows for the same version — that field counts top-level tickets only, so the two numbers aren't measuring the same set and shouldn't be presented as if they must reconcile.
 
+5a. **Open Tickets** (when the user asks for current Version's Open Tickets): from step 5's
+   version-filtered set, include every Ticket whose status key maps to a category other than
+   `COMPLETE` or `CANCELED`. `UNSTARTED`, `STARTED`, and **`TESTING`** are all open categories.
+   Do not use a hard-coded status-key whitelist or infer terminal state from a key/display name:
+   a custom status named `Testing` in category `TESTING` is an Open Ticket and must be returned.
+   Group results by resolved status display name/category.
+
 6. **Unresolved Critical bugs** (only when the user asks about release risk / blockers — skip for a plain progress check): CawPlan tickets have no separate "Blocker" priority; treat `priority=CRITICAL` as the "Blocker" tier. From step 5's version-filtered set: `type=BUGFIX`, `priority=CRITICAL`, status category (step 4's map) not `COMPLETE`/`CANCELED`.
 
 7. **Features not yet at QA Testing** (same trigger as step 6): from step 5's set, `type=FEATURE` whose status category maps to `UNSTARTED` or `STARTED`.
@@ -107,7 +114,8 @@ Report, scoped to what the user actually asked (don't run steps 4-13 for a plain
 - Version name, status, and risk level (with reason if MEDIUM or HIGH).
 - Completion: `X% complete (N done / M total)` (round `X` to a whole number).
 - Target release date per channel (convert `release_at` Unix timestamp to a readable date).
-- If step 5 ran: open tickets — display ID, type, priority, assignee, short description, grouped by status.
+- If step 5a ran: Open Tickets — display ID, type, priority, assignee, short description,
+  grouped by resolved status. Include every non-terminal category, including `TESTING`.
 - Blockers: any CRITICAL or HIGH priority open tickets.
 - If step 6/7 ran: unresolved Critical bugs and features not yet at QA Testing, each as its own list (display ID, title, assignee).
 - If step 8 ran: the Ready for QA / QA Testing list — display ID, type, title, assignee.
