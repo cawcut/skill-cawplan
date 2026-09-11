@@ -23,7 +23,10 @@ type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export interface RequestOptions {
   method?: HttpMethod;
   path: string;
-  query?: Record<string, string>;
+  /** A string[] value is sent as repeated `key=a&key=b` params (for BE array-typed query
+   * params bound via Gin's form binding, e.g. `group_by`/`fields`/`tag` on key-metrics query) —
+   * not comma-joined, which Gin's []string form binding does not split. */
+  query?: Record<string, string | string[]>;
   body?: unknown;
   /** Multipart form body (e.g. file uploads). Mutually exclusive with `body`; when set, the
    * `content-type` header is left for fetch to set itself (with the multipart boundary). */
@@ -193,7 +196,11 @@ export async function cawplanRequest(options: RequestOptions): Promise<unknown> 
 
   if (options.query) {
     for (const [key, value] of Object.entries(options.query)) {
-      url.searchParams.set(key, value);
+      if (Array.isArray(value)) {
+        for (const v of value) url.searchParams.append(key, v);
+      } else {
+        url.searchParams.set(key, value);
+      }
     }
   }
 

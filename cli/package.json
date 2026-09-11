@@ -39,12 +39,18 @@
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
     "commander": "^12.0.0",
+    "d3-array": "^3.2.4",
+    "d3-scale": "^4.0.2",
+    "d3-shape": "^3.2.0",
     "marked": "^15.0.12",
     "marked-terminal": "^7.3.0",
     "string-width": "^7.2.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/d3-array": "^3.2.2",
+    "@types/d3-scale": "^4.0.9",
+    "@types/d3-shape": "^3.2.0",
     "@types/node": "^22.0.0",
     "esbuild": "^0.28.1",
     "tsx": "^4.0.0",

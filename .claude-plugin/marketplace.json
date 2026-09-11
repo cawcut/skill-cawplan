@@ -120,6 +120,11 @@
           "name": "knowledge",
           "path": "skills/cawplan-knowledge",
           "invoke": "/cawplan-knowledge"
+        },
+        {
+          "name": "metrics",
+          "path": "skills/cawplan-metrics",
+          "invoke": "/cawplan-metrics"
         }
       ],
       "optionalSkills": [

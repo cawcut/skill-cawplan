@@ -262,11 +262,128 @@
 - `https://community.ui.com/`
 
 ## 7) Metrics APIs
-### Get Product Metrics
-- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/metrics`
-- Query params: `time_range` OR (`start` + `end`) required
-- Response: `summary` (installations, crash_rate, offline_rate, update_success_rate),
-  plus time series in `installations`, `crash_rate`, `offline_rate`
+
+> The device/app metrics public endpoint that used to live here
+> (`GET /api/v1/public/openapi/product/{product_id}/metrics`, and the CLI's
+> `cawplan metrics get`) has been retired — it is no longer publicly exposed
+> via API key/CLI. The underlying device-metrics feature (installations,
+> crash rate, etc.) still exists and still serves the internal web app
+> (`GET /api/v1/product/{unique_id}/metrics`); only the public-openapi wrapper
+> and its CLI command are gone. `cawplan metrics` now refers exclusively to
+> the generic business key-metrics system below.
+
+### Key Metrics APIs (generic business events)
+
+A single schema for every non-device business metric: one `business_event`
+per occurrence, tagged by `domain` + `metric` (e.g. `domain=subscription`,
+`metric=upgrade`), plus a fixed dimension bundle (`app`, `platform`, `product`,
+`workspace_id`, `plan`, `region`, `environment`) and arbitrary extra tags.
+`workspace_id` is the tenant-attribution dimension — every domain here is
+workspace-scoped data, so filter/group by it whenever a query should be
+scoped to one tenant rather than the whole database. Fields are `value`,
+`count`, `cost`, `credit` — only the ones actually supplied on a point are
+stored (no zero-fill), so query results distinguish "not measured" from
+"measured zero".
+
+Beyond the fixed dimension bundle, some domains attach their own dynamic tags
+(via `tags`, not `dimensions`) to disambiguate events that would otherwise be
+indistinguishable at query time:
+
+| Domain | Dynamic tag | Meaning |
+|---|---|---|
+| `cawplan_ticket` | `ticket_id` | The ticket's own `unique_id`, on all three ticket metrics. Without it, a burst of `ticket_updated` points for one product can't be told apart from an ancestor-status-propagation cascade across several *different* tickets (expected) vs. the same ticket written repeatedly (a bug) — filter or `--group_by ticket_id` to tell them apart. |
+| `qa` | `qa_result` | On `execution` events only: the literal `pass`/`pass_with_issues`/`failed` value. The standard `result` tag that `metrics.QAExecutionResult` writes is only `passed`/`failed` (`pass_with_issues` collapses into `passed` there) — `qa_result` preserves the three-way distinction. |
+| `subscription` | `from_plan`/`to_plan` | On `upgrade`/`downgrade` only. |
+| `cawplan_ticket` | `from_status`/`to_status` | On `ticket_status_changed` only. |
+
+Not every domain has one — check the producer code (`docs/cawplan-ticket-metrics-collection.md` in `uid.core-product` for tickets) if a dynamic tag you expect isn't showing up in query results; it may simply not have been wired for that call site yet.
+
+#### Ingest one or more events
+- Endpoint: `POST /api/v1/public/openapi/key-metrics/ingest`
+- Body: `{ "items": [KeyMetricPoint, ...] }`, where each item is:
+  ```json
+  {
+    "domain": "subscription",
+    "metric": "upgrade",
+    "value": 1,
+    "dimensions": {"product": "01983a8b-..."},
+    "tags": {"from_plan": "basic", "to_plan": "pro"},
+    "timestamp": "2026-09-09T10:00:00Z"
+  }
+  ```
+  `domain`/`metric` are required and must match `^[a-z][a-z0-9_]*$`; at least
+  one of `value`/`count`/`cost`/`credit` is required per item; `dimensions`,
+  `tags`, and `timestamp` are all optional (`timestamp` defaults to receipt
+  time). The whole batch is validated up front and rejected as one
+  `INVALID_INPUT` response on the first bad item — there is no partial write.
+- Maps to cawplan CLI: `cawplan metrics ingest --domain <domain> --metric <metric> --value <n> [--dimensions <json>] [--tags <json>]`,
+  or `cawplan metrics ingest --items <json array>` for a batch.
+
+#### Query events back out
+- Endpoint: `GET /api/v1/public/openapi/key-metrics/query`
+- Query params: `domain` (required), `metric` (optional, narrows to one metric),
+  `start`/`end` (required, RFC3339, exclusive upper bound), `granularity`
+  (`raw`|`minute`|`hour`|`day`, default `raw`), `tag` (repeatable
+  `<key>:<value>` filter, or the equivalent `tag.<key>=<value>` form),
+  `group_by` (repeated param, extra tag keys to break results down by —
+  ignored when `granularity=raw`), `fields` (repeated param, subset of
+  `value`/`count`/`cost`/`credit`, defaults to all four), `limit`.
+- Response: `data.rows[]`, one row per time bucket per distinct tag
+  combination — `{time, domain, metric, tags: {...}, value, count, cost,
+  credit}` — shaped so it can be turned directly into chart series without
+  further client-side grouping. `data.truncated` is `true` when more rows
+  matched than were returned (raise `--limit`, though the server clamps it to
+  its own maximum, or narrow the time range/filters).
+- The `start`–`end` span and the row count are both capped server-side; this
+  is a shared multi-tenant read path, not a per-product cache, so it will
+  reject an attempt to pull unbounded history in one call.
+- Maps to cawplan CLI: `cawplan metrics query --domain <domain> --start <iso> --end <iso> [--metric <metric>] [--granularity day] [--tag key:value ...] [--group_by k1,k2] [--fields value,count]`.
+- By default `query` only prints the JSON (`data.rows`). For a chart the caller just wants to look
+  at in-conversation rather than a file to keep, there's no CLI rendering step needed at all — hand
+  `data.rows` to the `dataviz` skill (or render/describe it directly), same as any other structured
+  result; nothing has to be written to disk.
+- When a standalone chart *file* is actually wanted, the CLI can render the result as an SVG line
+  chart (pure JS, no native dependencies — built on `d3-scale`/`d3-shape`/`d3-array`, not a DOM- or
+  canvas-based charting library) via `--chart <path>.svg` [`--chart-field
+  value|count|cost|credit`] [`--chart-title <text>`] on the same `query` call — one series per tag
+  combination (the same grouping `--group_by` produces).
+
+  `--png <path>.png` rasterizes that same SVG to a PNG file on disk instead —
+  for contexts that can display an image but only decode raster formats and
+  treat SVG as plain text, notably a Claude Code session's `Read` tool
+  reading the result back into the chat. SVG remains the file to keep/store
+  (vector, small, easy to re-edit); the PNG is a disposable display copy
+  generated from it on demand. This shells out rather than bundling a
+  rasterizer: `qlmanage` (macOS, built into the OS) is tried first, then
+  `rsvg-convert` (common on Linux via librsvg). If neither is available the
+  command exits non-zero with an error instead of writing a broken/empty
+  file — fall back to `--chart` for the SVG in that case. Known cosmetic
+  limitation: `qlmanage`'s thumbnail mode always produces a square canvas, so
+  a non-square chart (e.g. the default 960x480) comes back letterboxed with
+  blank space rather than cropped — doesn't affect the correctness of the
+  rendered chart itself. Observed gap: `Read`-ing this PNG in a Claude Code
+  session doesn't always actually display it to the user, even in a terminal
+  (iTerm2) that renders images fine when the same file is opened with
+  `imgcat` directly — decoding the file for the model and displaying it in
+  the user's client are apparently two different things. If a user reports
+  not seeing the chart after `Read`, have them try `imgcat <path>.png` (or
+  their terminal's equivalent) directly as a fallback.
+
+  `--preview` renders the same SVG as an actual inline image directly in the
+  terminal — it shells out to whichever terminal-graphics tool is actually
+  available (iTerm2's bundled `imgcat`, Kitty's `icat` kitten, or `chafa`,
+  tried in that order) instead of bundling an SVG rasterizer into the CLI
+  itself: every one of those protocols needs a raster image, and adding a
+  rasterizer (native or WASM) would reintroduce exactly the native-dependency
+  weight choosing SVG over PNG was meant to avoid in the first place.
+  Verified that iTerm2's `imgcat` decodes SVG bytes directly with no separate
+  conversion step. If none of those tools are found, the command prints a
+  message and points to `--chart`/`--png` instead. **This only works in a
+  real terminal emulator reading raw stdout** — verified that running it
+  through a tool that captures stdout as text (as a Claude Code session does
+  when it runs the CLI) just shows the raw escape-sequence bytes as garbled
+  text instead of an image, so don't reach for `--preview` from inside a
+  Claude Code session; read `data.rows` directly or use `--png` there instead.
 
 ## 8) Analytics APIs
 ### Get Product AI Feedback Analytics
