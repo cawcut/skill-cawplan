@@ -30,15 +30,29 @@ it's no longer available through this skill/CLI rather than guessing at a substi
 
 ## Workflow A — Metrics query
 
-Business domains and their metric names are open-ended (new ones get added over time), but the
-common ones today: `subscription` (`new`, `renew`, `cancel`, `winback`, `upgrade`, `downgrade`),
-`cawplan_ticket` (`ticket_created`, `ticket_updated`, `ticket_status_changed`), `qa`
-(`test_point_created`, `test_point_updated`, `report_created`, `execution`), `workflow`
-(`execution`), `token` (`consumed`, `recharged`, `refunded`, `cost`), `api` (`request`,
-`throttled`), `user` (`signup`, `active`), `csm`, `purchase`. If the user names a metric
-that doesn't obviously map to one of these, ask rather than guessing a `domain`/`metric` pair —
-the query silently returns zero rows for a domain/metric that was never written, which looks
-identical to "there's no data in this range."
+Every domain is prefixed `cawplan_`. Business domains and their metric names are open-ended (new
+ones get added over time), but the common ones today — and, critically, **which metrics inside
+each domain actually have a producer writing to them right now** vs. which are defined but still
+empty (a query against an empty one returns zero rows, which looks identical to "no data in this
+range," not "this isn't wired yet" — don't guess past this list without checking):
+
+- `cawplan_ticket`: `ticket_created`, `ticket_updated`, `ticket_status_changed` — all wired.
+- `cawplan_qa_insight`: `test_point_created`, `test_point_updated`, `report_created`, `execution` — all wired.
+- `cawplan_subscription`: `new`, `renew` (from Stripe `invoice.paid`, disambiguated by
+  `billing_reason`) and `cancel` (user-initiated cancel-to-Free) are wired; `winback`, `upgrade`,
+  `downgrade` are defined but nothing calls them yet.
+- `cawplan_api`: `throttled` (one point per 429 response) is wired; `request` is defined but
+  nothing calls it yet.
+- `cawplan_ai_session_usage`: `usage_reported` — wired, one point per daily AI coding-tool usage
+  report upload (tokens/sessions/cost, workspace-scoped). This is **internal engineering cost
+  telemetry for AI coding tools** (the cawplan-coding-insights pipeline), not a customer-facing
+  token/credit ledger — don't conflate it with `cawplan_token` below.
+- `cawplan_workflow` (`execution`), `cawplan_token` (`consumed`, `recharged`, `refunded`, `cost`),
+  `cawplan_user` (`signup`, `active`), `cawplan_csm`, `cawplan_purchase`: all defined, **none wired
+  to any producer yet** — querying any of these will always return zero rows today.
+
+If the user names a metric that doesn't obviously map to one of these, ask rather than guessing a
+`domain`/`metric` pair.
 
 1. Determine the time range. Require both `--start` and `--end` (RFC3339) — if the user gave a
    relative range ("last 30 days", "this week"), compute the bounds client-side; there is no

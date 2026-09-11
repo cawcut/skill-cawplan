@@ -275,15 +275,29 @@
 ### Key Metrics APIs (generic business events)
 
 A single schema for every non-device business metric: one `business_event`
-per occurrence, tagged by `domain` + `metric` (e.g. `domain=subscription`,
-`metric=upgrade`), plus a fixed dimension bundle (`app`, `platform`, `product`,
+per occurrence, tagged by `domain` + `metric` (e.g. `domain=cawplan_subscription`,
+`metric=new`), plus a fixed dimension bundle (`app`, `platform`, `product`,
 `workspace_id`, `plan`, `region`, `environment`) and arbitrary extra tags.
 `workspace_id` is the tenant-attribution dimension — every domain here is
 workspace-scoped data, so filter/group by it whenever a query should be
 scoped to one tenant rather than the whole database. Fields are `value`,
 `count`, `cost`, `credit` — only the ones actually supplied on a point are
 stored (no zero-fill), so query results distinguish "not measured" from
-"measured zero".
+"measured zero". Every domain is prefixed `cawplan_`.
+
+Every domain and metric name is defined up front in `internal/metrics/metrics.go`
+in `uid.core-product`, but a defined metric doesn't necessarily have a producer
+writing to it yet — querying one that doesn't looks identical to "no data in
+this range." Currently wired: `cawplan_ticket` (all three metrics),
+`cawplan_qa_insight` (all four), `cawplan_subscription.new`/`.renew` (from
+Stripe's `invoice.paid`, disambiguated by `billing_reason`), `cawplan_subscription.cancel`
+(user-initiated cancel-to-Free), `cawplan_api.throttled` (one point per 429),
+`cawplan_ai_session_usage.usage_reported` (one point per daily AI coding-tool
+usage report upload — internal engineering cost telemetry, not the
+customer-facing token/credit ledger). Defined but not yet wired to any
+producer: `cawplan_subscription.winback`/`.upgrade`/`.downgrade`,
+`cawplan_api.request`, `cawplan_workflow`, `cawplan_token`, `cawplan_user`,
+`cawplan_csm`, `cawplan_purchase`.
 
 Beyond the fixed dimension bundle, some domains attach their own dynamic tags
 (via `tags`, not `dimensions`) to disambiguate events that would otherwise be
@@ -292,8 +306,8 @@ indistinguishable at query time:
 | Domain | Dynamic tag | Meaning |
 |---|---|---|
 | `cawplan_ticket` | `ticket_id` | The ticket's own `unique_id`, on all three ticket metrics. Without it, a burst of `ticket_updated` points for one product can't be told apart from an ancestor-status-propagation cascade across several *different* tickets (expected) vs. the same ticket written repeatedly (a bug) — filter or `--group_by ticket_id` to tell them apart. |
-| `qa` | `qa_result` | On `execution` events only: the literal `pass`/`pass_with_issues`/`failed` value. The standard `result` tag that `metrics.QAExecutionResult` writes is only `passed`/`failed` (`pass_with_issues` collapses into `passed` there) — `qa_result` preserves the three-way distinction. |
-| `subscription` | `from_plan`/`to_plan` | On `upgrade`/`downgrade` only. |
+| `cawplan_qa_insight` | `qa_result` | On `execution` events only: the literal `pass`/`pass_with_issues`/`failed` value. The standard `result` tag that `metrics.QAExecutionResult` writes is only `passed`/`failed` (`pass_with_issues` collapses into `passed` there) — `qa_result` preserves the three-way distinction. |
+| `cawplan_subscription` | `from_plan`/`to_plan` | On `upgrade`/`downgrade` only — and those two metrics aren't wired to any producer yet (see above), so this tag has no real data behind it right now either. |
 | `cawplan_ticket` | `from_status`/`to_status` | On `ticket_status_changed` only. |
 
 Not every domain has one — check the producer code (`docs/cawplan-ticket-metrics-collection.md` in `uid.core-product` for tickets) if a dynamic tag you expect isn't showing up in query results; it may simply not have been wired for that call site yet.
@@ -303,7 +317,7 @@ Not every domain has one — check the producer code (`docs/cawplan-ticket-metri
 - Body: `{ "items": [KeyMetricPoint, ...] }`, where each item is:
   ```json
   {
-    "domain": "subscription",
+    "domain": "cawplan_subscription",
     "metric": "upgrade",
     "value": 1,
     "dimensions": {"product": "01983a8b-..."},
