@@ -2,6 +2,8 @@ import { describe, expect, test, vi } from "vitest";
 import {
   buildEnvelope,
   buildReadEnvelope,
+  emitEnvelopeAndExit,
+  emitReadEnvelopeAndExit,
   printEnvelope,
   exitCodeForOutcome,
 } from "../src/lib/qa-insights/envelope";
@@ -52,6 +54,46 @@ describe("Phase 1a exit codes — only 0 and 1 exist (no tiering)", () => {
   });
   test("UNKNOWN and FAILURE are indistinguishable by exit code — outcome field is authoritative", () => {
     expect(exitCodeForOutcome("UNKNOWN")).toBe(exitCodeForOutcome("FAILURE"));
+  });
+});
+
+describe("emitEnvelopeAndExit — graceful process completion", () => {
+  test("sets the success exit code without forcing process.exit", () => {
+    const previousExitCode = process.exitCode;
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit must not be called");
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      process.exitCode = undefined;
+      emitEnvelopeAndExit(buildEnvelope({ outcome: "SUCCESS", command: "module-tree node create", meta }));
+      expect(process.exitCode).toBe(0);
+      expect(exitSpy).not.toHaveBeenCalled();
+    } finally {
+      process.exitCode = previousExitCode;
+      exitSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+
+  test("sets the requirements-list exit code without forcing process.exit", () => {
+    const previousExitCode = process.exitCode;
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit must not be called");
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      process.exitCode = undefined;
+      emitReadEnvelopeAndExit(buildReadEnvelope({ outcome: "SUCCESS", command: "requirements list", meta, data: [] }));
+      expect(process.exitCode).toBe(0);
+      expect(exitSpy).not.toHaveBeenCalled();
+    } finally {
+      process.exitCode = previousExitCode;
+      exitSpy.mockRestore();
+      logSpy.mockRestore();
+    }
   });
 });
 

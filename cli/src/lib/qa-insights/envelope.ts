@@ -62,12 +62,12 @@ export function printEnvelope(envelope: QAInsightsWriteEnvelope): void {
 }
 
 /**
- * Print and terminate with the mapped exit code. Kept as the single exit point
- * so no command can print an envelope and then exit with an unrelated status.
+ * Print and set the mapped exit code. Letting Node drain its handles avoids a
+ * forced shutdown race in Windows command runners after a successful write.
  */
-export function emitEnvelopeAndExit(envelope: QAInsightsWriteEnvelope): never {
+export function emitEnvelopeAndExit(envelope: QAInsightsWriteEnvelope): void {
   printEnvelope(envelope);
-  process.exit(exitCodeForOutcome(envelope.outcome));
+  process.exitCode = exitCodeForOutcome(envelope.outcome);
 }
 
 export interface BuildReadEnvelopeInput {
@@ -94,7 +94,8 @@ export function printReadEnvelope(envelope: QAInsightsReadEnvelope): void {
   console.log(JSON.stringify(envelope, null, 2));
 }
 
-export function emitReadEnvelopeAndExit(envelope: QAInsightsReadEnvelope): never {
+/** Print and set the exit code without forcing shutdown of the command runner. */
+export function emitReadEnvelopeAndExit(envelope: QAInsightsReadEnvelope): void {
   printReadEnvelope(envelope);
-  process.exit(exitCodeForOutcome(envelope.outcome));
+  process.exitCode = exitCodeForOutcome(envelope.outcome);
 }
