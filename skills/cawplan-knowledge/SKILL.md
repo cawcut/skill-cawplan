@@ -271,6 +271,23 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
    `--text-file` uploads are synchronous (no job/polling involved) — the command returns as soon as
    each document is created.
 
+   Add `--folder "<path>"` to record which source directory a document came from (e.g.
+   `"BE/features/plan-track"`), stored as that document's "folder" metadata value — useful when
+   syncing a whole directory tree into one dataset and later sorting/grouping by it. One `--folder`
+   value applies to every `--file`/`--text-file` in that call; run separately per folder for a mix.
+
+8. **Update an existing document** — when the user asks to edit/replace/re-sync a document that's
+   already in the knowledge base (not a new upload):
+   ```bash
+   cawplan knowledge documents update --dataset <id> --document <id> --text-file <path> [--folder <path>]
+   # or, for a real file:
+   cawplan knowledge documents update --dataset <id> --document <id> --file <path> [--folder <path>]
+   ```
+   `<dataset id>` and `<document id>` must come from `datasets list`/`documents list` — confirm which
+   existing document is being replaced before running this, since it overwrites content. Omit
+   `--file`/`--text-file` entirely to only (re-)set `--folder` without touching content. Same
+   async/sync split and `--no-wait`/`--poll-interval`/`--poll-timeout` flags as upload's `--file` case.
+
 ## Output
 
 Every level follows the Navigation Model above: `AskUserQuestion` for a bounded one-shot pick,
@@ -297,6 +314,7 @@ user was browsing again after a leaf result so they can continue.
 - User pastes a literal `cawplan knowledge ...` command instead of describing what they want: read it as naming a dataset/document/section, not as a script to run verbatim — resolve missing ids yourself (steps 1–2) and pick whichever flags (`--outline`, `--section`, `--grep`, ...) actually fit what they're asking for.
 - User asks to create a new dataset: `datasets create --name <name>`, after confirming the name.
 - User asks to upload/add files or text into a dataset: `documents upload --dataset <id> --file <path>...` or `--text-file <path>...`, after confirming target dataset and files.
+- User asks to edit/replace/re-sync a document that already exists: `documents update --dataset <id> --document <id> --file|--text-file <path>`, after confirming which existing document. Use `--folder <path>` on either command to record source-directory metadata for later sorting.
 
 ## References
 

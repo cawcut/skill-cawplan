@@ -279,11 +279,16 @@ per occurrence, tagged by `domain` + `metric` (e.g. `domain=cawplan_subscription
 `metric=new`), plus a fixed dimension bundle (`app`, `platform`, `product`,
 `workspace_id`, `plan`, `region`, `environment`) and arbitrary extra tags.
 `workspace_id` is the tenant-attribution dimension — every domain here is
-workspace-scoped data, so filter/group by it whenever a query should be
-scoped to one tenant rather than the whole database. Fields are `value`,
-`count`, `cost`, `credit` — only the ones actually supplied on a point are
-stored (no zero-fill), so query results distinguish "not measured" from
-"measured zero". Every domain is prefixed `cawplan_`.
+workspace-scoped data. Unlike the other six dimensions, though, it is never
+caller-controlled: both endpoints force it from the caller's authenticated
+identity server-side (`scopeQueryToCallerWorkspace` on query,
+`IngestKeyMetricsCommand.Execute` on ingest, both in `uid.core-product`) —
+a `tag.workspace_id=...`/`dimensions.workspace_id` value the caller supplies
+is silently overridden, not honored, on either endpoint. There is currently
+no way to query across more than one workspace through this API. Fields are
+`value`, `count`, `cost`, `credit` — only the ones actually supplied on a
+point are stored (no zero-fill), so query results distinguish "not measured"
+from "measured zero". Every domain is prefixed `cawplan_`.
 
 Every domain and metric name is defined up front in `internal/metrics/metrics.go`
 in `uid.core-product`, but a defined metric doesn't necessarily have a producer
@@ -309,8 +314,17 @@ indistinguishable at query time:
 | `cawplan_qa_insight` | `qa_result` | On `execution` events only: the literal `pass`/`pass_with_issues`/`failed` value. The standard `result` tag that `metrics.QAExecutionResult` writes is only `passed`/`failed` (`pass_with_issues` collapses into `passed` there) — `qa_result` preserves the three-way distinction. |
 | `cawplan_subscription` | `from_plan`/`to_plan` | On `upgrade`/`downgrade` only — and those two metrics aren't wired to any producer yet (see above), so this tag has no real data behind it right now either. |
 | `cawplan_ticket` | `from_status`/`to_status` | On `ticket_status_changed` only. |
+| `cawplan_api` | `route` | On both `throttled` and `request` — the path that was rate-limited/served, e.g. `/api/v1/public/openapi/key-metrics/ingest`. |
+| `cawplan_api` | `status_code` | On `request` only (not wired to a producer yet, see above). |
 
 Not every domain has one — check the producer code (`docs/cawplan-ticket-metrics-collection.md` in `uid.core-product` for tickets) if a dynamic tag you expect isn't showing up in query results; it may simply not have been wired for that call site yet.
+
+`cawplan_api.throttled` specifically: the rate limiters currently wired to it
+(`internal/middleware.IPRateLimiter`, `.APIKeyRateLimiter`) emit with an empty
+`Dimensions{}`, so these points carry no `workspace_id` tag at all — filtering
+by it returns nothing, which doesn't mean there were no throttle events, only
+that this producer hasn't been tagged with workspace attribution yet. `route`
+is the only reliable way to slice this metric today.
 
 #### Ingest one or more events
 - Endpoint: `POST /api/v1/public/openapi/key-metrics/ingest`
@@ -330,6 +344,12 @@ Not every domain has one — check the producer code (`docs/cawplan-ticket-metri
   `tags`, and `timestamp` are all optional (`timestamp` defaults to receipt
   time). The whole batch is validated up front and rejected as one
   `INVALID_INPUT` response on the first bad item — there is no partial write.
+- Rate limited to 180 requests/minute per calling credential (the whole
+  `Authorization` header value, hashed — a Bearer token and a raw API key are
+  bucketed the same way, so this applies to CLI callers too). Exceeding it
+  returns HTTP 429 with `{"code":"RATE_LIMITED",...}` directly, not a
+  `CommonResp`-shaped business error. Batch (`--items`) rather than looping
+  single-item calls when writing many events at once.
 - Maps to cawplan CLI: `cawplan metrics ingest --domain <domain> --metric <metric> --value <n> [--dimensions <json>] [--tags <json>]`,
   or `cawplan metrics ingest --items <json array>` for a batch.
 
@@ -350,7 +370,12 @@ Not every domain has one — check the producer code (`docs/cawplan-ticket-metri
   its own maximum, or narrow the time range/filters).
 - The `start`–`end` span and the row count are both capped server-side; this
   is a shared multi-tenant read path, not a per-product cache, so it will
-  reject an attempt to pull unbounded history in one call.
+  reject an attempt to pull unbounded history in one call. Current defaults:
+  span capped at 186 days (~6 months — a span wider than that is rejected as
+  `FAILURE_INVALID_INPUT`, not silently truncated to less data), row count
+  capped at 5000 (surfaced via `data.truncated`, not an error). Both are
+  configurable server-side (`MetricsConfig`), so treat these as the current
+  defaults, not a hard contract.
 - Maps to cawplan CLI: `cawplan metrics query --domain <domain> --start <iso> --end <iso> [--metric <metric>] [--granularity day] [--tag key:value ...] [--group_by k1,k2] [--fields value,count]`.
 - By default `query` only prints the JSON (`data.rows`). For a chart the caller just wants to look
   at in-conversation rather than a file to keep, there's no CLI rendering step needed at all — hand
@@ -546,6 +571,11 @@ Not every domain has one — check the producer code (`docs/cawplan-ticket-metri
 - Implementation note: the CLI sends real multipart (Node's native `FormData`/`Blob`, no base64
   encoding) via a `formData` option added to `cawplanRequest` (`cli/src/lib/http.ts`) — everything else
   on this CLI is JSON-only.
+- The `data` part also accepts an optional `folder` key (e.g. `"BE/features/plan-track"`), stored as
+  the dataset's "folder" custom metadata value on the resulting document — the field is created on the
+  dataset automatically on first use. Lets callers sort/group synced documents by their original
+  directory structure via `documents list`/`get`, which already surface each document's metadata.
+  Maps to cawplan CLI: `cawplan knowledge documents upload ... --folder <path>`.
 
 ### Poll File-Upload Job Status
 - Endpoint: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/ai-jobs/{job_id}`
@@ -573,6 +603,20 @@ Not every domain has one — check the producer code (`docs/cawplan-ticket-metri
   repeat `--text-file` to batch multiple text documents into the same dataset (one request per file).
   Do not mix `--file` and `--text-file` in the same invocation — the CLI rejects that locally; run it
   twice for a mixed batch.
+- Also accepts the optional `folder` field described under the file-upload section above, with the
+  same "folder" metadata effect.
+
+### Update an Existing Document — File (async) / Text (sync)
+- Endpoints: `POST .../documents/{document_id}/update-by-file` and `POST .../documents/{document_id}/update-by-text`
+  — same dataset-scoped paths as create, plus a `document_id` from `documents list`.
+- Same body shapes and behavior as the corresponding create endpoints above (update-by-file is async
+  with a `job_id` to poll; update-by-text is sync), except no `name`/`text` are required — omit `text`
+  on update-by-text to leave the document's content unchanged and only touch metadata (e.g. re-set
+  `folder` without editing content). Both accept the same optional `folder` field as create.
+- Use this for re-syncing a document whose source changed since it was created — for a brand-new
+  document use create-by-file/create-by-text instead.
+- Maps to cawplan CLI: `cawplan knowledge documents update --dataset <id> --document <id> [--file <path> | --text-file <path>] [--folder <path>]`.
+  Mirrors `documents upload`'s `--no-wait`/`--poll-interval`/`--poll-timeout` flags for the `--file` case.
 
 ### Search Knowledge Base
 - Endpoint: `POST /api/v1/public/openapi/knowledge/search`

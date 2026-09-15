@@ -468,6 +468,13 @@ export function registerKnowledgeCommand(program: Command): void {
       [] as string[],
     )
     .option(
+      "--folder <path>",
+      "Optional source directory path (e.g. \"BE/features/plan-track\") applied to every document " +
+        "in this call, stored as the dataset's \"folder\" metadata value — use it to sort/group " +
+        "synced documents by their original directory structure. Same value is used for all --file " +
+        "/ --text-file entries in one call; run the command separately per folder for a mixed batch.",
+    )
+    .option(
       "--no-wait",
       "For --file uploads, submit and return job ids immediately instead of polling for completion (poll separately with: cawplan knowledge documents job-status)",
     )
@@ -503,7 +510,9 @@ export function registerKnowledgeCommand(program: Command): void {
           // Dify requires indexing_technique on the resulting create-by-text call; it's only
           // inherited from the dataset's own config, which is unset for datasets created without
           // it, so send it explicitly here rather than relying on that inheritance.
-          formData.append("data", JSON.stringify({ indexing_technique: "high_quality" }));
+          const fileData: Record<string, unknown> = { indexing_technique: "high_quality" };
+          if (opts.folder) fileData.folder = opts.folder;
+          formData.append("data", JSON.stringify(fileData));
           try {
             const result = await cawplanRequest({
               method: "POST",
@@ -540,7 +549,8 @@ export function registerKnowledgeCommand(program: Command): void {
 
       const results = [];
       for (const filePath of textFiles) {
-        const body = { name: basename(filePath), text: readFileSync(filePath, "utf8") };
+        const body: Record<string, unknown> = { name: basename(filePath), text: readFileSync(filePath, "utf8") };
+        if (opts.folder) body.folder = opts.folder;
         try {
           const result = await cawplanRequest({
             method: "POST",
@@ -553,6 +563,91 @@ export function registerKnowledgeCommand(program: Command): void {
         }
       }
       console.log(JSON.stringify({ code: "SUCCESS", data: { results }, msg: "success" }, null, 2));
+    });
+
+  documents
+    .command("update")
+    .description(
+      "Update an existing document's content and/or folder metadata, as a file or as plain text. " +
+        "Use this to re-sync a document whose source changed (e.g. edited since the last upload) — " +
+        "for a brand-new document use 'documents upload' instead.",
+    )
+    .requiredOption("--dataset <id>", "Dataset id the document belongs to (see: cawplan knowledge datasets list)")
+    .requiredOption("--document <id>", "Document id to update (see: cawplan knowledge documents list)")
+    .option("--file <path>", "Path to a local file whose content replaces the document (sent as a real file / multipart)")
+    .option("--text-file <path>", "Path to a local text file whose content replaces the document (sent as JSON)")
+    .option("--folder <path>", "Optional source directory path to (re-)assign as the document's \"folder\" metadata value. See 'documents upload --folder'.")
+    .option(
+      "--no-wait",
+      "For --file updates, submit and return the job id immediately instead of polling for completion (poll separately with: cawplan knowledge documents job-status)",
+    )
+    .option("--poll-interval <seconds>", "Seconds between job-status polls when waiting on a --file update", "3")
+    .option("--poll-timeout <seconds>", "Give up polling after this many seconds", "180")
+    .action(async (opts) => {
+      const hasFile = Boolean(opts.file);
+      const hasTextFile = Boolean(opts.textFile);
+
+      if (!hasFile && !hasTextFile && !opts.folder) {
+        console.error(
+          JSON.stringify({ code: "ERROR", data: null, msg: "Provide --file, --text-file, or --folder" }, null, 2),
+        );
+        process.exitCode = 1;
+        return;
+      }
+      if (hasFile && hasTextFile) {
+        console.error(
+          JSON.stringify({ code: "ERROR", data: null, msg: "Use --file or --text-file in one call, not both" }, null, 2),
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      if (hasFile) {
+        const bytes = readFileSync(opts.file);
+        const formData = new FormData();
+        formData.append("file", new Blob([new Uint8Array(bytes)]), basename(opts.file));
+        const fileData: Record<string, unknown> = {};
+        if (opts.folder) fileData.folder = opts.folder;
+        formData.append("data", JSON.stringify(fileData));
+
+        let result: unknown;
+        try {
+          result = await cawplanRequest({
+            method: "POST",
+            path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/documents/${encodeURIComponent(opts.document)}/update-by-file`,
+            formData,
+          });
+        } catch (err) {
+          console.error(
+            JSON.stringify({ code: "ERROR", data: null, msg: err instanceof Error ? err.message : String(err) }, null, 2),
+          );
+          process.exitCode = 1;
+          return;
+        }
+        const data = extractJobStatusData(result);
+
+        if (opts.wait === false || !data?.job_id) {
+          console.log(JSON.stringify(result, null, 2));
+          return;
+        }
+
+        const pollIntervalMs = Math.max(1, Number(opts.pollInterval) || 3) * 1000;
+        const pollTimeoutMs = Math.max(1, Number(opts.pollTimeout) || 180) * 1000;
+        const finalStatus = await pollDocumentAiJob(opts.dataset, data.job_id, pollIntervalMs, pollTimeoutMs);
+        console.log(JSON.stringify({ code: "SUCCESS", data: finalStatus, msg: "success" }, null, 2));
+        return;
+      }
+
+      const body: Record<string, unknown> = {};
+      if (hasTextFile) body.text = readFileSync(opts.textFile, "utf8");
+      if (opts.folder) body.folder = opts.folder;
+
+      const result = await cawplanRequest({
+        method: "POST",
+        path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/documents/${encodeURIComponent(opts.document)}/update-by-text`,
+        body,
+      });
+      console.log(JSON.stringify(result, null, 2));
     });
 
   documents
