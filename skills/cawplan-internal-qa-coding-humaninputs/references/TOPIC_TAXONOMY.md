@@ -98,6 +98,18 @@ if two apply, pick the **more specific** one.
   displayed, including a NEW node/panel/screen whose ask is what it shows), `integration_api`
   (wiring, or a field an external system must carry), `security`, `infra`, `refactor`, `bug`, or
   `investigation`. A new screen or a new field does not by itself make it `new_feature`.
+  Two further exclusions:
+  - **Reusing an existing capability at a new call site** → `integration_api`. If the estimate /
+    API / service already exists and only the caller is new ("use the workflow engine's existing
+    estimate for clip rendering too"), the capability is not new, the wiring is. The assistant head
+    carries the signal: it names a concrete existing symbol, or says another feature already uses it
+    (`video_ad 同款`, `现有的`).
+  - **Merely USING a shipped capability with new inputs** → `other`. Running an existing generate /
+    render skill on another photo and three new scene prompts (`使用这张图片 ... 生成3个地方的 vlog 视频`)
+    is product usage, not engineering work — no code or contract is changed. This is a **named
+    exception** to "other is a last resort"; it changes the TOPIC only, so the category is still
+    `requirement`, never `other_meta`. Adding options to an existing filter/field/dropdown is normal
+    engineering work and keeps its own topic (usually `design_ui`).
 - `refactor` — behavior unchanged: restructure code, improve readability, reduce complexity,
   cleanup without a performance goal; ALSO prompt/skill/taxonomy/classify label alignment ("update
   skill prompt", "human input category", "整理修改方案") when NOT asking for a new product feature
@@ -109,12 +121,20 @@ if two apply, pick the **more specific** one.
 - `infra` — production CI/CD, deploy pipelines, cloud resources, release automation, alembic
   revision chain checks (NOT local dev friction)
 - `config_environment` — local dev environment, dependencies, build errors on the developer
-  machine, version conflicts, npm/go mod issues
+  machine, version conflicts, npm/go mod issues; ALSO maintaining a **configuration or
+  constant-data file the system reads at runtime** — a pricing/rate table, a model list,
+  feature-flag defaults, endpoint constants. Updating the VALUES in such a file (`价格更新`
+  against `pricing.ts`) is `config_environment`, not `design_ui` and not `new_feature`:
+  nothing is displayed differently and no capability is added
 - `security` — authentication, authorization, API keys, vulnerability
 - `data_migration` — schema changes, data migration, dirty data repair
 - `integration_api` — third-party SDK, external API integration, cross-service API wiring; ALSO
   aligning/adding GET API fields, human-input-logs parity, curl API debugging
-- `design_ui` — UI, interaction, visual design, styling; Slack card/Work Object appearance
+- `design_ui` — UI, interaction, visual design, styling; Slack card/Work Object appearance.
+  **Excludes the semantics of API payload fields**: deciding which response field carries which
+  meaning ("description is the title, remarks is the description"), or remapping/renaming fields in
+  a contract, is `integration_api` even though those field names sound like UI labels. `design_ui`
+  is about how something is DISPLAYED; which field the value comes from is `integration_api`
 - `investigation` — understanding existing code or root cause with **no change requested** ("why",
   "帮分析原因", "你怎么看", tracing how something works)
 - `deprecation_cleanup` — remove dead code, deprecate or retire old features
@@ -145,7 +165,8 @@ if two apply, pick the **more specific** one.
 | "201 不需要显示 checkout_preview，successStates 归类 Completed" | `direction_constraint` | `design_ui` |
 | "后端加了 form_created_at 用于显示订单创建时间，Approval ID 改名 Order ID" | `direction_constraint` | `design_ui` |
 | 裸 "开始执行"（AI 上一轮在接 API 线路） | `approval` | `integration_api` |
-| prev offers commit + "commit & push" | `decision` | `git_ops` |
+| prev offers commit + "commit & push" | `approval` | `git_ops` |
+| "BE git commit" after delivered+verified work | `approval` | `git_ops` |
 | "JIRA可以post message卡片，CawPlan不可以，是什么原因" | `question_clarification` | `investigation` |
 | "创建ticket卡片标题去掉display_id" | `requirement` | `design_ui` |
 | "查一下slack日志，10:26左右，/path/to/log.json" | `verification` | `bug` |
