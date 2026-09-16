@@ -487,8 +487,16 @@ is the only reliable way to slice this metric today.
 - Endpoint: `POST /api/v1/public/openapi/knowledge/datasets`
 - Body: `name` (required), `description` (optional), `permission` (optional: `only_me` | `all_team_members` | `partial_members`, default `only_me`); also accepts the other `KBCreateDatasetRequest` fields (`indexing_technique`, `embedding_model`, ...) if needed, passed straight through to Dify.
 - Response: the created dataset — the raw Dify id, name, etc., plus `document_count: 0` patched in for shape-consistency with the datasets-list response.
-- Maps to cawplan CLI: `cawplan knowledge datasets create --name <name> [--description <text>] [--permission <level>]`.
+- Maps to cawplan CLI: `cawplan knowledge datasets create --name <name> [--description <text>] [--permission <level>] [--product <id>...]`.
 - Implementation note: proxies to Dify's `POST /api/v1/datasets` and also creates a PRM `knowledge_dataset` tracking record (same as the internal `KbCreateDataset`), but — unlike the internal API, which swaps the response id for the PRM `unique_id` — the public response keeps the raw Dify id, consistent with every other public knowledge endpoint.
+- Does **not** itself accept a product/product_id — a new dataset starts unbound from any CawPlan product. The CLI's `--product` flag is sugar: it calls this endpoint, then a follow-up `PUT .../products` call (below) with the returned dataset id.
+
+### Get / Set Products a Dataset Is Bound To
+- Endpoints: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/products`, `PUT /api/v1/public/openapi/knowledge/datasets/{dataset_id}/products`
+- `dataset_id` is the PRM unique_id (the `id` returned by datasets-list/create above).
+- `PUT` body: `{"product_ids": [...]}` — replaces the full set of bound products (not additive); an empty array unbinds all.
+- Binding a dataset to a product scopes it for that product's knowledge search (`product_id` param on the search/get-datasets-by-product paths) and for permission-based dataset visibility.
+- Maps to cawplan CLI: `cawplan knowledge datasets products get --dataset <id>`, `cawplan knowledge datasets products set --dataset <id> [--product <id>...]`.
 
 ### List Documents in a Dataset
 - Endpoint: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents`

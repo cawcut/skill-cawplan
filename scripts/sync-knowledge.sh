@@ -2,6 +2,10 @@
 # Syncs every Markdown file in this repo into one CawPlan knowledge dataset named after the
 # repo (override with KNOWLEDGE_DATASET_NAME), via the `cawplan` CLI.
 #
+# - If the dataset doesn't exist yet and KNOWLEDGE_DATASET_PRODUCT_ID is set, the new dataset is
+#   bound to that CawPlan product id (see: cawplan products list) so it's scoped for
+#   product-scoped knowledge search. Only applied at creation time — has no effect on a dataset
+#   that already exists (use `cawplan knowledge datasets products set` to rebind one later).
 # - New files (no entry in the state file below) are uploaded with `documents upload`.
 # - Existing files are re-synced with `documents update` only when their mtime has advanced past
 #   the mtime recorded at last sync — unchanged files are skipped.
@@ -19,8 +23,9 @@
 # flow-cawplan-skill/cli), jq.
 #
 # Usage:
-#   scripts/sync-knowledge.sh            # sync
-#   scripts/sync-knowledge.sh --dry-run  # show what would happen, without calling the API
+#   scripts/sync-knowledge.sh                                        # sync
+#   scripts/sync-knowledge.sh --dry-run                              # show what would happen, without calling the API
+#   KNOWLEDGE_DATASET_PRODUCT_ID=<id> scripts/sync-knowledge.sh       # bind a newly-created dataset to a product
 
 set -euo pipefail
 
@@ -72,7 +77,9 @@ if [[ -z "$DATASET_ID" ]]; then
       DATASET_ID="<dry-run-dataset-id>"
     else
       echo "Dataset \"$DATASET_NAME\" not found, creating it..."
-      DATASET_ID="$(cawplan knowledge datasets create --name "$DATASET_NAME" | jq -r '.data.id')"
+      create_args=(knowledge datasets create --name "$DATASET_NAME")
+      [[ -n "${KNOWLEDGE_DATASET_PRODUCT_ID:-}" ]] && create_args+=(--product "$KNOWLEDGE_DATASET_PRODUCT_ID")
+      DATASET_ID="$(cawplan "${create_args[@]}" | jq -r '.data.id')"
       if [[ -z "$DATASET_ID" || "$DATASET_ID" == "null" ]]; then
         echo "error: failed to create dataset \"$DATASET_NAME\"" >&2
         exit 1

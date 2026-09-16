@@ -78,6 +78,19 @@ async function fetchDocumentContentResult(datasetId: string, documentId: string,
   return result;
 }
 
+async function findExistingDocumentByName(
+  datasetId: string,
+  name: string,
+): Promise<{ id: string; name: string } | undefined> {
+  const result = await cawplanRequest({
+    method: "GET",
+    path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(datasetId)}/documents`,
+    query: { keyword: name, limit: "100" },
+  });
+  const docs = (result as { data?: { data?: Array<{ id: string; name: string }> } })?.data?.data ?? [];
+  return docs.find((d) => d.name === name);
+}
+
 function extractDocumentContentData(result: unknown): { name?: string; content?: string } | undefined {
   return result && typeof result === "object" && "data" in result
     ? (result as { data?: { content?: string; name?: string } }).data
@@ -213,12 +226,21 @@ export function registerKnowledgeCommand(program: Command): void {
 
   datasets
     .command("create")
-    .description("Create a new knowledge dataset")
+    .description(
+      "Create a new knowledge dataset. Pass --product to also bind it to one or more CawPlan " +
+        "products (repeat for multiple), scoping it for product-scoped knowledge search.",
+    )
     .requiredOption("--name <name>", "Dataset name")
     .option("--description <text>", "Optional dataset description")
     .option(
       "--permission <level>",
       "Access permission: only_me | all_team_members | partial_members (default: only_me)",
+    )
+    .option(
+      "--product <id>",
+      "Product id to bind the new dataset to (see: cawplan products list). Repeat for multiple.",
+      collect,
+      [] as string[],
     )
     .action(async (opts) => {
       const body: Record<string, unknown> = { name: opts.name };
@@ -229,6 +251,64 @@ export function registerKnowledgeCommand(program: Command): void {
         method: "POST",
         path: "/api/v1/public/openapi/knowledge/datasets",
         body,
+      });
+
+      const productIds = opts.product as string[];
+      if (productIds.length === 0) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      const datasetId = (result as { data?: { id?: string } })?.data?.id;
+      if ((result as { code?: string })?.code !== "SUCCESS" || !datasetId) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      const productsResult = await cawplanRequest({
+        method: "PUT",
+        path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(datasetId)}/products`,
+        body: { product_ids: productIds },
+      });
+      const merged = {
+        ...(result as Record<string, unknown>),
+        data: {
+          ...(result as { data?: Record<string, unknown> }).data,
+          product_ids: (productsResult as { data?: { product_ids?: string[] } })?.data?.product_ids ?? productIds,
+        },
+      };
+      console.log(JSON.stringify(merged, null, 2));
+    });
+
+  const datasetProducts = datasets.command("products").description("Manage which CawPlan products a dataset is bound to");
+
+  datasetProducts
+    .command("get")
+    .description("List the CawPlan products a dataset is bound to")
+    .requiredOption("--dataset <id>", "Dataset id (see: cawplan knowledge datasets list)")
+    .action(async (opts) => {
+      const result = await cawplanRequest({
+        method: "GET",
+        path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/products`,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  datasetProducts
+    .command("set")
+    .description("Replace the full set of CawPlan products a dataset is bound to (not additive)")
+    .requiredOption("--dataset <id>", "Dataset id (see: cawplan knowledge datasets list)")
+    .option(
+      "--product <id>",
+      "Product id to bind the dataset to (see: cawplan products list). Repeat for multiple; omit to unbind all.",
+      collect,
+      [] as string[],
+    )
+    .action(async (opts) => {
+      const result = await cawplanRequest({
+        method: "PUT",
+        path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/products`,
+        body: { product_ids: opts.product as string[] },
       });
       console.log(JSON.stringify(result, null, 2));
     });
@@ -480,6 +560,11 @@ export function registerKnowledgeCommand(program: Command): void {
     )
     .option("--poll-interval <seconds>", "Seconds between job-status polls when waiting on --file uploads", "3")
     .option("--poll-timeout <seconds>", "Give up polling a single file's job after this many seconds", "180")
+    .option(
+      "--force",
+      "Create the document even if the dataset already has one with the same name (default: skip it and " +
+        "point at 'documents update' instead of creating a duplicate)",
+    )
     .action(async (opts) => {
       const files = opts.file as string[];
       const textFiles = opts.textFile as string[];
@@ -504,9 +589,21 @@ export function registerKnowledgeCommand(program: Command): void {
       if (files.length > 0) {
         const submissions: Array<Record<string, unknown>> = [];
         for (const filePath of files) {
+          const name = basename(filePath);
+          if (!opts.force) {
+            const dup = await findExistingDocumentByName(opts.dataset, name);
+            if (dup) {
+              submissions.push({
+                file: filePath,
+                code: "SKIPPED_DUPLICATE",
+                msg: `A document named "${name}" already exists (id: ${dup.id}); use 'documents update --dataset ${opts.dataset} --document ${dup.id} --file ${filePath}' to replace it, or pass --force to create a duplicate anyway.`,
+              });
+              continue;
+            }
+          }
           const bytes = readFileSync(filePath);
           const formData = new FormData();
-          formData.append("file", new Blob([new Uint8Array(bytes)]), basename(filePath));
+          formData.append("file", new Blob([new Uint8Array(bytes)]), name);
           // Dify requires indexing_technique on the resulting create-by-text call; it's only
           // inherited from the dataset's own config, which is unset for datasets created without
           // it, so send it explicitly here rather than relying on that inheritance.
@@ -549,7 +646,20 @@ export function registerKnowledgeCommand(program: Command): void {
 
       const results = [];
       for (const filePath of textFiles) {
-        const body: Record<string, unknown> = { name: basename(filePath), text: readFileSync(filePath, "utf8") };
+        const name = basename(filePath);
+        if (!opts.force) {
+          const dup = await findExistingDocumentByName(opts.dataset, name);
+          if (dup) {
+            results.push({
+              file: filePath,
+              code: "SKIPPED_DUPLICATE",
+              data: null,
+              msg: `A document named "${name}" already exists (id: ${dup.id}); use 'documents update --dataset ${opts.dataset} --document ${dup.id} --text-file ${filePath}' to replace it, or pass --force to create a duplicate anyway.`,
+            });
+            continue;
+          }
+        }
+        const body: Record<string, unknown> = { name, text: readFileSync(filePath, "utf8") };
         if (opts.folder) body.folder = opts.folder;
         try {
           const result = await cawplanRequest({
