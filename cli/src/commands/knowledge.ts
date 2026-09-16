@@ -674,15 +674,18 @@ export function registerKnowledgeCommand(program: Command): void {
   }
   const EXIT_BROWSE = Symbol("exit-browse");
   const BACK_TO_DATASETS = Symbol("back-to-datasets");
-  const DOCUMENT_PAGE_SIZE = 10;
+  const NEXT_PAGE = Symbol("next-page");
+  const PREV_PAGE = Symbol("prev-page");
+  const DOCUMENT_PAGE_SIZE = 20;
 
   knowledge
     .command("browse")
     .description(
       "Interactively browse the knowledge base end to end: pick a dataset, then a document (previewing " +
-        "its first lines as you highlight it), then browse that document's heading tree like 'documents " +
-        `get --interactive'. Esc goes back one level; Esc at the dataset list exits. Shows the first ${DOCUMENT_PAGE_SIZE} ` +
-        "documents per dataset — use 'documents list --dataset <id> --keyword ...' to search a larger set. " +
+        "its first lines as you highlight it, paging through " +
+        `${DOCUMENT_PAGE_SIZE} at a time when a dataset has more), then browse that document's heading tree ` +
+        "like 'documents get --interactive'. Esc goes back one level; Esc at the dataset list exits. Use " +
+        "'documents list --dataset <id> --keyword ...' to search instead of paging through a large dataset. " +
         "Requires a real interactive terminal.",
     )
     .action(async () => {
@@ -723,17 +726,27 @@ export function registerKnowledgeCommand(program: Command): void {
         }
         if (dataset === EXIT_BROWSE) return;
 
+        let page = 1;
         for (;;) {
           const documentsResult = await cawplanRequest({
             method: "GET",
             path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(dataset.id)}/documents`,
-            query: { limit: String(DOCUMENT_PAGE_SIZE) },
+            query: { limit: String(DOCUMENT_PAGE_SIZE), page: String(page) },
           });
           const documents = (documentsResult as { data?: { data?: BrowseDocument[] } })?.data?.data ?? [];
           if (documents.length === 0) {
+            if (page > 1) {
+              console.log("No more documents.");
+              page -= 1;
+              continue;
+            }
             console.log(`No documents in "${dataset.name}".`);
             break;
           }
+          const totalPages =
+            typeof dataset.document_count === "number" && dataset.document_count > 0
+              ? Math.max(1, Math.ceil(dataset.document_count / DOCUMENT_PAGE_SIZE))
+              : page + (documents.length === DOCUMENT_PAGE_SIZE ? 1 : 0);
 
           // Previews go through the plain-text renderer, not the ANSI one: this is a `select`
           // choice description, where escape codes are fragile, and plain text still lands
@@ -750,21 +763,31 @@ export function registerKnowledgeCommand(program: Command): void {
             }),
           );
 
-          let document: BrowseDocument | typeof BACK_TO_DATASETS;
+          type DocumentChoice = BrowseDocument | typeof BACK_TO_DATASETS | typeof NEXT_PAGE | typeof PREV_PAGE;
+          const documentChoices: Array<{ name: string; value: DocumentChoice; description?: string }> = [
+            ...documents.map((doc, i) => ({
+              name: doc.name,
+              value: doc as DocumentChoice,
+              description: previews[i] || undefined,
+            })),
+          ];
+          if (page > 1) documentChoices.push({ name: "◀ Previous page", value: PREV_PAGE });
+          if (documents.length === DOCUMENT_PAGE_SIZE && page < totalPages) {
+            documentChoices.push({ name: "Next page ▶", value: NEXT_PAGE });
+          }
+          documentChoices.push({ name: "Back", value: BACK_TO_DATASETS });
+
+          let document: DocumentChoice;
           try {
             document = await withTtyShortcuts(
               (context) =>
-                select<BrowseDocument | typeof BACK_TO_DATASETS>(
+                select<DocumentChoice>(
                   {
-                    message: `${dataset.name} — select a document`,
-                    choices: [
-                      ...documents.map((doc, i) => ({
-                        name: doc.name,
-                        value: doc,
-                        description: previews[i] || undefined,
-                      })),
-                      { name: "Back", value: BACK_TO_DATASETS },
-                    ],
+                    message:
+                      totalPages > 1
+                        ? `${dataset.name} — select a document (page ${page}/${totalPages})`
+                        : `${dataset.name} — select a document`,
+                    choices: documentChoices,
                     pageSize: 20,
                     theme: { style: { keysHelpTip: ttyKeysHelpTip } },
                   },
@@ -777,6 +800,14 @@ export function registerKnowledgeCommand(program: Command): void {
             throw err;
           }
           if (document === BACK_TO_DATASETS) break;
+          if (document === NEXT_PAGE) {
+            page += 1;
+            continue;
+          }
+          if (document === PREV_PAGE) {
+            page -= 1;
+            continue;
+          }
 
           const content = extractDocumentContentData(await fetchDocumentContentResult(dataset.id, document.id));
           if (content?.content !== undefined) {
