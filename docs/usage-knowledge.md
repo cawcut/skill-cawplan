@@ -111,9 +111,10 @@ cawplan knowledge datasets products set --dataset <数据集ID> --product <产�
 cawplan knowledge documents upload --dataset <数据集ID> --file 文件路径
 ```
 
-可以多次加 `--file` 一次上传多份文件。上传文件是异步处理的（服务端要转换格式、建索引），命令会
-等处理完再返回，文件大一点会久一些，属于正常现象。不想等的话加 `--no-wait`，之后用返回的任务 ID
-查进度：
+可以多次加 `--file` 一次上传多份文件。上传前会先按文件名查一下数据集里是否已有同名文档，如果有
+就默认跳过（提示改用 `documents update`），避免建出重复文档；确实要建一份同名的重复文档，加
+`--force`。上传文件是异步处理的（服务端要转换格式、建索引），命令会等处理完再返回，文件大一点会
+久一些，属于正常现象。不想等的话加 `--no-wait`，之后用返回的任务 ID 查进度：
 
 ```bash
 cawplan knowledge documents job-status --dataset <数据集ID> --job <任务ID>
@@ -137,6 +138,40 @@ cawplan knowledge documents update --dataset <数据集ID> --document <文档ID>
 
 只想更新 `folder` 而不改内容的话，把 `--file`/`--text-file` 都省略，只传 `--folder` 就行。
 `--file` 方式和上传一样是异步的，默认会等处理完；不想等就加 `--no-wait`。
+
+## 我想把整个仓库的 Markdown 文档批量同步到知识库
+
+单份上传适合零散资料；如果是把一个仓库里所有 `.md` 文件整体同步成一个数据集（新文件自动新建、
+改过的文件自动更新、没改的跳过），用仓库自带的 `scripts/sync-knowledge.sh`：
+
+```bash
+scripts/sync-knowledge.sh            # 正式同步
+scripts/sync-knowledge.sh --dry-run  # 先看会发生什么，不真正调用 API
+```
+
+数据集名称默认用仓库目录名；想指定别的名字，用 `KNOWLEDGE_DATASET_NAME` 环境变量：
+
+```bash
+KNOWLEDGE_DATASET_NAME="自定义数据集名" scripts/sync-knowledge.sh
+```
+
+解析数据集时会优先按 `KNOWLEDGE_DATASET_NAME` 指定的名字查；如果查不到，且这个名字跟仓库目录名
+不一样，会再按仓库目录名查一次，两个都查不到才会新建数据集——这样即使之前是按仓库名建的库，后来
+才开始传自定义名字，也不会因为查不到而重复建库。
+
+首次同步、需要新建数据集时，还可以加 `KNOWLEDGE_DATASET_PRODUCT_ID` 把新库绑定到某个 CawPlan
+产品（对应 `datasets create --product`，见上文）：
+
+```bash
+KNOWLEDGE_DATASET_PRODUCT_ID=<产品ID> scripts/sync-knowledge.sh
+```
+
+这个只在新建数据集那一刻生效，对已经存在的数据集不会自动改绑；已存在的库想改绑产品，用上文的
+`cawplan knowledge datasets products set`。
+
+同步进度和数据集 ID/文档 ID 的映射记在仓库根目录的 `.knowledge-sync-state.json` 里，建议提交进
+版本库，这样其他人或 CI 跑同一个脚本时不会重复上传。这个脚本不处理删除——本地删掉某份 `.md` 不
+会连带删除/归档知识库里对应的文档，需要的话手动处理。
 
 ## 常见问题
 

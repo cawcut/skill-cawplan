@@ -31,7 +31,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DATASET_NAME="${KNOWLEDGE_DATASET_NAME:-$(basename "$REPO_ROOT")}"
+REPO_NAME="$(basename "$REPO_ROOT")"
+DATASET_NAME="${KNOWLEDGE_DATASET_NAME:-$REPO_NAME}"
 STATE_FILE="$REPO_ROOT/.knowledge-sync-state.json"
 
 DRY_RUN=0
@@ -69,8 +70,17 @@ DATASET_ID="$(jq -r '.dataset_id // empty' "$STATE_FILE")"
 
 if [[ -z "$DATASET_ID" ]]; then
   echo "Resolving dataset \"$DATASET_NAME\"..."
-  DATASET_ID="$(cawplan knowledge datasets list | jq -r --arg name "$DATASET_NAME" \
+  EXISTING_DATASETS="$(cawplan knowledge datasets list)"
+  DATASET_ID="$(echo "$EXISTING_DATASETS" | jq -r --arg name "$DATASET_NAME" \
     '.data.datasets[]? | select(.name == $name) | .id' | head -n1)"
+  # A custom KNOWLEDGE_DATASET_NAME might not match an older dataset created before the override
+  # was set (or after a repo rename) — fall back to the repo name before deciding no dataset
+  # exists, so switching/adding an override doesn't spawn a duplicate dataset.
+  if [[ -z "$DATASET_ID" && "$DATASET_NAME" != "$REPO_NAME" ]]; then
+    echo "Not found by \"$DATASET_NAME\", falling back to repo name \"$REPO_NAME\"..."
+    DATASET_ID="$(echo "$EXISTING_DATASETS" | jq -r --arg name "$REPO_NAME" \
+      '.data.datasets[]? | select(.name == $name) | .id' | head -n1)"
+  fi
   if [[ -z "$DATASET_ID" ]]; then
     if [[ "$DRY_RUN" -eq 1 ]]; then
       echo "[dry-run] would create dataset \"$DATASET_NAME\""
