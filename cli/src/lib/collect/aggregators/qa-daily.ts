@@ -5,6 +5,7 @@ import {
     findClaudeCodeJsonlPathBySessionId,
     QaStdoutTrace,
     skillLayersFromTraces,
+    tracesFromCursorAgentTerminalFiles,
     tracesFromCodexToolOutputs,
     tracesFromGuiToolResults,
     tracesFromToolResultStdout,
@@ -91,7 +92,10 @@ function resolveTraces(session: SessionData, jsonlPath: string | null | undefine
         return jsonlPath ? tracesFromToolResultStdout(jsonlPath, date) : [];
     }
     if (isGuiAgent(session)) {
-        return tracesFromGuiToolResults(session.session_id);
+        return [
+            ...tracesFromGuiToolResults(session.session_id),
+            ...tracesFromCursorAgentTerminalFiles(session.session_id),
+        ];
     }
     if (session.agent === "codex") {
         return tracesFromCodexToolOutputs(session.qa_tool_outputs ?? []);
