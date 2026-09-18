@@ -1,8 +1,9 @@
 import {DatabaseSync} from "node:sqlite";
-import {existsSync} from "node:fs";
+import {existsSync, readFileSync, readdirSync} from "node:fs";
+import {join, resolve} from "node:path";
 import {findSessionsByDate, parseEvents} from "./agents/claude-code.js";
 import {selectCursorDiskKvByKeyPrefix} from "./agents/cursor-gui.js";
-import {cursorStateDbCandidates} from "./paths.js";
+import {cursorProjectsDir, cursorStateDbCandidates} from "./paths.js";
 import {QaSkillLayer} from "./qa-types.js";
 
 /**
@@ -152,39 +153,67 @@ export interface QaStdoutTrace {
  * never match on free-text Chinese phrases.
  */
 function parseQaStdoutTrace(stdout: string): QaStdoutTrace | undefined {
-    // Node emits runtime warnings (e.g. the experimental SQLite notice) on
-    // stdout ahead of the CLI's JSON receipt in some environments. Strip
-    // any such prefix by slicing from the first '{' so the parse below
-    // sees only the JSON object; well-formed stdout is unaffected.
-    const jsonStart = stdout.indexOf("{");
-    if (jsonStart === -1) return undefined;
+    // A page-backed save shares stdout with the long-lived local web server:
+    // URL/waiting text precedes the receipt and close text follows it. Extract
+    // complete JSON objects rather than assuming the receipt occupies stdout.
+    for (let start = stdout.indexOf("{"); start !== -1; start = stdout.indexOf("{", start + 1)) {
+        let depth = 0;
+        let quoted = false;
+        let escaped = false;
 
-    let parsed: Record<string, unknown>;
-    try {
-        parsed = JSON.parse(stdout.slice(jsonStart));
-    } catch {
-        return undefined;
+        for (let end = start; end < stdout.length; end++) {
+            const char = stdout[end];
+            if (quoted) {
+                if (escaped) escaped = false;
+                else if (char === "\\") escaped = true;
+                else if (char === '"') quoted = false;
+                continue;
+            }
+            if (char === '"') {
+                quoted = true;
+                continue;
+            }
+            if (char === "{") depth++;
+            if (char !== "}" || --depth !== 0) continue;
+
+            let parsed: Record<string, unknown>;
+            try {
+                parsed = JSON.parse(stdout.slice(start, end + 1));
+            } catch {
+                break;
+            }
+
+            const command = parsed["command"];
+            const outcome = parsed["outcome"];
+            if (typeof command !== "string" || typeof outcome !== "string") {
+                // Codex's `write_stdin` result is itself JSON; the actual
+                // terminal transcript lives in its string `output` field.
+                const nestedOutput = parsed["output"];
+                if (typeof nestedOutput === "string") {
+                    const nestedTrace = parseQaStdoutTrace(nestedOutput);
+                    if (nestedTrace) return nestedTrace;
+                }
+                break;
+            }
+
+            const meta = parsed["meta"] as {product_id?: string; requirement_id?: string; dry_run?: boolean} | undefined;
+            const api = parsed["api"] as {data?: {test_points?: unknown[]}} | undefined;
+            const reconcile = parsed["reconcile"] as {decision?: string; batch_size?: number} | undefined;
+
+            return {
+                command,
+                outcome,
+                productId: meta?.product_id,
+                requirementId: meta?.requirement_id,
+                dryRun: meta?.dry_run,
+                landedCount: Array.isArray(api?.data?.test_points) ? api!.data!.test_points!.length : undefined,
+                reconcileDecision: reconcile?.decision,
+                batchSize: reconcile?.batch_size,
+                skillLayer: inferSkillFromCommand(command),
+            };
+        }
     }
-
-    const command = parsed["command"];
-    const outcome = parsed["outcome"];
-    if (typeof command !== "string" || typeof outcome !== "string") return undefined;
-
-    const meta = parsed["meta"] as {product_id?: string; requirement_id?: string; dry_run?: boolean} | undefined;
-    const api = parsed["api"] as {data?: {test_points?: unknown[]}} | undefined;
-    const reconcile = parsed["reconcile"] as {decision?: string; batch_size?: number} | undefined;
-
-    return {
-        command,
-        outcome,
-        productId: meta?.product_id,
-        requirementId: meta?.requirement_id,
-        dryRun: meta?.dry_run,
-        landedCount: Array.isArray(api?.data?.test_points) ? api!.data!.test_points!.length : undefined,
-        reconcileDecision: reconcile?.decision,
-        batchSize: reconcile?.batch_size,
-        skillLayer: inferSkillFromCommand(command),
-    };
+    return undefined;
 }
 
 /**
@@ -356,4 +385,55 @@ export function tracesFromGuiToolResults(composerId: string): QaStdoutTrace[] {
     } finally {
         db.close();
     }
+}
+
+/**
+ * Cursor Agent's background Shell does not put its eventual terminal output
+ * in the legacy vscdb bubble result. The session transcript records any
+ * terminal file it subsequently reads, which is the narrow, session-scoped
+ * route to that output.
+ */
+export function tracesFromCursorAgentTerminalFiles(sessionId: string): QaStdoutTrace[] {
+    const projectsDir = cursorProjectsDir();
+    let projectEntries: string[];
+    try {
+        projectEntries = readdirSync(projectsDir);
+    } catch {
+        return [];
+    }
+
+    const terminalFiles = new Set<string>();
+    for (const projectName of projectEntries) {
+        const projectDir = join(projectsDir, projectName);
+        const transcript = join(projectDir, "agent-transcripts", sessionId, `${sessionId}.jsonl`);
+        if (!existsSync(transcript)) continue;
+
+        try {
+            const terminalDir = `${resolve(projectDir, "terminals")}/`;
+            for (const line of readFileSync(transcript, "utf8").split("\n")) {
+                if (!line.trim()) continue;
+                const event = JSON.parse(line) as {role?: unknown; message?: {content?: unknown}};
+                if (event.role !== "assistant" || !Array.isArray(event.message?.content)) continue;
+                for (const rawBlock of event.message.content) {
+                    const block = rawBlock as {type?: unknown; name?: unknown; input?: {path?: unknown}};
+                    if (block.type !== "tool_use" || block.name !== "Read" || typeof block.input?.path !== "string") continue;
+                    const path = resolve(block.input.path);
+                    if (path.startsWith(terminalDir) && existsSync(path)) terminalFiles.add(path);
+                }
+            }
+        } catch {
+            // A malformed or concurrently-written transcript must not drop the whole session.
+        }
+    }
+
+    const traces: QaStdoutTrace[] = [];
+    for (const terminalFile of terminalFiles) {
+        try {
+            const trace = parseQaStdoutTrace(readFileSync(terminalFile, "utf8"));
+            if (trace) traces.push(trace);
+        } catch {
+            // A terminal may disappear between transcript read and collection.
+        }
+    }
+    return traces;
 }

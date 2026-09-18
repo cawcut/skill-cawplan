@@ -13,6 +13,14 @@ allowed-tools: Bash
 
 **跟随用户主语言**生成文案；禁止同一段中英各写一遍。
 
+## 全局可见性契约
+
+适用于本 Skill 的所有路径和每一次工具调用：用户不需要关注内部执行过程。除本 Skill 明确规定的最终结果、需要 SQA 确认/补充的信息及下一步操作外，保持静默。
+
+- 不得在工具调用前后输出进度播报或过程说明，包括但不限于：正在检查/修复/重试、JSON 字段或文件格式、状态核验、后台任务、本地 Review 服务启动/重启/关闭。
+- 内部可自行验证和重试；成功后直接输出该阶段规定的用户可见结果，不复述内部操作、命令输出或重试次数。
+- 仅当无法自动恢复且需要 SQA 行动时，简要说明用户可感知的阻塞及所需操作；不要暴露内部实现细节。
+
 ## Bootstrap
 
 ```bash
@@ -154,7 +162,7 @@ Use `data` directly for the five fields + `url` (single `QARequirement` object; 
 cawplan api GET /api/v1/public/openapi/product/<product_id>/qa/requirements/<requirement_id>/testpoints
 ```
 
-**Record `data.test_points.length` as `count_before`** (session state ③). This is the baseline `testpoints reconcile` needs if an archive comes back `UNKNOWN` — the command **refuses to derive it**, because a second GET could pick up rows someone else added in between and silently corrupt the comparison. Re-record it on every refresh; a stale baseline is worse than none.
+`data.test_points.length` is the already-archived count N used by §3's incremental gate and §6's incremental-scope closure. **This skill no longer tracks it as a reconcile baseline** — `testpoint-review start` (§7.1) records it into the Review State's own `count_before` at creation time, and the page advances it after every successful Save to CawPlan; the count-reconcile flow now runs entirely page-side (§10), so Chat has no `write_outcome`/`count_before` state of its own to maintain.
 
 | Result | Action |
 |--------|--------|
@@ -288,232 +296,211 @@ Step 4 形成草稿后、首次呈现前执行一次。若 Step 1 判定五字�
 
 **Incremental scope**：闭合时用“已归档 N + 本轮新增 M”整体判断覆盖，已有标题可承接候选；只为缺口生成 M，绝不修改或重发 N。只在本轮首次呈现前执行一次，SQA 修订后不自动重跑，除非明确要求重新生成。
 
-**Internal only, one version**：不得输出候选、排除理由、检查过程、勾选表或来源标记。完成五步后只向 SQA 呈现一版最终表；本阶段新增行仍是 AI 原稿，归档时 is_edited 为 false。
+**Internal only, one version**：不得输出候选、排除理由、检查过程、勾选表或来源标记。完成五步后只产出一版最终列表交给 §7 建 Review；本阶段新增行进入 Review 时 `status` 为 `unchanged`（未经 SQA 改动），归档时对应 `is_edited: false`（§9）。
 
 ### 7. Present to SQA
 
-**输出纪律**：呈现时**只给「哪条需求 + 表」**（首批加「草稿」、增量按状态列区分）；**禁止**复述内部过程——不得出现「轴遍历 / 自查 / 覆盖维度清单 / 已按…完成 / 五字段已读取 / 核对完毕」等字样。第一句直接进正题。
+**输出纪律**：呈现时**不铺测试点表格**——测试点内容的呈现、编辑、删除、新增全部交给 Review 页面（§7.1）；Chat 只给「哪条需求 + 摘要 + 存疑清单 + 打开页面的方式」。**禁止**复述内部过程——不得出现「轴遍历 / 自查 / 覆盖维度清单 / 已按…完成 / 五字段已读取 / 核对完毕」等字样。第一句直接进正题。
 
-**开场**（`〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`，与保存确认等处显示名规则一致）：
+#### 7.1 建 Review、拿 `review_id`（Step 5 完成后立即执行，早于任何 Chat 输出）
 
-- **首批**（库为空，逐字；**跟随会话语言**二选一，不同时输出）：
-  > 需求「〔需求名〕」的测试点草稿如下（这条之前还没有测试点）：
-  > Draft test points for requirement "〔需求名〕" (no existing test points yet):
+Step 5 产出最终测试点列表后，**在向 Chat 输出任何内容之前**先建 Review：
 
-- **增量**（库里已有，逐字；**跟随会话语言**二选一，不同时输出）：
-  > 需求「〔需求名〕」的测试点如下（已有的标「已存」、本轮新增标「新增」）：
-  > Test points for requirement "〔需求名〕" (existing ones marked "Saved," new ones this round marked "New"):
+1. 把 Review 初始内容写成 JSON，可选带上五字段快照。输入契约如下：
+   - **本轮新增草稿**：`{title, group, tags, priority}`；不得带 `id`，`archived` 省略（或为 `false`）。
+   - **CawPlan 已归档测试点**（仅增量场景）：`{id, title, group, tags, priority, archived: true}`；`id` 必须使用 §2 refresh 返回的服务端原值，不得改写或生成。
+   - `testpoint-review start` 只把 `archived: true` 的条数作为 Review State 的 `count_before`；输入总数不是 reconcile 基线。页面隐藏这些已归档行，Save to CawPlan 永远只提交未归档草稿。
+2. 调用：
 
-紧接下方分节表；**不要**在开场前另加覆盖面叙述或其它过程说明。
-
-1. **测试点清单 — 按 `group` 分节呈现（硬性要求，每次必做）**
-
-   **禁止**把全部测试点挤进一张无分节的连续表。即使 `group` 字段已在各行有值，也**不得**只靠 `N.M` 序号暗示分组——**必须先打出组标题行，再跟该组的小表**。
-
-   **分节规则**（仅排序与分表呈现；**不改** `group` 取值或分组逻辑）：
-
-   - 按各行已有 `group` 字段归并；空 `group` → 组名显示为 `未分组`，且**永远排在最后一节**。
-   - 节序号 N = 第 N 组（从 1 起）；组内行序号 N.M（M 从 1 递增）。
-
-   **每一节固定两块输出**（节与节之间空一行）：
-
-   ```text
-   **N. {组名}**
-
-   | 序号 | 标题 | 标签 | 优先级 |
-   |------|------|------|--------|
-   | N.1 | … | … | … |
-   | N.2 | … | … | … |
+   ```bash
+   cawplan qa-insights testpoint-review start --product-id <id> --requirement-id <id> \
+     --lang <会话语言 zh|en> --test-points-file <path> [--requirement-file <path>]
    ```
 
-   - **组标题格式（硬性）**：单独一行，形如 `**1. 分享创建**`、`**2. 权限与访问控制**`。`{组名}` = 该节 `group` 字段原文（空则用 `未分组`）。**每一组都必须有标题行**——单组时也输出 `**1. …**`，不得省略。
-   - **每节一张小表**：表内只放该 `group` 的行；**禁止**跨组合并成一张大表。
-   - **每次呈现都要分节**：首次生成、SQA 修订后重展、增量合并展示——规则相同，组标题不可漏。
-   - **组内顺序不变**：加 `优先级` 列**不改**组内行序，不按 priority 重排。
+   （`--test-points`/`--requirement` 为同形状的内联 JSON 版本，二选一即可。）
 
-   **列定义**：
+3. 命令返回 `{review_id, file, draft_count, archived_count, group_count, count_before}`。记录 `review_id` 到 session binding（与 `product_id`/`requirement_id` 同级，见 Session state）；Chat 数量只读 `draft_count`/`group_count`，不得从输入或页面自行重数。
+4. 用 Agent 的**托管后台任务**启动页面服务（不得在前台等它退出）：
 
-   - **First batch** (library empty): `序号 | 标题 | 标签 | 优先级` — no status column; no row bolding.
-   - **Incremental** (library has archived rows): `序号 | 标题 | 标签 | 优先级 | 状态` — see rules below.
-   - **已存行（无 `priority` 字段的老数据）**：`优先级` 列显示 `—`，不臆造、不补算。
+   ```bash
+   cawplan qa-insights testpoint-review open --review-id <id> --no-browser
+   ```
 
-2. **存疑清单** after **all** group sections (§5): 〔指向哪〕+〔为什么疑〕+〔建议动作〕; no coverage checkbox matrix. If none: say so explicitly.
+   必须使用 Agent 工具的托管后台能力（例如 Bash `run_in_background: true`），保留该任务句柄；**禁止**用 `nohup`、`&`、`disown` 或终端复用器把服务脱离当前 Claude 对话。读取启动输出中的 `Open this URL to review test points: <url>`，记录完整的 `review_url` 与后台任务句柄；只等 URL 出现就继续 Chat 输出，不等服务结束。页面服务仍在运行时禁止为同一 `review_id` 再启动第二个 `open`。
 
-3. **尾巴**（草稿表 + 存疑清单之后，逐字；首次呈现与 §8 修订后重展均输出；**不做弹框**；**跟随会话语言**二选一，不同时输出）：
-   > 要改就直接说（增删，或改标题/标签/分组）；没问题就说一声「保存到 CawPlan」。
-   > Just tell me if you want changes (add/remove, or edit title/tags/group); if it looks good, say "save to CawPlan."
+   **页面 Ask AI 的自动主流程**：SQA 点击 Ask AI to Optimize 后，页面会锁定并关闭本地服务；这会让上述**托管后台任务**在当前 Claude 对话中结束。收到该任务完成事件后，先立即输出 `正在优化，请稍候…` / `Optimizing, please wait…`（跟随会话语言二选一），再读取最新 Review State：若 `review_status` 是 `pending_optimize` 或 `optimizing`，直接从 §8 step 2 继续，不得再次调用 `request-optimize`。完成 `apply-optimization` 后按 §8 step 5 打开下一 Round 的 Review 页面。
 
-**Do not state draft totals** before save (no `共 N 条草稿`, no N in save prompts). SQA reviews the tables; **the only count SQA sees is in the post-POST success receipt** (§9.5).
+**不存在**"先在 Chat 展示、SQA 确认后才建 review"这种中间态——只要 Step 5 完成，Review 就已经创建。
 
-**Incremental merged display** (only when library already has test points — N archived + M new drafts):
+**增量场景**（库里已有归档测试点）：先按 §2 refresh 读到的已归档 N 条（逐条保留服务端 `id` 并标 `archived: true`）+ 本轮新增 M 条（不带 `id`），一并作为 `--test-points-file` 的输入建。创建结果必须满足 `archived_count = N`、`draft_count = M`、`count_before = N`，且待保存集合只含 M；任一条件不符都停止，不得打开页面或提交。（或续用同一个 `review_id`，取决于是否为同一 Review 的后续补充轮——原则与 §3 Incremental gate 一致：延续同一份 Review 数据，不为每轮增量单独开一份新 Review。）
 
-Per §7 step 1: **one section per `group`** (group title line + small table). Within each group, merge archived + new into **one** table; **continuous numbering** (archived first in API order, new drafts appended). 存疑清单覆盖 **full** N+M set（**不要**另加覆盖面叙述）。Archive only drafts without `id`; edit/delete archived rows → Test Suites UI.
+#### 7.2 Chat 呈现（摘要 + 存疑清单，不出表格）
 
-**Distinguish 新增 vs 已存** (two means — status column is required; bold is optional):
+**开场**（`〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`，与保存确认等处显示名规则一致；`N` = `testpoint-review start` 返回的 `draft_count`，`M` = 返回的 `group_count`，**只从命令输出读取，不自行数行**）：
 
-1. **Status column** (primary, plain text): `已存` (has `id`, read-only) or `新增` (this round's draft, no `id`). This column alone must make the distinction clear even if other formatting fails.
-2. **Bold entire rows** (enhancement): status `新增` → bold all five cells (`**…**`); `已存` rows not bold. May write `🆕 新增` in the status column.
+- **首批**（库为空，逐字；**跟随会话语言**二选一，不同时输出）：
+  > 需求「〔需求名〕」已生成 N 条测试点草稿，按 M 个分组，详情和编辑请打开 Review 页面：
+  > Drafted N test points for requirement "〔需求名〕" across M groups — open the Review page for details and editing:
 
-**No count summary after tables** — do **not** write `本轮新增 M 条` / `其余 K 条为已存` / `共 N 条` (agents cannot reliably count rows; see Rules Index · Draft totals). Optional **non-numeric** footer after all group sections（**跟随会话语言**二选一，不同时输出）: `已存的标「已存」（只读，改/删请去 Test Suites 后台）；「新增」为本轮新测试点，确认后只保存新增的。` / `Items marked "Saved" are read-only here (edit/delete via the Test Suites console); items marked "New" are this round's new test points — only the new ones will be saved once confirmed.`
+- **增量**（库里已有，逐字；**跟随会话语言**二选一，不同时输出）：
+  > 需求「〔需求名〕」本轮新增 N 条测试点草稿，详情和编辑请打开 Review 页面：
+  > Drafted N new test points for requirement "〔需求名〕" this round — open the Review page for details and editing:
 
-**Rendering discipline**:
+紧接一行可点击链接（逐字，填入完整 `review_url`；**跟随会话语言**二选一，不同时输出）：
+> Review 页面：[点这里打开](<review_url>)
+> Review page: [Open it here](<review_url>)
 
-- **Group title lines are a hard requirement** — same priority as the incremental status column. Never skip them to save space or because `group` is already on each row internally.
-- Bold and emoji in tables are **enhancements only** — some clients may not render `**` or emoji inside tables. **Status column text** (incremental) and **group title lines** must carry meaning without relying on table-only formatting.
-- Never rely on bold/emoji alone to tell 新增 from 已存.
+**断链恢复提示**（仅首次呈现；**跟随会话语言**二选一，不同时输出）：
+> **注意：** 此链接仅在当前 Claude 运行期间有效，草稿会自动保存。链接失效后，直接发送 **「恢复 Review 页面」** 即可。
+> **Note:** This link is only available while the current Claude session is running. Your draft is saved automatically. If the link stops working, just send **"Restore the Review page"**.
+
+SQA 发送「恢复 Review 页面」（或对应英文）时：使用当前 binding 的 `review_id`；若页面服务已关闭，按本节的既有规则在后台重新执行一次 `testpoint-review open --review-id <id> --no-browser`，然后只返回新的 `review_url`。不得新建 Review、重新生成测试点或覆盖现有 Review State。
+
+**禁止退化成只给命令或只给 `review_id`。** `review_url` 是本机临时地址；页面服务存活时复用同一链接。服务已关闭才重新后台启动一次 `open --no-browser` 并替换为新 URL，禁止同时运行两个相同 Review 服务。普通 Review 不设固定时长过期；10 分钟阈值只用于识别点击 Ask AI 后长期未回调的优化请求，并提示 SQA 手动继续优化。
+
+然后是**存疑清单**（§5）：〔指向哪〕+〔为什么疑〕+〔建议动作〕；无覆盖勾选矩阵；若没有存疑，明确说明"没有存疑项"/"no open questions"。存疑清单只在 Chat 呈现，不写入 Review 数据（页面数据模型没有这个概念）。
+
+**尾巴**（存疑清单之后，**仅首次呈现**逐字输出；修订轮改走 §8 的精简输出契约；**不做弹框**；**跟随会话语言**二选一，不同时输出）：
+> 有修改意见可以直接在这里说，或者去 Review 页面编辑；确认没问题后，请在 Review 页面点击 Save to CawPlan 完成提交。
+> Tell me your changes here, or edit them directly on the Review page; once it looks good, click Save to CawPlan on the Review page to submit.
+
+**Do not state draft totals beyond N/M above** — 除了开场这一句用命令返回值报的 N/M，其余场合（修订后重展、催问进度等）不再重复报数，避免和"N/M 只来自命令输出"这条纪律冲突而被误用成手数。
 
 ### 8. Revise from SQA feedback
 
-Natural language: add / delete drafts / edit title, tags, group / adopt 存疑 items. Ambiguous edits → ask.
+**Review State（`review_id` 对应的持久化数据）是测试点的唯一事实源。** Chat 和 Review 页面都是输入入口，但都不在会话里各自维护一份测试点数据——任何一轮处理前先读最新 Review State，不能假设 Chat 记得的内容和页面当前状态一致（页面上可能已经有 QA 直接做的 Edit/Delete/Add）。
 
-**Adopting 存疑 → new test-point rows** counts as a revision round (same as add): re-show full table, recompute 序号.
+**Chat 里任何形式的修订意见，统一走同一条路径**，不区分"回复存疑" / "自然语言整体修订"（如"补充超过上限的边界场景"）/ 看起来机械的单条操作（如"删除第 3 条"）——都视为针对当前 Review 的新一轮 AI 输入，不单独开一条"直连编辑、不占用 Round"的快速通道：
 
-After **any** revision round → **re-show the full 分节清单** (every group title + per-group table, §7 step 1) with recomputed numbers; refresh 存疑 as needed; **re-output §7 尾巴**. Prompt: review by title content, not old numbers only (§4.4).
+1. 调用 `cawplan qa-insights testpoint-review request-optimize --review-id <id>` 锁定当前 Review（效果等价于页面点击 "Ask AI to Optimize"：整页锁定、`review_status` 变 `pending_optimize`，但不需要页面已打开）。
+2. 读取最新 Review State（页面编辑、删除、新增和评论均以此为准）：
 
-**SQA insists on keeping two similar rows** → keep both; do not re-run §2.2 merge on those rows.
+   ```bash
+   cawplan qa-insights testpoint-review show --review-id <id>
+   ```
 
-**Never auto-save.** "看着不错" ≠ save → ask e.g. `要现在保存，还是再调调？` / `Save now, or keep adjusting?`（**跟随会话语言**二选一） — **no draft count** in this prompt.
+   用输出的完整 State（尤其是 `test_points[].current`、`status`、`comments`、`global_comments` 和 `requirement`）作为本轮 AI 推理的唯一页面输入，不得只使用 Chat 里旧的测试点内容。
+3. 把「最新 Review State + 本轮 Chat 输入」交给 AI 推理，产出下一 Round 的修改/新增。写入 `apply-optimization` 前，输出 JSON **必须**是以下形状（每条 `modified` 与 `added` 都须提供完整的 `title` / `group` / `tags` / `priority`）：
 
-**原稿** = 本轮完成 Step 5 后首次呈现给 SQA 的完整表；五步内部草稿不计。Step 5 补充行属于原稿。Track which draft rows SQA touched for `is_edited` (§9).
+   ```json
+   {
+     "modified": [
+       {
+         "id": "tp_001",
+         "fields": {
+           "title": "...",
+           "group": "...",
+           "tags": ["..."],
+           "priority": "HIGH"
+         }
+       }
+     ],
+     "added": [
+       {
+         "title": "...",
+         "group": "...",
+         "tags": ["..."],
+         "priority": "HIGH"
+       }
+     ]
+   }
+   ```
 
-### 9. Archive (write — explicit confirm only)
+   `Review State` 中的 `current` 只是现状快照，**不是** `modified` 的输出字段；也不能把 `title` / `group` / `tags` / `priority` 平铺在 `modified` 条目上，必须放进 `fields`。
+4. 调用 `apply-optimization` 落盘，命令必须使用 `--output-file`：
 
-Proceed only when SQA clearly says 保存 / 存 / 入库 / `保存到 CawPlan`.
+   ```bash
+   cawplan qa-insights testpoint-review apply-optimization --review-id <id> --output-file <absolute-json-path>
+   ```
 
-**Save confirm** (§9.4) before POST — **AskUserQuestion**; **no draft count**. AskUserQuestion 无「框上正文」字段 → **先输出一行路径正文，再弹框**（勿把路径塞进 question）。
+   该命令是**原子操作**：任一条输出不合法时，会明确报出字段路径，且不会应用任何条目、清评论、改变状态或推进 Round；此时保持原来的 `pending_optimize`，修正**同一份** JSON 后直接重试 `apply-optimization`，不得再次调用 `request-optimize`。全部校验通过后才 round + 1、页面恢复可编辑。
 
-`〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`.
+**Fallback trigger**：SQA 在 Claude Chat 发送 `继续优化 Review 页面` 或 `Continue optimization` 时，先执行本节 step 2 的 `show`，再根据该 State 推理；若它处于 `pending_optimize` 或 `optimizing`，直接从本节 step 3 继续，不能再调用 `request-optimize`。`恢复 Review 页面` 仍只按 §7 的恢复规则重开页面；即使页面处于 pending，也不在该触发词下自动推进优化。
+5. 确认当前页面服务是否仍存活：存活则复用 `review_url`（服务会从 Review State 重新读取最新 Round）；已关闭则后台重新执行一次 `open --no-browser` 并记录新 URL。禁止同时运行两个相同 Review 服务。
+6. 更新会话中的 `open_questions`：
+   - 用户本轮已明确回答、且已据此修改/新增测试点的存疑 → 移除；
+   - 用户未回答的旧存疑 → 保留**完整原文**，不得缩成轴名、关键词或数量；
+   - 本轮新产生的存疑 → 以「指向哪 + 为什么疑 + 建议动作」完整加入；
+   - 修订后得到的 `open_questions` = **当前全部未解决存疑**，不是只记录本轮新增项。
 
-#### 首批保存
+#### 修订后 Chat 输出契约
 
-框上方正文（逐字，填入 `〔需求名〕`；**跟随会话语言**二选一，不同时输出）：
+修订成功后，按以下顺序输出，正文只保留这三块；措辞可自然表达，**不要求逐字照抄示例**：
 
-> 将测试点保存到需求「〔需求名〕」下。
-> These test points will be saved under requirement "〔需求名〕."
+1. **最新 Review 链接**：每轮必须给一次、且只给一次可点击的 `review_url`。不得只给命令或 `review_id`；无需再写 Round 编号或“Round 已更新”等页面已有信息。
+2. **完整剩余存疑清单**：逐条输出 `open_questions` 的完整内容；不得只说“还剩 N 条”，不得只列主题/轴名。没有存疑时明确说明没有剩余存疑。
+3. **简短引导**：只表达“有修改可继续在 Chat 说或去页面编辑；没问题就在页面 Save to CawPlan”。文案可自然调整，不写死，不再重复链接、Round、测试点数量或存疑数量。
 
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**；**跟随会话语言**整框二选一，不同时输出）：
+**禁止额外成功摘要**：不要复述或改写 `apply-optimization` 的成功输出；不要输出“应用了 N 条”“当前共 N 条”“round N”“0 skipped”，也不要在 Chat 重列本轮新增/修改的测试点——详情由 Review 页面承载。校验失败不会产生新的 Review 结果，须按上方原子操作规则修正同一份 JSON 后重试；成功结果的 `skipped_count` 必为 `0`，保持静默。
 
-| 字段 | 中文值 | English value |
-|------|-----|-----|
-| `header` | 确认保存 | Confirm Save |
-| `question` | 确认保存这批测试点? | Confirm saving this batch of test points? |
-| option 1 · `label` | 确认保存 | Confirm save |
-| option 1 · `description` | 存到 CawPlan | Save it to CawPlan |
-| option 2 · `label` | 先不保存 | Not yet |
-| option 2 · `description` | 先留着草稿 | Keep it as a draft for now |
-
-**AskUserQuestion 不可用时** — 纯文字降级（逐字；**跟随会话语言**二选一，不同时输出）：
-
-```text
-将测试点保存到需求「〔需求名〕」下。 确认保存这批测试点? 1. 确认保存 2. 先不保存(回序号)
-```
-
-```text
-These test points will be saved under requirement "〔需求名〕." Confirm saving this batch of test points? 1. Confirm save 2. Not yet (reply with a number)
-```
-
-#### 增量保存（库里已有，仅存本轮新增）
-
-框上方正文（逐字，填入 `〔需求名〕`；**跟随会话语言**二选一，不同时输出）：
-
-> 将本轮新测试点保存到需求「〔需求名〕」下（已存的不动）。
-> This round's new test points will be saved under requirement "〔需求名〕" (existing ones are untouched).
-
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**；**跟随会话语言**整框二选一，不同时输出）：
-
-| 字段 | 中文值 | English value |
-|------|-----|-----|
-| `header` | 确认保存 | Confirm Save |
-| `question` | 确认保存本轮新测试点? | Confirm saving this round's new test points? |
-| option 1 · `label` | 确认保存 | Confirm save |
-| option 1 · `description` | 存到 CawPlan | Save it to CawPlan |
-| option 2 · `label` | 先不保存 | Not yet |
-| option 2 · `description` | 先留着草稿 | Keep it as a draft for now |
-
-**AskUserQuestion 不可用时** — 纯文字降级（逐字；**跟随会话语言**二选一，不同时输出）：
-
-```text
-将本轮新测试点保存到需求「〔需求名〕」下（已存的不动）。 确认保存本轮新测试点? 1. 确认保存 2. 先不保存(回序号)
-```
+结构示例（仅示意结构与信息，不是固定文案）：
 
 ```text
-This round's new test points will be saved under requirement "〔需求名〕" (existing ones are untouched). Confirm saving this round's new test points? 1. Confirm save 2. Not yet (reply with a number)
+Review 页面：[打开最新版本](<review_url>)
+
+存疑清单：
+1. 〔指向哪〕为什么疑；建议动作。
+2. 〔指向哪〕为什么疑；建议动作。
+
+有修改可以继续说，或直接在 Review 页面编辑；没问题就在页面点击 Save to CawPlan。
 ```
 
-**「先不保存」回执**（纯文字，逐字；**跟随会话语言**二选一，不同时输出）：
-> 好的，先不保存。测试点草稿还在，你可以继续改；想好了说一声「保存到 CawPlan」。
-> Okay, not saving for now. The test point draft is still here — keep editing, and just say "save to CawPlan" when you're ready.
+**Ambiguous edits → ask**，不猜测具体所指。
 
-**Before POST**: build `test_points` from the last full table in display order — **one body entry per draft row without `id`**, same order as shown. Do not skip or duplicate rows.
+**SQA insists on keeping two similar rows** → keep both; 这属于交给 AI 推理时的一条明确指令，AI 处理下一 Round 时不应对这两条重新合并。
 
-POST **only drafts without `id`**, in display order:
+**Never auto-save / auto-submit.** Chat 里的修订只推进 Round，不触发归档；"看着不错"之类的认可 ≠ 保存到 CawPlan（归档路径见 §9）。
 
-```bash
-cawplan qa-insights testpoints archive <product_id> <requirement_id> \
-  --body-file <path>   # {"test_points":[{"title":"...","tags":["边界"],"group":"...","priority":"HIGH","is_edited":false}]}
-```
+### 9. Archive (write — page-only, Chat never calls `testpoints archive` directly)
 
-**Never pipe this command through `head`/`tail`/other output-truncating filters** (e.g. `... | head -30`) — the full stdout JSON receipt is the only source for the `outcome` branch below and for the archived-count downstream (`Test points added` in QA daily reports). A truncated receipt can't be parsed and silently counts as zero, even when the batch actually landed.
+**归档只有 HTML Review 页面一个入口。** SQA 在 Chat 里说 保存 / 存 / 入库 / `保存到 CawPlan` / 确认提交 时，**不要**在 Chat 里弹确认框或直接调用归档命令：
 
-Body per item (skill/agent): **only** `title`, `tags`, `group`, `priority`, `is_edited`. `priority` is required, one of `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` (§5 **Priority rules**) — the command hard-rejects a missing or invalid value. The Skill/agent must not submit `category_code` manually. The CLI injects `is_ai_generated: true` and `category_code` on **each** item before POST — do not put either field in `--body-file`. `category_code` is calculated once, only when the test point is created; later Skill-side changes to `tags` do not trigger recalculation, and the stored `category_code` remains unchanged. The command rejects the batch and sends nothing if an item carries anything else (an `id` here usually means an already-archived row is being re-posted).
+1. 若 §7 已启动的页面服务仍存活，复用该后台任务与 `review_url`，**不得再启动第二个 `open`**。
+2. 若服务已关闭，后台重新执行一次 `cawplan qa-insights testpoint-review open --review-id <id> --no-browser`，拿到新 URL。
+3. 输出可点击链接，并等待当前 `open` 后台任务结束；SQA 在页面点击 Save to CawPlan 成功后，页面会关闭 Server，等待中的 Agent 即可继续输出成功回执。
 
-**`is_edited`**: `false` if untouched since 原稿 (includes rows added during Step 5 — AI-generated, no source tag); `true` if SQA edited or added (including adopting 存疑). Incremental batch: only for **new** M drafts vs their 原稿; archived N rows excluded. The command passes this through verbatim — **it never infers the value**, so getting it right is this skill's job.
+引导文案（逐字，填入完整 `review_url`；**跟随会话语言**二选一，不同时输出）：
 
-Branch on `outcome`:
+> Review 页面：[点这里打开](<review_url>)。请点击 Save to CawPlan 完成提交。
+> Review page: [Open it here](<review_url>). Click Save to CawPlan to submit.
 
-| `outcome` | Action |
-|-----------|--------|
-| `SUCCESS` | The command already verified the envelope and that the returned count equals what was sent. Store `api.data.test_points[].id` as session stubs (§10); **do not** list them to SQA → **success receipt (§9.5)** |
-| `FAILURE` | Report `error.message` honestly (§9.6). `validation` = the body was built wrong; fix and resend. Do **not** fake success, do **not** blind-retry |
-| `UNKNOWN` | The batch may or may not have landed. **Never re-archive on a guess** → §10 |
+这样确保 archived 状态、排除 deleted、未处理反馈拦截、重复提交保护等逻辑始终只有一套（页面侧 `/api/save-to-cawplan`），不产生 Chat / 页面两条归档路径。
 
-**Success receipt (§9.5)** — **only place SQA sees a count**. **Two lines** when `url` is present; otherwise line 1 only. Use **`N` = `body.test_points.length`** (or response `test_points.length` on SUCCESS). `〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`.
+**保存前置条件**：若页面仍有任一测试点 Comment 或 Overall Feedback，且尚未被一次成功的 Ask AI 优化消费，Save to CawPlan 必须拒绝提交并提示先 Ask AI；没有确认弹窗或强制提交入口。仅 Edit / Delete / Add（没有上述未处理反馈）可以直接按当前页面状态保存。
+
+**成功回执自动触发，不需要 SQA 回报**：SQA 在页面点击 Save to CawPlan 成功后，页面会关闭本地 Server；Agent 刚才那条挂起的 `open` 调用随之结束，读取最终 Review State 里本轮新增的 `archived: true` 条目数，**自动**在 Chat 输出成功回执（§9.5 格式，逐字文案与追加条件均保留不变），不需要 SQA 再回 Chat 说一遍"保存好了"。
+
+**唯一前提（⚠️ 需要同一对话）**：页面服务必须由当前 Agent 对话在后台启动并保留任务句柄，归档时才能等待它结束并自动回执。SQA 不需要、也不应再去终端手动运行 `open`。如果中途换了新对话，新对话没有旧后台任务句柄，应先确认旧服务已停止，再启动一次并返回新链接。
+
+**Success receipt (§9.5)** — **only place SQA sees a count**. **Two lines** when `url` is present; otherwise line 1 only. Use **`N` = 本轮 Review State 中新增 `archived: true` 的条目数**（从页面 Save 成功后的最终 Review State 读取，不自行数行）。`〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`.
 
 - **Line 1**（逐字；**跟随会话语言**二选一）：`已保存 N 条测试点到需求「〔需求名〕」下。` / `Saved N test points under requirement "〔需求名〕."`
 - **Line 2**（仅当 refresh 返回非空 `url`；**单独一行**，不接到 line 1 句末；逐字；**跟随会话语言**二选一）：`Requirement 链接:{url}` / `Requirement link: {url}`
 
 **If `url` is missing or null** — output line 1 only; say nothing about links — never construct portal URLs, never note that `url` was unavailable.
 
-**Forbidden in success receipt**: per-row tables; title lists; `id` lists; re-generated or summarized titles; any line about missing `url` (e.g. "未返回 url"/"无法附 Requirement 链接"); **apology or post-hoc recount explanations** (e.g. "之前误算成 13 条").
+**Forbidden in success receipt**: per-row tables; title lists; `id` lists; re-generated or summarized titles; any line about missing `url`; **apology or post-hoc recount explanations**。
 
-**§9.5 末尾引导（可选追加）** — 满足**全部**条件时，在成功回执**最后**另起一行逐字追加（不弹框、不追问、**仅本轮一次**；**跟随会话语言**二选一，不同时输出）：
+**§9.5 末尾引导（可选追加，逐字与追加条件原样保留）** — 满足**全部**条件时，在成功回执**最后**另起一行逐字追加（不弹框、不追问、**仅本轮一次**；**跟随会话语言**二选一，不同时输出）：
 
 > 想继续生成测试用例？说「马上生成测试用例」，我会在当前会话直接生成。
 > Want to generate test cases next? Say "generate test cases now" and I'll do it right in this session.
 
 **追加条件**（须同时满足）：
 
-- 本轮测试点归档结果为 `SUCCESS`（含 §10 `count_matched` 确认已落库后下接 §9.5 式回执）
+- 本轮 Save to CawPlan 结果为成功（页面返回 `archived_count > 0` 且非 `NOOP`/失败）
 - 会话**无** `resume_intent`（非跨 skill 入站接力后的自动出站回归）
-- 非「先不保存」回执路径
-- 非保存失败 / UNKNOWN / `pending_write` 未定态
+- 非保存失败 / 冲突（409）路径
 
-**不追加**：保存失败、结果未定、`先不保存`；出站 `resume_intent = testcase` 自动回流 `cawplan-testcase-generate`（已自动续跑，无需再引导）。SQA 未接茬、去做别的 → **顺其自然，不重复提示**。
+**不追加**：`NOOP`（没有可提交内容）、页面返回 409/502 失败；出站 `resume_intent = testcase` 自动回流 `cawplan-testcase-generate`（已自动续跑，无需再引导）。SQA 未接茬、去做别的 → **顺其自然，不重复提示**。
 
 **用户接茬**：SQA 说「马上生成测试用例」→ 以会话 `product_id` + `requirement_id` 读 `cawplan-testcase-generate` skill，当前会话 P2 热交接直跑 §2 refresh，**无需**再贴需求或测试点。
 
-On failure → report `error.message` (and `api.code` / `api.msg` when present) honestly (§9.6). Do not fake success or blind-retry.
+**失败/冲突时**（页面返回 409 未处理反馈、409 整页锁定、502 归档失败）：如实报告页面返回的错误信息，引导 SQA 回页面处理（如先处理未解决评论、或稍后重试），不假装成功、不代 SQA 重试。
 
-### 10. UNKNOWN write outcome (§9.4)
+### 10. UNKNOWN write outcome
 
-Archive returned `outcome: UNKNOWN` → set `write_outcome = UNKNOWN`, then run:
-
-```bash
-cawplan qa-insights testpoints reconcile <product_id> <requirement_id> \
-  --count-before <§2 刷新时记录的基线> --batch-size <本批条数>
-```
-
-`--count-before` is the baseline recorded at the §2 refresh, **before** the archive. The command will not guess it. Read-only — it never writes.
-
-Same rule as §9: **never pipe this command through `head`/`tail`/other output-truncating filters** — the full stdout JSON receipt is what the `reconcile.decision` branch below reads.
-
-| `reconcile.decision` | Action |
-|----------------------|--------|
-| `count_matched` | The batch already landed. Tell SQA it is saved; clear UNKNOWN; merge stubs on the next refresh. **Do not archive again.** → 下接 **§9.5** 成功回执（含末尾引导，条件同 §9.5） |
-| `retry_same_batch` | Nothing landed. Read-back, then archive the **same** batch — not a regenerated one. |
-| `count_unexpected` | The count is neither unchanged nor `+batch`. Someone may have appended concurrently, or the data is inconsistent. **Stop and ask SQA to check Test Suites**; archive nothing. |
-
-**Never** re-archive a batch on ambiguity.
+**This step now runs page-side, not in Chat.** The `/api/save-to-cawplan` route (triggered by the page's Save to CawPlan button) calls `testpoints archive`; if that returns `outcome: UNKNOWN` (transport failure / post-write 5xx, result indeterminate), the page itself runs the count-reconcile (`testpoints reconcile` with the Review's tracked baseline) and branches on `reconcile.decision` — `count_matched` marks the batch archived without re-submitting, `retry_same_batch`/`count_unexpected` report a failure without silently re-archiving. Chat never sees `UNKNOWN` directly and never calls `testpoints reconcile` itself; it only reports whatever the page's final result was (§9's failure branch) or posts the success receipt (§9.5) when the page succeeded.
 
 ### 11. Archived row edits
 
@@ -521,13 +508,15 @@ SQA wants to change/delete a row **with `id`** → direct them to Test Suites UI
 
 ## Session state (in-conversation only)
 
-**① Binding**: `product_id`, `requirement_id`, five-field snapshot, `url`.
+**Binding**: `product_id`, `requirement_id`, `review_id`, `review_url`, Review 页面后台任务句柄/存活状态, five-field snapshot, `url`.
 
-**② Work set**: 原稿 snapshot; touched-row marks; current drafts; archived stubs from last refresh.
+**Open questions**: `open_questions` 保存当前全部未解决存疑的完整文字。首次呈现时写入 §7.2 展示的完整清单；每次修订按 §8 step 6 做移除 / 保留 / 新增，再把更新后的完整清单输出。存疑不属于 Review 页面数据，不能只依赖 Review State 或临时聊天概括来恢复。
 
-**③ Write**: `pending_write` after save confirm; `write_outcome` SUCCESS / failure / UNKNOWN.
+**测试点内容本身不在这份 session state 里维护**——Review State（`review_id` 对应的持久化数据）是唯一事实源（§8）。这份 session state 只记"当前在跟哪个 Requirement / 哪个 Review 打交道"，不记录草稿内容、谁改了哪行、`is_edited` 等——这些都从 Review State 读取或由页面/`apply-optimization` 计算，不在 Chat 会话里重复维护一份。
 
-Refresh binding + stubs before each generate. Rebind clears all. After successful archive, merge new `id`s into stubs; new supplement round gets a **new** 原稿 for the M drafts.
+**这是相对 v1 的一次真正删除，不是精简描述**：v1 曾维护「① Binding / ② Work set（原稿快照、touched-row 标记、当前草稿、归档 stub）/ ③ Write（`pending_write`、`write_outcome`）」三组状态，因为 Chat 自己直接呈现表格、接收修订、调用归档，需要自己算 `is_edited`、自己追踪原稿。**这套机制在页面接入后整体退休**：呈现交给页面（§7.1）、修订统一走 Review State + `apply-optimization`（§8）、归档只在页面触发、`is_edited` 由页面按 `status !== "unchanged"` 计算（不再由 Chat 推断）、归档结果由页面同步回传（§9），Chat 不再需要自己的写状态机。
+
+Refresh binding 前先确认 `review_id` 仍指向同一份 Review；Rebind（P1 冷交接切换 Requirement）清空全部 binding，包括 `review_id`——切换到新 Requirement 视为开始一次新的 Review。
 
 ## Walkthrough example (workflow Duplicate — requirement `019fb63e-d5ad-7cb7-8b5f-761ceeb50c0a`)
 
@@ -599,20 +588,22 @@ Authoritative rules live in **Workflow**; this section is navigation only. On co
 | **Disposition / C-D asymmetry** | §5 Step 3 |
 | **Granularity + merge conservation** | §5 Step 4; recheck → §6 |
 | **Priority** — 每条测试点必填 CRITICAL/HIGH/MEDIUM/LOW | §5 **Priority rules** |
-| **存疑清单** — format & discipline | §5 **存疑清单纪律**; presentation → §7 step 3 |
+| **存疑清单** — format、会话状态与每轮完整输出 | §5 **存疑清单纪律**; 首次呈现 → §7.2；修订 → §8 step 6 + 输出契约 |
 | **Double closure + requirement-specific review** | §6 Step 5; output checks → `references/review-checklist.md` |
-| **Presentation** — 分节、状态列 | §7 |
-| **Draft totals** — SQA 只看保存后条数 | §7 · §9.5 · §9 save confirm（禁草稿/保存前计数） |
-| **Archive / confirm / receipt** | §9; UNKNOWN → §10 (`testpoints reconcile`, needs `count_before` from §2) |
-| **Cross-batch identity / batch-internal dedup** | §10 (`id` stubs); batch-internal → §5 Step 4 |
-| **API** | Writes → `cawplan qa-insights` (§9 archive, §10 reconcile); reads → `cawplan api GET` (§2); `references/CAWPLAN_OPEN_API.md` §15 |
+| **Review 创建 + Chat 呈现** — 不铺表格，摘要 + 存疑清单 + 每轮可点击页面链接 | §7 |
+| **Draft totals** — N/M 只来自 `testpoint-review start` 返回值，不自行数行 | §7.2 |
+| **修订（Chat 或页面）** — 统一走 Review State，锁定 → AI → 下一 Round；Chat 只出链接 + 完整剩余存疑 + 简短引导 | §8 |
+| **Archive / confirm / receipt** | §9（页面触发、Chat 只报结果）; UNKNOWN reconcile 页面侧处理 → §10 |
+| **Batch-internal dedup** | §5 Step 4（跨 Round 的 `id` 唯一性由 Review State 的 `next_seq` 保证，不在 Chat session state 里维护） |
+| **API** | 生成期读 → `cawplan api GET`（§2）；Review 相关 → `cawplan qa-insights testpoint-review *`（§7.1/§8/§9）；`references/CAWPLAN_OPEN_API.md` §15 |
 | **Trigger boundary** | §1 决策树 P3 → 框2；兜底 → 框1；ticket URL without test-point intent → not this skill |
-| **Failures** | §9 On failure; keep drafts |
+| **Failures** | §9 失败/冲突分支；Review State 保留，不丢草稿 |
 
 ## Output & Confirmation
 
-- **Generate / revise (no archive)** → §5–§7
-- **Save confirm + POST** → §9; UNKNOWN reconcile → §10
+- **Generate + 建 Review + Chat 呈现（不归档）** → §5–§7
+- **Chat 修订** → §8（锁定 → AI → 下一 Round，不在 Chat 直接改测试点内容）
+- **归档** → §9（仅页面 Save to CawPlan，Chat 只引导 + 报回执）；UNKNOWN reconcile 页面侧处理 → §10
 
 ## References
 
