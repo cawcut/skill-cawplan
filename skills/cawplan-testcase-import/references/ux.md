@@ -20,6 +20,8 @@
 | `version_name` | 目标版本（`custom_case_version`） |
 | `MISSING_REQUIREMENT_ID` | 缺少需求关联，归档位置可能不完整 |
 | T1 `P0–P3+` | 最高/高/中/低 · Pn（勿展示 CRITICAL 等枚举） |
+| 标题态 / 已展开 | 无有效步骤内容 / `steps[]` 至少一步 content 或 expected 非空（见 `import-rules §StepsCheck`） |
+| 框 Steps-confirm | 全标题或 REQUIREMENT 源时的非强制 Ask；见 `§StepsConfirm` |
 
 ## §TestRailLinks TestRail 超链接（SHALL）
 
@@ -43,7 +45,11 @@ Markdown：`[{name}（ID [{id}](url)）](url)` · Case：`[C{case_id}](case_url)
 
 自由文本先匹配，命中则不弹对应框（须在 preview 表头回显确认值）：
 
-按上面导入·import above → INLINE 热接力 · 确认导入·confirm import · 先不·cancel · 重新预览·re-preview · 为什么跳过·why skipped · 技术详情·technical details · 只有测试点·test points only → REQUIREMENT
+按上面导入·import above·按上面导入 TestRail → INLINE 热接力 · 确认导入·confirm import · 先不·cancel · 重新预览·re-preview · 为什么跳过·why skipped · 技术详情·technical details · 只有测试点·test points only → REQUIREMENT
+
+**步骤门禁（Step 0.6，跳过框 Steps-confirm 仍须满足 §StepsCheck 放行条件）**：
+
+不展开继续导入·继续导入（无步骤）·import without steps·title only is ok → `steps_confirm = continue_without_steps`（写入 `§ConfirmState` 指纹后进入 Step 1） · 先不导入（Steps）·not now import → 收束
 
 **Suite 显式指定**（跳过框 3，仍须在 preview/框 4 展示）：
 
@@ -69,8 +75,8 @@ Markdown：`[{name}（ID [{id}](url)）](url)` · Case：`[C{case_id}](case_url)
 
 | 级 | 条件 | 动作 |
 |----|------|------|
-| P1 | 同会话 `testcase-generate` 后有展开用例 | 自动 `INLINE`；**跳过框 0、1**；**仍走框 3、框 3.5**（或 Intent/ConfirmState）；版本无感 |
-| P1b | §Intent 热接力词 + 有用例明细 | 自动 `INLINE`；跳过框 1 |
+| P1 | 同会话 `testcase-generate` 后有 case 明细 | 自动 `INLINE`；**跳过框 0、1**；**须 Step 0.6**（≥1 已展开则无感；全标题 → 框 Steps-confirm）；**仍走框 3、框 3.5**（或 Intent/ConfirmState）；版本无感 |
+| P1b | §Intent 热接力词 + 有用例明细 | 自动 `INLINE`；跳过框 1；**须 Step 0.6**（同 P1） |
 | P2 | Requirement URL，无展开用例 | `REQUIREMENT`；跳过框 1 |
 | P3 | 仅「导入 TestRail」，上下文不全 | 框 0 |
 | P4 | 有 `product_id`+`requirement_id`，无 case | `REQUIREMENT`（框 3、框 3.5 仍须；版本无感） |
@@ -89,6 +95,7 @@ Markdown：`[{name}（ID [{id}](url)）](url)` · Case：`[C{case_id}](case_url)
 |----|------|------------------------|
 | 0 入口 | P3 | 粘贴 Requirement 链接 / Paste requirement link · 用上面已生成用例 / Use cases above · 粘贴产品链接 / Paste product link |
 | 1 数据源 | 未命中 P1/P1b 且模糊 | 用上面用例（推荐）/ Use cases above (recommended) · 只从测试点生成 / From test points only · 先不导入 / Not now |
+| Steps-confirm | Step 0.6 全标题或 REQUIREMENT（0 条已展开），且未 Intent/`§ConfirmState` 放行 | **先去展开步骤（推荐）** / Expand steps first (recommended) · **不展开，继续导入** / Continue without steps · **先不导入** / Not now |
 | 3 Suite | 见 `§SuiteConfirm` | 见 `§SuiteConfirm` |
 | 3.5 Section 归属 | 见 `§SectionConfirm`（紧跟框 3 之后） | 见 `§SectionConfirm` |
 | 4 执行闸 | preview OK | 确认导入 / Confirm import · 先不导入 / Not now |
@@ -167,6 +174,29 @@ Version 不再是弹窗（无编号），见 `§VersionConfirm`。
 
 确认后 Agent 存 `confirmed_parent_section_id` + `confirmed_parent_section_name`（+ `confirmed_parent_section_path` 用于展示）；选「新建顶级目录」时三者均为空，不传 `parent_section_id`。
 
+## §StepsConfirm（框 Steps-confirm · Step 0.6）
+
+**触发（SHALL）**：`import-rules §StepsCheck` 判定 **0 条已展开**（INLINE 全标题，或 `REQUIREMENT` 源）。  
+**免弹**：同会话已对**同一指纹**写入 `steps_confirm = continue_without_steps`；或 `§Intent` 命中「不展开继续导入」类短语（仍须写 ConfirmState）。
+
+**性质**：**非强制停止**——用户可继续无步骤导入；Ask 失败或用户忽略时 **不得** 静默跳过本框（须显式选项或 Intent）。
+
+**框上正文（示例，跟随用户语言；`n` = 用例条数；REQUIREMENT 时数据源展示「从测试点生成」）**：
+
+> 当前共 **{n}** 条**标题态**用例（尚未展开操作步骤）。TestRail 里只会看到标题，没有步骤与预期结果。  
+> 建议先用 **`/cawplan-testcase-generate`** 展开（可说「展开第 3 条 / 全部展开」）；展开完成后回复「**按上面导入 TestRail**」即可继续。  
+> 若你确认就以标题导入，可选「不展开，继续导入」。
+
+**option labels**（固定 3 项，见 `§Prompts` 表 **Steps-confirm**）：
+
+| 用户选择 | Agent 行为 |
+|----------|------------|
+| **先去展开步骤（推荐）** | **仅输出引导话术**（含 `/cawplan-testcase-generate` 与展开口令示例）；**禁止 Read** `cawplan-testcase-generate` Skill；**禁止**代用户调用 generate；收束本 Skill 等待用户 |
+| **不展开，继续导入** | `steps_confirm = continue_without_steps` + `steps_check_fingerprint` → **Step 1** `mappings get` → 框 3/3.5 → convert/preview（INLINE 无 steps 时 convert 仍可能因脚本红线失败——走既有 `§Convert` 失败恢复，**不**在本框预判） |
+| **先不导入** | 收束；尚未 preview |
+
+**REQUIREMENT 源**：正文改为「将从测试点生成 **{n}** 条 Case（当前无步骤明细）」；三选项与上表相同（「先去展开」话术改为先 `/cawplan-testcase-generate` 或在本 Skill 前完成展开再选 INLINE）。
+
 ## §VersionConfirm
 
 **不弹窗**：Version 全程无感，不主动询问、不推断、不确认。仅 `§Intent` 显式命中版本号时写入 `confirmed_version_name`；INLINE 用例自带的 `version_name` 原样透传。都没有 → 不传该字段。所有含 `{version_name}` 的模板（框 4/`§Preview`/`§Result`/`§AsyncHandoff`）未设置时一律显示"未指定"。cases 内多个不同 `version_name` 也不阻断，各自透传，`§Preview` 的 `warnings` 里提示即可。
@@ -221,7 +251,7 @@ eta_max = ceil(eta_min * 1.3)
 | 目标用例集 | [{suite_name}（ID [{suite_id}](suite_url)）](suite_url) |
 | 挂靠目录 | [{parent_section_name}（ID [{parent_section_id}](section_url)）](section_url)（仅选了已有目录时显示本行） |
 | 目标版本 | {version_name} |
-| 数据源 | {已展开用例 / 从测试点生成} |
+| 数据源 | {已展开用例 / 从测试点生成}{若 `steps_confirm=continue_without_steps` 且仍无步骤，追加「（标题态，无步骤）」} |
 ```
 
 明细表：`action`/`skip_reason`/`warnings` 用 §Glossary。Section 列用 `target_section_path` 优先；路径末级 Section 有 `target_section_id` 时，在路径旁或单独列展示 **[{section_id}](section_url)** 链接。SKIP 行有 `existing_case_id` 时 Case 列为 **[C{id}](case_url)**。`section_creates` 待建目录仅列名称（无 ID 不加链接）。表下汇总 to_create/to_skip/to_fail。禁止展示 `preview_id`、裸枚举。
