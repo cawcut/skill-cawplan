@@ -893,7 +893,7 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 
 ### TestPoint `category_code` contract (V1)
 
-Contract version: `qa-testpoint-category/v1`. `category_code` is a nullable enum; its only 18 non-null values are:
+Contract version: `qa-testpoint-category/v1`. `category_code` is a nullable enum; its only non-null values are (see table below for the current full list):
 
 | Code | Chinese label | English label |
 |------|---------------|---------------|
@@ -914,6 +914,12 @@ Contract version: `qa-testpoint-category/v1`. `category_code` is a nullable enum
 | `PERFORMANCE` | 性能 | Performance |
 | `SECURITY_AUDIT` | 安全审计 | Security Audit |
 | `OBSERVABILITY` | 可观测 | Observability |
+| `RESULT_VALIDITY` | 结果有效性 | Result Validity |
+| `INSTRUCTION_COMPLIANCE` | 指令遵循 | Instruction Compliance |
+| `FACTUAL_GROUNDING` | 事实依据 | Factual Grounding |
+| `OUTPUT_STABILITY` | 输出稳定性 | Output Stability |
+| `CONTEXT` | 上下文 | Context |
+| `AGENT_EXECUTION` | Agent 执行 | Agent Execution |
 | `OTHER` | 其他 | Other |
 
 - `null` is not an enum value. It means automatic classification could not determine a category; clients display it as `Unclassified` / 「待归类」.

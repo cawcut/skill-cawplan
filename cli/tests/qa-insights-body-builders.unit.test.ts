@@ -198,6 +198,12 @@ describe("qa-testpoint-category/v1 mapping and injection contract", () => {
     ["性能", "PERFORMANCE"],
     ["安全审计", "SECURITY_AUDIT"],
     ["可观测", "OBSERVABILITY"],
+    ["结果有效性", "RESULT_VALIDITY"],
+    ["指令遵循", "INSTRUCTION_COMPLIANCE"],
+    ["事实依据", "FACTUAL_GROUNDING"],
+    ["输出稳定性", "OUTPUT_STABILITY"],
+    ["上下文", "CONTEXT"],
+    ["Agent 执行", "AGENT_EXECUTION"],
   ] as const;
   const officialEn = [
     ["Positive", "POSITIVE"],
@@ -217,6 +223,12 @@ describe("qa-testpoint-category/v1 mapping and injection contract", () => {
     ["Performance", "PERFORMANCE"],
     ["Security Audit", "SECURITY_AUDIT"],
     ["Observability", "OBSERVABILITY"],
+    ["Result Validity", "RESULT_VALIDITY"],
+    ["Instruction Compliance", "INSTRUCTION_COMPLIANCE"],
+    ["Factual Grounding", "FACTUAL_GROUNDING"],
+    ["Output Stability", "OUTPUT_STABILITY"],
+    ["Context", "CONTEXT"],
+    ["Agent Execution", "AGENT_EXECUTION"],
   ] as const;
   const categoryPoint = {
     title: "分类测试点",
@@ -226,13 +238,13 @@ describe("qa-testpoint-category/v1 mapping and injection contract", () => {
     is_edited: false,
   };
 
-  test("CATEGORY-V1-01 maps all 17 official Chinese terms", () => {
+  test("CATEGORY-V1-01 maps all official Chinese terms", () => {
     for (const [term, code] of officialZh) {
       expect(classifyTestPointCategory([term]), term).toBe(code);
     }
   });
 
-  test("CATEGORY-V1-02 maps all 17 official English terms", () => {
+  test("CATEGORY-V1-02 maps all official English terms", () => {
     for (const [term, code] of officialEn) {
       expect(classifyTestPointCategory([term]), term).toBe(code);
     }
