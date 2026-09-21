@@ -125,6 +125,11 @@
           "name": "metrics",
           "path": "skills/cawplan-metrics",
           "invoke": "/cawplan-metrics"
+        },
+        {
+          "name": "support-metrics",
+          "path": "skills/cawplan-support-metrics",
+          "invoke": "/cawplan-support-metrics"
         }
       ],
       "optionalSkills": [

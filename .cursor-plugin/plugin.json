@@ -83,6 +83,10 @@
     {
       "name": "cawplan-knowledge",
       "path": "skills/cawplan-knowledge"
+    },
+    {
+      "name": "cawplan-support-metrics",
+      "path": "skills/cawplan-support-metrics"
     }
   ]
 }
