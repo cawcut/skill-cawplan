@@ -55,3 +55,25 @@ test('title-only case still emits Refs', () => {
   assert.strictEqual(lines.length, 2);
   assert.ok(lines[1].includes('cawplan:case_sha256:'));
 });
+
+test('expanded case rejects a blank step', () => {
+  assert.throws(
+    () => buildCsvText([{
+      ...baseCase,
+      steps: ['s1', '   '],
+      expected: ['e1', 'e2'],
+    }]),
+    /第 2 组 Step\/Expected 含空值/
+  );
+});
+
+test('expanded case rejects a blank expected result', () => {
+  assert.throws(
+    () => buildCsvText([{
+      ...baseCase,
+      steps: ['s1', 's2'],
+      expected: ['e1', ''],
+    }]),
+    /第 2 组 Step\/Expected 含空值/
+  );
+});

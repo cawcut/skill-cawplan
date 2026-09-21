@@ -89,6 +89,19 @@ function rowsForCase(caseObj, caseId) {
     );
   }
 
+  // 标题态草稿允许 [] / [];一旦展开,每个 Step / Expected 都必须非空且严格配对。
+  // 脚本只拒绝脏数据,不生成占位文案或猜测测试信号。
+  for (let i = 0; i < steps.length; i++) {
+    const step = String(steps[i] == null ? '' : steps[i]).trim();
+    const result = String(expected[i] == null ? '' : expected[i]).trim();
+    if (!step || !result) {
+      throw new Error(
+        `CaseId=${caseId} 第 ${i + 1} 组 Step/Expected 含空值;` +
+        `展开态每一步必须配一条非空、可验证的预期结果。请上游修正后重导。`
+      );
+    }
+  }
+
   // 必填三件套非空校验(SPEC §6.2,已归档主干):
   //   testPointId 空 → 孤儿用例(破溯源契约);requirementId 空 → 整份溯源断裂;
   //   title 空 → 无标题残次用例。三者任一空即 fail,脚本不放行脏数据、不编造补齐。

@@ -229,7 +229,7 @@ Reply with a number, or just tell me what you'd like to do.
 |------|----------------------------------|
 | Before expanding each test point | `references/test-design-methods.md` — EP/BVA/ST/EG toolbox |
 | Before writing Title / Preconditions / Step / Expected; when inferring Priority (P0–P3) | `references/testcase-writing-spec.md` — field rules, split/merge, priority 升降, **步骤粒度（跨页必拆）** |
-| Before export | `references/csv-template-mapping.md` — 12 columns, cross-row, escape, **草稿态混排 / 半展开留空** |
+| Before export | `references/csv-template-mapping.md` — 13 columns, cross-row, escape, **草稿态混排 / 半展开留空** |
 | Column layout truth source | `assets/testcase-template.csv` |
 
 ### 5. Expand test cases
@@ -240,14 +240,20 @@ Reply with a number, or just tell me what you'd like to do.
 
 **Expansion boundary (first rule)**:
 
-- **一条用例 = 一个独立验证目标**（完整判据与 ✅❌ 对照表见 `references/testcase-writing-spec.md`「拆 / 合规则」层 1）。**先过层 2 形状分类**（A/B、EP、多对象、跨页）**,再过层 1 那一问**。
-- **生成后必答**：「这条会不会因为两个不同的验证目标分别挂？挂了我能不能一眼看出是哪个验证目标？」——会挂两次且分不清 → 拆到每条只剩一个验证目标。
-- Four methods expand **only on archived test points** — do not invent coverage.
+- **一条用例 = 一个连贯、可独立执行的核心验证场景**（完整判据与 ✅❌ 对照表见 `references/testcase-writing-spec.md`「拆 / 合规则」层 1）。一个场景可以包含多个顺序执行的 Step 和一一对应的 Expected 检查点；**不得仅因多个 Expected 就拆 Case**。先过层 2 形状分类（A/B、EP、多对象、跨页）,再过层 1 判据。
+- Four methods expand **only within archived test-point goals** — do not invent orthogonal coverage. 输入、边界、异常、角色、入口、环境或状态等维度,只要直接影响父测试点的执行路径、边界或预期结果,可以作为必要具体化;用最小充分场景集,禁止机械组合爆炸。
 - Missing surface with no parent test point → **存疑 only**（**跟随会话语言**二选一）: "这一块没有对应的测试点,回去补一条测试点、刷新后再展开。" / "There's no matching test point for this — go back and add one, then refresh and expand it." **No orphan cases.**
 - Every case under the **archived main path** must have non-empty `testPointId` + parent test point — in `cases[]`, preview, and export (see §8).
 - SQA **verbally adds** a new case → same rule: must attach non-empty `testPointId` + parent test point; if none → 存疑 back to **A2**, **not** into `cases[]` / preview / export.
 
-**One test point → N cases**: split when **verification goals differ** (不同失败模式 / 不同独立验证目标); merge only when **same failure mode, data-only variation** and steps can walk each value/object — see `references/testcase-writing-spec.md`「拆 / 合规则」层 1. Do not skip values listed in A2 titles. **A2 粗 = 合法(不改)**;测试点标题里带取值清单 / 并列措辞时,A3 **默认逐项展开成 N 条**,不照抄成一条(与上句同源强化)。
+**One test point → N cases**: split when alternative starting conditions / input partitions / business branches / final failure modes form independently executable core scenarios; keep sequential checkpoints from the same run in one case. Merge only when **same failure mode, data-only variation** and steps can walk each value/object — see `references/testcase-writing-spec.md`「拆 / 合规则」层 1. Do not silently ignore source-listed values or range limits; classify them as discrete or continuous before deciding whether to enumerate or take boundaries.
+
+**Per-test-point completion criterion** — do not move to the next parent test point until all are true:
+
+1. Source-explicit values, branches, constraints, and states have each been handled.
+2. Directly related and necessary equivalence classes, boundaries, exceptions, and state transitions have been covered with a **minimal sufficient** set; no Cartesian expansion.
+3. Every candidate represents a coherent core scenario that can be independently executed when expanded; sequential checkpoints remain paired inside that case.
+4. Same-failure-mode duplicates are merged; candidates outside the parent goal are moved to 存疑 / A2 instead of entering `cases[]`.
 
 **Three-tier output rhythm** (content axis — Markdown preview only; **no CSV on this axis**):
 
@@ -307,7 +313,7 @@ Reply with a number, or just tell me what you'd like to do.
 | 选择 | 动作 |
 |------|------|
 | **全部铺开** | 按本批范围全量打 Markdown 展开块 → §9 partial/full hint |
-| **全部带步骤导出** | 不铺对话展开块 → 为尚未展开用例静默补齐 `steps` / `expected`（更新 `cases[]`，**不在对话里铺开**）→ 走 §8 导出流程（`exportMode = fill_then_export`）→ §9 export receipt（含补齐提示） |
+| **全部带步骤导出** | 不铺对话展开块 → 为尚未展开用例静默补齐 `steps` / `expected`（更新 `cases[]`，**不在对话里铺开**）→ §6 export self-review → §8（`exportMode = fill_then_export`）→ §9 export receipt（含补齐提示） |
 | **先不展开** | 停下，不展开、不导出；等 SQA 重新发起更小范围 |
 
 - **「全部展开」≠ 已表态**：仅说「全部展开」（或同义 Full 档位触发）只表示进入 Full 档位、用于计算 `batchCount`；**不算**免分流已表态。`batchCount > 10` 时仍须先走框4，**禁止**直接铺开。
@@ -335,15 +341,15 @@ Reply with a number, or just tell me what you'd like to do.
 
 - Partial expand: **SQA names every case** — do not proactively suggest which rows to expand. 本批点名条数用于上文 `batchCount`（见「本批展开分流」）。
 - Detail three columns (**Preconditions / Step / Expected**) are **always generated together** per case (all or none).
-- When expanding steps, follow `references/testcase-writing-spec.md` **「步骤粒度」**节: **after an action, if there is an observable page jump or state change → separate step**; do not merge cross-page / cross-state actions into one sentence. Same-page setup with no intermediate observable result may merge (不为拆而拆). Granularity SQA tuned on some rows → on Full expand, apply the same rules to the rest.
-- **Step/Expected 逐条对应（生成时自查，硬约束）**：每条用例展开完 `steps` / `expected` 后，**当场**核对两者行数是否相等；不等 → **立即自行修正**后再交付（如把误拆的两步合回一步、或把过粗的一条预期拆回对应几条），使每一步都恰好配一条预期。修正**只调整拆分/合并方式**，**不得**臆造新的具体值去凑数（仍受红线 0 约束）。此检查先于下方「Preview self-check」执行，避免带着不配对状态进入预览或导出。
+- When expanding steps, follow `references/testcase-writing-spec.md` **Preconditions / Step / Expected +「步骤粒度」**: Case 开始前已成立且不由本 Case 建立的外部条件才放 Preconditions;添加节点、上传素材、建立连接、输入数据等主动场景构造仍属 Steps。动作后若有需要单独判定的明确测试信号 → separate step;同页 / 同状态连续铺垫且无独立检查价值时可合并。
+- **Step/Expected 逐条对应（生成时自查，硬约束）**：每条用例展开完 `steps` / `expected` 后，**当场**核对两者行数是否相等,且每个元素均非空；不满足 → **立即自行修正**后再交付。每一步必须恰好配一条明确、可验证的测试信号；信号不限 UI,也可以是接口 / 请求响应、数据状态、任务状态、生成物、事件、日志或其他可判定结果。禁止留空或用「数据准备完成」机械占位。修正**只调整拆分/合并与字段归属**，**不得**臆造具体值去凑数。此检查先于下方「Preview self-check」执行。
 
 **Preview self-check** (when generating/updating preview):
 
 - **块首行写了 `同上`（硬修，非提示）**：逻辑上必错、无误报空间。渲染前若发现某 Group 块表格首行父测试点列为 `同上`（或「同第 N 条」）→ **不得**留 `⚠` 也不交付该预览；**当场**用该行 `cases[].testPointTitle` **全称**写回父测试点列，再输出预览。**do not block** expand 的其余项仍适用。
 - 父测试点列为 `同上`，但本行 `cases[].testPointTitle` ≠ 本块内紧邻上一行 `cases[].testPointTitle`（逐字）→ inline `⚠同上引用错误`（软提示，不阻断）
 - Step contains verification verbs (验证/检查/确认) → inline `⚠疑似预期混入步骤`
-- **`step` line count ≠ `expected` line count（硬修，非提示）**：与「块首行写了 `同上`」同级。渲染前若发现 → **不得**只留 `⚠` 就交付；**当场**按上条「Step/Expected 逐条对应」规则修正 `cases[]` 后再输出预览。
+- **`step` / `expected` 数量不等或任一元素为空（硬修，非提示）**：与「块首行写了 `同上`」同级。渲染前若发现 → **不得**只留 `⚠` 就交付；**当场**按上条「Step/Expected 逐条对应」规则修正 `cases[]` 后再输出预览。
 - Expected contains source-doubtful concrete values → inline `⚠具体值待核` (红线 0 backstop)
 - **源已有具体文案/错误码/阈值,但用例未保留（保真回归）**：
   - **判定**：父测试点（或五字段约束）含**源逐字给定**的具体值（见 `testcase-writing-spec.md` Title 节「两步门」），而本条出现以下任一 → 报警：
@@ -364,11 +370,13 @@ Reply with a number, or just tell me what you'd like to do.
 
 ### 6. Self-review (internal — do not show SQA a checklist)
 
-Run **twice**: (1) before **title-state preview**; (2) before **export** (含 `fill_then_export` 静默补齐前).
+Run **twice**: (1) before **title-state preview**; (2) immediately before assembling export JSON. For `fill_then_export`, the second pass runs **after** silent step filling, never before it.
 
-1. Per `references/testcase-writing-spec.md` layer 1 — **问 A（该拆没拆）**:每条用例,两个验证目标会不会独立失败且分不清?会 → 拆。**问 B（防过拆/该合没合）**:相邻几条是否同一失败模式下只换数据、能合而未合?是 → 合(受 EP 有效类例外与多对象逐个走约束)。
-2. **保真分拣（Title 节）**：父测试点含源逐字给定的具体值时 — **标题态**：`title` 须原样保留、未抽象化、未错挂尾巴，否 → **当场修正 `cases[].title`** 后再出预览（硬修）。**已展开**：`title` 同上硬修；`expected` 明显抽象化或错挂尾巴 → 仅标 `⚠源已有文案未保留`（软提示，不自动覆写，与 §5 一致）；源句很长而某步只含关键片段可能合法，不误修。细则与豁免见 `testcase-writing-spec.md` Title 节与 §5「保真回归」。
-3. Every case has non-empty `testPointId` (archived path); orphans **do not enter** `cases[]`, preview, or export → 存疑 back to A2.
+1. Per `references/testcase-writing-spec.md` layer 1 — 不同起始条件 / 输入分区 / 业务分支 / 最终失败模式是否错合?同一次连贯执行中的多个检查点是否被过拆?按核心验证场景修正。
+2. Per-test-point completion criterion above is fully satisfied; otherwise continue modeling that parent test point before presenting or exporting.
+3. Expanded cases are independently executable: external pre-existing conditions stay in Preconditions; active scene construction stays in Steps; every Step has one non-empty, clearly testable Expected signal.
+4. **保真分拣（Title 节）**：父测试点含源逐字给定的具体值时 — **标题态**：`title` 须原样保留、未抽象化、未错挂尾巴，否 → **当场修正 `cases[].title`** 后再出预览（硬修）。**已展开**：`title` 同上硬修；`expected` 明显抽象化或错挂尾巴 → 仅标 `⚠源已有文案未保留`（软提示，不自动覆写，与 §5 一致）；源句很长而某步只含关键片段可能合法，不误修。细则与豁免见 `testcase-writing-spec.md` Title 节与 §5「保真回归」。
+5. Every case has non-empty `testPointId` (archived path); orphans **do not enter** `cases[]`, preview, or export → 存疑 back to A2.
 
 ### 7. Confirm before writing files
 
@@ -393,8 +401,8 @@ AI produces an **export-time snapshot** of current `cases[]` as interim JSON; `e
 |------|-----|-----|
 | `header` | 导出方式 | Export Method |
 | `question` | 这批用例要怎么导出? | How should this batch of test cases be exported? |
-| option 1 · `label` | 按当前状态导出 | Export as-is |
-| option 1 · `description` | 没展开的用例只有标题、没有步骤 | Un-expanded cases will export with title only, no steps |
+| option 1 · `label` | 导出当前草稿 | Export current draft |
+| option 1 · `description` | 没展开的条目只有标题,不作为最终可执行用例 | Un-expanded entries will have titles only and are not final executable cases |
 | option 2 · `label` | 全部带步骤导出 | Export all with steps |
 | option 2 · `description` | 缺步骤的自动补齐再导,不在对话里铺开 | Auto-fill any missing steps before export, without expanding inline |
 
@@ -403,7 +411,7 @@ AI produces an **export-time snapshot** of current `cases[]` as interim JSON; `e
 ```text
 导出方式
 这批用例要怎么导出?
-1. 按当前状态导出 —— 没展开的用例只有标题、没有步骤
+1. 导出当前草稿 —— 没展开的条目只有标题,不作为最终可执行用例
 2. 全部带步骤导出 —— 缺步骤的自动补齐再导,不在对话里铺开
 请回复序号，或直接说你想怎么做。
 ```
@@ -411,24 +419,24 @@ AI produces an **export-time snapshot** of current `cases[]` as interim JSON; `e
 ```text
 Export Method
 How should this batch of test cases be exported?
-1. Export as-is — un-expanded cases will export with title only, no steps
+1. Export current draft — un-expanded entries will have titles only and are not final executable cases
 2. Export all with steps — auto-fill any missing steps before export, without expanding inline
 Reply with a number, or just tell me what you'd like to do.
 ```
 
 | 选择 | `exportMode` | 动作 |
 |------|--------------|------|
-| **按当前状态导出** | `as_is` | 直接 §8：按当前 `cases[]` 组装 interim JSON（未展开行 `steps` / `expected` 仍为 `[]`） |
-| **全部带步骤导出** | `fill_then_export` | **静默补齐**所有 `steps` / `expected` 为空或视为未展开的用例（遵 §5 展开规则与红线 0；**不**打 Markdown 展开块）→ 更新 `cases[]` → §8 |
+| **导出当前草稿** | `as_is` | 直接 §8：按当前 `cases[]` 组装 interim JSON（未展开行 `steps` / `expected` 仍为 `[]`）；回执明确这是草稿,不是最终可执行用例 |
+| **全部带步骤导出** | `fill_then_export` | **静默补齐**所有 `steps` / `expected` 为空或视为未展开的用例（遵 §5 展开规则与红线 0；**不**打 Markdown 展开块）→ 更新 `cases[]` → §6 export self-review → §8 |
 
 **When to export**:
 
 - Triggered **only when SQA actively asks** (e.g. 「导出 CSV」), **or** §5 框4 选了「全部带步骤导出」。**直接说「导出 CSV」时先走框5，禁止跳过直接 §8。**
-- **`exportMode = fill_then_export`**（框5 选项 2 或框4 选项 2）：导出前须完成静默补齐（见上表）；§9 receipt 须加补齐提示句。
+- **`exportMode = fill_then_export`**（框5 选项 2 或框4 选项 2）：导出前须完成静默补齐,再执行 §6 export self-review；§9 receipt 须加补齐提示句。
 - **`exportMode = as_is`**（框5 选项 1）：未展开行保持 `steps` / `expected` 为 `[]`。
 - May export at **any content state** (title-only / partial mix / full). Assemble interim JSON from current `cases[]` after mode handling. Mixed rows legal (see `references/csv-template-mapping.md` 「草稿态导出」). Export does **not** lock work state; may export multiple times (timestamp filenames do not overwrite). Do not rename files or add columns.
 - Before export: **filter out** entries with `status: 'removed'` — preview-only trace; **do not** put `status` or removed rows into interim JSON.
-- **兜底重查**（正常流程下不应触发 — §5「Step/Expected 逐条对应」与「Preview self-check」已在生成/预览时当场修正）：Before export: if any remaining row has `steps.length !== expected.length` → 先按 §5 规则**当场修正** `cases[]`（不得跳过修正直接报错）；仅当修正后仍不等（如源信息本身无法判断如何配对）→ **refuse export**, point SQA to fix in preview（**跟随会话语言**二选一，e.g. "第 3 条步骤与预期数量不一致,先修齐再导" / "Step 3's step count and expected-result count don't match — fix it before exporting"） — **do not** call §8 and dump script stderr.
+- **兜底重查**（正常流程下不应触发 — §5「Step/Expected 逐条对应」与「Preview self-check」已在生成/预览时当场修正）：Before export, expanded rows require equal-length `steps` / `expected` and every element non-empty. 发现问题 → 先按 §5 规则**当场修正** `cases[]`（不得跳过修正直接报错）；仅当修正后仍不合格（如源信息本身无法判断如何配对）→ **refuse export**, point SQA to fix in preview（**跟随会话语言**二选一，e.g. "第 3 条步骤与预期不完整,先修齐再导" / "Case 3 has incomplete step/expected pairs — fix it before exporting"） — **do not** call §8 and dump script stderr.
 
 **Interim JSON contract** (`{ requirementTitle, cases: [...] }`):
 
@@ -443,7 +451,7 @@ Reply with a number, or just tell me what you'd like to do.
 | `preconditions` | string or string[]; title-only tier → omit or empty |
 | `steps[]`, `expected[]` | **Equal length**; title-only → both `[]` |
 
-**Script hard gates** (archived main path): empty `testPointId` / `requirementId` / `title` → fail; `steps.length !== expected.length` → fail.
+**Script hard gates** (archived main path): empty `testPointId` / `requirementId` / `title` → fail; `steps.length !== expected.length` → fail; expanded rows containing blank Step or Expected elements → fail. Title-only draft rows remain legal only as `[]` / `[]`.
 
 ```bash
 # Ephemeral path — timestamp avoids $$ cross-invocation collisions; run all three lines in one shell
@@ -461,7 +469,7 @@ rm -f "$TMP_JSON"
 - Default output dir: `testcases/` under cwd; override with `-o <dir>` when SQA specifies.
 - On script failure after a valid export attempt → report stderr honestly; fix JSON upstream, retry.
 - **Forbidden**: writing CSV by hand in chat or generating one-off Python/JS export snippets.
-- **To SQA**: do not say "脚本" / "script". `exportMode = as_is` 时可说「按当前状态导出」/ "Export as-is"; `fill_then_export` 时不说「按当前状态导出」/ "Export as-is" — 用 §9 补齐提示句。
+- **To SQA**: do not say "脚本" / "script". `exportMode = as_is` 时明确说「导出当前草稿」/ "Export current draft"; `fill_then_export` 时用 §9 补齐提示句。
 
 ### 9. Present (preview + export receipt)
 
@@ -496,8 +504,8 @@ rm -f "$TMP_JSON"
   > Just tell me if you want changes (edit title, add/remove); say "expand case X" to see its steps; say "export CSV" to export.
 
 - **After partial expand:**
-  > 这 N 条的步骤已展开。想看别的就说「展开第 X 条」或「全部展开」;要导出就说「导出 CSV」(未展开用例,导出时只有标题)。
-  > Steps for these N cases are now expanded. Say "expand case X" or "expand all" to see more; say "export CSV" to export (un-expanded cases will export with title only).
+  > 这 N 条的步骤已展开。想看别的就说「展开第 X 条」或「全部展开」;要导出就说「导出 CSV」(未展开条目只有标题,属于草稿)。
+  > Steps for these N cases are now expanded. Say "expand case X" or "expand all" to see more; say "export CSV" to export (un-expanded entries have titles only and remain draft items).
 
 - **After full expand:**
   > 全部 N 条已展开完毕。要导出就说「导出 CSV」。
@@ -514,6 +522,9 @@ rm -f "$TMP_JSON"
   - **`exportMode = fill_then_export` 时**（框5 选项 2 或 §5 框4「全部带步骤导出」），Status line **后追加**一行（逐字；**跟随会话语言**二选一）:
     > 已把未展开用例补齐步骤后导出(对话未铺开)。
     > Un-expanded cases had their steps auto-filled before export (not expanded inline in this conversation).
+  - **`exportMode = as_is` 且存在未展开条目时**，Status line **后追加**一行（逐字；**跟随会话语言**二选一）:
+    > 这是当前草稿;未展开条目只有标题,不作为最终可执行用例。
+    > This is the current draft; un-expanded entries have titles only and are not final executable cases.
 
 CSV is an **export snapshot**; Markdown preview is the **in-conversation work state**.
 
@@ -613,15 +624,15 @@ Setup 补充：同 Requirement 下另有测试点 `2.1`「未连接任何 Text �
    `"expected": ["界面提示 Please connect a Text input."]`
    （若步骤合为一步一预期;文案须与父测试点一致,见 Title 节保真区。）
 
-**Step C — SQA: "导出 CSV"** → 框5「导出方式」→ 按选项 `as_is` 或 `fill_then_export`（后者静默补齐）→ §8 (filter `status: 'removed'`, pairing check) → §9 export receipt。
+**Step C — SQA: "导出 CSV"** → 框5「导出方式」→ 按选项 `as_is` 或 `fill_then_export`（后者先静默补齐）→ §6 export self-review → §8 (filter `status: 'removed'`, pairing check) → §9 export receipt。
 
 Export column layout: `assets/testcase-template.csv`.
 
 ## Output & Confirmation
 
 - **Title-state first pass** → §6 → §5 title Markdown preview → §9 hint (**no §8**)
-- **Partial / full expand** — 硬顺序：算 `batchCount` → `>10` 且未免分流？**只框4、禁止铺步骤**（含「全部展开」）→ 框4「全部铺开」/ `≤10` / 免分流 → expand → §9 hint；框4「全部带步骤导出」→ 静默补齐 → §8 (`fill_then_export`) → §9 receipt（含补齐提示）；框4「先不展开」→ 停下（**no confirm gate on expand itself; triage is routing only**）
-- **Export CSV (SQA initiates)** → 框5「导出方式」→ §8 (filter removed, refuse mispaired) → §9 receipt (`as_is` 或 `fill_then_export`)
+- **Partial / full expand** — 硬顺序：算 `batchCount` → `>10` 且未免分流？**只框4、禁止铺步骤**（含「全部展开」）→ 框4「全部铺开」/ `≤10` / 免分流 → expand → §9 hint；框4「全部带步骤导出」→ 静默补齐 → §6 export self-review → §8 (`fill_then_export`) → §9 receipt（含补齐提示）；框4「先不展开」→ 停下（**no confirm gate on expand itself; triage is routing only**）
+- **Export CSV (SQA initiates)** → 框5「导出方式」→ `fill_then_export` 先静默补齐 → §6 export self-review → §8 (filter removed, refuse incomplete pairs) → §9 receipt (`as_is` 或 `fill_then_export`)
 - **Regenerate entire set** → §7 confirm → §6 → §5 preview
 - **Failures** → §2 honest error; keep in-memory draft if safe
 
