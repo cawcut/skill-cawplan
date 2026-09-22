@@ -19,11 +19,25 @@ cawplan skill check
 
 If authentication is missing, stop and ask the user to run `cawplan auth login`. Do not request or embed an API key in Apps Script.
 
+## Bundled exporter
+
+Use [assets/CawPlanSupportMetrics.gs](assets/CawPlanSupportMetrics.gs) as the maintained exporter. Copy it into the bound Support Ops Apps Script project; do not regenerate an exporter from scratch.
+
+Before the first export:
+
+1. Run `cawplanSupportInspectSource()` and review the logged person-sheet headers and resolved source columns.
+2. Set the exact CawPlan product `unique_id` values in `CAWPLAN_SUPPORT_CONFIG.products`.
+3. Copy the exact approved B, C, E, F, H, and I header text into `CAWPLAN_SUPPORT_CONFIG.approvedHeaders`.
+4. Set the inclusive `startDate` and `endDate`.
+5. Run `cawplanSupportExportMetrics()` and use the logged Drive file URL and SHA-256 for the dry-run.
+
+The exporter is read-only for Sheets and creates only the requested JSON file in Drive. Modify its source mapping only after comparing it with the current dashboard and weekly-report definitions.
+
 ## Supported workflow
 
 Route the request to one of these modes:
 
-- **Prepare exporter**: inspect the supplied Apps Script or sheet layout and create a read-only export path that emits the canonical JSON envelope. Never add direct CawPlan HTTP calls.
+- **Prepare exporter**: inspect the supplied Apps Script or sheet layout, then configure or narrowly patch the bundled exporter. Never add direct CawPlan HTTP calls.
 - **Validate / dry-run**: validate the file, resolve and confirm product IDs, reject duplicate identities or unsupported vocabulary, and show totals without writing.
 - **Import**: only after the user has seen and approved the dry-run, upload canonical items in bounded batches through `cawplan metrics ingest`.
 - **Reconcile**: query the exact imported range and dimensions, check `truncated`, and compare CawPlan totals with the export.
