@@ -29,30 +29,26 @@ describe("§6 parseApiEnvelope — real SUCCESS shape (proto, 2026-08-06)", () =
   });
 });
 
-/*
- * A1-MT-1 / P11 — module tree depth > 5 arrives as HTTP 200 + envelope
- * FAILURE_INVALID_INPUT, NOT as an HTTP 4xx. Trusting the HTTP status alone
- * would report this as success.
- */
-describe("A1-MT-1 / P11 HTTP 200 + FAILURE_INVALID_INPUT (module tree depth > 5)", () => {
-  const depthFailure = {
+/* FAILURE_INVALID_INPUT may arrive in an HTTP 200 envelope. */
+describe("HTTP 200 + FAILURE_INVALID_INPUT", () => {
+  const validationFailure = {
     code: "FAILURE_INVALID_INPUT",
-    msg: "module tree depth exceeds limit (5)",
+    msg: "test_points are required",
     data: null,
   };
 
-  test("P11 200-with-FAILURE envelope is NOT success", () => {
-    expect(isApiSuccess(parseApiEnvelope(depthFailure).code)).toBe(false);
+  test("200-with-FAILURE envelope is NOT success", () => {
+    expect(isApiSuccess(parseApiEnvelope(validationFailure).code)).toBe(false);
   });
-  test("A1-MT-1 depth failure is recognized as a business failure", () => {
-    expect(isApiFailure(parseApiEnvelope(depthFailure).code)).toBe(true);
+  test("invalid input is recognized as a business failure", () => {
+    expect(isApiFailure(parseApiEnvelope(validationFailure).code)).toBe(true);
   });
-  test("A1-MT-1 depth failure is recognized as validation-class", () => {
-    expect(isFailureInvalidInput(parseApiEnvelope(depthFailure).code)).toBe(true);
+  test("invalid input is recognized as validation-class", () => {
+    expect(isFailureInvalidInput(parseApiEnvelope(validationFailure).code)).toBe(true);
   });
-  test("A1-MT-1 message surfaces both code and msg", () => {
-    expect(describeEnvelope(parseApiEnvelope(depthFailure)))
-      .toBe("FAILURE_INVALID_INPUT: module tree depth exceeds limit (5)");
+  test("message surfaces both code and msg", () => {
+    expect(describeEnvelope(parseApiEnvelope(validationFailure)))
+      .toBe("FAILURE_INVALID_INPUT: test_points are required");
   });
 });
 

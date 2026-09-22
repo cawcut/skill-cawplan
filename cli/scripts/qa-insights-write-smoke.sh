@@ -2,7 +2,7 @@
 #
 # QA Insights write-command smoke test — MANUAL, LOCAL ONLY.
 #
-#   Requires: cawplan auth login before running.
+#   Requires: cawplan auth login and MODULE_TREE_NODE_ID for an existing node.
 #   Scope:    ONLY the test product below. Never point this at another product.
 #   CI:       This script must NOT be wired into GitHub Actions (OQ#7).
 #
@@ -10,8 +10,8 @@
 #   * Step 3 deliberately creates a DUPLICATE requirement to prove that
 #     `requirements create` does not de-duplicate on its own (that is the
 #     skill's Table B decision, not a CLI guard). This is intended behaviour.
-#   * The Open API exposes NO DELETE for requirements, module tree nodes, or
-#     test points, so nothing here can be cleaned up programmatically.
+#   * The Open API exposes NO DELETE for requirements or test points, so rows
+#     created here cannot be cleaned up programmatically.
 #   * Every run therefore ACCUMULATES rows. Periodic manual cleanup via the
 #     Test Suites UI is expected.
 #   * All created rows are prefixed with [SMOKE-<UTC timestamp>] so they can be
@@ -20,6 +20,7 @@
 set -uo pipefail
 
 PRODUCT_ID="019fb1ff-d547-741f-bfa2-405386d04d5b"
+NODE_ID="${MODULE_TREE_NODE_ID:-}"
 STAMP="$(date -u +%Y%m%dT%H%M)"
 PREFIX="[SMOKE-${STAMP}]"
 # CAWPLAN_BIN may be a bare binary name or a multi-word command such as
@@ -64,23 +65,37 @@ print(d if d is not None else '')" 2>/dev/null
 
 qa() { "${CAWPLAN[@]}" qa-insights "$@" 2>&1; }
 
+if [ -z "${NODE_ID}" ]; then
+  echo "MODULE_TREE_NODE_ID is required; ask the product Admin for an existing module-tree node id." >&2
+  exit 1
+fi
+
 cat <<BANNER
 QA Insights write smoke test
   product : ${PRODUCT_ID}
+  module  : ${NODE_ID} (existing, admin-managed)
   prefix  : ${PREFIX}
   NOTE    : this WRITES real rows that cannot be deleted via the API.
 BANNER
 
-# --- 1. module tree node -----------------------------------------------------
-note "1. module-tree node create"
-OUT="$(qa module-tree node create "${PRODUCT_ID}" --name "${PREFIX} 冒烟节点")"
-check_outcome "module-tree node create" "SUCCESS" "${OUT}"
-NODE_ID="$(json_field 'api.data.id' "${OUT}")"
-if [ -z "${NODE_ID}" ]; then
-  echo "  cannot continue without a module tree node id" >&2
+# --- 1. module tree read -----------------------------------------------------
+note "1. module-tree get (existing nodes only)"
+OUT="$(qa module-tree get "${PRODUCT_ID}")"
+check_outcome "module-tree get" "SUCCESS" "${OUT}"
+if ! printf '%s' "${OUT}" | python3 -c 'import json,sys
+target=sys.argv[1]
+payload=json.load(sys.stdin)
+stack=list((payload.get("data") or {}).get("nodes") or [])
+while stack:
+    node=stack.pop()
+    if str(node.get("id", "")) == target:
+        raise SystemExit(0)
+    stack.extend(node.get("children") or [])
+raise SystemExit(1)' "${NODE_ID}" 2>/dev/null; then
+  echo "  MODULE_TREE_NODE_ID is not present in this product module tree" >&2
   exit 1
 fi
-echo "  node_id = ${NODE_ID}"
+echo "  using existing node_id = ${NODE_ID}"
 
 # --- 2. requirement create ---------------------------------------------------
 note "2. requirements create (fresh five fields)"
@@ -190,7 +205,7 @@ printf '\n\033[1m== Summary ==\033[0m\n  passed: %d\n  failed: %d\n' "${PASS}" "
 cat <<FOOTER
 
 Leftover data (cannot be deleted via the Open API — clean up manually):
-  module tree node : ${NODE_ID}
+  existing module : ${NODE_ID}  (not created by this script)
   requirement      : ${REQ_ID}  (plus one intentional duplicate from step 3)
   test points      : 3 rows under the requirement above
   grep prefix      : ${PREFIX}

@@ -7,7 +7,6 @@ import {
   buildRequirementCreateBody,
   validateRequirementPatchBody,
   buildTestPointBatchBody,
-  buildModuleTreeNodeBody,
 } from "../src/lib/qa-insights/body-builders";
 import {
   classifyTestPointCategory,
@@ -441,28 +440,5 @@ describe("A2-§9-body / P10 testpoint batch — caller five keys; CLI injects is
       ],
     });
     expect(body.test_points.map((p) => p.title)).toEqual(["第一条", "第二条", "第三条"]);
-  });
-});
-
-describe("A1-MT-1 module tree node body", () => {
-  test("A1-MT-1 parent_id null builds a root node", () => {
-    expect(buildModuleTreeNodeBody({ parentId: null, name: "视频生成" }))
-      .toEqual({ parent_id: null, name: "视频生成" });
-  });
-  test("A1-MT-1 literal string \"null\" is treated as root", () => {
-    expect(buildModuleTreeNodeBody({ parentId: "null", name: "视频生成" }).parent_id).toBeNull();
-  });
-  test("A1-MT-1 omitted parentId is treated as root", () => {
-    expect(buildModuleTreeNodeBody({ name: "视频生成" }).parent_id).toBeNull();
-  });
-  test("A1-MT-1 concrete parent id is preserved", () => {
-    expect(buildModuleTreeNodeBody({ parentId: "019fcf73", name: "子节点" }).parent_id)
-      .toBe("019fcf73");
-  });
-  test("A1-MT-1 empty name is a hard failure", () => {
-    expect(() => buildModuleTreeNodeBody({ parentId: null, name: "  " })).toThrow(/name/);
-  });
-  test("A1-MT-1 name is trimmed", () => {
-    expect(buildModuleTreeNodeBody({ parentId: null, name: "  视频生成  " }).name).toBe("视频生成");
   });
 });

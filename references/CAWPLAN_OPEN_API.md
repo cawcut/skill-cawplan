@@ -831,21 +831,13 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
 ## 15) QA Insights APIs
 Module tree and Requirement archive for Test Suites. **Public Open API only** — do not use Internal routes (`/api/v1/product/{unique_id}/qa/...`).
 
-**CLI routing**: the four **write** endpoints used by QA Skills go through the `cawplan qa-insights` command family, which owns the correctness-critical rules (five-field strong match, PATCH changed-keys diff, batch all-or-nothing, forbidden-field rejection, UNKNOWN handling). The manual TestPoint category PATCH documented below is a frontend/manual-classification path, not a QA Skill write. **`cawplan-requirement-analyze`, `cawplan-testpoint-generate`, and `cawplan-testcase-generate` reads** use named `cawplan qa-insights` commands: `module-tree get`, `requirements resolve` / `get` / `list`, and—where applicable—`testpoints list`. Reconcile paths (`requirements reconcile`, `testpoints reconcile`) are read-only and never write.
+**CLI routing**: the three **write** endpoints used by QA Skills go through the `cawplan qa-insights` command family, which owns the correctness-critical rules (five-field strong match, PATCH changed-keys diff, batch all-or-nothing, forbidden-field rejection, UNKNOWN handling). Module-tree is globally managed; QA Skills only read and select existing nodes and do not expose node creation. The manual TestPoint category PATCH documented below is a frontend/manual-classification path, not a QA Skill write. **`cawplan-requirement-analyze`, `cawplan-testpoint-generate`, and `cawplan-testcase-generate` reads** use named `cawplan qa-insights` commands: `module-tree get`, `requirements resolve` / `get` / `list`, and—where applicable—`testpoints list`. Reconcile paths (`requirements reconcile`, `testpoints reconcile`) are read-only and never write.
 
 ### Get Module Tree
-- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/module-tree`
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/module-tree`
 - Path params: `product_id` (product `unique_id`)
 - Response: `product_id`, hierarchical `nodes[]` (`id`, `name`, `parent_id`, `level`, `children[]`); `nodes` may be empty
 - Maps to cawplan CLI: `cawplan qa-insights module-tree get {product_id}`
-
-### Create Module Tree Node
-- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/module-tree`
-- Path params: `product_id`
-- Body: `parent_id` (node `id`, or `null` for a root node), `name` (required)
-- Response: single node `id`, `name`, `parent_id`, `level`
-- Notes: depth > 5 → `FAILURE_INVALID_INPUT` (`module tree depth exceeds limit (5)`)
-- Maps to cawplan CLI: `cawplan qa-insights module-tree node create {product_id} --name "..."` (omit `--parent-id` for a root node)
 
 ### Create Requirement
 - Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/requirements`

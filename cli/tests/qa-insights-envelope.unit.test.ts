@@ -67,7 +67,7 @@ describe("emitEnvelopeAndExit — graceful process completion", () => {
 
     try {
       process.exitCode = undefined;
-      emitEnvelopeAndExit(buildEnvelope({ outcome: "SUCCESS", command: "module-tree node create", meta }));
+      emitEnvelopeAndExit(buildEnvelope({ outcome: "SUCCESS", command: "requirements create", meta }));
       expect(process.exitCode).toBe(0);
       expect(exitSpy).not.toHaveBeenCalled();
     } finally {

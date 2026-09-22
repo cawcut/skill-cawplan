@@ -216,24 +216,6 @@ export function buildTestPointBatchBody(input: unknown): { test_points: TestPoin
   return { test_points: testPoints };
 }
 
-/** Build the module-tree node create body. `parent_id` null means a root node. */
-export function buildModuleTreeNodeBody(input: {
-  parentId?: string | null;
-  name?: unknown;
-}): { parent_id: string | null; name: string } {
-  const name = normalizeField(input?.name);
-  if (!name) {
-    throw new BodyValidationError("module tree node create requires a non-empty --name");
-  }
-  const rawParent = input?.parentId;
-  const parentId =
-    rawParent === undefined || rawParent === null || normalizeField(rawParent) === "" ||
-    normalizeField(rawParent).toLowerCase() === "null"
-      ? null
-      : normalizeField(rawParent);
-  return { parent_id: parentId, name };
-}
-
 export interface BuildTestrailImportPreviewBodyInput {
   sourceType: ImportSourceType;
   requirementId?: string;
@@ -1074,4 +1056,3 @@ export function mergeTestrailLinkPlansPreviewBody(
   }
   return { version_id: versionId, bindings: normalizeLinkPlanBindings(body.bindings) };
 }
-

@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ApiError } from "../src/lib/http";
 import {
-  runModuleTreeNodeCreate,
   runModuleTreeGet,
   runRequirementsCreate,
   runRequirementsGet,
@@ -108,37 +107,6 @@ async function tempJson(name: string, value: unknown): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-
-describe("A1-MT-1 / P11 module-tree node create", () => {
-  test("A1-MT-1 posts { parent_id, name }", async () => {
-    const h = harness([ok({ id: "node-1", level: 1 })]);
-    await runModuleTreeNodeCreate(PRODUCT, { parentId: null as never, name: "视频生成" }, h.deps);
-    expect(h.calls[0].method).toBe("POST");
-    expect(h.calls[0].body).toEqual({ parent_id: null, name: "视频生成" });
-    expect(h.envelope.outcome).toBe("SUCCESS");
-  });
-  test("A1-MT-1 --dry-run prints post_body and sends nothing", async () => {
-    const h = harness([]);
-    await runModuleTreeNodeCreate(PRODUCT, { parentId: NODE, name: "子节点", dryRun: true }, h.deps);
-    expect(h.calls).toHaveLength(0);
-    expect(h.envelope.post_body).toEqual({ parent_id: NODE, name: "子节点" });
-    expect(h.envelope.meta.dry_run).toBe(true);
-  });
-  test("P11 depth>5 envelope maps to FAILURE / validation (measured payload)", async () => {
-    const h = harness([
-      { code: "FAILURE_INVALID_INPUT", data: { parent_id: null }, msg: "module tree depth exceeds limit (5)" },
-    ]);
-    await runModuleTreeNodeCreate(PRODUCT, { parentId: NODE, name: "太深了" }, h.deps);
-    expect(h.envelope.outcome).toBe("FAILURE");
-    expect(h.envelope.error?.type).toBe("validation");
-  });
-  test("A1-MT-1 empty name fails validation without any request", async () => {
-    const h = harness([]);
-    await runModuleTreeNodeCreate(PRODUCT, { name: "  " }, h.deps);
-    expect(h.calls).toHaveLength(0);
-    expect(h.envelope.error?.type).toBe("validation");
-  });
-});
 
 /*
  * P1 — the defining behaviour of `requirements create`: a plain POST with no
@@ -841,7 +809,7 @@ describe("R9–R11 module-tree get — product module tree read", () => {
     const h = readHarness([ok(moduleTreeData)]);
     await runModuleTreeGet(PRODUCT, h.deps);
     expect(h.gets()).toHaveLength(1);
-    expect(h.calls[0].path).toBe(`/api/v1/public/openapi/product/${PRODUCT}/qa/module-tree`);
+    expect(h.calls[0].path).toBe(`/api/v1/public/openapi/product/${PRODUCT}/module-tree`);
     expect(h.envelope.outcome).toBe("SUCCESS");
     expect(h.envelope.data).toEqual(moduleTreeData);
     expect((h.envelope.data as typeof moduleTreeData).nodes).toHaveLength(1);
@@ -852,6 +820,14 @@ describe("R9–R11 module-tree get — product module tree read", () => {
     await runModuleTreeGet(PRODUCT, h.deps);
     expect(h.envelope.outcome).toBe("FAILURE");
     expect(h.envelope.error?.type).toBe("not_found");
+  });
+
+  test("R11 empty module tree remains a successful selectable-list response", async () => {
+    const emptyModuleTreeData = { product_id: PRODUCT, nodes: [] };
+    const h = readHarness([ok(emptyModuleTreeData)]);
+    await runModuleTreeGet(PRODUCT, h.deps);
+    expect(h.envelope.outcome).toBe("SUCCESS");
+    expect(h.envelope.data).toEqual(emptyModuleTreeData);
   });
 });
 

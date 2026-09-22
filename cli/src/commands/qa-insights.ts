@@ -5,7 +5,6 @@ import { cawplanRequest } from "../lib/http.js";
 import { parseApiEnvelope, batchReturnedCount } from "../lib/qa-insights/api-codes.js";
 import {
   BodyValidationError,
-  buildModuleTreeNodeBody,
   applyAiGeneratedToRequirementPatch,
   buildRequirementCreateBody,
   buildTestPointBatchBody,
@@ -457,7 +456,7 @@ export async function runModuleTreeGet(productId: string, deps?: ReadCommandDeps
 
   const read = await performRead({
     request: requester(deps),
-    path: `${API_BASE}/${productId}/qa/module-tree`,
+    path: `${API_BASE}/${productId}/module-tree`,
     command,
     meta,
   });
@@ -538,44 +537,6 @@ export async function runTestPointsList(
     return emit(readFailureFromWriteEnvelope(command, meta, read.envelope));
   }
   return emit(buildReadEnvelope({ outcome: "SUCCESS", command, meta, data: read.data }));
-}
-
-// ---------------------------------------------------------------------------
-// module-tree node create
-// ---------------------------------------------------------------------------
-
-export async function runModuleTreeNodeCreate(
-  productId: string,
-  opts: { parentId?: string; name?: string; dryRun?: boolean },
-  deps?: CommandDeps,
-) {
-  const command = "module-tree node create";
-  const meta: QAInsightsMeta = { product_id: productId, dry_run: opts.dryRun === true };
-  const emit = emitter(deps);
-
-  let body: { parent_id: string | null; name: string };
-  try {
-    body = buildModuleTreeNodeBody({ parentId: opts.parentId, name: opts.name });
-  } catch (err) {
-    return emit(validationEnvelope(command, meta, err));
-  }
-
-  if (opts.dryRun) {
-    return emit(
-      buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body as unknown as Record<string, unknown> }),
-    );
-  }
-
-  const { envelope } = await performWrite({
-    request: requester(deps),
-    method: "POST",
-    path: `${API_BASE}/${productId}/qa/module-tree`,
-    body: body as unknown as Record<string, unknown>,
-    command,
-    meta,
-    bodyKey: "post_body",
-  });
-  return emit(envelope);
 }
 
 // ---------------------------------------------------------------------------
@@ -2409,15 +2370,6 @@ export function registerQAInsightsCommand(program: Command): void {
     .command("get <product_id>")
     .description("Get the module tree for a product")
     .action((productId: string) => runModuleTreeGet(productId));
-
-  const node = moduleTree.command("node").description("Module tree node operations");
-  node
-    .command("create <product_id>")
-    .description("Create a module tree node")
-    .option("--parent-id <id>", "Parent node id, or null for a root node")
-    .requiredOption("--name <name>", "Node name")
-    .option("--dry-run", "Print the body without sending the request")
-    .action((productId: string, opts) => runModuleTreeNodeCreate(productId, opts));
 
   const requirements = qa.command("requirements").description("Requirement operations");
   requirements

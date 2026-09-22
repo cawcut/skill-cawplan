@@ -1,6 +1,6 @@
 ### 7. Resolve product
 
-**仅当「保存意图闸」已触发**后执行本步。Run this after the draft (five fields + display summary) is acceptable and **before** any QA Insights write calls (`module-tree node create`, `requirements create` / `update`). Read-only — no writes. Do **not** call `qa-insights module-tree get` or other `qa-insights` read/write commands in this step（`products list` 仅在本步无 Ticket 选产品分支调用）。
+**仅当「保存意图闸」已触发**后执行本步。Run this after the draft (five fields + display summary) is acceptable and **before** any QA Insights read/write calls. Read-only — no writes. Do **not** call `qa-insights module-tree get` or other `qa-insights` commands in this step（`products list` 仅在本步无 Ticket 选产品分支调用）。
 
 **Resolve order**（命中即停，不重复问、不重复列）：
 
@@ -52,9 +52,9 @@ N. [产品 name]
 - 列表为空 → 如实报告无可用产品，**stop**（无法继续保存）。
 - 返回超过 100 条时 **仍只展示本次 100 条**（不翻页）。若 SQA 称产品不在列表中 → 请提供工单链接或说明需管理员处理；**禁止**改走 `--search` 或口头「再报个产品名」老路。
 
-Keep the resolved `product_id` (and product name) in context for module-tree and archive steps. All **write** operations (new module node, archive Requirement) must use this same `product_id` — do not substitute a different product unless SQA explicitly requests a change and step 7 is re-run.
+Keep the resolved `product_id` (and product name) in context for module-tree and archive steps. Requirement archive writes must use this same `product_id` — do not substitute a different product unless SQA explicitly requests a change and step 7 is re-run.
 
-### 8. 推荐挂载位置（模块树 · 闭环）
+### 8. 推荐挂载位置（仅选择已有 Module）
 
 **触发时机**：
 
@@ -62,18 +62,22 @@ Keep the resolved `product_id` (and product name) in context for module-tree and
 - **跳过**：会话已确定 `module_tree_node_id`（如接力入站已带）→ **直接用，不重问** → 带 `module_tree_node_id` 进入 step 11（**不设** `location_confirmed` — step 11 乙式确认闸仍执行）。
 - 本步仍在五字段尾巴之后；**不在** step 5b 出现模块树文案（见 step 5b **输出纪律**）。
 
-**读树**（本步及「看看有哪些节点」共用；read only，创建节点前不写库）：
+**读树**（本步及「看看有哪些节点」共用；read only）：
 
 ```bash
 cawplan qa-insights module-tree get <product_id>
 ```
 
-On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝试推荐一个挂载节点（name + `id` + 全路径）→ `{推荐节点全路径}`。
+On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝试推荐一个挂载节点（name + `id` + 全路径）→ `{推荐节点全路径}`。Module-tree 由对应 Admin 全局管理；本 skill 只能选择已有节点，禁止创建节点或调用任何创建接口。
 
-**无推荐 / 空树**（系统给不出推荐节点，或 `data.nodes` 为 `[]`）：
+**无推荐 / 空树**：
 
-- **不要**留空、**不要**自由发挥、**不要**弹 ① 选位置框。
-- **直接**进〔选②〕「看看有哪些节点」树形缩进列表（空树时列表为空，仍用同一引导句）；SQA 从中选一个，或说「新建一个节点」→ 进〔选③〕。
+- 无推荐但 `data.nodes` 非空 → **不要**留空、**不要**自由发挥、**不要**弹 ① 选位置框；直接进〔选②〕列出全部已有节点供 SQA 选择。
+- `data.nodes` 为 `[]` → 输出下方空树提示，保留草稿与已解析的 `product_id`，然后 **`stop`**；禁止归档、禁止创建兜底。
+- 空树提示（逐字；**跟随会话语言**二选一，不同时输出）：
+  - `当前没有可选的 Module。请联系对应 Admin 创建后再继续。`
+  - `There are no Modules available. Contact the appropriate Admin to create one, then continue.`
+- Admin 创建完成后，SQA 说「继续」或同义表达 → **重新执行** `qa-insights module-tree get`；禁止复用先前空列表。
 
 **有推荐节点** → 进 ① 选位置闭环。
 
@@ -82,19 +86,16 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 ```
 ① 选位置(框)
      ├─「就保存到这里」→ 用推荐节点 → 挂上 → 设 location_confirmed → step 11 直接写入（跳过 11 乙式确认闸）
-     ├─「看看有哪些节点」→ 树形缩进列表(文字)→ 选中一个 → 用它挂上 → 设 location_confirmed → step 11 直接写入
-     └─「新建一个节点」→ 问名字+父节点(文字)→ 确认新建(框)
-                                                   ├─「对,新建」→ 写库建节点 →〔回到 ①〕拿新建的那条当推荐,再确认一次
-                                                   └─「不对」→ 回上一步重问名字+父节点,不写库
+     └─「看看有哪些节点」→ 树形缩进列表(文字)→ 选中一个 → 用它挂上 → 设 location_confirmed → step 11 直接写入
 ```
 
-关键：**新建只负责「把节点建出来」；建完不自动挂载**，而是回到「选位置」逻辑，以刚建的节点为推荐，再走一遍「是否要保存到这里」。**§8 的选位置确认即保存确认**——SQA 在此步肯定后，**不得**再在 step 11 重复「将需求保存到…」乙式弹框。
+关键：**§8 的选位置确认即保存确认**——SQA 在此步肯定后，**不得**再在 step 11 重复「将需求保存到…」乙式弹框。若没有合适节点，流程停在本步等待 Admin 创建，不得以任何方式自行创建。
 
 ---
 
 #### ① 选位置（AskUserQuestion 框）
 
-**优先 AskUserQuestion**（**三个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**；**跟随会话语言**整框二选一，不同时输出）：
+**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；工具若自动追加 Other 行，**勿在 skill 里定义 Other**；**跟随会话语言**整框二选一，不同时输出）：
 
 | 字段 | 中文值 | English value |
 |------|-----|-----|
@@ -104,23 +105,20 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 | option 1 · `description` | 用推荐的这个位置 | Go with the recommended location |
 | option 2 · `label` | 看看有哪些节点 | Browse nodes |
 | option 2 · `description` | 列出模块树再选 | List the module tree and pick |
-| option 3 · `label` | 新建一个节点 | Create a new node |
-| option 3 · `description` | 建个新的来放 | Create a new one to place it in |
 
 **落点**（**选位置即确认保存** — Requirement 写入在 step 11 执行，但**不再**二次弹保存确认框）：
 
 - **就保存到这里** → 采用推荐节点，`module_tree_node_id` = 该节点 `id`；设 `location_confirmed = true` → 进入 step 11 Gate / Table B → **直接** POST 或 PATCH（见 `workflow-archive.md` §11 **跳过乙式确认闸**）。
 - **看看有哪些节点** → 展示节点树形列表（〔选②〕），SQA 选中一个 → 采用、`module_tree_node_id` 写入上下文；设 `location_confirmed = true` → step 11 **直接**写入。
-- **新建一个节点** → 进〔选③〕问名字+父节点。
 
 **AskUserQuestion 不可用时** — 纯文字降级（逐字，填入实际全路径；**跟随会话语言**二选一，不同时输出）：
 
 ```text
-是否要保存到「{推荐节点全路径}」节点下? 1. 就保存到这里 2. 看看有哪些节点 3. 新建一个节点(回序号)
+是否要保存到「{推荐节点全路径}」节点下? 1. 就保存到这里 2. 看看有哪些节点(回序号)
 ```
 
 ```text
-Save under the "{推荐节点全路径}" node? 1. Use this location 2. Browse nodes 3. Create a new node (reply with a number)
+Save under the "{推荐节点全路径}" node? 1. Use this location 2. Browse nodes (reply with a number)
 ```
 
 ---
@@ -140,6 +138,10 @@ Save under the "{推荐节点全路径}" node? 1. Use this location 2. Browse no
 Here are the nodes — tell me which one you want (reply with a number or node name):
 ```
 
+- 列表末尾必须追加短提示（逐字；**跟随会话语言**二选一，不同时输出）：
+  - `**如果没有合适的 Module，请联系对应 Admin 创建后再继续。**`
+  - `**If none of these Modules fits, contact the appropriate Admin to create one, then continue.**`
+
 - 列表示例形态（序号与缩进按实际树生成；形态对齐方案）：
 
 ```text
@@ -158,86 +160,18 @@ Here are the nodes — tell me which one you want (reply with a number or node n
 ```
 
 - **落点**：选中 → 采用该节点，`module_tree_node_id` 写入上下文；设 `location_confirmed = true` → step 11 **直接**写入。
-- SQA 说「新建一个节点」或节点不在列表中 → 进〔选③〕。
-
----
-
-#### 〔选③〕新建一个节点 · 问名字+父节点（纯文字）
-
-- 引导句（逐字；**跟随会话语言**二选一，不同时输出）：`节点名叫什么,挂在哪个父节点下?不确定可先说「看看有哪些节点」。` / `What should the node be named, and under which parent node? If you're not sure, say "browse nodes" first.`
-- 父节点可以是**顶级**，也可以是**任意现有节点**（层级不限）。
-- SQA 不确定父级 → 引导走〔选②〕「看看有哪些节点」浏览后再回来。
-- 名字 + 父节点都齐 → 进「确认新建」②。
-
----
-
-#### ② 确认新建（AskUserQuestion 框 · 写库前确认闸）
-
-**优先 AskUserQuestion**（**两个选项，每项须带 `label` + `description`**；**跟随会话语言**整框二选一，不同时输出）：
-
-| 字段 | 中文值 | English value |
-|------|-----|-----|
-| `header` | 确认新建 | Confirm Creation |
-| `question` | 新建节点「{新节点名}」(在「{父节点全路径}」下),对吗?（顶级父节点：`新建节点「{新节点名}」(顶级),对吗?`） | Create node "{新节点名}" under "{父节点全路径}"? (top-level: `Create node "{新节点名}" (top level)?`) |
-| option 1 · `label` | 对,新建 | Yes, create it |
-| option 1 · `description` | 就按上面建 | Create it as described above |
-| option 2 · `label` | 不对 | No |
-| option 2 · `description` | 改名字或位置 | Change the name or location |
-
-**落点**：
-
-- **对,新建** → **写库建节点**（step 9 POST）；建成后 **回到 ① 选位置**，以刚建节点全路径为 `{推荐节点全路径}`，再走一遍「是否要保存到这里」。
-- **不对** → 回〔选③〕重问名字+父节点，**不写库**。
-
-**写库约束**：**这是唯一真正写库的一步** — 未经 SQA 明确选「对,新建」，**不许写库、不许自动确认、不许跳过**。
-
-**AskUserQuestion 不可用时** — 纯文字降级（逐字；顶级用 `(顶级)` 替换 `(在「…」下)`；**跟随会话语言**二选一，不同时输出）：
-
-```text
-新建节点「{新节点名}」(在「{父节点全路径}」下),对吗? 1. 对,新建 2. 不对(回序号)
-```
-
-```text
-Create node "{新节点名}" under "{父节点全路径}"? 1. Yes, create it 2. No (reply with a number)
-```
-
----
-
-#### ③ 新建成功后 → 回到「选位置」再确认
-
-- 写库建成后，**不自动挂载**。
-- 以**新建的那条节点全路径**为推荐，**再走一遍 ① 选位置**（`question` / 选项 / 降级与 ① 相同，填入 `{新建节点全路径}`）。
-- 选「就保存到这里」→ 采用、`module_tree_node_id` 写入上下文；设 `location_confirmed = true` → step 11 **直接**写入。SQA 建完仍能核对，甚至再改或再建。
+- SQA 表示没有合适节点、节点不在列表中，或要求新建节点 → 告知当前流程不支持创建 Module，请联系对应 Admin；保留草稿与 `product_id` 后 **`stop`**，不得归档。
+- Admin 创建完成后，SQA 说「继续」或同义表达 → 重新读取 module-tree，再展示最新列表。
 
 ---
 
 **通用约束**（模块选择专用）：
 
-- **框只用于**「选位置」（2–4 个固定动作）和「确认新建」（是/否）。
+- **框只用于**「选位置」的两个固定动作。
 - **节点列表一律纯文字树形** — 不塞进框。
 - **AskUserQuestion 选项一律带 `description`**（短句灰字说明）；纯文字降级措辞与上文一致。
 - **全程纯文字降级**：框不渲染时退化为编号问答，措辞与上文一致。
-- **写库前必确认**：仅「确认新建 → 对,新建」写库，且必须 SQA 明确选择。
+- **禁止创建**：本 skill 不收集新节点名称/父节点，不提供创建确认，不调用创建接口。
+- **无节点不归档**：没有有效 `module_tree_node_id` 时不得进入 step 11 Requirement POST。
 
 **If the API fails**: see **Failures** (Rules).
-
-### 9. Create module-tree node（write — §8 ② 确认新建闸之后）
-
-**仅当** §8 〔选③〕名字+父节点已齐，且 SQA 在「确认新建」框选了 **对,新建** 后执行。不得在 step 8 推荐阶段、不得在 SQA 口头说「没有这个节点」时自动 POST。
-
-**Before POST**：须已完成 §8 ②「确认新建」框且 SQA 选 **对,新建**（§8 已闸；本节不再二次读回）。
-
-**POST**：
-
-```bash
-cawplan qa-insights module-tree node create <product_id> \
-  --parent-id <parent node id> --name "<node name>"
-```
-
-- `--parent-id`：现有节点 `id`；**省略**则新建顶级节点。
-- Read JSON on stdout; branch on `outcome` (see **Command outcomes**):
-  - `SUCCESS` → 取 `api.data.id` 与名称，拼出 `{新建节点全路径}`；**不**此时写入 `module_tree_node_id` 用于归档 — **回到 §8 ③ → ①** 再确认挂载。
-  - `FAILURE` → report `error.message`；深度限制错误勿用更深路径重试。
-  - `UNKNOWN` → 节点可能已存在；**勿重复执行本命令**（避免重复节点）；请 SQA 在 Test Suites 核对。
-
-Use the `product_id` resolved in step 7.

@@ -106,7 +106,7 @@ Before step N: on each new user message, read `references/<file>.md` unless you 
 | 1 冷交接 | 载入已归档 | 新 invoke：read `references/workflow-archive.md`；随后编辑 → P1b |
 | 2–5b | 出稿管线 | 新 invoke：read `references/workflow-analysis.md` + `references/rules-global.md` |
 | 6 | 修订 | **Re-run 3–5 必选**。新 invoke：read analysis + rules + revise |
-| 7–9 | 保存准备 | 新 invoke：read `references/workflow-save.md` |
+| 7–8 | 保存准备 | 新 invoke：read `references/workflow-save.md` |
 | 10–11 | 绑定/归档 | 新 invoke：read `references/workflow-archive.md`；P6 **始终 read** |
 | 输出 | 呈现格式 | 新 invoke：read `references/output-confirmation.md` 对应节 |
 
@@ -121,7 +121,7 @@ Before step N: on each new user message, read `references/<file>.md` unless you 
 | step 5 / 判据 1 / 数值限制型存疑 / walkthrough | `references/workflow-analysis.md` |
 | step 5b / 呈现尾巴 | `references/workflow-analysis.md` |
 | step 6 修订正文 | `references/workflow-revise.md`；保存意图闸 → **主文件** |
-| step 7–9 / §8 模块树 | `references/workflow-save.md` |
+| step 7–8 / §8 模块树 | `references/workflow-save.md` |
 | step 10–11 / Table A/B / Command outcomes | `references/workflow-archive.md` |
 | Rules **总则** / **红线 0** / **枚举完整性** / Failures / API scope | `references/rules-global.md` |
 | Rules **Trigger boundary** / **跨 skill 接力** | **主文件**（热路径） |
@@ -159,11 +159,11 @@ Until save intent is triggered: **do not** call `products list`, **do not** `qa-
 
 Display layer: five-field tail and guidance use 「保存到 CawPlan」; recognition layer may accept legacy phrases.
 
-### 7–9. Save preparation (steps 7–9)
+### 7–8. Save preparation (steps 7–8)
 
-Before steps 7–9: on each new user message, read `references/workflow-save.md` unless you loaded it via Read in this same agent response already; then apply steps 7–9 rules.
+Before steps 7–8: on each new user message, read `references/workflow-save.md` unless you loaded it via Read in this same agent response already; then apply steps 7–8 rules.
 
-Detail: `references/workflow-save.md` — Resolve product (step 7), 推荐挂载位置 (step 8), Create module-tree node (step 9).
+Detail: `references/workflow-save.md` — Resolve product (step 7), 从已有 module-tree 中选择挂载位置 (step 8).
 
 ### 10–11. Bind and archive (steps 10–11)
 
@@ -192,7 +192,7 @@ Before archive Confirmation: on each new user message, read `references/output-c
 - `references/workflow-step1-material.md` — step 1 素材：ticket lookup、截图、Product info
 - `references/workflow-analysis.md` — steps 2–5b：五字段、展示摘要、漏测自检、存疑清单、呈现尾巴、固定措辞表
 - `references/workflow-revise.md` — step 6：SQA 修订轮（须与 analysis + rules 同读）
-- `references/workflow-save.md` — steps 7–9：产品解析、模块树闭环、建节点
+- `references/workflow-save.md` — steps 7–8：产品解析、已有模块树选择闭环
 - `references/workflow-archive.md` — steps 10–11、Command outcomes、Write body rules；Cold handoff；P6 reconcile
 - `references/rules-global.md` — 总则、红线 0、枚举完整性、Failures、API scope 等（全文 889–924）
 - `references/output-confirmation.md` — 分析 Output 格式；归档 Confirmation 文案
