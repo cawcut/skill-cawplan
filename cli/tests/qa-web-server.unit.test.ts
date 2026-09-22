@@ -84,12 +84,12 @@ describe("applyQaWebAssignments", () => {
         expect(daily.sessions[0]?.ticket_ids).toEqual(["ticket-CWP-100"]);
     });
 
-    test("allows clearing product_id", async () => {
+    test("rejects clearing product_id", async () => {
         const daily = sampleDaily();
-        await applyQaWebAssignments(daily, [{
+        await expect(applyQaWebAssignments(daily, [{
             session_id: "11111111-1111-1111-1111-111111111111",
-        }]);
-        expect(daily.sessions[0]?.product_id).toBeUndefined();
+        }])).rejects.toThrow("product_id is required");
+        expect(daily.sessions[0]?.product_id).toBe(PRODUCT_A);
     });
 
     test("adds manually supplemented sessions with full QA session shape", async () => {
@@ -213,7 +213,7 @@ describe("dispatchQaAssignRequest", () => {
         expect((result.body as {error?: string}).error).toContain("more than one product");
     });
 
-    test("allows saving with an empty product_id", async () => {
+    test("rejects saving with an empty product_id", async () => {
         const result = await dispatchQaAssignRequest(
             {method: "POST", url: `/qa-assign/save?token=${token}`},
             JSON.stringify({
@@ -225,9 +225,10 @@ describe("dispatchQaAssignRequest", () => {
             token,
             {readReport: readQaDailyReport, writeReport: writeQaDailyReport},
         );
-        expect(result.status).toBe(200);
+        expect(result.status).toBe(400);
+        expect((result.body as {error?: string}).error).toContain("product_id is required");
         const saved = readQaDailyReport(reportPath);
-        expect(saved.sessions[0]?.product_id).toBeUndefined();
+        expect(saved.sessions[0]?.product_id).toBe(PRODUCT_A);
     });
 
     test("preserves QA report root keys after write-back", async () => {

@@ -101,7 +101,7 @@ function productInputHtml(
 ): string {
     const currentProduct = products.find((product) => product.product_id === session.product_id);
     const productValue = currentProduct?.product_name ?? session.product_id ?? "";
-    return `<input class="product" list="product-list" value="${escapeHtml(productValue)}" placeholder="Search product" aria-label="Product for session" />` +
+    return `<input class="product" list="product-list" value="${escapeHtml(productValue)}" placeholder="Search product" aria-label="Product for session" required />` +
         `<div class="product-error field-error"></div>`;
 }
 
@@ -286,6 +286,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     .ticket-empty { color: var(--text-03); font-size: 12px; padding: 4px 6px; }
     input.ticket-add { height: 28px; font-size: 12px; }
     tr.invalid-product input.product { border-color: var(--red-06); box-shadow: 0 0 0 3px rgba(240,58,62,.12); }
+    .required { color: var(--red-06); }
     .field-error { color: var(--red-06); font-size: 11px; margin-top: 4px; }
     .field-error:empty { display: none; }
     .section-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
@@ -318,7 +319,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
               <th>Agent</th>
               <th>Models</th>
               <th>Test Points</th>
-              <th>Product</th>
+              <th>Product${readonly ? "" : ` <span class="required">*</span>`}</th>
               ${ticketHeader}
               <th>Date / Time</th>
             </tr>
@@ -490,7 +491,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     function productInputHtml(session) {
       const currentProduct = products.find((product) => product.product_id === session.product_id);
       const productValue = currentProduct ? currentProduct.product_name : (session.product_name || "");
-      return '<input class="product" list="product-list" value="' + escapeHtml(productValue) + '" placeholder="Search product" aria-label="Product for session" />' +
+      return '<input class="product" list="product-list" value="' + escapeHtml(productValue) + '" placeholder="Search product" aria-label="Product for session" required />' +
         '<div class="product-error field-error"></div>';
     }
 
@@ -796,14 +797,14 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       const productInput = row.querySelector(".product");
       const error = row.querySelector(".product-error");
       const product = findProduct(productInput.value);
-      const valid = Boolean(product || !productInput.value.trim());
+      const valid = Boolean(product);
       row.classList.toggle("invalid-product", !valid);
-      productInput.setCustomValidity(valid ? "" : "Choose a product from the list.");
-      if (error) error.textContent = valid ? "" : "Choose a product from the list.";
+      productInput.setCustomValidity(valid ? "" : "Product is required. Choose a product from the list.");
+      if (error) error.textContent = valid ? "" : "Required: choose a product from the list.";
       return valid;
     }
 
-    /** Each session row owns exactly one product selector — at most one product per session. */
+    /** Each session row owns exactly one required product selector. */
     function validateSingleProductPerSession() {
       const rows = Array.from(document.querySelectorAll("#qa-rows tr[data-session-id]"));
       const seen = new Set();
@@ -818,7 +819,8 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       const invalid = rows.filter((row) => row.classList.contains("invalid-product"));
       if (invalid.length > 0) {
         invalid[0].querySelector(".product").reportValidity();
-        throw new Error("Fix invalid product selections before saving.");
+        invalid[0].scrollIntoView({block: "center", behavior: "smooth"});
+        throw new Error("Product is required for every session.");
       }
     }
 

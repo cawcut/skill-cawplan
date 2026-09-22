@@ -571,7 +571,7 @@ export function collectClaudeCodeSession(
       const textBlock = (content as Record<string, unknown>[]).find((b) => b["type"] === "text");
       if (textBlock) text = String(textBlock["text"] ?? "").trim();
     }
-    if (!text || text.length < 10) continue;
+    if (!text || text.length < 0) continue;
     if (/\[Request interrupted/.test(text)) continue;
     if (/^Continue from where you left off\.?$/i.test(text)) continue;
     if (/^Base directory for this skill:/.test(text)) continue;

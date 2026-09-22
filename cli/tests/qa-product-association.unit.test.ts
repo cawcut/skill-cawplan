@@ -115,4 +115,25 @@ describe("product association (S4.1)", () => {
         expect(result.sessions).toHaveLength(1);
         expect(result.sessions[0]?.product_id).toBeUndefined();
     });
+
+    test("requirements create adds api.data.id to the daily requirement_ids", () => {
+        const sessionId = "44444444-4444-4444-4444-444444444444";
+        stageClaudeCodeSession(sessionId, "2026-08-20", [
+            {
+                type: "user",
+                toolUseResult: {
+                    stdout: JSON.stringify({
+                        command: "requirements create",
+                        outcome: "SUCCESS",
+                        meta: {product_id: PRODUCT_FROM_STDOUT, dry_run: false},
+                        api: {data: {id: REQUIREMENT_1}},
+                    }),
+                },
+            },
+        ]);
+
+        const session = baseSession({session_id: sessionId});
+        const result = buildQaDailyJson([session], "2026-08-20", "tester");
+        expect(result.sessions[0]?.requirement_ids).toEqual([REQUIREMENT_1]);
+    });
 });

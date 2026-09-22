@@ -18,17 +18,20 @@ function emptyAssetChange(): QaAssetChange {
 }
 
 /**
- * Each session may appear at most once; conflicting product_id values for the
- * same session_id are rejected. Empty product_id is allowed (manual fallback).
+ * Each session must have one product and may appear at most once; conflicting
+ * product_id values for the same session_id are rejected.
  */
 export function validateQaAssignments(assignments: QaWebAssignment[]): void {
-    const productBySession = new Map<string, string | undefined>();
+    const productBySession = new Map<string, string>();
     for (const assignment of assignments) {
         const sessionId = assignment.session_id?.trim();
         if (!sessionId) {
             throw new QaAssignmentValidationError("session_id is required for every assignment");
         }
-        const productId = assignment.product_id?.trim() || undefined;
+        const productId = assignment.product_id?.trim();
+        if (!productId) {
+            throw new QaAssignmentValidationError(`product_id is required for session ${sessionId}`);
+        }
         if (productBySession.has(sessionId)) {
             const previous = productBySession.get(sessionId);
             if (previous !== productId) {
@@ -122,12 +125,7 @@ export async function applyQaWebAssignments(
             throw new Error(`session not found: ${sessionId}`);
         }
 
-        const productId = assignment.product_id?.trim();
-        if (productId) {
-            session.product_id = productId;
-        } else {
-            delete session.product_id;
-        }
+        session.product_id = assignment.product_id!.trim();
 
         await applyTicketDisplayIds(session, assignment);
         applied += 1;

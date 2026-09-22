@@ -197,14 +197,19 @@ function parseQaStdoutTrace(stdout: string): QaStdoutTrace | undefined {
             }
 
             const meta = parsed["meta"] as {product_id?: string; requirement_id?: string; dry_run?: boolean} | undefined;
-            const api = parsed["api"] as {data?: {test_points?: unknown[]}} | undefined;
+            const api = parsed["api"] as {data?: {id?: unknown; test_points?: unknown[]}} | undefined;
             const reconcile = parsed["reconcile"] as {decision?: string; batch_size?: number} | undefined;
+            const createdRequirementId = command === "requirements create"
+                && outcome === "SUCCESS"
+                && typeof api?.data?.id === "string"
+                ? api.data.id
+                : undefined;
 
             return {
                 command,
                 outcome,
                 productId: meta?.product_id,
-                requirementId: meta?.requirement_id,
+                requirementId: meta?.requirement_id ?? createdRequirementId,
                 dryRun: meta?.dry_run,
                 landedCount: Array.isArray(api?.data?.test_points) ? api!.data!.test_points!.length : undefined,
                 reconcileDecision: reconcile?.decision,
