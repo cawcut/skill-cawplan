@@ -96,6 +96,15 @@ cawplan knowledge datasets create --name "数据集名称"
 cawplan knowledge datasets create --name "数据集名称" --product <产品ID>
 ```
 
+只传了一个 `--product` 时，还可以再加 `--module <模块ID>`，把数据集放到该产品 module tree
+（`product_modules`）下的某个节点里；模块 ID 怎么查见下文。也可以不记 ID，直接加
+`-i`（`--interactive`）走交互模式：没传 `--product` 时先让你选产品，选完产品后（且刚好只有一个
+产品）再让你从该产品的 module tree 里选一个模块（可以选"No module"跳过）：
+
+```bash
+cawplan knowledge datasets create --name "数据集名称" -i
+```
+
 给已存在的数据集补充/修改绑定的产品，用：
 
 ```bash
@@ -104,6 +113,18 @@ cawplan knowledge datasets products set --dataset <数据集ID> --product <产�
 ```
 
 `products set` 是整体覆盖（不是追加），不传 `--product` 就是解绑所有产品。
+
+给已经绑定的（数据集, 产品）设置或清除 module 归属：
+
+```bash
+cawplan knowledge datasets modules --product <产品ID>          # 列出该产品的模块树（id/parent_id/name）
+cawplan knowledge datasets modules --product <产品ID> -i        # 交互式从菜单里选一个
+cawplan knowledge datasets products set-module --dataset <数据集ID> --product <产品ID> --module <模块ID>
+cawplan knowledge datasets products set-module --dataset <数据集ID> --product <产品ID> --clear   # 清除归属
+cawplan knowledge datasets products set-module --dataset <数据集ID> --product <产品ID> -i         # 交互式选择/清除
+```
+
+`set-module` 如果这对（数据集, 产品）之前没绑定过，会顺带建立绑定，不需要先跑 `products set`。
 
 上传文件（PDF/Word/Markdown 等）：
 
@@ -123,20 +144,16 @@ cawplan knowledge documents job-status --dataset <数据集ID> --job <任务ID>
 如果只是想把一段文字/笔记存进去而不是上传文件，用 `--text-file 本地文本文件路径` 代替 `--file`，
 这种方式立即完成，不用等待。
 
-上传时可以加 `--folder "某个目录路径"`（比如按源文件所在目录写），会作为这份文档的 "folder"
-元数据保存下来，之后可以用 `documents list`/`get` 读回这个值，按目录分组排序。
-
 ## 我想编辑一份已经上传的文档
 
 已知数据集 ID 和文档 ID（`documents list` 能查到）时，用 `documents update` 代替
-`documents upload`——语义和上传一致（`--file` 走文件、`--text-file` 走纯文本、`--folder` 设置目录
-元数据），区别是它更新的是已有文档而不是新建一份：
+`documents upload`——语义和上传一致（`--file` 走文件、`--text-file` 走纯文本），区别是它更新的是
+已有文档而不是新建一份：
 
 ```bash
-cawplan knowledge documents update --dataset <数据集ID> --document <文档ID> --text-file 本地文件路径 --folder "某个目录路径"
+cawplan knowledge documents update --dataset <数据集ID> --document <文档ID> --text-file 本地文件路径
 ```
 
-只想更新 `folder` 而不改内容的话，把 `--file`/`--text-file` 都省略，只传 `--folder` 就行。
 `--file` 方式和上传一样是异步的，默认会等处理完；不想等就加 `--no-wait`。
 
 ## 我想把整个仓库的 Markdown 文档批量同步到知识库
@@ -160,14 +177,28 @@ KNOWLEDGE_DATASET_NAME="自定义数据集名" scripts/sync-knowledge.sh
 才开始传自定义名字，也不会因为查不到而重复建库。
 
 首次同步、需要新建数据集时，还可以加 `KNOWLEDGE_DATASET_PRODUCT_ID` 把新库绑定到某个 CawPlan
-产品（对应 `datasets create --product`，见上文）：
+产品（对应 `datasets create --product`，见上文），再加 `KNOWLEDGE_DATASET_MODULE_ID`（需要同时设
+置 `KNOWLEDGE_DATASET_PRODUCT_ID`）把新库放进该产品 module tree 下的某个节点（模块 ID 怎么查见
+上文 `datasets modules --product <产品ID>`）：
 
 ```bash
 KNOWLEDGE_DATASET_PRODUCT_ID=<产品ID> scripts/sync-knowledge.sh
+KNOWLEDGE_DATASET_PRODUCT_ID=<产品ID> KNOWLEDGE_DATASET_MODULE_ID=<模块ID> scripts/sync-knowledge.sh
 ```
 
-这个只在新建数据集那一刻生效，对已经存在的数据集不会自动改绑；已存在的库想改绑产品，用上文的
-`cawplan knowledge datasets products set`。
+这两个只在新建数据集那一刻生效，对已经存在的数据集不会自动改绑；已存在的库想改绑产品/模块，用
+上文的 `cawplan knowledge datasets products set` / `products set-module`。
+
+脚本本身不会调用 CLI 的 `-i`（交互模式）——脚本要用命令替换捕获 CLI 的标准输出来解析 JSON 结果，
+而交互式选择需要一个真正（未被捕获）的终端，两者没法在同一次调用里共存。想在建库时交互式选产品
+再选模块，手动跑一次（不通过脚本）：
+
+```bash
+cawplan knowledge datasets create --name "数据集名称" -i
+```
+
+跑完记下打印出来的 product_id/module_id（或直接用同名数据集，脚本之后会自动按名字解析到它），
+再按上面的方式设置环境变量供脚本后续（自动化/CI）运行使用。
 
 同步进度和数据集 ID/文档 ID 的映射记在仓库根目录的 `.knowledge-sync-state.json` 里，建议提交进
 版本库，这样其他人或 CI 跑同一个脚本时不会重复上传。这个脚本不处理删除——本地删掉某份 `.md` 不

@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { select } from "@inquirer/prompts";
 import { cawplanRequest } from "../lib/http.js";
+import { listCawplanProducts } from "../lib/product-catalog.js";
 import { getCache, setCache, buildScopedCacheKey } from "../lib/cache.js";
 import { assertInteractiveTerminal, TTY_CANCEL_MESSAGE, ttyKeysHelpTip, withTtyShortcuts } from "../lib/tty-prompt.js";
 import {
@@ -224,11 +225,115 @@ export function registerKnowledgeCommand(program: Command): void {
       console.log(JSON.stringify(result, null, 2));
     });
 
+  interface ModuleTreeNode {
+    id?: string;
+    parent_id?: string | null;
+    name?: string;
+    level?: number;
+    children?: ModuleTreeNode[];
+  }
+
+  function flattenModuleTree(nodes: ModuleTreeNode[] | undefined, out: ModuleTreeNode[]): void {
+    for (const node of nodes ?? []) {
+      out.push({ id: node.id, parent_id: node.parent_id ?? null, name: node.name, level: node.level });
+      flattenModuleTree(node.children, out);
+    }
+  }
+
+  async function fetchFlatModules(productId: string): Promise<ModuleTreeNode[]> {
+    const result = await cawplanRequest({
+      method: "GET",
+      path: `/api/v1/public/openapi/product/${encodeURIComponent(productId)}/module-tree`,
+    });
+    const nodes = (result as { data?: { nodes?: ModuleTreeNode[] } })?.data?.nodes;
+    const flat: ModuleTreeNode[] = [];
+    flattenModuleTree(nodes, flat);
+    return flat;
+  }
+
+  const CLEAR_MODULE = Symbol("clear-module");
+  const NO_MODULE = Symbol("no-module");
+  type ModulePickerChoice = string | typeof CLEAR_MODULE | typeof NO_MODULE;
+
+  // Interactively selects a module id from productId's module tree, indented by tree depth.
+  // Returns the picked module id, CLEAR_MODULE / NO_MODULE if those extra choices were offered
+  // and picked, or undefined if the list was empty or the user cancelled (Esc).
+  async function selectModuleIdInteractive(
+    productId: string,
+    extraChoices: { allowClear?: string; allowNone?: string } = {},
+  ): Promise<ModulePickerChoice | undefined> {
+    const modules = await fetchFlatModules(productId);
+    if (modules.length === 0) {
+      console.error(`No modules found for product ${productId}.`);
+      return undefined;
+    }
+    const choices: Array<{ name: string; value: ModulePickerChoice }> = [];
+    if (extraChoices.allowClear) choices.push({ name: extraChoices.allowClear, value: CLEAR_MODULE });
+    if (extraChoices.allowNone) choices.push({ name: extraChoices.allowNone, value: NO_MODULE });
+    for (const m of modules) {
+      if (!m.id) continue;
+      const indent = "  ".repeat(Math.max(0, (m.level ?? 1) - 1));
+      choices.push({ name: `${indent}${m.name ?? m.id}`, value: m.id });
+    }
+    try {
+      return await withTtyShortcuts(
+        (context) =>
+          select<ModulePickerChoice>(
+            {
+              message: `Select a module (product ${productId})`,
+              choices,
+              pageSize: 20,
+              theme: { style: { keysHelpTip: ttyKeysHelpTip } },
+            },
+            context,
+          ),
+        { navigationKeys: true },
+      );
+    } catch (err) {
+      if (err instanceof Error && err.message === TTY_CANCEL_MESSAGE) return undefined;
+      throw err;
+    }
+  }
+
+  interface CawplanProduct {
+    unique_id?: string;
+    name?: string;
+  }
+
+  // Interactively selects one product id from the full CawPlan product catalog. Returns
+  // undefined if the catalog is empty or the user cancelled (Esc).
+  async function selectProductIdInteractive(): Promise<string | undefined> {
+    const result = await listCawplanProducts();
+    const productList = (result as { data?: CawplanProduct[] })?.data ?? [];
+    if (productList.length === 0) {
+      console.error("No products found.");
+      return undefined;
+    }
+    const choices = productList
+      .filter((p): p is CawplanProduct & { unique_id: string } => Boolean(p.unique_id))
+      .map((p) => ({ name: p.name ?? p.unique_id, value: p.unique_id }));
+    try {
+      return await withTtyShortcuts(
+        (context) =>
+          select<string>(
+            { message: "Select a product", choices, pageSize: 20, theme: { style: { keysHelpTip: ttyKeysHelpTip } } },
+            context,
+          ),
+        { navigationKeys: true },
+      );
+    } catch (err) {
+      if (err instanceof Error && err.message === TTY_CANCEL_MESSAGE) return undefined;
+      throw err;
+    }
+  }
+
   datasets
     .command("create")
     .description(
       "Create a new knowledge dataset. Pass --product to also bind it to one or more CawPlan " +
-        "products (repeat for multiple), scoping it for product-scoped knowledge search.",
+        "products (repeat for multiple), scoping it for product-scoped knowledge search. Pass " +
+        "--module to also place it under a product_modules tree node for every --product given, " +
+        "or -i/--interactive (with exactly one --product) to pick one from a menu instead.",
     )
     .requiredOption("--name <name>", "Dataset name")
     .option("--description <text>", "Optional dataset description")
@@ -242,7 +347,50 @@ export function registerKnowledgeCommand(program: Command): void {
       collect,
       [] as string[],
     )
+    .option(
+      "--module <id>",
+      "product_modules node id to place the dataset under, applied to every --product given " +
+        "(see: cawplan knowledge datasets modules --product <id>). Requires at least one --product.",
+    )
+    .option(
+      "-i, --interactive",
+      "Pick product and/or module from a menu instead of --product/--module: prompts for a " +
+        "product first when no --product was given, then for a module (with a \"No module\" " +
+        "option) when exactly one product is in play. Requires an interactive terminal.",
+    )
     .action(async (opts) => {
+      let productIds = opts.product as string[];
+
+      if (opts.interactive && productIds.length === 0) {
+        assertInteractiveTerminal("cawplan knowledge datasets create --interactive requires an interactive terminal");
+        const pickedProduct = await selectProductIdInteractive();
+        if (!pickedProduct) {
+          console.error(JSON.stringify({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
+          process.exitCode = 1;
+          return;
+        }
+        productIds = [pickedProduct];
+      }
+
+      let moduleId: string | undefined = opts.module;
+      if (!moduleId && opts.interactive) {
+        assertInteractiveTerminal("cawplan knowledge datasets create --interactive requires an interactive terminal");
+        if (productIds.length !== 1) {
+          console.error(
+            JSON.stringify({ code: "ERROR", data: null, msg: "--interactive module selection requires exactly one product" }, null, 2),
+          );
+          process.exitCode = 1;
+          return;
+        }
+        const picked = await selectModuleIdInteractive(productIds[0], { allowNone: "No module" });
+        if (picked === undefined) {
+          console.error(JSON.stringify({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
+          process.exitCode = 1;
+          return;
+        }
+        if (typeof picked === "string") moduleId = picked;
+      }
+
       const body: Record<string, unknown> = { name: opts.name };
       if (opts.description) body.description = opts.description;
       if (opts.permission) body.permission = opts.permission;
@@ -253,7 +401,6 @@ export function registerKnowledgeCommand(program: Command): void {
         body,
       });
 
-      const productIds = opts.product as string[];
       if (productIds.length === 0) {
         console.log(JSON.stringify(result, null, 2));
         return;
@@ -270,11 +417,26 @@ export function registerKnowledgeCommand(program: Command): void {
         path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(datasetId)}/products`,
         body: { product_ids: productIds },
       });
+
+      let moduleResults: unknown[] | undefined;
+      if (moduleId) {
+        moduleResults = [];
+        for (const productId of productIds) {
+          const moduleResult = await cawplanRequest({
+            method: "PUT",
+            path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(datasetId)}/products/${encodeURIComponent(productId)}/module`,
+            body: { module_id: moduleId },
+          });
+          moduleResults.push({ product_id: productId, ...(moduleResult as Record<string, unknown>) });
+        }
+      }
+
       const merged = {
         ...(result as Record<string, unknown>),
         data: {
           ...(result as { data?: Record<string, unknown> }).data,
           product_ids: (productsResult as { data?: { product_ids?: string[] } })?.data?.product_ids ?? productIds,
+          ...(moduleResults ? { modules: moduleResults } : {}),
         },
       };
       console.log(JSON.stringify(merged, null, 2));
@@ -311,6 +473,84 @@ export function registerKnowledgeCommand(program: Command): void {
         body: { product_ids: opts.product as string[] },
       });
       console.log(JSON.stringify(result, null, 2));
+    });
+
+  datasetProducts
+    .command("set-module")
+    .description(
+      "Place a dataset (within one already-bound product) under a product_modules tree node, or " +
+        "clear the placement with --clear. Creates the (dataset, product) binding if it doesn't " +
+        "already exist. Use -i/--interactive to pick from a menu instead of --module/--clear.",
+    )
+    .requiredOption("--dataset <id>", "Dataset id (see: cawplan knowledge datasets list)")
+    .requiredOption("--product <id>", "Product id to place the dataset under in this product's module tree")
+    .option("--module <id>", "product_modules node id to place the dataset under")
+    .option("--clear", "Clear the current module placement instead of setting one")
+    .option("-i, --interactive", "Pick --module (or clear) from a menu instead. Requires an interactive terminal.")
+    .action(async (opts) => {
+      if (opts.module && opts.clear) {
+        console.error(
+          JSON.stringify({ code: "ERROR", data: null, msg: "Use --module or --clear, not both" }, null, 2),
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      let moduleId: string | undefined;
+      if (opts.clear) {
+        moduleId = "";
+      } else if (opts.module) {
+        moduleId = opts.module;
+      } else if (opts.interactive) {
+        assertInteractiveTerminal("cawplan knowledge datasets products set-module --interactive requires an interactive terminal");
+        const picked = await selectModuleIdInteractive(opts.product, { allowClear: "Clear current placement" });
+        if (picked === undefined) {
+          console.error(JSON.stringify({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
+          process.exitCode = 1;
+          return;
+        }
+        moduleId = picked === CLEAR_MODULE ? "" : (picked as string);
+      } else {
+        console.error(
+          JSON.stringify({ code: "ERROR", data: null, msg: "Provide --module <id>, --clear, or -i/--interactive" }, null, 2),
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      const result = await cawplanRequest({
+        method: "PUT",
+        path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/products/${encodeURIComponent(opts.product)}/module`,
+        body: { module_id: moduleId },
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  datasets
+    .command("modules")
+    .description(
+      "List a product's module tree (id, parent_id, name only) to find a module id for " +
+        "'datasets create --module' / 'datasets products set-module'. Use -i/--interactive to pick " +
+        "one from a menu and print just that entry instead of the full list.",
+    )
+    .requiredOption("--product <id>", "Product id (see: cawplan products list)")
+    .option("-i, --interactive", "Pick one module from a menu instead of listing all of them. Requires an interactive terminal.")
+    .action(async (opts) => {
+      if (opts.interactive) {
+        assertInteractiveTerminal("cawplan knowledge datasets modules --interactive requires an interactive terminal");
+        const picked = await selectModuleIdInteractive(opts.product);
+        if (picked === undefined) {
+          console.error(JSON.stringify({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
+          process.exitCode = 1;
+          return;
+        }
+        const modules = await fetchFlatModules(opts.product);
+        const chosen = modules.find((m) => m.id === picked);
+        console.log(JSON.stringify({ code: "SUCCESS", data: chosen, msg: "success" }, null, 2));
+        return;
+      }
+      const flat = await fetchFlatModules(opts.product);
+      console.log(JSON.stringify({ code: "SUCCESS", data: flat, msg: "success" }, null, 2));
     });
 
   const documents = knowledge.command("documents").description("Manage knowledge documents");
@@ -548,13 +788,6 @@ export function registerKnowledgeCommand(program: Command): void {
       [] as string[],
     )
     .option(
-      "--folder <path>",
-      "Optional source directory path (e.g. \"BE/features/plan-track\") applied to every document " +
-        "in this call, stored as the dataset's \"folder\" metadata value — use it to sort/group " +
-        "synced documents by their original directory structure. Same value is used for all --file " +
-        "/ --text-file entries in one call; run the command separately per folder for a mixed batch.",
-    )
-    .option(
       "--no-wait",
       "For --file uploads, submit and return job ids immediately instead of polling for completion (poll separately with: cawplan knowledge documents job-status)",
     )
@@ -608,7 +841,6 @@ export function registerKnowledgeCommand(program: Command): void {
           // inherited from the dataset's own config, which is unset for datasets created without
           // it, so send it explicitly here rather than relying on that inheritance.
           const fileData: Record<string, unknown> = { indexing_technique: "high_quality" };
-          if (opts.folder) fileData.folder = opts.folder;
           formData.append("data", JSON.stringify(fileData));
           try {
             const result = await cawplanRequest({
@@ -660,7 +892,6 @@ export function registerKnowledgeCommand(program: Command): void {
           }
         }
         const body: Record<string, unknown> = { name, text: readFileSync(filePath, "utf8") };
-        if (opts.folder) body.folder = opts.folder;
         try {
           const result = await cawplanRequest({
             method: "POST",
@@ -678,7 +909,7 @@ export function registerKnowledgeCommand(program: Command): void {
   documents
     .command("update")
     .description(
-      "Update an existing document's content and/or folder metadata, as a file or as plain text. " +
+      "Update an existing document's content, as a file or as plain text. " +
         "Use this to re-sync a document whose source changed (e.g. edited since the last upload) — " +
         "for a brand-new document use 'documents upload' instead.",
     )
@@ -686,7 +917,6 @@ export function registerKnowledgeCommand(program: Command): void {
     .requiredOption("--document <id>", "Document id to update (see: cawplan knowledge documents list)")
     .option("--file <path>", "Path to a local file whose content replaces the document (sent as a real file / multipart)")
     .option("--text-file <path>", "Path to a local text file whose content replaces the document (sent as JSON)")
-    .option("--folder <path>", "Optional source directory path to (re-)assign as the document's \"folder\" metadata value. See 'documents upload --folder'.")
     .option(
       "--no-wait",
       "For --file updates, submit and return the job id immediately instead of polling for completion (poll separately with: cawplan knowledge documents job-status)",
@@ -697,9 +927,9 @@ export function registerKnowledgeCommand(program: Command): void {
       const hasFile = Boolean(opts.file);
       const hasTextFile = Boolean(opts.textFile);
 
-      if (!hasFile && !hasTextFile && !opts.folder) {
+      if (!hasFile && !hasTextFile) {
         console.error(
-          JSON.stringify({ code: "ERROR", data: null, msg: "Provide --file, --text-file, or --folder" }, null, 2),
+          JSON.stringify({ code: "ERROR", data: null, msg: "Provide --file or --text-file" }, null, 2),
         );
         process.exitCode = 1;
         return;
@@ -717,7 +947,6 @@ export function registerKnowledgeCommand(program: Command): void {
         const formData = new FormData();
         formData.append("file", new Blob([new Uint8Array(bytes)]), basename(opts.file));
         const fileData: Record<string, unknown> = {};
-        if (opts.folder) fileData.folder = opts.folder;
         formData.append("data", JSON.stringify(fileData));
 
         let result: unknown;
@@ -750,7 +979,6 @@ export function registerKnowledgeCommand(program: Command): void {
 
       const body: Record<string, unknown> = {};
       if (hasTextFile) body.text = readFileSync(opts.textFile, "utf8");
-      if (opts.folder) body.folder = opts.folder;
 
       const result = await cawplanRequest({
         method: "POST",

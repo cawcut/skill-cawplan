@@ -6,26 +6,34 @@
 #   bound to that CawPlan product id (see: cawplan products list) so it's scoped for
 #   product-scoped knowledge search. Only applied at creation time — has no effect on a dataset
 #   that already exists (use `cawplan knowledge datasets products set` to rebind one later).
+# - Also at creation time, if KNOWLEDGE_DATASET_PRODUCT_ID and KNOWLEDGE_DATASET_MODULE_ID are
+#   both set, the new dataset is placed under that product_modules tree node (see: cawplan
+#   knowledge datasets products set-module to rebind one later). To find a module id, run
+#   `cawplan knowledge datasets modules --product <id>` -- it prints every module as
+#   {id, parent_id, name} so you can pick one and set KNOWLEDGE_DATASET_MODULE_ID.
+# - This script never runs the CLI's `-i`/`--interactive` picker itself: it captures the CLI's
+#   stdout via command substitution to parse the JSON result, and an interactive prompt needs a
+#   real (uncaptured) terminal on stdout -- the two are mutually exclusive in one invocation.
+#   For a one-time interactive bootstrap (pick product then module from a menu), run this
+#   manually first, note the printed product_id/module_id, then set the env vars above:
+#     cawplan knowledge datasets create --name "<dataset name>" -i
 # - New files (no entry in the state file below) are uploaded with `documents upload`.
 # - Existing files are re-synced with `documents update` only when their mtime has advanced past
 #   the mtime recorded at last sync — unchanged files are skipped.
-# - Each document's source directory (relative to the repo root) is passed as `--folder`, stored
-#   as Dify "folder" metadata, so callers can sort/group documents by original directory later via
-#   `documents list`/`get`.
 # - Deletions are NOT handled: removing a local .md file does not delete or archive its knowledge
 #   document. Handle that manually if a doc is retired.
 #
-# State is tracked in .knowledge-sync-state.json at the repo root (path -> {document_id, folder,
+# State is tracked in .knowledge-sync-state.json at the repo root (path -> {document_id,
 # synced_mtime}), plus the resolved dataset_id. Commit this file so the mapping is shared across
 # contributors and CI runs, instead of re-uploading duplicates.
 #
-# Requires: cawplan CLI (with `documents update` and `--folder` support — see
-# flow-cawplan-skill/cli), jq.
+# Requires: cawplan CLI (with `documents update` support — see flow-cawplan-skill/cli), jq.
 #
 # Usage:
 #   scripts/sync-knowledge.sh                                        # sync
 #   scripts/sync-knowledge.sh --dry-run                              # show what would happen, without calling the API
 #   KNOWLEDGE_DATASET_PRODUCT_ID=<id> scripts/sync-knowledge.sh       # bind a newly-created dataset to a product
+#   KNOWLEDGE_DATASET_PRODUCT_ID=<id> KNOWLEDGE_DATASET_MODULE_ID=<id> scripts/sync-knowledge.sh  # + place it in a module
 
 set -euo pipefail
 
@@ -89,6 +97,9 @@ if [[ -z "$DATASET_ID" ]]; then
       echo "Dataset \"$DATASET_NAME\" not found, creating it..."
       create_args=(knowledge datasets create --name "$DATASET_NAME")
       [[ -n "${KNOWLEDGE_DATASET_PRODUCT_ID:-}" ]] && create_args+=(--product "$KNOWLEDGE_DATASET_PRODUCT_ID")
+      if [[ -n "${KNOWLEDGE_DATASET_PRODUCT_ID:-}" && -n "${KNOWLEDGE_DATASET_MODULE_ID:-}" ]]; then
+        create_args+=(--module "$KNOWLEDGE_DATASET_MODULE_ID")
+      fi
       DATASET_ID="$(cawplan "${create_args[@]}" | jq -r '.data.id')"
       if [[ -z "$DATASET_ID" || "$DATASET_ID" == "null" ]]; then
         echo "error: failed to create dataset \"$DATASET_NAME\"" >&2
@@ -110,8 +121,6 @@ failed_count=0
 
 while IFS= read -r -d '' file; do
   rel_path="${file#"$REPO_ROOT"/}"
-  folder_dir="$(dirname "$rel_path")"
-  [[ "$folder_dir" == "." ]] && folder_dir=""
   mtime="$(file_mtime "$file")"
 
   existing_doc_id="$(jq -r --arg p "$rel_path" '.files[$p].document_id // empty' "$STATE_FILE")"
@@ -125,7 +134,6 @@ while IFS= read -r -d '' file; do
     fi
 
     args=(knowledge documents upload --dataset "$DATASET_ID" --file "$file")
-    [[ -n "$folder_dir" ]] && args+=(--folder "$folder_dir")
 
     if ! resp="$(cawplan "${args[@]}")"; then
       echo "  FAILED: $rel_path"
@@ -139,8 +147,8 @@ while IFS= read -r -d '' file; do
       failed_count=$((failed_count + 1))
       continue
     fi
-    jq_update_in_place --arg p "$rel_path" --arg id "$doc_id" --arg folder "$folder_dir" --argjson mtime "$mtime" \
-      '.files[$p] = {document_id: $id, folder: $folder, synced_mtime: $mtime}'
+    jq_update_in_place --arg p "$rel_path" --arg id "$doc_id" --argjson mtime "$mtime" \
+      '.files[$p] = {document_id: $id, synced_mtime: $mtime}'
     new_count=$((new_count + 1))
 
   elif [[ "$mtime" -gt "$synced_mtime" ]]; then
@@ -151,7 +159,6 @@ while IFS= read -r -d '' file; do
     fi
 
     args=(knowledge documents update --dataset "$DATASET_ID" --document "$existing_doc_id" --text-file "$file")
-    [[ -n "$folder_dir" ]] && args+=(--folder "$folder_dir")
 
     if ! resp="$(cawplan "${args[@]}")"; then
       echo "  FAILED: $rel_path"
@@ -165,8 +172,8 @@ while IFS= read -r -d '' file; do
       failed_count=$((failed_count + 1))
       continue
     fi
-    jq_update_in_place --arg p "$rel_path" --arg folder "$folder_dir" --argjson mtime "$mtime" \
-      '.files[$p].folder = $folder | .files[$p].synced_mtime = $mtime'
+    jq_update_in_place --arg p "$rel_path" --argjson mtime "$mtime" \
+      '.files[$p].synced_mtime = $mtime'
     updated_count=$((updated_count + 1))
 
   else
