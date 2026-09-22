@@ -3,10 +3,10 @@ version: 0.2.8
 name: cawplan-requirement-analyze
 description: |
   Analyze SQA requirement inputs into five structured fields plus a display summary, and archive a Requirement to CawPlan QA Insights.
-  Use when: the user explicitly asks to analyze requirements, structure requirement fields, produce a five-field draft with display summary and open-questions list, recommend a QA module-tree node, archive a Requirement, or update an existing Requirement in QA Insights — including when they provide a ticket link or ID together with requirement-analysis intent (e.g. "需求分析", "analyze this ticket", screenshots + ticket).
+  Use when: the user explicitly asks to analyze requirements, structure requirement fields, produce a five-field draft with display summary and open-questions list, recommend a QA module-tree node, archive a Requirement, or update an existing Requirement in QA Insights — including an existing Requirement link/display_id, or a ticket link/ID together with requirement-analysis intent (e.g. "需求分析", "analyze this ticket", screenshots + ticket).
   Do not auto-select when the message is only a bare CawPlan issue URL with no requirement-analysis wording; prefer `cawplan-ticket-context` for coding-session ticket loading.
   NOT for: loading a ticket into the coding session only, writing or editing code, uploading AI daily reports, creating tickets, or generating test points.
-argument-hint: "[requirement text, ticket URL/ID (optional), screenshots (optional)]"
+argument-hint: "[requirement text, Requirement link/display_id, ticket URL/ID (optional), screenshots (optional)]"
 allowed-tools: Bash
 ---
 
@@ -58,10 +58,12 @@ cawplan skill check
 
 ### 1. Collect requirement material
 
-**入口路由前置检查（先判此项，再收素材）** — SQA 的意图是**延续 / 修改一条已归档的 Requirement**（给出 requirement `id`、Requirement 链接，或说「接着上次那条改」）？
+**入口路由前置检查（先判此项，再收素材）** — SQA 的意图是**延续 / 修改一条已归档的 Requirement**（给出 requirement `id`、`REQ-` display ID、Requirement 链接，或说「接着上次那条改」）？
 
 - **是** → 走 step 10 **Cold handoff** 载入服务端五字段作为草稿基线，**不要从头重分析**。理由：归档比对（`reconcile` strong match 与 `requirements update` 的 snapshot diff）是 **trim 后逐字节精确比对**，从头重分析必然产生措辞漂移，会让 reconcile 误判 `no_match`（重复建单风险）或 PATCH 误报变更键。
 - **否**（新需求分析）→ 继续本步收集素材。
+
+裸 `REQ-` + 数字及 `/browse/product/{product_key}/qa/requirement/{display_id}` 是已归档 Requirement 引用，优先走 Cold handoff；不要把它当成 step 1 的 Ticket display ID。其他前缀的工单号仍按 Ticket material 处理。
 
 **零素材早停（新增）** — 判定本条消息是否带有**任一**素材：用户文字、工单（URL / display ID / unique ID）、截图。（**Product info 不计入素材** — 仅有 overview、无任何上述三类 → 仍走零素材早停。）
 

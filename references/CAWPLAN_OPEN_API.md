@@ -831,13 +831,13 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
 ## 15) QA Insights APIs
 Module tree and Requirement archive for Test Suites. **Public Open API only** — do not use Internal routes (`/api/v1/product/{unique_id}/qa/...`).
 
-**CLI routing**: the four **write** endpoints used by QA Skills go through the `cawplan qa-insights` command family, which owns the correctness-critical rules (five-field strong match, PATCH changed-keys diff, batch all-or-nothing, forbidden-field rejection, UNKNOWN handling). The manual TestPoint category PATCH documented below is a frontend/manual-classification path, not a QA Skill write. **`cawplan-testpoint-generate` and `cawplan-testcase-generate` reads** (Requirement display-ID resolution, single Requirement, List TestPoints) also go through `cawplan qa-insights` (`requirements resolve`, `requirements get`, `testpoints list`); other reads (module tree, requirement list) still use the `cawplan api GET` escape hatch. Reconcile paths (`requirements reconcile`, `testpoints reconcile`) are read-only and never write.
+**CLI routing**: the four **write** endpoints used by QA Skills go through the `cawplan qa-insights` command family, which owns the correctness-critical rules (five-field strong match, PATCH changed-keys diff, batch all-or-nothing, forbidden-field rejection, UNKNOWN handling). The manual TestPoint category PATCH documented below is a frontend/manual-classification path, not a QA Skill write. **`cawplan-requirement-analyze`, `cawplan-testpoint-generate`, and `cawplan-testcase-generate` reads** use named `cawplan qa-insights` commands: `module-tree get`, `requirements resolve` / `get` / `list`, and—where applicable—`testpoints list`. Reconcile paths (`requirements reconcile`, `testpoints reconcile`) are read-only and never write.
 
 ### Get Module Tree
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/module-tree`
 - Path params: `product_id` (product `unique_id`)
 - Response: `product_id`, hierarchical `nodes[]` (`id`, `name`, `parent_id`, `level`, `children[]`); `nodes` may be empty
-- Maps to cawplan CLI: `cawplan api GET /api/v1/public/openapi/product/{product_id}/qa/module-tree`
+- Maps to cawplan CLI: `cawplan qa-insights module-tree get {product_id}`
 
 ### Create Module Tree Node
 - Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/module-tree`
@@ -882,7 +882,7 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 - Notes:
     - `requirements resolve` accepts either a bare display ID or a Browse URL shaped like `/browse/product/{product_key}/qa/requirement/{display_id}`; it validates/extracts the display ID locally before requesting this endpoint.
     - The CLI validates and parses `product_id` + `requirement_id` from `data.url`, returning them in `meta`; the Browse URL's `product_key` is not a product UUID.
-    - Callers must use the returned `data` directly as Requirement data. Do not immediately call `requirements get` again; the resolved IDs remain necessary for List TestPoints, Review, archive, and reconcile.
+    - Callers must use the returned `data` directly as Requirement data. Do not immediately call `requirements get` again; the resolved IDs remain necessary for Requirement update/reconcile, cross-Skill handoff, List TestPoints, and Review/archive flows.
 - Maps to cawplan CLI: `cawplan qa-insights requirements resolve '<display_id_or_browse_url>'`
 
 ### List Requirements (read — reconcile)
@@ -890,7 +890,7 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 - Query params: `module_tree_node_id` (optional), `version_id` (optional)
 - Response: array of requirements (not paginated); each row includes five fields, `summary` (`null` if unset), optional `url` (portal deep-link path, often `null`), and metadata; filter client-side by `id` when needed.
 - Notes: used by `cawplan-requirement-analyze` when a POST/PATCH outcome is **unknown** (network/timeout) — list rows under the target `module_tree_node_id` and compare **five fields only** to avoid duplicate POST creates. **Strong match / dedup compares five fields only** — `summary` does **not** participate. Reconcile compare rules: see `skills/cawplan-requirement-analyze/SKILL.md` §10 (Field comparison). **Not** used by `cawplan-testpoint-generate` for fetching five fields (use Get Requirement above).
-- Maps to cawplan CLI: `cawplan api GET /api/v1/public/openapi/product/{product_id}/qa/requirements --query "module_tree_node_id=..."`
+- Maps to cawplan CLI: `cawplan qa-insights requirements list {product_id} --module-tree-node-id {module_tree_node_id}`
 
 ### List TestPoints (read — probe, incremental, UNKNOWN reconcile)
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints`
