@@ -56,16 +56,18 @@ To find a `module_id`, list a product's module tree (`{id, parent_id, name}` onl
 cawplan knowledge datasets modules --product <product_id>
 ```
 
-**Interactive bootstrap**: this script never launches the CLI's `-i`/`--interactive` picker
-itself — it captures the CLI's stdout via command substitution to parse the JSON result, and an
-interactive prompt needs a real (uncaptured) terminal on stdout, so the two can't be combined in
-one invocation. For a one-time interactive setup (pick a product, then a module, from a menu),
-run this manually *before* your first sync, note the printed `product_id`/`module_id` (or dataset
-name), then set the env vars above for subsequent (scripted or CI) runs:
+**Interactive bootstrap**: pass `-i`/`--interactive` to this script itself (only has an effect
+when the dataset doesn't exist yet — ignored once it does):
 
 ```bash
-cawplan knowledge datasets create --name "<dataset name>" -i
+scripts/sync-knowledge.sh -i
 ```
+
+This runs `cawplan knowledge datasets create --name "<repo dataset name>" -i` **uncaptured** (a
+real terminal on stdout, which the CLI's own picker needs), so you get the product-then-module
+menu; the script then resolves the new dataset's id with a separate, plain (capturable) lookup by
+name. Every other call the script makes stays non-interactive — only that one create call is
+special-cased. For CI or repeat runs afterward, skip `-i` and set the env vars above instead.
 
 ## validate-skills.sh
 

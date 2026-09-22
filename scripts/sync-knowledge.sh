@@ -11,12 +11,11 @@
 #   knowledge datasets products set-module to rebind one later). To find a module id, run
 #   `cawplan knowledge datasets modules --product <id>` -- it prints every module as
 #   {id, parent_id, name} so you can pick one and set KNOWLEDGE_DATASET_MODULE_ID.
-# - This script never runs the CLI's `-i`/`--interactive` picker itself: it captures the CLI's
-#   stdout via command substitution to parse the JSON result, and an interactive prompt needs a
-#   real (uncaptured) terminal on stdout -- the two are mutually exclusive in one invocation.
-#   For a one-time interactive bootstrap (pick product then module from a menu), run this
-#   manually first, note the printed product_id/module_id, then set the env vars above:
-#     cawplan knowledge datasets create --name "<dataset name>" -i
+# - Pass -i / --interactive to this script to pick product and/or module from a menu at
+#   creation time instead of setting the env vars above (only applies when the dataset doesn't
+#   exist yet; ignored once it does). Only that one `cawplan ... create -i` call runs uncaptured
+#   (a real terminal on stdout, required by the CLI's own picker) -- every other call this
+#   script makes, including resolving the new dataset's id afterward, stays capturable/scriptable.
 # - New files (no entry in the state file below) are uploaded with `documents upload`.
 # - Existing files are re-synced with `documents update` only when their mtime has advanced past
 #   the mtime recorded at last sync — unchanged files are skipped.
@@ -32,6 +31,7 @@
 # Usage:
 #   scripts/sync-knowledge.sh                                        # sync
 #   scripts/sync-knowledge.sh --dry-run                              # show what would happen, without calling the API
+#   scripts/sync-knowledge.sh -i                                     # first-time create: pick product/module from a menu
 #   KNOWLEDGE_DATASET_PRODUCT_ID=<id> scripts/sync-knowledge.sh       # bind a newly-created dataset to a product
 #   KNOWLEDGE_DATASET_PRODUCT_ID=<id> KNOWLEDGE_DATASET_MODULE_ID=<id> scripts/sync-knowledge.sh  # + place it in a module
 
@@ -44,9 +44,13 @@ DATASET_NAME="${KNOWLEDGE_DATASET_NAME:-$REPO_NAME}"
 STATE_FILE="$REPO_ROOT/.knowledge-sync-state.json"
 
 DRY_RUN=0
-if [[ "${1:-}" == "--dry-run" ]]; then
-  DRY_RUN=1
-fi
+INTERACTIVE=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    -i|--interactive) INTERACTIVE=1 ;;
+  esac
+done
 
 command -v cawplan >/dev/null 2>&1 || { echo "error: cawplan CLI not found on PATH" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "error: jq not found on PATH" >&2; exit 1; }
@@ -95,12 +99,21 @@ if [[ -z "$DATASET_ID" ]]; then
       DATASET_ID="<dry-run-dataset-id>"
     else
       echo "Dataset \"$DATASET_NAME\" not found, creating it..."
-      create_args=(knowledge datasets create --name "$DATASET_NAME")
-      [[ -n "${KNOWLEDGE_DATASET_PRODUCT_ID:-}" ]] && create_args+=(--product "$KNOWLEDGE_DATASET_PRODUCT_ID")
-      if [[ -n "${KNOWLEDGE_DATASET_PRODUCT_ID:-}" && -n "${KNOWLEDGE_DATASET_MODULE_ID:-}" ]]; then
-        create_args+=(--module "$KNOWLEDGE_DATASET_MODULE_ID")
+      if [[ "$INTERACTIVE" -eq 1 ]]; then
+        # Run uncaptured so the CLI's own -i picker gets a real terminal on stdout (see the
+        # header comment above): we deliberately don't parse this call's JSON output, then
+        # re-resolve the dataset id by name afterward with a plain, capturable lookup.
+        cawplan knowledge datasets create --name "$DATASET_NAME" -i
+        DATASET_ID="$(cawplan knowledge datasets list | jq -r --arg name "$DATASET_NAME" \
+          '.data.datasets[]? | select(.name == $name) | .id' | head -n1)"
+      else
+        create_args=(knowledge datasets create --name "$DATASET_NAME")
+        [[ -n "${KNOWLEDGE_DATASET_PRODUCT_ID:-}" ]] && create_args+=(--product "$KNOWLEDGE_DATASET_PRODUCT_ID")
+        if [[ -n "${KNOWLEDGE_DATASET_PRODUCT_ID:-}" && -n "${KNOWLEDGE_DATASET_MODULE_ID:-}" ]]; then
+          create_args+=(--module "$KNOWLEDGE_DATASET_MODULE_ID")
+        fi
+        DATASET_ID="$(cawplan "${create_args[@]}" | jq -r '.data.id')"
       fi
-      DATASET_ID="$(cawplan "${create_args[@]}" | jq -r '.data.id')"
       if [[ -z "$DATASET_ID" || "$DATASET_ID" == "null" ]]; then
         echo "error: failed to create dataset \"$DATASET_NAME\"" >&2
         exit 1
@@ -140,7 +153,32 @@ while IFS= read -r -d '' file; do
       failed_count=$((failed_count + 1))
       continue
     fi
+    result_code="$(echo "$resp" | jq -r '.data.results[0].code // empty')"
     doc_id="$(echo "$resp" | jq -r '.data.results[0].document_id // empty')"
+
+    if [[ "$result_code" == "SKIPPED_DUPLICATE" && -n "$doc_id" ]]; then
+      # A document with this name already exists on the dataset but our state file doesn't know
+      # about it (e.g. state file was reset/not committed, or it was uploaded outside this script)
+      # -- fall back to updating that existing document instead of erroring.
+      echo "  duplicate on server (id: $doc_id), updating it instead"
+      if ! resp="$(cawplan knowledge documents update --dataset "$DATASET_ID" --document "$doc_id" --text-file "$file")"; then
+        echo "  FAILED: $rel_path"
+        failed_count=$((failed_count + 1))
+        continue
+      fi
+      code="$(echo "$resp" | jq -r '.code // empty')"
+      if [[ "$code" != "SUCCESS" ]]; then
+        echo "  FAILED: $rel_path:"
+        echo "$resp"
+        failed_count=$((failed_count + 1))
+        continue
+      fi
+      jq_update_in_place --arg p "$rel_path" --arg id "$doc_id" --argjson mtime "$mtime" \
+        '.files[$p] = {document_id: $id, synced_mtime: $mtime}'
+      updated_count=$((updated_count + 1))
+      continue
+    fi
+
     if [[ -z "$doc_id" ]]; then
       echo "  FAILED: $rel_path:"
       echo "$resp"

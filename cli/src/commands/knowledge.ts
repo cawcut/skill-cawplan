@@ -829,6 +829,7 @@ export function registerKnowledgeCommand(program: Command): void {
               submissions.push({
                 file: filePath,
                 code: "SKIPPED_DUPLICATE",
+                document_id: dup.id,
                 msg: `A document named "${name}" already exists (id: ${dup.id}); use 'documents update --dataset ${opts.dataset} --document ${dup.id} --file ${filePath}' to replace it, or pass --force to create a duplicate anyway.`,
               });
               continue;
@@ -886,6 +887,7 @@ export function registerKnowledgeCommand(program: Command): void {
               file: filePath,
               code: "SKIPPED_DUPLICATE",
               data: null,
+              document_id: dup.id,
               msg: `A document named "${name}" already exists (id: ${dup.id}); use 'documents update --dataset ${opts.dataset} --document ${dup.id} --text-file ${filePath}' to replace it, or pass --force to create a duplicate anyway.`,
             });
             continue;
@@ -978,7 +980,10 @@ export function registerKnowledgeCommand(program: Command): void {
       }
 
       const body: Record<string, unknown> = {};
-      if (hasTextFile) body.text = readFileSync(opts.textFile, "utf8");
+      if (hasTextFile) {
+        body.name = basename(opts.textFile);
+        body.text = readFileSync(opts.textFile, "utf8");
+      }
 
       const result = await cawplanRequest({
         method: "POST",

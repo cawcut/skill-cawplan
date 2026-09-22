@@ -189,16 +189,16 @@ KNOWLEDGE_DATASET_PRODUCT_ID=<产品ID> KNOWLEDGE_DATASET_MODULE_ID=<模块ID> s
 这两个只在新建数据集那一刻生效，对已经存在的数据集不会自动改绑；已存在的库想改绑产品/模块，用
 上文的 `cawplan knowledge datasets products set` / `products set-module`。
 
-脚本本身不会调用 CLI 的 `-i`（交互模式）——脚本要用命令替换捕获 CLI 的标准输出来解析 JSON 结果，
-而交互式选择需要一个真正（未被捕获）的终端，两者没法在同一次调用里共存。想在建库时交互式选产品
-再选模块，手动跑一次（不通过脚本）：
+给脚本本身传 `-i`/`--interactive`（只在数据集还不存在时生效，已存在则忽略）即可在建库时交互式
+选产品再选模块，不用手动设环境变量：
 
 ```bash
-cawplan knowledge datasets create --name "数据集名称" -i
+scripts/sync-knowledge.sh -i
 ```
 
-跑完记下打印出来的 product_id/module_id（或直接用同名数据集，脚本之后会自动按名字解析到它），
-再按上面的方式设置环境变量供脚本后续（自动化/CI）运行使用。
+这会不捕获输出地跑一次 `cawplan knowledge datasets create --name "<数据集名称>" -i`（CLI 自带的
+选择器需要一个真正的终端），你会看到产品再模块的菜单；脚本随后用一次单独、可捕获的按名字查询来
+拿到新数据集的 id。脚本其余的调用都保持非交互；后续自动化/CI 运行跳过 `-i`，改用上面的环境变量。
 
 同步进度和数据集 ID/文档 ID 的映射记在仓库根目录的 `.knowledge-sync-state.json` 里，建议提交进
 版本库，这样其他人或 CI 跑同一个脚本时不会重复上传。这个脚本不处理删除——本地删掉某份 `.md` 不
