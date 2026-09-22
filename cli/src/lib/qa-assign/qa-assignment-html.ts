@@ -3,12 +3,15 @@ import type {QaExcludedSession} from "../collect/aggregators/qa-daily.js";
 import type {QaAssignmentBootstrap} from "./types.js";
 import {escapeHtml, normalizePortalBase} from "../assignment-ui/format.js";
 import {resolveSessionTitle} from "../assignment-ui/session-display.js";
-import {humanInputsHtml} from "../assignment-ui/human-input-preview.js";
+import {
+    humanInputContent,
+    humanInputsForSession,
+    truncateHumanInput,
+} from "../assignment-ui/human-input-preview.js";
 import {ticketDetailUrl} from "../assignment-ui/ticket-url.js";
 import {
     INLINE_ESCAPE_HTML,
     INLINE_HUMAN_INPUT_HELPERS,
-    INLINE_HUMAN_INPUTS_HTML,
     INLINE_TICKET_DETAIL_URL,
     INLINE_TICKET_DISPLAY_ID_FROM_INPUT,
 } from "../assignment-ui/browser-snippets.js";
@@ -57,6 +60,24 @@ export function sessionDateTimeText(session: QaSessionData): string {
     return "—";
 }
 
+function qaHumanInputsHtml(
+    report: {human_inputs?: unknown[]},
+    session: {session_id?: string | null},
+): string {
+    const inputs = humanInputsForSession(report, session)
+        .filter((input) => humanInputContent(input));
+    if (inputs.length === 0) return '<span class="muted">No human inputs</span>';
+
+    const fullInput = inputs
+        .map((input, index) => `${index + 1}. ${String(humanInputContent(input))}`)
+        .join("\n\n");
+    return `<ol class="human-inputs" tabindex="0" data-full-input="${escapeHtml(fullInput)}" aria-label="View full input">` +
+        inputs.slice(0, 3).map((input) =>
+            `<li>${escapeHtml(truncateHumanInput(humanInputContent(input)))}</li>`,
+        ).join("") +
+        `</ol>`;
+}
+
 /** Server-side row HTML for tests and readonly preview. */
 export function renderQaSessionRowHtml(
     session: QaSessionData,
@@ -79,7 +100,7 @@ export function renderQaSessionRowHtml(
     return `<tr data-session-id="${escapeHtml(session.session_id)}">` +
         `<td class="sid-cell"><code>${escapeHtml(session.session_id)}</code></td>` +
         `<td class="title-cell">${escapeHtml(title)}</td>` +
-        `<td class="input-cell">${humanInputsHtml(report, session)}</td>` +
+        `<td class="input-cell">${qaHumanInputsHtml(report, session)}</td>` +
         `<td class="agent-cell">${escapeHtml(session.agent || "—")}</td>` +
         `<td class="models-cell" title="${escapeHtml(sessionModelsText(session))}">${escapeHtml(sessionModelsText(session)) || `<span class="muted">—</span>`}</td>` +
         `<td class="num-cell">${tpAdded > 0 ? `<span class="testpoints-add">+${tpAdded}</span>` : `<span class="muted">—</span>`}</td>` +
@@ -239,6 +260,8 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     .pbody { padding: 24px 32px 32px; display: flex; flex-direction: column; gap: 16px; }
     .table-card { border: 1px solid var(--border-sub); border-radius: 8px; overflow: hidden; }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+    th:nth-child(3) { width: 20%; }
+    th:nth-child(5), th:nth-child(6) { width: 6.5%; }
     th { background: var(--bg); padding: 10px 12px; text-align: left; font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--border-sub); white-space: nowrap; }
     th:last-child { text-align: right; }
     td { padding: 10px 12px; border-bottom: 1px solid var(--border-sub); vertical-align: top; word-break: break-word; }
@@ -247,9 +270,15 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     .sid-cell code { font-size: 11px; }
     .dt-cell { font-size: 12px; color: var(--text-02); white-space: nowrap; vertical-align: middle; text-align: right; }
     .input-cell { overflow: hidden; }
-    .human-inputs { margin: 0; padding: 0; list-style: none; max-width: 100%; overflow: hidden; }
+    .human-inputs { margin: 0; padding: 0; list-style: none; max-width: 100%; overflow: hidden; cursor: help; }
     .human-inputs li { font-size: 11px; color: var(--text-02); line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .human-inputs li + li { color: var(--text-03); margin-top: 2px; }
+    .human-inputs:focus { outline: 2px solid var(--uBlue-06); outline-offset: 2px; border-radius: 2px; }
+    .input-tooltip { position: fixed; z-index: 10000; width: min(460px, calc(100vw - 32px)); max-height: min(280px, calc(100vh - 32px)); overflow: auto; overscroll-behavior: contain; padding: 12px 14px; border: 1px solid var(--border-sub); border-radius: 8px; background: rgba(255,255,255,.98); color: var(--text-01); box-shadow: 0 6px 18px rgba(33,33,36,.10); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.2) transparent; }
+    .input-tooltip::-webkit-scrollbar { width: 6px; }
+    .input-tooltip::-webkit-scrollbar-track { background: transparent; }
+    .input-tooltip::-webkit-scrollbar-thumb { background: rgba(0,0,0,.16); border-radius: 999px; }
+    .input-tooltip::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,.28); }
     input, select { font-family: var(--font); font-size: 13px; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-01); outline: none; width: 100%; }
     input:focus, select:focus { border-color: var(--uBlue-06); box-shadow: 0 0 0 3px rgba(0,111,255,.12); }
     input::placeholder { color: var(--text-03); }
@@ -331,6 +360,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       ${actions}
     </div>
   </div>
+  <div id="input-tooltip" class="input-tooltip hidden" role="tooltip"></div>
   ${bootstrapJson ? `<script type="application/json" id="qa-bootstrap">${bootstrapJson.replace(/</g, "\\u003c")}</script>` : ""}
   ${readonly ? "" : `<script type="module">
     const token = new URLSearchParams(location.search).get("token") || "";
@@ -367,6 +397,83 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     }
 
     ${INLINE_HUMAN_INPUT_HELPERS}
+
+    function qaHumanInputsHtml(report, session) {
+      const inputs = humanInputsForSession(report, session)
+        .filter((input) => humanInputContent(input));
+      if (inputs.length === 0) return '<span class="muted">No human inputs</span>';
+      const fullInput = inputs.map((input, index) =>
+        (index + 1) + '. ' + String(humanInputContent(input))
+      ).join('\\n\\n');
+      return '<ol class="human-inputs" tabindex="0" data-full-input="' + escapeHtml(fullInput) + '" aria-label="View full input">' +
+        inputs.slice(0, 3).map((input) =>
+          '<li>' + escapeHtml(truncateHumanInput(humanInputContent(input))) + '</li>'
+        ).join('') +
+        '</ol>';
+    }
+
+    const inputTooltip = document.getElementById("input-tooltip");
+    let inputTooltipHideTimer = null;
+
+    function positionInputTooltip(anchor) {
+      const anchorRect = anchor.getBoundingClientRect();
+      const tooltipRect = inputTooltip.getBoundingClientRect();
+      const margin = 16;
+      const gap = 8;
+      const right = anchorRect.right + gap;
+      const leftSide = anchorRect.left - tooltipRect.width - gap;
+      const left = right + tooltipRect.width <= window.innerWidth - margin
+        ? right
+        : leftSide >= margin
+          ? leftSide
+          : Math.max(margin, Math.min(anchorRect.left, window.innerWidth - tooltipRect.width - margin));
+      let top = Math.max(margin, Math.min(anchorRect.top, window.innerHeight - tooltipRect.height - margin));
+      if (right + tooltipRect.width > window.innerWidth - margin && leftSide < margin) {
+        const below = anchorRect.bottom + gap;
+        top = below + tooltipRect.height <= window.innerHeight - margin
+          ? below
+          : Math.max(margin, anchorRect.top - tooltipRect.height - gap);
+      }
+      inputTooltip.style.left = left + "px";
+      inputTooltip.style.top = top + "px";
+    }
+
+    function showInputTooltip(anchor) {
+      const fullInput = anchor.getAttribute("data-full-input");
+      if (!fullInput) return;
+      if (inputTooltipHideTimer) clearTimeout(inputTooltipHideTimer);
+      inputTooltip.textContent = fullInput;
+      inputTooltip.classList.remove("hidden");
+      positionInputTooltip(anchor);
+    }
+
+    function hideInputTooltip() {
+      inputTooltipHideTimer = setTimeout(() => inputTooltip.classList.add("hidden"), 100);
+    }
+
+    document.addEventListener("mouseover", (event) => {
+      const anchor = event.target.closest && event.target.closest(".human-inputs[data-full-input]");
+      if (anchor) showInputTooltip(anchor);
+    });
+    document.addEventListener("mouseout", (event) => {
+      const anchor = event.target.closest && event.target.closest(".human-inputs[data-full-input]");
+      if (anchor && !inputTooltip.contains(event.relatedTarget)) hideInputTooltip();
+    });
+    document.addEventListener("focusin", (event) => {
+      const anchor = event.target.closest && event.target.closest(".human-inputs[data-full-input]");
+      if (anchor) showInputTooltip(anchor);
+    });
+    document.addEventListener("focusout", (event) => {
+      if (event.target.closest && event.target.closest(".human-inputs[data-full-input]")) hideInputTooltip();
+    });
+    inputTooltip.addEventListener("mouseenter", () => {
+      if (inputTooltipHideTimer) clearTimeout(inputTooltipHideTimer);
+    });
+    inputTooltip.addEventListener("mouseleave", hideInputTooltip);
+    window.addEventListener("scroll", (event) => {
+      if (!inputTooltip.contains(event.target)) inputTooltip.classList.add("hidden");
+    }, true);
+    window.addEventListener("resize", () => inputTooltip.classList.add("hidden"));
 
     function normalizeProducts(items) {
       return items.map((p) => ({
@@ -495,8 +602,6 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
         '<div class="product-error field-error"></div>';
     }
 
-    ${INLINE_HUMAN_INPUTS_HTML}
-
     function sessionStartMs(session) {
       const value = session.display_time_range && session.display_time_range.start;
       const ms = value ? Date.parse(value) : NaN;
@@ -523,7 +628,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       return '<tr data-session-id="' + escapeHtml(session.session_id) + '">' +
         '<td class="sid-cell"><code>' + escapeHtml(session.session_id) + '</code></td>' +
         '<td class="title-cell">' + escapeHtml(title) + '</td>' +
-        '<td class="input-cell">' + humanInputsHtml(daily, session) + '</td>' +
+        '<td class="input-cell">' + qaHumanInputsHtml(daily, session) + '</td>' +
         '<td class="agent-cell">' + escapeHtml(session.agent || "—") + '</td>' +
         '<td class="models-cell" title="' + escapeHtml(sessionModelsText(session)) + '">' + sessionModelsHtml(session) + '</td>' +
         '<td class="num-cell">' + testPointsHtml(session) + '</td>' +

@@ -136,6 +136,20 @@ describe("qaAssignmentHtml session and input columns", () => {
         expect(row).toContain("Analyze requirement for login flow");
         expect(row).toContain("Generate test points for edge cases");
         expect(row).not.toContain("Expand testcase steps");
+        expect(row).toContain('class="human-inputs" tabindex="0" data-full-input="1. Analyze requirement for login flow');
+        expect(row).toContain("2. Generate test points for edge cases");
+    });
+
+    test("keeps a truncated row preview and exposes the complete input for the tooltip", () => {
+        const daily = mockDailyFixture();
+        const fullInput = "x".repeat(240);
+        daily.human_inputs = [{session_id: daily.sessions[0]!.session_id, content: fullInput}];
+        const row = renderQaSessionRowHtml(daily.sessions[0]!, MOCK_PRODUCTS, {
+            interactive: false,
+            daily,
+        });
+        expect(row).toContain(`${"x".repeat(200)}...</li>`);
+        expect(row).toContain(`data-full-input="1. ${fullInput}"`);
     });
 
     test("server-side row renderer shows empty human input placeholder", () => {
@@ -156,13 +170,28 @@ describe("qaAssignmentHtml session and input columns", () => {
         expect(row).not.toContain(`<td class="title-cell">${session.session_id}</td>`);
     });
 
-    test("interactive page wires browser resolveSessionTitle and humanInputsHtml", () => {
+    test("interactive page wires browser input preview and bounded tooltip", () => {
         const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
         expect(html).toContain("function resolveSessionTitle(session)");
         expect(html).toContain("return session.session_title ?? session.session_id;");
-        expect(html).toContain("function humanInputsHtml(report, session)");
-        expect(html).toContain("humanInputsHtml(daily, session)");
+        expect(html).toContain("function qaHumanInputsHtml(report, session)");
+        expect(html).toContain("qaHumanInputsHtml(daily, session)");
+        expect(html).toContain('id="input-tooltip" class="input-tooltip hidden" role="tooltip"');
+        expect(html).toContain("width: min(460px, calc(100vw - 32px))");
+        expect(html).toContain("max-height: min(280px, calc(100vh - 32px))");
+        expect(html).toContain("overscroll-behavior: contain");
+        expect(html).toContain("scrollbar-width: thin");
+        expect(html).toContain("white-space: pre-wrap");
+        expect(html).toContain("overflow-wrap: anywhere");
+        expect(html).toContain("const right = anchorRect.right + gap;");
+        expect(html).toContain("if (!inputTooltip.contains(event.target)) inputTooltip.classList.add");
         expect(html).not.toContain("session.session_title || session.session_id");
+    });
+
+    test("allocates more table width to Input than Models and Test Points", () => {
+        const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
+        expect(html).toContain("th:nth-child(3) { width: 20%; }");
+        expect(html).toContain("th:nth-child(5), th:nth-child(6) { width: 6.5%; }");
     });
 });
 
