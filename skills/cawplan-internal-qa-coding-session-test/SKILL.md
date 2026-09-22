@@ -1,5 +1,5 @@
 ---
-version: 0.2.8
+version: 0.2.9
 name: cawplan-internal-qa-coding-session-test
 description: |
   Internal QA check for the new AI-coding session-summary feature: fetches one session's full conversation via the cawplan CLI and generates a narrative summary yourself using the same rules uid.core-product's session-insights prompt uses, so you can eyeball the summary's quality before/without needing the cloud enrichment pipeline to have run. Display-only, no comparison against any cloud value (the field is new and may not be backfilled yet).

@@ -138,7 +138,9 @@ export function registerTicketsCommand(program: Command): void {
     .option("--unique_ids <csv>", "Ticket unique IDs")
     .option("--display_ids <csv>", "Ticket display IDs")
     .option("--parent_ids <csv>", "Parent ticket IDs")
-    .option("--type <csv>", "Ticket types")
+    .option("--type <csv>", "Deprecated legacy ticket types; prefer --label_ids or --label_names")
+    .option("--label_ids <csv>", "Label IDs")
+    .option("--label_names <csv>", "Label names")
     .option("--status <csv>", "Ticket statuses")
     .option("--excluded_status <csv>", "Statuses to exclude")
     .option("--ux <csv>", "UX states: NOT_REQUIRED|PENDING|READY")
@@ -189,6 +191,8 @@ export function registerTicketsCommand(program: Command): void {
       const productLineIds = csvToArray(opts.product_line_ids);
       const versionIds = csvToArray(opts.version_ids);
       const type = csvToArray(opts.type);
+      const labelIds = csvToArray(opts.label_ids);
+      const labelNames = csvToArray(opts.label_names);
       const status = csvToArray(opts.status);
       const excludedStatus = csvToArray(opts.excluded_status);
       const ux = csvToArray(opts.ux);
@@ -204,6 +208,8 @@ export function registerTicketsCommand(program: Command): void {
       if (displayIds) body.display_ids = displayIds;
       if (parentIds) body.parent_ids = parentIds;
       if (type) body.type = type;
+      if (labelIds) body.label_ids = labelIds;
+      if (labelNames) body.label_names = labelNames;
       if (status) body.status = status;
       if (excludedStatus) body.excluded_status = excludedStatus;
       if (ux) body.ux = ux;

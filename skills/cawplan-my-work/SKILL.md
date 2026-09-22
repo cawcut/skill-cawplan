@@ -1,5 +1,5 @@
 ---
-version: 0.2.8
+version: 0.2.9
 name: cawplan-my-work
 description: |
   Show the current user's CawPlan work: assigned tickets/critical issues, priority-sorted open tickets, a day/range status-change completion summary, reopened tickets, linked PRs/commits, or tickets with a PR/commit but no status progress — optionally scoped to a product/version.

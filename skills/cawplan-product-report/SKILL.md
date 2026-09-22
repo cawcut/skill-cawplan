@@ -1,9 +1,9 @@
 ---
-version: 0.2.8
+version: 0.2.9
 name: cawplan-product-report
 description: |
-  Generate a CawPlan status report over a date range: for a single product (progress, risk analysis, priority recommendations, summaries), for a Team (CawPlan product line), or for a named member — ticket-change-based completion, in the last two cases.
-  Use when: the user asks for a product status report, progress report, risk summary, release readiness, priority recommendations, or the open/unclosed tickets in a product's current or named version; asks how a Team/product line is doing over a date range; or asks how a specific member's task completion looks over a date range (not their own — use `cawplan-my-work` for "my tasks").
+  Generate a CawPlan status report over a date range: for a single product (progress, risk analysis, priority recommendations, summaries), for a Team (CawPlan product line), or for a named member — ticket-change-based completion, in the last two cases. Also lists product-wide open tickets by a requested label-backed category and optional title keyword, including backlog tickets and tickets across versions.
+  Use when: the user asks for a product status report, progress report, risk summary, release readiness, priority recommendations, the open/unclosed tickets in a product's current or named version, or a product-wide filtered list such as "remaining Collage bugs"; asks how a Team/product line is doing over a date range; or asks how a specific member's task completion looks over a date range (not their own — use `cawplan-my-work` for "my tasks").
   NOT for: raw activity feed, user activity, ticket creation, metrics dashboards, or critical issue lists.
 argument-hint: "[product name or ID, OR team/product-line name, OR member name/email, start date, end date, optional version]"
 allowed-tools: Bash
@@ -21,14 +21,25 @@ cawplan skill check
 
 | Input | Flow |
 |---|---|
-| A specific product (and optionally a version) | **A — Product report** |
+| Product-wide remaining/open tickets by category and optional keyword (for example, “VN iOS Collage bugs”) | **A1 — Product-wide label-filtered tickets** |
 | Open/unclosed tickets in a product's current or named version | **A0 — Version open tickets** |
+| A specific product (and optionally a version) | **A — Product report** |
 | A Team / product line ("Team A", a squad/line name, not a product name) | **B — Team report** |
 | A product's UX members' UX/design completion | Use `cawplan-ux-tracking` **Workflow D**; it counts `ux → READY` events performed by the product's configured Designers, not reporters or assignees. |
 | A product's QA members' Ticket verification / acceptance status | **D — QA verification activities**; count status-change events performed by that product's configured QA members, not by current Assignee. |
 | A named member, someone other than the caller ("how's Alex doing on...") | **C — Member report** |
 
 If unsure whether a name is a product or a Team, resolve both (`products list --search`, `product-lines list`) and ask if either is ambiguous or both match. A user-supplied Team or product name must match an accessible record exactly (case-insensitively, after trimming whitespace), or be a unique short-form/token-prefix match. If it does not match uniquely, list the available or search-returned candidates and ask which Team/product they mean; never substitute a similarly named product or Team. If the user asks about their *own* task completion ("my tasks"), that's `cawplan-my-work`, not this skill.
+
+## Shared ticket rules
+
+### Labels are the classification source of truth
+
+Do not use legacy ticket `type`, the `--type` search option, or the returned `.type` field to decide whether a ticket is a bug, feature, or another category. Resolve classification from the labels visible to the confirmed product and filter with `--label_ids`. The legacy field may still appear in API responses for compatibility; ignore it for category decisions.
+
+### Ticket title fidelity
+
+The ticket response's `description` field is the canonical title. Whenever a ticket title is displayed, reproduce it verbatim: do not translate, summarize, shorten, rewrite, normalize punctuation or spacing, remove prefixes, or drop parenthetical text. If an explanation or summary is useful, put it in a separate field. Markdown escaping needed to preserve the same visible title (for example, escaping a table pipe) is allowed.
 
 ## Workflow A0 — Version open tickets
 
@@ -48,7 +59,48 @@ Use this workflow for requests such as “查看 VN Cloud 当前 Version 的 Ope
    ```
    Treat a ticket as open only when its inline `status_display.category` is neither `COMPLETE` nor `CANCELED`. Filter this client-side even if an `--excluded_status_categories COMPLETE,CANCELED` filter is also supplied; do not trust a server-side exclusion as the only safeguard.
 
-4. Report the resolved Product and Version, total open count, and a status/priority breakdown. For each listed ticket, show display ID, type, priority, status, and title. If the result is too large for a useful chat response, provide the count and breakdown first, then ask for a priority/status slice or an export; do not silently substitute another product or report a partial list as complete.
+4. Report the resolved Product and Version, total open count, and a status/priority breakdown. For each listed ticket, show display ID, labels, priority, status, and the verbatim `description` title. If the result is too large for a useful chat response, provide the count and breakdown first, then ask for a priority/status slice or an export; do not silently substitute another product or report a partial list as complete.
+
+## Workflow A1 — Product-wide label-filtered tickets
+
+Use this workflow for requests such as “list the remaining Collage bugs for VN iOS.” It intentionally spans active versions and Backlog unless the user explicitly narrows the scope.
+
+1. Resolve the requested product and complete **Workflow A's required product-access gate**. Keep the confirmed `product_id`; do not infer a similarly named product.
+
+2. Fetch the complete label catalog visible to that product:
+   ```bash
+   cawplan labels list --product_id <product_id> --page_size 200 --page_num 1
+   ```
+   Page to `total`. This product-scoped catalog includes the labels applicable through its Team/product line plus any workspace-wide labels. Select only from records actually returned; never invent a label name or ID, and never query an unscoped workspace-wide catalog as a substitute.
+
+3. Match the user's requested category to the returned catalog. Normalize case, whitespace, hyphens, and underscores for comparison, but retain the exact returned label ID and name:
+   - For bug/defect intent, every returned label whose `behavior` is `BUGFIX` is a strong match.
+   - Strong name signals are `bug`, `bugs`, `bugfix`, `bug fix`, `defect`, `defects`, `regression`, and `regressions` when they occur as a label name or clear token/phrase, not as an arbitrary substring such as `debug`.
+   - `fix`, `fixing`, `hotfix`, `issue`, `crash`, `incident`, and `blocker` are context-dependent candidates. Select them only when the returned catalog and the user's wording make their category meaning clear; do not blindly treat workflow/state labels such as `Fixing` as bug classification.
+   - Labels such as `Feature`, `Enhancement`, `Blocked`, and priority labels are not bugs merely because they may occur on a bug ticket.
+   - For a non-bug category, apply the same semantic rule: choose only labels from the returned catalog that clearly express the user's requested category.
+   - If more than one label is a safe semantic match, select all of them. Search treats them as OR within `label_ids`, then ANDs the result with the other filters.
+   - If no returned label is a safe match, show the closest returned candidates and ask the user to choose. Do not fall back to legacy `type`.
+
+4. Query all matching tickets. Use IDs from step 3 and add `--search` only when the user supplied a separate title/text keyword such as `Collage`:
+   ```bash
+   cawplan tickets search \
+     --product_ids <product_id> \
+     --label_ids <comma-separated-selected-label-ids> \
+     --search "<optional keyword>" \
+     --start_date 2000-01-01 \
+     --end_date <today> \
+     --excluded_status_categories COMPLETE,CANCELED \
+     --page_size 100 \
+     --page_num 1
+   ```
+   Omit `--search` when there is no separate keyword. Page while `page_num * page_size < total`.
+
+   `--search` is a free-text match across multiple ticket fields, not a structured module filter. A ticket such as `Photo Edit ... Collage` can therefore match `Collage` without belonging to a Collage module. Do not describe keyword results as strict module membership. If the user requires a module-pure list and the API provides no dedicated module filter, disclose that limitation. Do not add a module label beside bug labels in the same `--label_ids` argument as a workaround: values within `label_ids` are OR, so that would return `bug OR module`, not `bug AND module`.
+
+5. Independently classify each result as open only when its inline `status_display.category` is neither `COMPLETE` nor `CANCELED`; `TESTING` remains open. This client-side check is mandatory even though the server exclusion is supplied.
+
+6. Make the classification auditable. Before the result table, state the exact selected labels (name, ID, and why each matched, including `behavior=BUGFIX` when present). Then report the resolved Product, total open count, status/priority/version breakdown, and each ticket's display ID, labels, version or Backlog, priority, status, and verbatim `description` title. Never display a rewritten title or present a partial page as the complete list.
 
 ## Workflow A — Product report
 
@@ -66,7 +118,7 @@ Proceed only after identifying one intended product (`product_id` / `unique_id`)
    ```bash
    cawplan products list --search "<product name>"
    ```
-   If no exact or unique short-form product match exists, list the candidates (name + `product_id`) and ask the user to confirm which product they mean; do not guess. If more than one match exists, ask the user to pick. All three workflows in this skill resolve products this way.
+   If no exact or unique short-form product match exists, list the candidates (name + `product_id`) and ask the user to confirm which product they mean; do not guess. All product-scoped workflows in this skill resolve products this way.
 
 2. Resolve version name to `version_id` if the user scopes to a version:
    ```bash
@@ -218,7 +270,7 @@ Same ticket-change approach as Workflow B, scoped to one person instead of a who
 **Workflow B:**
 
 - **Summary**: what changed across the team in the period (counts, not a risk verdict — this workflow has no `versions track`-style risk field; don't invent one).
-- **Completion**: counts by status, type, and priority for Tickets with a history-verified status change in the period; terminal counts are based on the event's new status category, never raw `updated_at` or current status alone.
+- **Completion**: counts by status, returned labels, and priority for Tickets with a history-verified status change in the period; terminal counts are based on the event's new status category, never raw `updated_at` or current status alone. Do not use legacy `type` for classification.
 - **Notable items**: CRITICAL/HIGH priority Tickets that actually changed status in the period, plus any Ticket moved to a terminal category by its verified status-change event.
 - **Per-product breakdown**: only if step 3 ran and the user asked for it.
 

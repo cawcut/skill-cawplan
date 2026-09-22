@@ -9,7 +9,7 @@
       "name": "cawplan",
       "source": "./",
       "description": "CawPlan CLI-backed skills for product release management workflows.",
-      "version": "0.2.8",
+      "version": "0.2.9",
       "skills": [
         {
           "name": "ticket-create",
@@ -105,6 +105,11 @@
           "name": "testplan-layout",
           "path": "skills/cawplan-testplan-layout",
           "invoke": "/cawplan-testplan-layout"
+        },
+        {
+          "name": "testrail-link",
+          "path": "skills/cawplan-testrail-link",
+          "invoke": "/cawplan-testrail-link"
         },
         {
           "name": "ticket-report-generate",

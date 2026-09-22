@@ -1,5 +1,5 @@
 ---
-version: 0.2.8
+version: 0.2.9
 name: cawplan-support-metrics
 description: |
   Prepare, validate, import, reconcile, and correct Support Ops daily ticket metrics from Google Sheets or exported JSON into CawPlan's cawplan_csm key-metrics domain. Use when: Support asks to onboard its ticket dashboard data, backfill or upload Support ticket counts, validate a Support metrics export, compare CawPlan metrics with the Support sheet, or generate a safe Apps Script exporter. NOT for: generic CawPlan business metrics, device/app telemetry, editing the Support dashboard UI, producing the weekly Google Doc, or inventing new CSM metric names and tags.

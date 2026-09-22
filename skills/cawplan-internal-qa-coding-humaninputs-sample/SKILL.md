@@ -1,5 +1,5 @@
 ---
-version: 0.2.8
+version: 0.2.9
 name: cawplan-internal-qa-coding-humaninputs-sample
 description: |
   Pull human-input logs from CawPlan (by product, user/member, date range, count, or session), preprocess prev/assistant context like production classify, and open a local web editor to annotate expected category/topic labels for prompt eval fixtures.

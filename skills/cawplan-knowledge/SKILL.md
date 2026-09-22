@@ -1,5 +1,5 @@
 ---
-version: 0.2.8
+version: 0.2.9
 name: cawplan-knowledge
 description: |
   Browse and search the CawPlan knowledge base: list/create datasets, list/upload documents in a
