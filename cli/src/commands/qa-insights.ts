@@ -80,6 +80,12 @@ import type {
  */
 
 const API_BASE = "/api/v1/public/openapi/product";
+const QA_API_BASE = "/api/v1/public/openapi/qa";
+const REQUIREMENT_DISPLAY_ID_RE = /^REQ-\d+$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const REQUIREMENT_BROWSE_PATH_RE = /^\/browse\/product\/[^/]+\/qa\/requirement\/([^/]+)\/?$/;
+const REQUIREMENT_URL_PATH_RE =
+  /^\/product\/([^/]+)\/qa-insights\/test-suites\/requirements\/([^/]+)\/?$/;
 
 /** Injectable for tests; defaults to the real HTTP client. */
 export type RequestFn = typeof cawplanRequest;
@@ -105,6 +111,56 @@ function readEmitter(deps?: ReadCommandDeps) {
 
 function requester(deps?: { request?: RequestFn }): RequestFn {
   return deps?.request ?? cawplanRequest;
+}
+
+function urlPathname(value: string): string | undefined {
+  try {
+    if (value.startsWith("/")) return new URL(value, "https://cawplan.invalid").pathname;
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    return url.pathname;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Resolve either a bare REQ display ID or a Requirement browse URL without requesting the page. */
+export function requirementDisplayIdFromRef(value: string): string {
+  const input = value.trim();
+  if (REQUIREMENT_DISPLAY_ID_RE.test(input)) return input;
+
+  const pathname = urlPathname(input);
+  const match = pathname?.match(REQUIREMENT_BROWSE_PATH_RE);
+  const displayId = match?.[1];
+  if (displayId && REQUIREMENT_DISPLAY_ID_RE.test(displayId)) return displayId;
+
+  throw new BodyValidationError(
+    "requirements resolve: expected REQ- followed by digits, or a Requirement browse URL ending in /REQ-<digits>",
+  );
+}
+
+function requirementIdsFromUrlData(data: unknown): {
+  productId: string;
+  requirementId: string;
+} {
+  if (!data || typeof data !== "object") {
+    throw new Error("requirements resolve: API data must be an object with url");
+  }
+  const requirementUrl = (data as Record<string, unknown>).url;
+  if (typeof requirementUrl !== "string" || !requirementUrl.trim()) {
+    throw new Error("requirements resolve: API data.url must be a non-empty string");
+  }
+
+  const pathname = urlPathname(requirementUrl.trim());
+  const match = pathname?.match(REQUIREMENT_URL_PATH_RE);
+  if (!match) {
+    throw new Error("requirements resolve: data.url has an unsupported Requirement path");
+  }
+  const [, productId, requirementId] = match;
+  if (!UUID_RE.test(productId) || !UUID_RE.test(requirementId)) {
+    throw new Error("requirements resolve: data.url contains an invalid product or Requirement ID");
+  }
+  return { productId, requirementId };
 }
 
 /**
@@ -288,6 +344,77 @@ function readFailureFromWriteEnvelope(
     meta,
     error: writeEnvelope.error,
   });
+}
+
+// ---------------------------------------------------------------------------
+// requirements resolve — fetch Requirement data and resolve its product/requirement IDs
+// ---------------------------------------------------------------------------
+
+export async function runRequirementsResolve(
+  displayIdOrBrowseUrl: string,
+  deps?: ReadCommandDeps,
+) {
+  const command = "requirements resolve";
+  const emit = readEmitter(deps);
+  let displayId: string;
+
+  try {
+    displayId = requirementDisplayIdFromRef(displayIdOrBrowseUrl);
+  } catch (err) {
+    return emit(
+      buildReadEnvelope({
+        outcome: "FAILURE",
+        command,
+        meta: { dry_run: false },
+        error: {
+          type: "validation",
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }),
+    );
+  }
+
+  const unresolvedMeta: QAInsightsMeta = { display_id: displayId, dry_run: false };
+  const read = await performRead({
+    request: requester(deps),
+    path: `${QA_API_BASE}/requirements/by-display-id/${encodeURIComponent(displayId)}`,
+    command,
+    meta: unresolvedMeta,
+  });
+  if (read.envelope) {
+    return emit(readFailureFromWriteEnvelope(command, unresolvedMeta, read.envelope));
+  }
+
+  let resolved: { productId: string; requirementId: string };
+  try {
+    resolved = requirementIdsFromUrlData(read.data);
+  } catch (err) {
+    return emit(
+      buildReadEnvelope({
+        outcome: "FAILURE",
+        command,
+        meta: unresolvedMeta,
+        error: {
+          type: "api",
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }),
+    );
+  }
+
+  return emit(
+    buildReadEnvelope({
+      outcome: "SUCCESS",
+      command,
+      meta: {
+        display_id: displayId,
+        product_id: resolved.productId,
+        requirement_id: resolved.requirementId,
+        dry_run: false,
+      },
+      data: read.data,
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -2293,6 +2420,13 @@ export function registerQAInsightsCommand(program: Command): void {
     .action((productId: string, opts) => runModuleTreeNodeCreate(productId, opts));
 
   const requirements = qa.command("requirements").description("Requirement operations");
+  requirements
+    .command("resolve <display_id_or_browse_url>")
+    .description("Get a Requirement by display ID or browse URL and resolve its binding IDs")
+    .action((displayIdOrBrowseUrl: string) =>
+      runRequirementsResolve(displayIdOrBrowseUrl),
+    );
+
   requirements
     .command("get <product_id> <requirement_id>")
     .description("Get a single requirement (five fields + metadata)")

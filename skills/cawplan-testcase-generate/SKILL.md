@@ -3,9 +3,9 @@ version: 0.2.9
 name: cawplan-testcase-generate
 description: |
   Expand archived test points into executable test cases: Markdown title-state preview first, expand steps on demand, export team CSV when SQA actively requests after review (read-only — does not write to CawPlan).
-  Use when: generating test cases (preview first), expanding executable steps in Markdown preview, exporting CSV when SQA asks to export, or hot handoff after A2 ("按上面的生成用例", "generate test cases from above", or similar); cold handoff via Requirement link or requirement_id.
+  Use when: generating test cases (preview first), expanding executable steps in Markdown preview, exporting CSV when SQA asks to export, or hot handoff after A2 ("按上面的生成用例", "generate test cases from above", or similar); cold handoff via Requirement link, display_id, or requirement_id.
   NOT for: test-point coverage outlines (use `cawplan-testpoint-generate`); requirement analysis or archiving (use `cawplan-requirement-analyze`); viewing or editing archived test points in Test Suites (web UI); unarchived five-field drafts only (archive via A1 first).
-argument-hint: "[Requirement link or requirement_id, '生成测试用例', '按上面的生成用例' / 'generate test cases from above']"
+argument-hint: "[Requirement link, REQ display_id, or requirement_id, '生成测试用例', '按上面的生成用例' / 'generate test cases from above']"
 allowed-tools: Bash
 ---
 
@@ -51,7 +51,7 @@ CSV 列布局的最终模板是 `assets/testcase-template.csv`。
 
 | 优先级 | 条件 | 动作 |
 |---|---|---|
-| P1 | 显式 Requirement 链接、`requirement_id` 或切换目标 | Cold handoff，整体 rebind |
+| P1 | 显式 Requirement 链接、`display_id`、`requirement_id` 或切换目标 | Cold handoff，整体 rebind |
 | P2 | 热接力话术且已有有效 binding | 使用当前 binding |
 | P3 | 会话有 Requirement 或 TestPoint 草稿，但无有效 `requirement_id` | 触发框 3 |
 | 兜底 | 无链接、无有效 binding、无草稿 | 触发框 1 |
@@ -62,7 +62,7 @@ CSV 列布局的最终模板是 `assets/testcase-template.csv`。
 
 无目标且无草稿时，读取交互文案 Reference 并渲染框 1；有效 P1/P2 不触发。不得增加“用上面出好的”选项。
 
-- “已有 Requirement 链接” → 等待链接；收到后按下文解析，无法解析则复述选项或请重选。
+- “已有 Requirement 链接或编号” → 等待链接或 `REQ-` 编号；收到后按下文解析，无法解析则复述选项或请重选。
 - “没有 Requirement” → 写入 `resume_intent = testcase`，读取 `cawplan-requirement-analyze` Skill 接力。
 
 #### 框 3 · 需求还没保存
@@ -80,13 +80,34 @@ P3 或测试点草稿/表存在但无 `requirement_id` 时，读取交互文案 
 - 生成、展开或导出测试用例 → 本 Skill。
 - 已有 `cases[]` 时再次模糊说“生成用例”，先问“重新生成”还是“在现有基础上调整/展开”，避免覆盖 SQA 编辑。
 
-Portal URL 只解析字符串，绝不请求页面：
+Requirement 引用按以下顺序解析：
+
+1. 合法的 `product_id + requirement_id` 优先；直接使用，不调用 display-id 查询。
+2. 旧 Portal URL 只解析字符串，绝不请求页面：
 
 ```text
 /product/{product_id}/qa-insights/test-suites/requirements/{requirement_id}
 ```
 
-不得对 Portal 路径调用 `cawplan api` 或 HTTP。只有 `requirement_id` 时追问 `product_id` 或完整链接，不扫描产品。显式新目标替换完整上下文；同时只绑定一个 Requirement。
+3. 裸 `display_id` 必须严格是 `REQ-` + 数字（`^REQ-\d+$`）；或使用 Browse URL：
+
+```text
+/browse/product/{product_key}/qa/requirement/{display_id}
+```
+
+对裸 `display_id` 或 Browse URL 调用（完整 URL 需加 shell 引号）：
+
+```bash
+cawplan qa-insights requirements resolve '<display_id_or_browse_url>'
+```
+
+- 该命令先本地校验/提取 `display_id`；格式错误时不请求接口。Browse URL 的 `product_key`（如 `CP`）不是 `product_id`，不得用它推测 UUID。
+- `SUCCESS`：只在 `meta.product_id` 和 `meta.requirement_id` 都存在时完成 rebind，并把本次响应 `data` 直接记为 `requirement_data`。CLI 已从 API `data.url` 校验并解析这两个 ID；不得改用 `data.redirect_url`。随后进入 §2 的 display-id fast-path，不得再调用 `requirements get`。
+- `FAILURE / validation`：提示 display ID 必须为 `REQ-` + 数字，不进入 GET。
+- `FAILURE / not_found`：提示 Requirement 不存在，停止。其他 `FAILURE` 或 `UNKNOWN` 如实报告，不猜测 ID 或继续。
+- `SUCCESS` 但缺少两个解析后 ID 视为返回数据异常，停止。
+
+所有 URL 都只解析字符串，不得对 Portal/Browse 页面调用 `cawplan api` 或 HTTP。只有 `requirement_id` 时追问 `product_id` 或完整引用，不扫描产品。显式新目标只在完整解析成功后替换完整上下文；解析失败不清空旧 binding 或 `cases[]`。同时只绑定一个 Requirement。
 
 #### 跨 Skill 接力
 
@@ -96,18 +117,28 @@ Portal URL 只解析字符串，绝不请求页面：
 
 ### 2. Refresh before expand
 
-Cold/hot handoff 都必须静默拉取最新数据，库中数据是真相源：
+静默取得本次最新 Requirement 数据，并统一记为 `requirement_data`：
+
+- 本次刚成功执行 `requirements resolve`：直接使用该命令的 `data`；它与 `requirements get` 返回相同的 Requirement 五字段结构。本次不得再调用 `requirements get`。
+- 合法 `product_id + requirement_id`、旧 Portal URL、热接力或跨 Skill 恢复：执行：
 
 ```bash
 cawplan qa-insights requirements get <product_id> <requirement_id>
+```
+
+以上两条路径取得 `requirement_data` 后，都必须执行：
+
+```bash
 cawplan qa-insights testpoints list <product_id> <requirement_id>
 ```
 
-- Requirement `SUCCESS`：使用 `data` 中五字段、`module_tree_node_id` 和 metadata。
+- Requirement 数据源 `SUCCESS`：统一使用 `requirement_data` 中五字段、`module_tree_node_id` 和 metadata。
 - TestPoints `SUCCESS`：按 `data.test_points[].sort_order` 使用；映射 `id` → TestPointId、`title` → TestPointTitle、`tags[]` → `/` 拼接 Tag、`group` → Group。
 - 404 / `not_found`：如实报告，不使用陈旧会话数据。
 - `FAILURE` 或 `UNKNOWN`：如实报告；不假成功、盲重试或猜测。
 - 五字段尤其 `constraints` 与测试点创建时相比发生变化：展开前输出一条轻量存疑，不静默忽略。
+
+display-id fast-path 只消除同一次请求里紧邻 resolver 的重复 GET，不建立跨回合缓存。后续新的热接力回合或 A2 完成后的恢复仍按上面的非 fast-path 执行 `requirements get`，再刷新 TestPoints。
 
 ### 3. Hard stop without TestPoints
 
@@ -229,7 +260,7 @@ Priority 按写作规范推 P0–P3。
 
 #### 进场静默
 
-从解析目标、执行两个 GET 到首次标题清单前，不输出内部过程或 ID。缺 `product_id`、404/读取失败、框 1/2/3 硬停和五字段漂移存疑除外。
+从解析并读取 Requirement、刷新 TestPoints 到首次标题清单前，不输出内部过程或 ID。缺 `product_id`、404/读取失败、框 1/2/3 硬停和五字段漂移存疑除外。
 
 成功进入标题首轮时，第一条可见输出逐字使用以下一种，`{N}` 为 TestPoint 数量，不插入 Requirement 显示标题：
 
@@ -255,7 +286,7 @@ Hints（按会话语言二选一）：
 
 ## Session state
 
-- Binding：`product_id`、`requirement_id`、最新五字段、`module_tree_node_id`、GET 得到的 TestPoints。
+- Binding：`product_id`、`requirement_id`、`requirement_data` 中的最新五字段与 `module_tree_node_id`、GET 得到的 TestPoints。
 - Draft：内存 `cases[]`。Partial 回合只渲染本次点名行，可附“已展开: #1,#3”；之前展开内容继续保留。
 - 无磁盘状态：不建 `.memory` 或跨会话缓存；interim JSON 只在导出瞬间存在于 `/tmp/`，随后删除。
 - v1 不支持离线 CSV 编辑回传，无 `is_edited`；A3 不 POST/PATCH CawPlan。

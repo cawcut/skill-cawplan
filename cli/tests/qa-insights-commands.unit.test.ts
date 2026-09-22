@@ -9,6 +9,7 @@ import {
   runRequirementsCreate,
   runRequirementsGet,
   runRequirementsList,
+  runRequirementsResolve,
   runRequirementsUpdate,
   runRequirementsReconcile,
   runTestPointsArchive,
@@ -20,6 +21,8 @@ import type { QAInsightsReadEnvelope, QAInsightsWriteEnvelope } from "../src/lib
 const PRODUCT = "019fb1ff-d547-741f-bfa2-405386d04d5b";
 const REQUIREMENT = "019fcfa0-da13-78db-b552-323598ce1c38";
 const NODE = "019fcf73-7fd1-7b6a-8745-97c2ffaded05";
+const DISPLAY_ID = "REQ-00065";
+const REQUIREMENT_URL = `/product/${PRODUCT}/qa-insights/test-suites/requirements/${REQUIREMENT}`;
 
 interface Call {
   method?: string;
@@ -692,6 +695,108 @@ describe("R1–R5 requirements get — single-item read", () => {
     await runRequirementsGet(PRODUCT, REQUIREMENT, h.deps);
     expect(h.envelope.outcome).toBe("FAILURE");
     expect(h.envelope.error?.type).toBe("api");
+  });
+});
+
+describe("requirements resolve — display ID and browse URL", () => {
+  test("returns full Requirement data and exposes both UUIDs with one by-display-id GET", async () => {
+    const data = {
+      id: REQUIREMENT,
+      product_id: PRODUCT,
+      url: REQUIREMENT_URL,
+      redirect_url: `/browse/product/CP/qa/requirement/${DISPLAY_ID}`,
+      ...fiveFields,
+      module_tree_node_id: NODE,
+      summary: "Requirement",
+    };
+    const h = readHarness([ok(data)]);
+    await runRequirementsResolve(DISPLAY_ID, h.deps);
+
+    expect(h.gets()).toHaveLength(1);
+    expect(h.calls[0].path).toBe(
+      `/api/v1/public/openapi/qa/requirements/by-display-id/${DISPLAY_ID}`,
+    );
+    expect(
+      h.calls.some(
+        (call) => call.path ===
+          `/api/v1/public/openapi/product/${PRODUCT}/qa/requirements/${REQUIREMENT}`,
+      ),
+    ).toBe(false);
+    expect(h.envelope.outcome).toBe("SUCCESS");
+    expect(h.envelope.data).toEqual(data);
+    expect(h.envelope.meta).toEqual({
+      display_id: DISPLAY_ID,
+      product_id: PRODUCT,
+      requirement_id: REQUIREMENT,
+      dry_run: false,
+    });
+  });
+
+  test("extracts the display ID from a browse URL without requesting that page", async () => {
+    const h = readHarness([ok({ url: REQUIREMENT_URL })]);
+    await runRequirementsResolve(
+      `https://core-web-product.uid.dev.ui.com/browse/product/CP/qa/requirement/${DISPLAY_ID}/?from=test#details`,
+      h.deps,
+    );
+    expect(h.calls[0].path).toBe(
+      `/api/v1/public/openapi/qa/requirements/by-display-id/${DISPLAY_ID}`,
+    );
+    expect(h.envelope.meta.display_id).toBe(DISPLAY_ID);
+  });
+
+  test.each([
+    "REQ-",
+    "REQ-ABC",
+    "req-00065",
+    "REQ-00065-extra",
+    "https://example.test/browse/product/CP/qa/requirement/REQ-ABC",
+    "https://example.test/not-a-requirement/REQ-00065",
+  ])("rejects invalid input without a request: %s", async (input) => {
+    const h = readHarness([]);
+    await runRequirementsResolve(input, h.deps);
+    expect(h.calls).toHaveLength(0);
+    expect(h.envelope.outcome).toBe("FAILURE");
+    expect(h.envelope.error?.type).toBe("validation");
+  });
+
+  test("maps HTTP 404 to not_found", async () => {
+    const h = readHarness([new ApiError("API error 404", 404, {})]);
+    await runRequirementsResolve(DISPLAY_ID, h.deps);
+    expect(h.envelope.outcome).toBe("FAILURE");
+    expect(h.envelope.error?.type).toBe("not_found");
+  });
+
+  test("maps a business not-found response to not_found", async () => {
+    const h = readHarness([
+      { code: "FAILURE_INVALID_INPUT", msg: "requirement not found", data: null },
+    ]);
+    await runRequirementsResolve(DISPLAY_ID, h.deps);
+    expect(h.envelope.error?.type).toBe("not_found");
+  });
+
+  test("maps read transport failure to UNKNOWN", async () => {
+    const h = readHarness([new TypeError("fetch failed")]);
+    await runRequirementsResolve(DISPLAY_ID, h.deps);
+    expect(h.envelope.outcome).toBe("UNKNOWN");
+    expect(h.envelope.error?.type).toBe("transport");
+  });
+
+  test.each([
+    null,
+    {},
+    { redirect_path: REQUIREMENT_URL },
+    { redirect_url: `/browse/product/CP/qa/requirement/${DISPLAY_ID}` },
+    { url: 42 },
+    { url: "/unexpected/path" },
+    { url: `/product/not-a-uuid/qa-insights/test-suites/requirements/${REQUIREMENT}` },
+    { url: `/product/${PRODUCT}/qa-insights/test-suites/requirements/not-a-uuid` },
+  ])("rejects malformed success data: %j", async (data) => {
+    const h = readHarness([ok(data)]);
+    await runRequirementsResolve(DISPLAY_ID, h.deps);
+    expect(h.envelope.outcome).toBe("FAILURE");
+    expect(h.envelope.error?.type).toBe("api");
+    expect(h.envelope.meta.display_id).toBe(DISPLAY_ID);
+    expect(h.envelope.meta.product_id).toBeUndefined();
   });
 });
 

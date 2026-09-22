@@ -172,7 +172,9 @@ export interface QAInsightsError {
 }
 
 export interface QAInsightsMeta {
-  product_id: string;
+  /** Absent only for commands, such as Requirement display-ID resolution, that run before product scope is known. */
+  product_id?: string;
+  display_id?: string;
   requirement_id?: string;
   module_tree_node_id?: string;
   version_id?: string;

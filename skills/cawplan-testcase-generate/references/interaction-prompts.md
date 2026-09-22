@@ -15,8 +15,8 @@
 |------|-----|-----|
 | `header` | 锁定 Requirement | Lock Requirement |
 | `question` | 生成用例前，先确定是哪条 Requirement？ | Before generating test cases, let's confirm which Requirement this is |
-| option 1 · `label` | 已有 Requirement 链接 | I have a Requirement link |
-| option 1 · `description` | 把链接发我 | Send me the link |
+| option 1 · `label` | 已有链接或编号 | I have a link or ID |
+| option 1 · `description` | 把 Requirement 链接或 REQ 编号发我 | Send me the Requirement link or REQ ID |
 | option 2 · `label` | 没有 Requirement | No Requirement yet |
 | option 2 · `description` | 马上生成并保存到 CawPlan | Generate and save to CawPlan now |
 
@@ -25,17 +25,17 @@ Fallback：
 ```text
 锁定 Requirement
 生成用例前，先确定是哪条 Requirement？
-1. 已有 Requirement 链接 —— 选这个，把 Requirement 链接发我
+1. 已有链接或编号 —— 选这个，把 Requirement 链接或 REQ 编号发我
 2. 没有 Requirement —— 马上生成并保存到 CawPlan
-请回复序号，或直接粘贴 Requirement 链接、或直接说你想怎么做。
+请回复序号，或直接粘贴 Requirement 链接 / REQ 编号，或直接说你想怎么做。
 ```
 
 ```text
 Lock Requirement
 Before generating test cases, let's confirm which Requirement this is
-1. I have a Requirement link — pick this, then send me the link
+1. I have a link or ID — pick this, then send me the Requirement link or REQ ID
 2. No Requirement yet — generate and save to CawPlan now
-Reply with a number, paste the Requirement link directly, or just tell me what you'd like to do.
+Reply with a number, paste the Requirement link or REQ ID directly, or just tell me what you'd like to do.
 ```
 
 ## 框 2 · 还没有测试点
