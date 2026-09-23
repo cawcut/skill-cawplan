@@ -11,7 +11,7 @@ import {
     tracesFromToolResultStdout,
 } from "../qa-trace-extract.js";
 import {collectQaAssetChanges} from "../qa-asset-changes.js";
-import {requirementRefsFromJsonl} from "../qa-requirement-url.js";
+import {requirementRefsFromJsonl, requirementRefsFromText} from "../qa-requirement-url.js";
 import {
     foldBucketsToModel,
     mergeUsageBuckets,
@@ -255,8 +255,18 @@ export function buildQaDailyPayload(
 
     const qaSessions: QaSessionData[] = included.map(({session, skillLayers, jsonlPath, traces}) => {
         const assetChanges = collectQaAssetChanges(traces);
+        const requirementIdsFromUrls = session.agent === "claude-code" && jsonlPath
+            ? requirementRefsFromJsonl(jsonlPath, date).map((ref) => ref.requirementId)
+            : session.agent === "codex"
+                ? (session.human_inputs ?? []).flatMap((input) =>
+                    requirementRefsFromText(String(input.content ?? "")).map((ref) => ref.requirementId)
+                )
+            : [];
         const requirementIds = Array.from(
-            new Set(traces.map((t) => t.requirementId).filter((id): id is string => Boolean(id)))
+            new Set([
+                ...traces.map((t) => t.requirementId).filter((id): id is string => Boolean(id)),
+                ...requirementIdsFromUrls,
+            ])
         );
 
         return {

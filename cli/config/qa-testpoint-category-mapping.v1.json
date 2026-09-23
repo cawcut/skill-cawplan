@@ -227,6 +227,78 @@
       "auto_mappable": true
     },
     {
+      "code": "RESULT_VALIDITY",
+      "labels": {
+        "zh": "结果有效性",
+        "en": "Result Validity"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "INSTRUCTION_COMPLIANCE",
+      "labels": {
+        "zh": "指令遵循",
+        "en": "Instruction Compliance"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "FACTUAL_GROUNDING",
+      "labels": {
+        "zh": "事实依据",
+        "en": "Factual Grounding"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "OUTPUT_STABILITY",
+      "labels": {
+        "zh": "输出稳定性",
+        "en": "Output Stability"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "CONTEXT",
+      "labels": {
+        "zh": "上下文",
+        "en": "Context"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
+      "code": "AGENT_EXECUTION",
+      "labels": {
+        "zh": "Agent 执行",
+        "en": "Agent Execution"
+      },
+      "aliases": {
+        "zh": [],
+        "en": []
+      },
+      "auto_mappable": true
+    },
+    {
       "code": "OTHER",
       "labels": {
         "zh": "其他",

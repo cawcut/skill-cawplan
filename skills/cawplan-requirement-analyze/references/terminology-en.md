@@ -86,3 +86,9 @@
 | 输入类型 | Input Type |
 | 状态迁移 | State Transition |
 | 来源入口 | Source Entry |
+| 结果有效性 | Result Validity |
+| 指令遵循 | Instruction Compliance |
+| 事实依据 | Factual Grounding |
+| 输出稳定性 | Output Stability |
+| 上下文 | Context |
+| Agent 执行 | Agent Execution |

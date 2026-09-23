@@ -27,7 +27,7 @@
 产品:{产品名}
 位置:{模块树节点全路径}
 关联工单:{工单号，没有则「无」}
-Requirement 链接:{api.data.url 完整可点链接}
+Requirement 链接:{当前环境 Portal Host + api.data.redirect_url}
 ```
 
 ```text
@@ -36,14 +36,14 @@ Requirement: {需求摘要}
 Product: {产品名}
 Location: {模块树节点全路径}
 Linked ticket: {工单号，没有则 "None"}
-Requirement link: {api.data.url 完整可点链接}
+Requirement link: {current environment Portal Host + api.data.redirect_url}
 ```
 
 **更新（PATCH）** — 首行改 `已更新成功。`（英文版首行改 `Updated successfully.`），其余字段同上。
 
 内部：从 `api.data` 设置 `bound_requirement_id` 并刷新 `five_field_snapshot` / `summary_snapshot` / `ticket_id_snapshot`（step 10 **Store**）。**勿**向 SQA 展示 Requirement UUID、`review_status`、`product_id`、`module_tree_node_id` 等内部 id。
 
-`Requirement 链接`：返回 `api.data.url` 原样；可拼 portal 基址供浏览器打开。**Never** construct `url` or pass it to `cawplan api`.
+`Requirement 链接` 只在最终回执展示层生成：静默执行 `cawplan config env`，读取其 `Portal` 值作为当前环境 Host，去掉 Host 末尾 `/` 后与非空 `api.data.redirect_url` 拼接。不得使用或回退到 `api.data.url`；`redirect_url` 缺失或为空时省略整行链接，也不提示缺失。不要修改 API 返回对象，不把拼接结果传给 `cawplan api`。
 
 **§6 末尾引导（可选追加）** — 满足**全部**条件时，在成功回执**最后**另起一行逐字追加（不弹框、不追问、**仅本轮一次**；**跟随会话语言**二选一，不同时输出）：
 
@@ -68,7 +68,7 @@ Requirement link: {api.data.url 完整可点链接}
 > 这条上次其实已经保存成功了(当时没返回确认)。已绑定到那一条,没有重复创建。
 > This was actually already saved last time (the confirmation just didn't come back). It's now bound to that entry — no duplicate was created.
 
-下接 §6 成功回执（数据取自绑定行：`summary`、产品名、节点全路径、关联工单、`url`）。清除 `pending_write` 与 UNKNOWN。
+下接 §6 成功回执（数据取自绑定行：`summary`、产品名、节点全路径、关联工单、`redirect_url`；链接仍按 §6 展示层规则拼接）。清除 `pending_write` 与 UNKNOWN。
 
 ### reconcile 绑定（`patch_already_applied`）— 已知例外，文案未改本轮
 

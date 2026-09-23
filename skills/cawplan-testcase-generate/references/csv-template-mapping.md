@@ -1,80 +1,86 @@
-# CSV 列映射与布局(A3 导出参考)
+# CSV 列映射与导出契约（A3）
 
-> 人核对用的规格:每列填什么、跨行怎么排、留空规则、转义约束。
-> 机器实现见 `scripts/export_to_csv.js`(纯 JS 零依赖,列结构写死在那)。两者描述同一套规则,任一改动须同步另一方 + `assets/testcase-template.csv`。
+本文件仅在导出时读取，是 interim JSON、CSV 布局和脚本调用的文档真相源。机器实现为 `scripts/export_to_csv.js`，列模板为 `assets/testcase-template.csv`；变更任一方时必须同步其余两方。
 
-## 产物
-一个 Requirement → 一个 `.csv`,文件名 = 需求标题 + 时间戳。UTF-8 **无 BOM**、行尾 `\r\n`、RFC4180 转义(含逗号/换行/双引号的格子整体双引号包裹、内部 `""`,由脚本内 csvEscape 手写实现(纯 JS 零依赖))。团队实测该列结构与跨行布局可直接导入 TestRail。
+## Interim JSON
 
-> 提醒:无 BOM 的 CSV 用中文版 Excel 双击易乱码(Excel 的毛病),它是给 TestRail 导入/程序读取用的;肉眼核对用 VS Code/Notepad++ 指定 UTF-8 打开。
+导出当前 `cases[]` 的快照：
+
+```json
+{ "requirementTitle": "...", "cases": [ ... ] }
+```
+
+| 字段 | 契约 |
+|---|---|
+| `requirementTitle` | 用于 `<title>_<timestamp>.csv` 文件名 |
+| `title` | 必填，用例标题 |
+| `priority` | P0–P3 或英文优先级，由脚本映射 |
+| `tag`, `group`, `testPointTitle` | 原样继承；`testPointTitle` 必须为全称，不得写 `同上` |
+| `testPointId`, `requirementId` | 已归档主路径必填 |
+| `moduleTreeNodeId` | 来自 Requirement；缺失时留空并存疑 |
+| `preconditions` | string 或 string[]；标题态可省略或留空 |
+| `steps[]`, `expected[]` | 必须等长；标题态只能是 `[]` / `[]` |
+| `sourceCaseKey` | 可选；存在时用于 Refs 中的 case identity |
 
 ## 13 列映射
 
-| # | 列名 | 填什么 | 来源 |
-|---|---|---|---|
-| 1 | CaseId | 份内递增序号,现算 | 脚本 |
-| 2 | Title | 用例标题 | A3 展开(写作规范 §Title) |
-| 3 | Priority | Critical/High/Medium/Low | A3 内部推 P0–P3,脚本映射 |
-| 4 | Tag | 原样继承父测试点标签 | A2 测试点 |
-| 5 | Group | 原样继承父测试点分组 | A2 测试点 |
-| 6 | TestPointTitle | 父测试点自足标题,原样引用;**不得**为 `同上` 或省略 | A2 测试点 / `cases[].testPointTitle` |
-| 7 | Preconditions | 各自前置,多条 `1.\n2.`;不去重合并 | A3(详情级) |
-| 8 | Step description | 操作步骤,一步一行 | A3 展开 |
-| 9 | Expected Result | 与 Step 同行一一对应 | A3 展开 |
-| 10 | moduleTreeNodeId | 需求归属模块树节点 id,整份同一 | GET 五字段 |
-| 11 | RequirementId | 需求 id,整份同一 | 入口 id / 冷接力解析 |
-| 12 | TestPointId | 父测试点 id,机器溯源 | GET testpoints |
-| 13 | Refs | TestRail References 埋点,脚本按 `buildRefs` 生成 | `scripts/refs_utils.js`(对齐 BE) |
+| # | 列名 | 内容 |
+|---|---|---|
+| 1 | CaseId | 脚本份内递增序号 |
+| 2 | Title | 用例标题 |
+| 3 | Priority | Critical/High/Medium/Low |
+| 4 | Tag | 父测试点标签原文 |
+| 5 | Group | 父测试点分组原文 |
+| 6 | TestPointTitle | 父测试点完整标题 |
+| 7 | Preconditions | 多条为 `1.\n2.`，不跨 Case 去重 |
+| 8 | Step description | 一步一行 |
+| 9 | Expected Result | 与 Step 同行一一对应 |
+| 10 | moduleTreeNodeId | Requirement 模块树节点 id |
+| 11 | RequirementId | Requirement id |
+| 12 | TestPointId | 父测试点 id |
+| 13 | Refs | 脚本生成的 TestRail References 埋点 |
 
-> 第 6+12 列(TestPointTitle+TestPointId)= "每条用例可溯源到父测试点"的物理载体,也是这份静态 CSV 唯一能自证漂移的抓手。**每条用例的 TestPointId 必须非空**(无孤儿)。
+## Refs
 
-### Refs 列规则(T2-A8 · link Workflow A)
-
-每条用例**首行**填写(续行留空,属**用例级列**):
+每条 Case 首行写：
 
 ```text
 cawplan:{RequirementId};cawplan:{TestPointId};cawplan:case_{caseIdentity}
 ```
 
-| 占位符 | 规则 |
-|--------|------|
-| `RequirementId` | 与第 11 列同源 |
-| `TestPointId` | 与第 12 列同源 |
-| `caseIdentity` | interim JSON 有 `sourceCaseKey` 用之,否则对 title/steps/preconditions/tag 计算 `content_hash`(`sha256:...`,与 BE `resolveCaseIdentity` 一致) |
+`caseIdentity` 优先使用 `sourceCaseKey`，否则由脚本按 title/steps/preconditions/tag 计算与后端一致的 `content_hash`。Refs 不得由 SQA 或 Agent 手写；TestRail 导入时映射到 References。同一 `TestPointId` 下不同 Case 的 identity 必须不同。
 
-- **禁止** SQA 手填或 Agent 在对话内手写 Refs;仅 `export_to_csv.js` 生成。
-- TestRail 导入时须映射 `Refs` → **References** 字段。
-- 同一 `TestPointId` 多条用例时,`cawplan:case_*` 段必须互不相同(靠不同 `content_hash` 或 `sourceCaseKey`)。
+## 跨行和草稿态
 
-## 用例级 vs 详情级(决定跨行与留空)
-- **用例级**(第 1–6、10–13 列):用例的身份,**只在用例首行填、续行留空**。
-- **详情级**(第 7 Preconditions、8 Step、9 Expected):用例的走法,**同批生成、同进退**——要么整条都有(已展开),要么整条都无(仅标题态)。
+- 用例级列 1–6、10–13 只在 Case 首行填写，续行留空。
+- 详情列 7–9 同进退：展开态连续 N 行，N 为步骤数；首行含 Preconditions、Step 1、Expected 1，续行只含 Step/Expected。
+- 单步 Case 占一行。标题态 Case 也占一行：用例级列和 Refs 正常填写，详情三列为空。
+- 已展开与未展开 Case 可在同一 CSV 混排；标题态条目的详情三列保持为空。
+- 脚本不生成、补齐或改写用例内容。
+- 预览中的 `同上` 只属于 Markdown 显示层，JSON/CSV 每条 Case 始终保存完整 `testPointTitle` 和 `group`。
 
-## 跨行布局(一条用例 = 连续 N 行,N=步骤数)
+## 文件格式
+
+一个 Requirement 生成一个时间戳 CSV。文件为 UTF-8 无 BOM、CRLF 行尾，并使用 RFC4180 转义。默认输出目录是当前工作目录下的 `testcases/`；SQA 指定时用 `-o <dir>`。多次导出互不覆盖，也不改变会话工作态。
+
+## 调用
+
+在本 Skill 目录执行。用临时 JSON 保存快照，完成后删除：
+
+```bash
+TMP_JSON="/tmp/a3_export_$(date +%Y%m%d_%H%M%S)_$RANDOM.json"
+
+cat > "$TMP_JSON" <<'EOF'
+{ "requirementTitle": "...", "cases": [ ... ] }
+EOF
+
+node scripts/export_to_csv.js "$TMP_JSON" -o testcases
+
+rm -f "$TMP_JSON"
 ```
-首行     : 用例级列(6 个)+ Preconditions + 第1步 Step + 第1步 Expected + Refs
-续行×(N-1): 仅 Step + Expected,其余 11 列全空
-下一条   : 紧接,用例间不空行
-```
-- 单步 = 1 行全填;**仅标题态 = 1 行**(用例级填,详情三列空,Refs 仍填)。
-- 半展开:已展开(N 行)与未展开(1 行)**同份混排合法**。
-- **草稿态导出**:SQA 可在任意内容状态(纯标题 / 部分展开混排)随时导出一份 CSV。此时未展开条目详情三列留空、混排合法,属**草稿态、非最终交付**(交付前通常应全展开)。导出不改变工作态、可多次导出(文件名带时间戳、互不覆盖);草稿态在对话回执里如实说明,不改文件名 / 不加列。
-- **判新用例起始:靠 CaseId 有值**(不受展开状态影响)。
-- Step 与 Expected **同行严格配对、条数相等**。
-- CSV 无"格内换行"概念:Preconditions 的 `1.\n2.` 靠该格被双引号整体包裹保留(RFC4180),TestRail 亦认。
 
-## 留空规则
-- 用例级列:只首行填、续行空(含 Refs)。
-- 详情三列:该用例已展开才填;未展开则整条 1 行、详情空。
-- **源里没有的信息一律不编造**:无特殊前置 → "无"或空;接口没返回 moduleTreeNodeId → 留空 + 存疑,不猜、不扫产品列表。
+不得手写 CSV 或临时重写导出逻辑。脚本失败时如实报告 stderr，修复上游 JSON 后重试。
 
----
+## 硬门
 
-## ⚠️ 本文件(及导出实现)不得出现
-- ❌ 加模板外的列(如"设计方法""回归类型"):模板仅 13 列,不扩。
-- ❌ 脚本生成/补全/改写**用例内容**(标题/步骤/预期等):脚本只摆格子与 Refs 埋点,内容全部来自上游 A3 定稿(红线 0 硬墙)。
-- ❌ SQA 手改 Refs 后期望 link 仍成功:Refs 与用例内容绑定,改内容须重新导出。
-- ❌ TestPointId 为空的行(孤儿用例):每条必有非空父测试点 id。
-- ❌ TestPointTitle 为 `同上`、省略或预览缩写:数据层必须每行完整父测试点全称。
-- ❌ 带 BOM / 用非标准手拼转义 / 行尾非 CRLF。
-- ❌ 用 CaseId 当稳定主键或回写库:它是份内现算序号,不落库。
+脚本拒绝空 `testPointId`、空 `requirementId`、空 `title`、Step/Expected 数量不等，以及展开态中空 Step 或空 Expected。标题态只允许 `[]` / `[]`。不得增加模板外列、用 CaseId 当稳定主键、改写 Refs、输出 BOM 或非 CRLF 文件。

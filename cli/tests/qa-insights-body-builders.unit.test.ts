@@ -7,7 +7,6 @@ import {
   buildRequirementCreateBody,
   validateRequirementPatchBody,
   buildTestPointBatchBody,
-  buildModuleTreeNodeBody,
 } from "../src/lib/qa-insights/body-builders";
 import {
   classifyTestPointCategory,
@@ -198,6 +197,12 @@ describe("qa-testpoint-category/v1 mapping and injection contract", () => {
     ["性能", "PERFORMANCE"],
     ["安全审计", "SECURITY_AUDIT"],
     ["可观测", "OBSERVABILITY"],
+    ["结果有效性", "RESULT_VALIDITY"],
+    ["指令遵循", "INSTRUCTION_COMPLIANCE"],
+    ["事实依据", "FACTUAL_GROUNDING"],
+    ["输出稳定性", "OUTPUT_STABILITY"],
+    ["上下文", "CONTEXT"],
+    ["Agent 执行", "AGENT_EXECUTION"],
   ] as const;
   const officialEn = [
     ["Positive", "POSITIVE"],
@@ -217,6 +222,12 @@ describe("qa-testpoint-category/v1 mapping and injection contract", () => {
     ["Performance", "PERFORMANCE"],
     ["Security Audit", "SECURITY_AUDIT"],
     ["Observability", "OBSERVABILITY"],
+    ["Result Validity", "RESULT_VALIDITY"],
+    ["Instruction Compliance", "INSTRUCTION_COMPLIANCE"],
+    ["Factual Grounding", "FACTUAL_GROUNDING"],
+    ["Output Stability", "OUTPUT_STABILITY"],
+    ["Context", "CONTEXT"],
+    ["Agent Execution", "AGENT_EXECUTION"],
   ] as const;
   const categoryPoint = {
     title: "分类测试点",
@@ -226,13 +237,13 @@ describe("qa-testpoint-category/v1 mapping and injection contract", () => {
     is_edited: false,
   };
 
-  test("CATEGORY-V1-01 maps all 17 official Chinese terms", () => {
+  test("CATEGORY-V1-01 maps all official Chinese terms", () => {
     for (const [term, code] of officialZh) {
       expect(classifyTestPointCategory([term]), term).toBe(code);
     }
   });
 
-  test("CATEGORY-V1-02 maps all 17 official English terms", () => {
+  test("CATEGORY-V1-02 maps all official English terms", () => {
     for (const [term, code] of officialEn) {
       expect(classifyTestPointCategory([term]), term).toBe(code);
     }
@@ -429,28 +440,5 @@ describe("A2-§9-body / P10 testpoint batch — caller five keys; CLI injects is
       ],
     });
     expect(body.test_points.map((p) => p.title)).toEqual(["第一条", "第二条", "第三条"]);
-  });
-});
-
-describe("A1-MT-1 module tree node body", () => {
-  test("A1-MT-1 parent_id null builds a root node", () => {
-    expect(buildModuleTreeNodeBody({ parentId: null, name: "视频生成" }))
-      .toEqual({ parent_id: null, name: "视频生成" });
-  });
-  test("A1-MT-1 literal string \"null\" is treated as root", () => {
-    expect(buildModuleTreeNodeBody({ parentId: "null", name: "视频生成" }).parent_id).toBeNull();
-  });
-  test("A1-MT-1 omitted parentId is treated as root", () => {
-    expect(buildModuleTreeNodeBody({ name: "视频生成" }).parent_id).toBeNull();
-  });
-  test("A1-MT-1 concrete parent id is preserved", () => {
-    expect(buildModuleTreeNodeBody({ parentId: "019fcf73", name: "子节点" }).parent_id)
-      .toBe("019fcf73");
-  });
-  test("A1-MT-1 empty name is a hard failure", () => {
-    expect(() => buildModuleTreeNodeBody({ parentId: null, name: "  " })).toThrow(/name/);
-  });
-  test("A1-MT-1 name is trimmed", () => {
-    expect(buildModuleTreeNodeBody({ parentId: null, name: "  视频生成  " }).name).toBe("视频生成");
   });
 });

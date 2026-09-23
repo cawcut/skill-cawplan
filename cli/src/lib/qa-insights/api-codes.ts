@@ -72,7 +72,7 @@ export function isApiFailure(code: string | undefined | null): boolean {
   return typeof code === "string" && code.startsWith("FAILURE");
 }
 
-/** True for the validation-class failure (e.g. module tree depth > 5). */
+/** True for the validation-class FAILURE_INVALID_INPUT business code. */
 export function isFailureInvalidInput(code: string | undefined | null): boolean {
   return code === API_CODE_FAILURE_INVALID_INPUT;
 }

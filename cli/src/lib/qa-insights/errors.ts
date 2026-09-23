@@ -9,8 +9,8 @@
  *     HTTP 200 + { code: "FAILURE_INVALID_INPUT", msg: "requirement not found" }.
  *     It is NOT an HTTP 404. The 404 documented in CAWPLAN_OPEN_API.md §15
  *     applies to the READ path (single GET) only.
- *   - FAILURE_INVALID_INPUT is overloaded: not-found, missing body fields, and
- *     module-tree depth>5 all share it, so classification must consult `msg`
+ *   - FAILURE_INVALID_INPUT is overloaded: not-found and missing body fields
+ *     share it, so classification must consult `msg`
  *     and fall back to `validation` when uncertain.
  *   - A failure envelope may carry a non-empty `data` (OQ-A returned an object
  *     of null fields), so `code` must be checked before `data`.
@@ -92,12 +92,8 @@ export function classifyFailureEnvelope(envelope: ParsedEnvelope): QAInsightsErr
   }
 
   if (isFailureInvalidInput(code)) {
-    // Includes module-tree depth>5, measured 2026-08-06:
-    //   HTTP 200 { code: "FAILURE_INVALID_INPUT",
-    //             msg: "module tree depth exceeds limit (5)",
-    //             data: { parent_id: null } }
-    // Note the non-empty `data` on a failure — another reason `code` must be
-    // read before `data`.
+    // Validation envelopes may carry non-empty `data`, so `code` must be read
+    // before treating the payload as a successful response.
     return {
       type: "validation",
       message: msg || "invalid input",

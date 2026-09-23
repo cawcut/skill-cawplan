@@ -35,15 +35,52 @@ Your part is to feed them the right inputs: the probe / `--desired` come from th
 
 **Fixed phrasing**: use the step 3 table sentences for inferred bullets — **no synonym rewrites**. Reworded bullets read as changed text and stop matching an earlier archive.
 
-**Cold handoff** (SQA provides a requirement `id`, Requirement link, or asks to continue an existing Requirement):
+**Cold handoff** (SQA provides a requirement `id`, display ID, Requirement link, or asks to continue an existing Requirement):
 
-When `product_id` + `requirement_id` are known (Requirement portal link `/product/{product_id}/qa-insights/test-suites/requirements/{requirement_id}`, or SQA gives both):
+Resolve the reference in this order:
+
+1. Valid `product_id` + `requirement_id` take priority. Use them directly; do not call the display-ID resolver.
+2. Parse an old Portal URL from the string only; never request the page:
+
+   `/product/{product_id}/qa-insights/test-suites/requirements/{requirement_id}`
+
+3. A bare display ID must strictly match `^REQ-\d+$`; a Browse URL must contain:
+
+   `/browse/product/{product_key}/qa/requirement/{display_id}`
+
+   For either form call (quote a full URL in the shell):
+
+   ```bash
+   cawplan qa-insights requirements resolve '<display_id_or_browse_url>'
+   ```
+
+   The command validates/extracts `display_id` locally, calls the by-display-id endpoint, and parses the real UUIDs from API `data.url`. The Browse URL's `product_key` (for example `CP`) is not `product_id`; never infer a UUID from it.
+
+All Portal/Browse URLs are string inputs only. Never fetch the page with `cawplan api` or HTTP.
+
+Acquire one common `requirement_data` object:
+
+- When `product_id` + `requirement_id` are known directly or from an old Portal URL, call:
 
 ```bash
 cawplan qa-insights requirements get <product_id> <requirement_id>
 ```
 
-On `outcome: SUCCESS`, use `data` as the row (single `QARequirement` object; no list filter).
+- On `outcome: SUCCESS`, set `requirement_data = data` (single `QARequirement` object; no list filter).
+- When `requirements resolve` succeeds, require both `meta.product_id` and `meta.requirement_id`, then bind those IDs and set `requirement_data = data` directly. **Do not call `requirements get` in the same cold-handoff request.** Resolver `data` is the same full Requirement structure.
+
+For either source, `requirement_data` must be an object containing the five Requirement fields. Treat missing binding IDs, unusable data, or conflicting `data.id` / `data.product_id` versus resolver metadata as an abnormal API response; stop without replacing an existing binding or snapshots.
+
+Display-ID resolver outcomes:
+
+| Result | Action |
+|--------|--------|
+| `FAILURE / validation` | Explain that the display ID must be `REQ-` followed by digits; do not make another Requirement request. |
+| `FAILURE / not_found` | Report that the Requirement does not exist; stop. |
+| Other `FAILURE` or `UNKNOWN` | Report the error honestly; stop without guessing IDs or falling back to `requirements get`. |
+| `SUCCESS` with invalid IDs/data | Report an abnormal response; stop. |
+
+Only after successful validation may a new explicit target replace the current binding, draft, and snapshots. A failed rebind leaves the previous session context intact.
 
 When only `module_tree_node_id` is available and you must filter by `id`:
 
@@ -51,9 +88,9 @@ When only `module_tree_node_id` is available and you must filter by `id`:
 cawplan qa-insights requirements list <product_id> --module-tree-node-id <node_id>
 ```
 
-On `outcome: SUCCESS`, `data` is the requirement array — filter client-side by `id` when SQA names a specific requirement.
+On `outcome: SUCCESS`, `data` is the requirement array — filter client-side by `id` when SQA names a specific requirement, then use the matched row as `requirement_data`.
 
-Map the row's five fields into the current draft. Set `bound_requirement_id`, `five_field_snapshot` (five fields per Field comparison), `summary_snapshot`, and `ticket_id_snapshot` from that row. If `summary` is `null`, **generate** a display summary for the draft now (step 4); next archive **PATCH** writes `summary`. Clear any `pending_write` / UNKNOWN. Re-show five fields + display summary + open-questions list if SQA wants to edit before the next archive/update.
+Map `requirement_data`'s five fields into the current draft. Set `bound_requirement_id`, `five_field_snapshot` (five fields per Field comparison), `summary_snapshot`, and `ticket_id_snapshot` from it; also keep `product_id` and `module_tree_node_id`. If `summary` is `null`, **generate** a display summary for the draft now (step 4); next archive **PATCH** writes `summary`. Clear any `pending_write` / UNKNOWN. Re-show five fields + display summary + open-questions list if SQA wants to edit before the next archive/update.
 
 ### 10b. Reconcile (run Table A)
 
@@ -108,7 +145,7 @@ When SQA signals archive/submit intent ("可以了", "存吧", "归档", "提交
 
 | Condition | Action |
 |-----------|--------|
-| No `bound_requirement_id` | **11a POST** create (steps 7–9 if not done). |
+| No `bound_requirement_id` | **11a POST** create (steps 7–8 if not done). |
 | Bound + five fields, `summary`, and `ticket_id` all unchanged vs snapshots (`requirements update` returns **`NOOP`**) | Warn: likely duplicate archive. Ask 是否**另建**? Confirm → **11a POST**. **Skip if you just bound via reconcile (10b)** — tell SQA already bound, no second copy.<br><br>Two branches, decided by `just_reconciled`: **(a) `just_reconciled = false`** → warn and **ask**; only after SQA confirms do you go to 11a. `NOOP` states a fact; it is **not** permission to create. **(b) `just_reconciled = true`** → **skip the warning and the question entirely**; tell SQA already bound, no second copy. Asking here would invite a duplicate moments after telling SQA 无需再建. |
 | Bound + five fields unchanged, `summary` and/or `ticket_id` changed | **11b PATCH** metadata only (`summary`, `ticket_id`, or both — command emits only changed keys). |
 | Bound + five fields changed | **11b PATCH** changed keys vs snapshots (`summary` / `ticket_id` only if they differ from their snapshots). |

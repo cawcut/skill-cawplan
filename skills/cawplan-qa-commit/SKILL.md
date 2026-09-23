@@ -177,8 +177,8 @@ Before upload, include:
 - Basic facts: date, author, total QA sessions, agents, total cost.
 - Overall summary: write 2–4 sentences on what QA work happened across sessions (requirements exercised, test points/cases produced, tickets touched). The QA payload has no top-level `summary` field — derive this from sessions and `human_inputs[].content`.
 - Session review: for each important session, include `session_title`, agent, `display_time_range` when present, cost, `skill_layers`, requirement/testpoint/testcase counts, `product_id`, and ticket display IDs. Add 1–2 sentences on what work happened; do not list only title and counts.
-- Assignment notes: sessions optionally added from the supplement list, or sessions left without a product (allowed — backend accepts empty `product_id`).
-- Data quality notes: count of sessions with empty `skill_layers` or missing `product_id`; excluded sessions printed during collect (commit-only or empty only, if any) and whether the user supplemented any on the assignment page; collect stderr warnings; sessions without cost; unresolved ticket display IDs on the assignment page.
+- Assignment notes: sessions optionally added from the supplement list, and confirmation that every session has a product.
+- Data quality notes: count of sessions with empty `skill_layers`; excluded sessions printed during collect (commit-only or empty only, if any) and whether the user supplemented any on the assignment page; collect stderr warnings; sessions without cost; unresolved ticket display IDs on the assignment page.
 
 Do not summarize `human_inputs` with coding-only fields such as `category` or `topic` — the QA payload does not include them.
 
@@ -186,7 +186,7 @@ Do not summarize `human_inputs` with coding-only fields such as `category` or `t
 
 - Always use `cawplan session qa-assign --file <absolute-qa-daily-file>` for web confirmation. Do **not** use `collect --mode qa --assign` (that re-collects) or `cawplan session assign --web` (coding flow with git-project mapping).
 - Product selection uses the same CawPlan product catalog as coding insights, but **without** git-project linking. The product picker (same source as `cawplan session products`) excludes products whose `controls` array does not include `coding-insights` — if the product the user wants is missing, tell them it has not enabled coding insights; do not guess a substitute or hand-edit `product_id` in the JSON.
-- One session maps to at most one product. Empty product is allowed when the user cannot determine it yet.
+- One session maps to exactly one product. The assignment page blocks saving until every session has a product selected from the list.
 - On save, the assignment page resolves ticket display IDs to internal `ticket_ids` via Cloud; unresolved display IDs fail save with an error — surface that error to the user instead of uploading a stale file.
 
 ## Rules

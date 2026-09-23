@@ -136,6 +136,20 @@ describe("qaAssignmentHtml session and input columns", () => {
         expect(row).toContain("Analyze requirement for login flow");
         expect(row).toContain("Generate test points for edge cases");
         expect(row).not.toContain("Expand testcase steps");
+        expect(row).toContain('class="human-inputs" tabindex="0" data-full-input="1. Analyze requirement for login flow');
+        expect(row).toContain("2. Generate test points for edge cases");
+    });
+
+    test("keeps a truncated row preview and exposes the complete input for the tooltip", () => {
+        const daily = mockDailyFixture();
+        const fullInput = "x".repeat(240);
+        daily.human_inputs = [{session_id: daily.sessions[0]!.session_id, content: fullInput}];
+        const row = renderQaSessionRowHtml(daily.sessions[0]!, MOCK_PRODUCTS, {
+            interactive: false,
+            daily,
+        });
+        expect(row).toContain(`${"x".repeat(200)}...</li>`);
+        expect(row).toContain(`data-full-input="1. ${fullInput}"`);
     });
 
     test("server-side row renderer shows empty human input placeholder", () => {
@@ -156,13 +170,28 @@ describe("qaAssignmentHtml session and input columns", () => {
         expect(row).not.toContain(`<td class="title-cell">${session.session_id}</td>`);
     });
 
-    test("interactive page wires browser resolveSessionTitle and humanInputsHtml", () => {
+    test("interactive page wires browser input preview and bounded tooltip", () => {
         const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
         expect(html).toContain("function resolveSessionTitle(session)");
         expect(html).toContain("return session.session_title ?? session.session_id;");
-        expect(html).toContain("function humanInputsHtml(report, session)");
-        expect(html).toContain("humanInputsHtml(daily, session)");
+        expect(html).toContain("function qaHumanInputsHtml(report, session)");
+        expect(html).toContain("qaHumanInputsHtml(daily, session)");
+        expect(html).toContain('id="input-tooltip" class="input-tooltip hidden" role="tooltip"');
+        expect(html).toContain("width: min(460px, calc(100vw - 32px))");
+        expect(html).toContain("max-height: min(280px, calc(100vh - 32px))");
+        expect(html).toContain("overscroll-behavior: contain");
+        expect(html).toContain("scrollbar-width: thin");
+        expect(html).toContain("white-space: pre-wrap");
+        expect(html).toContain("overflow-wrap: anywhere");
+        expect(html).toContain("const right = anchorRect.right + gap;");
+        expect(html).toContain("if (!inputTooltip.contains(event.target)) inputTooltip.classList.add");
         expect(html).not.toContain("session.session_title || session.session_id");
+    });
+
+    test("allocates more table width to Input than Models and Test Points", () => {
+        const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
+        expect(html).toContain("th:nth-child(3) { width: 20%; }");
+        expect(html).toContain("th:nth-child(5), th:nth-child(6) { width: 6.5%; }");
     });
 });
 
@@ -172,7 +201,8 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
         expect(html).not.toContain("<th>Skill layers</th>");
         const headerMatch = html.match(/<thead>[\s\S]*?<\/thead>/);
         expect(headerMatch).not.toBeNull();
-        const headers = [...headerMatch![0].matchAll(/<th>([^<]+)<\/th>/g)].map((m) => m[1]);
+        const headers = [...headerMatch![0].matchAll(/<th>([\s\S]*?)<\/th>/g)]
+            .map((m) => m[1]!.replace(/<[^>]+>/g, "").trim());
         expect(headers).toEqual([
             "Session ID",
             "Title",
@@ -180,9 +210,8 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
             "Agent",
             "Models",
             "Test Points",
-            "Product",
+            "Product *",
             "Tickets",
-            "Requirements",
             "Date / Time",
         ]);
     });
@@ -204,14 +233,13 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
             "Models",
             "Test Points",
             "Product",
-            "Requirements",
             "Date / Time",
         ]);
     });
 
-    test("readonly loading state uses colspan 9", () => {
+    test("readonly loading state uses colspan 8", () => {
         const html = qaAssignmentHtml({readonlyPreview: true});
-        expect(html).toContain('colspan="9"');
+        expect(html).toContain('colspan="8"');
     });
 
     test("sessionDateTimeText formats start like coding and falls back to em dash", () => {
@@ -231,7 +259,7 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
         });
         expect(row).not.toContain("skills-cell");
         expect(row).toMatch(
-            /<td class="sid-cell">[\s\S]*<td class="title-cell">[\s\S]*<td class="input-cell">[\s\S]*<td class="agent-cell">[\s\S]*<td class="num-cell">[\s\S]*<td class="product-cell">[\s\S]*<td class="tickets-cell">[\s\S]*<td class="num-cell">[\s\S]*<td class="dt-cell">/,
+            /<td class="sid-cell">[\s\S]*<td class="title-cell">[\s\S]*<td class="input-cell">[\s\S]*<td class="agent-cell">[\s\S]*<td class="num-cell">[\s\S]*<td class="product-cell">[\s\S]*<td class="tickets-cell">[\s\S]*<td class="dt-cell">/,
         );
         expect(row).toContain('class="dt-cell"');
     });
@@ -242,10 +270,14 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
         expect(html).toContain('class="product"');
         expect(html).toContain('list="product-list"');
         expect(html).toContain('placeholder="Search product"');
+        expect(html).toContain('<th>Product <span class="required">*</span></th>');
+        expect(html).toContain('aria-label="Product for session" required');
         expect(html).toContain('value="Demo Product"');
         expect(html).toContain('<option value="Demo Product"></option>');
         expect(html).toContain("normalizeProducts");
         expect(html).toContain("validateSingleProductPerSession");
+        expect(html).toContain('const valid = Boolean(product);');
+        expect(html).toContain('throw new Error("Product is required for every session.");');
         expect(html).not.toContain('class="product-select"');
         expect(html).not.toContain("repoPickerHtml");
         expect(html).not.toContain("refreshRepoOptionsForProduct");

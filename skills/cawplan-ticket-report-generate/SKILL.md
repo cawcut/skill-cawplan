@@ -51,7 +51,7 @@ cawplan skill check
 
 ## 允许命令
 
-`products list` · `versions list` · `config env` · `versions get` · `tickets get` · `tickets search --display_ids`（仅 Step 0）· `qa-insights requirements get` · `qa-insights testpoints list` · `api GET .../qa/module-tree` · `api GET .../qa/requirements` · `qa-reports list-version|create|update` · `qa-insights testrail execution summary --ticket-id --refresh` · `tickets history`（可选，见 `collect §IssueSummary`）· `node scripts/validate_report_details.js`（Step 5→6，MUST）
+`products list` · `versions list` · `config env` · `versions get` · `tickets get` · `tickets search --display_ids`（仅 Step 0）· `qa-insights module-tree get` · `qa-insights requirements get` · `qa-insights testpoints list` · `api GET .../qa/requirements` · `qa-reports list-version|create|update` · `qa-insights testrail execution summary --ticket-id --refresh` · `tickets history`（可选，见 `collect §IssueSummary`）· `node scripts/validate_report_details.js`（Step 5→6，MUST）
 
 **禁止**：`tickets list`、`tickets relate list`、直连 TestRail、`cawplan api` 落库（Requirement 读除外）、`qa-insights` 写、A5 写入、静默跳闸。
 

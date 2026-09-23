@@ -24,6 +24,35 @@ describe.skipIf(!existsSync(SESSION_PATH))("tracesFromToolResultStdout (S3.3)", 
     });
 });
 
+describe("requirements create receipt", () => {
+    let tmpDir: string | undefined;
+
+    afterEach(() => {
+        if (tmpDir) rmSync(tmpDir, {recursive: true, force: true});
+        tmpDir = undefined;
+    });
+
+    test("uses api.data.id when the successful create receipt has no meta.requirement_id", () => {
+        tmpDir = mkdtempSync(join(tmpdir(), "qa-requirement-create-trace-"));
+        const jsonlPath = join(tmpDir, "synthetic.jsonl");
+        writeFileSync(jsonlPath, JSON.stringify({
+            type: "user",
+            toolUseResult: {
+                stdout: JSON.stringify({
+                    outcome: "SUCCESS",
+                    command: "requirements create",
+                    meta: {product_id: "p1", dry_run: false},
+                    api: {code: "SUCCESS", data: {id: "req-created"}},
+                }),
+            },
+        }), "utf-8");
+
+        const traces = tracesFromToolResultStdout(jsonlPath);
+        expect(traces).toHaveLength(1);
+        expect(traces[0]?.requirementId).toBe("req-created");
+    });
+});
+
 describe("模板陷阱 (template-trap) protection", () => {
     let tmpDir: string | undefined;
 

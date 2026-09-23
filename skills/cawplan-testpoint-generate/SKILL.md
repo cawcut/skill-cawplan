@@ -3,9 +3,9 @@ version: 0.2.9
 name: cawplan-testpoint-generate
 description: |
   Generate test-point coverage outlines from an archived CawPlan Requirement (five fields), with an open-questions list, and batch-archive test points after SQA confirmation.
-  Use when: an archived Requirement needs test points or a coverage outline; cold handoff (Requirement link or id); hot handoff after A1 archive ("generate test points for this requirement"); incremental test-point supplements on an existing Requirement.
+  Use when: an archived Requirement needs test points or a coverage outline; cold handoff (Requirement link, display_id, or id); hot handoff after A1 archive ("generate test points for this requirement"); incremental test-point supplements on an existing Requirement.
   NOT for: structuring or archiving Requirements (use `cawplan-requirement-analyze`); expanding test points into step-by-step cases or Excel (A3); viewing or editing archived test points or review in Test Suites (use the web UI); unarchived five-field drafts only (archive via A1 first).
-argument-hint: "[Requirement link or requirement_id, or 'continue the requirement just archived']"
+argument-hint: "[Requirement link, REQ display_id, or requirement_id, or 'continue the requirement just archived']"
 allowed-tools: Bash
 ---
 
@@ -40,7 +40,7 @@ On each **generate test points** request, resolve the target in this order (**fa
 
 | Step | Condition | Action |
 |------|-----------|--------|
-| **P1** | This message has an explicit reference (Requirement link / `requirement_id` / switch to another Requirement) | **Cold handoff** — rebind; ignore prior session binding |
+| **P1** | This message has an explicit reference (Requirement link / `display_id` / `requirement_id` / switch to another Requirement) | **Cold handoff** — rebind; ignore prior session binding |
 | **P2** | Hot-handoff phrasing matches **and** session has **valid binding** (`product_id` + `requirement_id` both present) | **Hot handoff** — use current session binding |
 | **P3** | Session has a requirement **draft** (five-field draft from analysis) but **no** valid `requirement_id` (not saved yet) | → **框2「需求还没保存」** below. **Do not** call APIs or show a test-point table |
 | **兜底** | None of the above (no link, no valid binding, no draft) | → **框1「锁定 Requirement」** below |
@@ -61,8 +61,8 @@ On each **generate test points** request, resolve the target in this order (**fa
 |------|-----|-----|
 | `header` | 锁定 Requirement | Lock Requirement |
 | `question` | 生成测试点前，先确定是哪条 Requirement？ | Before generating test points, let's confirm which Requirement this is |
-| option 1 · `label` | 已有 Requirement 链接 | I have a Requirement link |
-| option 1 · `description` | 把链接发我 | Send me the link |
+| option 1 · `label` | 已有链接或编号 | I have a link or ID |
+| option 1 · `description` | 把 Requirement 链接或 REQ 编号发我 | Send me the Requirement link or REQ ID |
 | option 2 · `label` | 没有 Requirement | No Requirement yet |
 | option 2 · `description` | 马上生成并保存到 CawPlan | Generate and save to CawPlan now |
 
@@ -71,22 +71,22 @@ On each **generate test points** request, resolve the target in this order (**fa
 ```text
 锁定 Requirement
 生成测试点前，先确定是哪条 Requirement？
-1. 已有 Requirement 链接 —— 选这个，把 Requirement 链接发我
+1. 已有链接或编号 —— 选这个，把 Requirement 链接或 REQ 编号发我
 2. 没有 Requirement —— 马上生成并保存到 CawPlan
-请回复序号，或直接粘贴 Requirement 链接、或直接说你想怎么做。
+请回复序号，或直接粘贴 Requirement 链接 / REQ 编号，或直接说你想怎么做。
 ```
 
 ```text
 Lock Requirement
 Before generating test points, let's confirm which Requirement this is
-1. I have a Requirement link — pick this, then send me the link
+1. I have a link or ID — pick this, then send me the Requirement link or REQ ID
 2. No Requirement yet — generate and save to CawPlan now
-Reply with a number, paste the Requirement link directly, or just tell me what you'd like to do.
+Reply with a number, paste the Requirement link or REQ ID directly, or just tell me what you'd like to do.
 ```
 
 **落点**：
 
-- 选「已有 Requirement 链接」→ **请对方发 Requirement 链接**（一句即可）；拿到 Requirement 链接后（下条消息，或工具自动 Other 框里直接粘贴）→ 按下方 **Portal URL** 规则解析（只解析、不 fetch）；仅 `requirement_id` 缺 `product_id` → 用大白话追问补 `product_id` 或完整 Requirement 链接。无法解析为 Requirement 链接 → 复述两项，请重选或补 Requirement 链接。
+- 选「已有链接或编号」→ **请对方发 Requirement 链接或 `REQ-` 编号**（一句即可）；拿到引用后（下条消息，或工具自动 Other 框里直接粘贴）→ 按下方 **Requirement 引用**规则解析；仅 `requirement_id` 缺 `product_id` → 用大白话追问补 `product_id` 或完整 Requirement 链接。无法解析 → 复述两项，请重选或补有效引用。
 - 选「没有 Requirement」→ 读 `cawplan-requirement-analyze` skill，按 **跨 skill 接力**：会话写 `resume_intent = testpoint`；有草稿则跳过分析直达归档闸，无草稿则从收素材开始。
 
 #### 框2 · 需求还没保存
@@ -128,16 +128,34 @@ Reply with a number, or just tell me what you'd like to do.
 - 「先不保存」→ **stop**；保留草稿，不生成测试点。
 - 若 SQA 用工具自动 Other 或自由回复 → 按内容判断（换目标 / 补充说明）；无法理解则复述两项选项。
 
-**Portal URL** (parse only — never fetch):
+#### Requirement 引用
+
+按以下顺序解析：
+
+1. 合法的 `product_id + requirement_id` 优先；直接绑定，不调用 display-id 查询。
+2. 旧 Portal URL 只解析字符串，绝不请求页面：
 
 `/product/{product_id}/qa-insights/test-suites/requirements/{requirement_id}`
 
-- Extract `product_id` + `requirement_id` from the string only.
-- **Forbidden**: `cawplan api GET {url}`, HTTP fetch, or any request to the portal path.
+3. 裸 `display_id` 必须严格是 `REQ-` + 数字（`^REQ-\d+$`）；或使用 Browse URL：
 
-**Only `requirement_id`, missing `product_id`**: ask for `product_id` or a full Requirement link. **Do not** guess the product or scan product lists.
+`/browse/product/{product_key}/qa/requirement/{display_id}`
 
-**Rebind** replaces the whole context (`product_id`, `requirement_id`, five fields, test-point stubs). One active Requirement at a time. Same `requirement_id` as current binding = refresh same row, not rebind. Contradictory messages (new URL + "还是刚才那条") → ask; do not guess.
+对裸 `display_id` 或 Browse URL 调用（完整 URL 需加 shell 引号）：
+
+```bash
+cawplan qa-insights requirements resolve '<display_id_or_browse_url>'
+```
+
+- 该命令先本地校验/提取 `display_id`；格式错误时不请求接口。Browse URL 的 `product_key`（如 `CP`）不是 `product_id`，不得用它推测 UUID。
+- `SUCCESS`：只在 `meta.product_id` 和 `meta.requirement_id` 都存在，且 `data` 是可用 Requirement 数据时完成 rebind；把 `data` 记为 `requirement_data`，随后进入 §2 的 display-id fast-path，不得再调用 `requirements get`。
+- `FAILURE / validation`：提示 display ID 必须为 `REQ-` + 数字，不继续获取 TestPoints 或创建 Review。
+- `FAILURE / not_found`：提示 Requirement 不存在，停止。其他 `FAILURE` 或 `UNKNOWN` 如实报告，不猜测 ID、不回退到 `requirements get`。
+- `SUCCESS` 但缺少两个解析后 ID，或 `data` 不是可用 Requirement 结构，视为返回数据异常，停止。
+
+所有 URL 都只解析字符串，不得对 Portal/Browse 页面调用 `cawplan api` 或 HTTP。只有 `requirement_id` 时追问 `product_id` 或完整引用，不扫描产品。
+
+**Rebind** 只在新目标完整解析成功后替换整个上下文（`product_id`、`requirement_id`、Requirement 数据、test-point stubs），并清空旧目标的 `review_id`、`review_url` 和 Review 页面任务句柄；解析失败不清空旧 binding 或 Review。同时只绑定一个 Requirement；与当前 binding 相同的 `requirement_id` 视为刷新同一条，而不是 rebind。若消息自相矛盾（例如新 URL +“还是刚才那条”），先询问，不猜测。
 
 ### 跨 skill 接力
 
@@ -146,30 +164,37 @@ Reply with a number, or just tell me what you'd like to do.
 - **A1 §6 引导入站**：需求分析 §6 成功回执后 SQA 说「马上生成测试点」→ 有效 binding 下 P2 热交接，直跑 §2 refresh（无需再贴需求）。
 - **出站回归（`resume_intent = testcase`）**：测试点归档 `SUCCESS`（或 §10 `count_matched` 确认已落库）后，若会话存在 `resume_intent = testcase`，**读取并清除** `resume_intent`，读 `cawplan-testcase-generate` skill 从其 **§2 refresh** 续跑；**不追加** §9.5 用例引导；不停在本 skill 等下一条指令。
 - **归档后用例引导**：§9.5 成功回执末尾可选追加一句（见 §9.5 末尾引导）；用户回「马上生成测试用例」→ 读 `cawplan-testcase-generate` skill（P2 热交接）；不接茬则不重复提示。
-- **框1「已有 Requirement 链接」解析成功** → 按 P1 冷交接继续，**不弹**框2。
+- **框1「已有链接或编号」解析成功** → 按 P1 冷交接继续，**不弹**框2。
 
-### 2. Refresh before generate (always)
+### 2. Refresh before generate
 
-Before generating or supplementing test points (cold or hot), pull live data:
+静默取得本次最新 Requirement 数据，并统一记为 `requirement_data`：
+
+- 本次刚成功执行 `requirements resolve`：直接使用该命令的 `data`；它与 `requirements get` 返回相同的 Requirement 五字段结构。本次不得再调用 `requirements get`。
+- 合法 `product_id + requirement_id`、旧 Portal URL、热接力或 A1 归档回归：执行：
 
 ```bash
-cawplan api GET /api/v1/public/openapi/product/<product_id>/qa/requirements/<requirement_id>
+cawplan qa-insights requirements get <product_id> <requirement_id>
 ```
 
-Use `data` directly for the five fields + `url` (single `QARequirement` object; no list filter).
+以上两条路径取得 `requirement_data` 后，都必须执行：
 
 ```bash
-cawplan api GET /api/v1/public/openapi/product/<product_id>/qa/requirements/<requirement_id>/testpoints
+cawplan qa-insights testpoints list <product_id> <requirement_id>
 ```
 
 `data.test_points.length` is the already-archived count N used by §3's incremental gate and §6's incremental-scope closure. **This skill no longer tracks it as a reconcile baseline** — `testpoint-review start` (§7.1) records it into the Review State's own `count_before` at creation time, and the page advances it after every successful Save to CawPlan; the count-reconcile flow now runs entirely page-side (§10), so Chat has no `write_outcome`/`count_before` state of its own to maintain.
 
 | Result | Action |
 |--------|--------|
-| Requirement found (`code: SUCCESS`) | Use **latest** five fields silently; do not diff against chat cache |
+| Requirement 数据源 `SUCCESS` | Use **latest** five fields from `requirement_data` silently; do not diff against chat cache |
 | Requirement missing (`404` or explicit not-found) | Report "这条 Requirement 已不存在" / "This Requirement no longer exists"（**跟随会话语言**二选一）; do not generate from stale context |
+| Requirement 数据异常 / `FAILURE` / `UNKNOWN` | 如实报告并停止；不获取 TestPoints、不创建 Review，也不使用旧数据 |
+| TestPoints `FAILURE` / `UNKNOWN` | 如实报告并停止；不创建 Review |
 
 Use five fields for generation only. Do not track `module_tree_node_id`, `review_status`, or `ticket_id` for A2 logic.
+
+display-id fast-path 只消除同一次请求里紧邻 resolver 的重复 GET，不建立跨回合缓存。后续新的补充生成回合、热接力或 A1 归档回归仍执行 `requirements get`，再刷新 TestPoints。
 
 ### 3. Incremental gate (§9.3)
 
@@ -194,16 +219,18 @@ Before discovering obligations, use the file-reading tool to **read both files c
 
 **目标顺序**：覆盖完整度优先（Recall > Precision）；允许多生成可删的方向性测试点，但**红线 0 永远优先**。先把候选完整展开，再统一分流与收敛；不得在发现阶段挑“代表性场景”。
 
-候选先各自独立列出，逐条判断最终归入测试点或存疑；不需要另建状态表、账本字段或覆盖矩阵——来源判断随手做，不建表，也不呈现、不落库。
+下文“候选”即 `coverage-dimensions.md` 所称的 obligation：需要被明确覆盖或解释去向的最小验证义务。候选先各自独立列出，逐条判断最终归入测试点或存疑；不需要另建状态表、账本字段或覆盖矩阵——来源判断随手做，不建表，也不呈现、不落库。
 
 #### Step 1 — 发现
 
 1. 将五字段**逐句完整读到末尾**，按对象、操作、关系、约束、变化、不变量拆出彼此独立的验证候选；已发现若干项也不得提前收尾。
 2. 对每个命中的值、状态、条件、来源、角色、适用层级、前后变化与不受影响对象分别发现候选。若多个分区可能有不同结果，先分别列出，不得先合并——是否属于同一验证目标、是否应合并成一行是 Step 4 的判断，本步骤只管展开不管收敛，不得因为"反正最后会合并"就提前用一句话跨分区、跨对象归纳掉候选。
    **排除性/口径声明句必须单独展开**：五字段中出现"仅统计 X，不与 Y 合并"「不包含 / 不影响 / 独立于 / 与…无关」这类**没有显式动作、只是在给某个概念划边界或排除歧义**的句子时，不得因为它读起来像背景说明或定义就跳过——必须单独产出一条候选，验证"该口径/边界在实际行为中确实被遵守"（例如"其他类型端口的连接数变化不应影响图片上限判断"）。
-3. 逐项使用 `references/coverage-dimensions.md` 的路径类型和 A→B→C→D 变化轴作为**发现提示**。C/D 八轴必须逐项读到，不能因需求无关键词提前停止；是否有正面排除证据在 Step 3 统一判断。
+3. 逐项使用 `references/coverage-dimensions.md` 的路径类型和 A→B→C→D→E 变化轴作为**发现提示**（E 组仅在满足其启用条件时逐项读取）。C/D 八轴必须逐项读到，不能因需求无关键词提前停止；是否有正面排除证据在 Step 3 统一判断。
 4. 基本盘方向只要与功能形态相符就进入候选：正常主路径；外部输入的异常；存在范围时的合法边界；存在取消/撤销/回退时的逆向。需求没写失败细节不等于不适用。
 5. 五字段**完全无法形成操作 + 方向性预期**时停止并请 SQA 补充；薄但可测时继续，缺口进入存疑。
+
+**发现完成标准（进入 Step 2 前）**：五字段明确表示会影响某个最终产物的每个输入、配置或参数，都已分别形成“该因素是否正确作用于该产物”的候选；不得以参数已选择、保存、界面联动或其他中间结果代替最终产物验证。若核心结果或行为由 AI / 模型能力产生，已按 `coverage-dimensions.md` 的 E 组启用条件完成判断并逐轴检查，每个适用 E 轴都已形成候选。仍有明确影响因素或适用 E 轴没有候选时，Step 1 未完成。
 
    **停止后话术**（纯文字，逐字；**跟随会话语言**二选一，不同时输出）：
    > 这份需求的信息还不够生成测试点（缺操作或预期方向），麻烦补充一下具体是做什么、期望什么结果，我再继续。
@@ -285,8 +312,9 @@ Bad: 打开配置 → 分别选择各挡位 → 逐档导出并检查（这是 A
 
 Step 4 形成草稿后、首次呈现前执行一次。若 Step 1 判定五字段完全不可测，则跳过。
 
-**对照 §4 已完整读取的 `references/review-checklist.md` 从头到尾走一遍**（不得跳过，也不得凭记忆替代）：逐条检查覆盖闭合（来源 / 关系分区 / 行为组合 / 去向）、收敛守恒（合并映射、标题可反查）、红线与输出契约；发现缺口就补候选并回 Step 3 分流，发现错合并就拆回独立标题。以下四项是本轮最容易漏、必须显式确认的重点，不因为已过完清单就跳过：
+**对照 §4 已完整读取的 `references/review-checklist.md` 从头到尾走一遍**（不得跳过，也不得凭记忆替代）：逐条检查覆盖闭合（来源 / 关系分区 / 行为组合 / 去向）、收敛守恒（合并映射、标题可反查）、红线与输出契约；发现缺口就补候选并回 Step 3 分流，发现错合并就拆回独立标题。以下五项是本轮最容易漏、必须显式确认的重点，不因为已过完清单就跳过：
 
+- **Step 1 发现完成标准仍成立**：最终产物的明确影响因素与已启用 E 组的适用轴都已形成候选；不成立就补候选并回 Step 3 分流。
 - **C/D 八轴每轴都有去向**：幂等/并发/一致性/存量兼容/环境兼容/性能/安全审计/可观测，逐轴确认要么有正面排除证据，要么已归入测试点或存疑，不留空轴。
 - **上限三方向 + 分区值列全**：涉及比较或配置/容量切换的候选，`< / = / >`（或变小/不变/变大）三态是否齐全；已合并标题里的具体分区值（位置、状态、比较结果等）是否逐字保留，没有被"任意/某个/某种"这类抽象词糊掉。
 - **红线 0 不越界**：所有标题只用五字段已有事实和方向性预期，没有编造数值、次数、文案、错误码。
@@ -472,14 +500,14 @@ Review 页面：[打开最新版本](<review_url>)
 
 **唯一前提（⚠️ 需要同一对话）**：页面服务必须由当前 Agent 对话在后台启动并保留任务句柄，归档时才能等待它结束并自动回执。SQA 不需要、也不应再去终端手动运行 `open`。如果中途换了新对话，新对话没有旧后台任务句柄，应先确认旧服务已停止，再启动一次并返回新链接。
 
-**Success receipt (§9.5)** — **only place SQA sees a count**. **Two lines** when `url` is present; otherwise line 1 only. Use **`N` = 本轮 Review State 中新增 `archived: true` 的条目数**（从页面 Save 成功后的最终 Review State 读取，不自行数行）。`〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`.
+**Success receipt (§9.5)** — **only place SQA sees a count**. **Two lines** when the latest `requirement_data.redirect_url` is present; otherwise line 1 only. Use **`N` = 本轮 Review State 中新增 `archived: true` 的条目数**（从页面 Save 成功后的最终 Review State 读取，不自行数行）。`〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`.
 
 - **Line 1**（逐字；**跟随会话语言**二选一）：`已保存 N 条测试点到需求「〔需求名〕」下。` / `Saved N test points under requirement "〔需求名〕."`
-- **Line 2**（仅当 refresh 返回非空 `url`；**单独一行**，不接到 line 1 句末；逐字；**跟随会话语言**二选一）：`Requirement 链接:{url}` / `Requirement link: {url}`
+- **Line 2**（仅当最新 `requirement_data.redirect_url` 非空；**单独一行**，不接到 line 1 句末；逐字；**跟随会话语言**二选一）：`Requirement 链接:{当前环境 Portal Host + redirect_url}` / `Requirement link: {current environment Portal Host + redirect_url}`
 
-**If `url` is missing or null** — output line 1 only; say nothing about links — never construct portal URLs, never note that `url` was unavailable.
+Requirement 链接只在本回执的最终展示层生成：静默执行 `cawplan config env`，读取其 `Portal` 值作为当前环境 Host，去掉 Host 末尾 `/` 后与 `redirect_url` 拼接。不得使用或回退到 `url`；不要修改 `requirement_data`、Requirement 查询或 ID 解析。**If `redirect_url` is missing or null** — output line 1 only; say nothing about links or the missing field.
 
-**Forbidden in success receipt**: per-row tables; title lists; `id` lists; re-generated or summarized titles; any line about missing `url`; **apology or post-hoc recount explanations**。
+**Forbidden in success receipt**: per-row tables; title lists; `id` lists; re-generated or summarized titles; any line about missing `redirect_url`; **apology or post-hoc recount explanations**。
 
 **§9.5 末尾引导（可选追加，逐字与追加条件原样保留）** — 满足**全部**条件时，在成功回执**最后**另起一行逐字追加（不弹框、不追问、**仅本轮一次**；**跟随会话语言**二选一，不同时输出）：
 
@@ -508,7 +536,7 @@ SQA wants to change/delete a row **with `id`** → direct them to Test Suites UI
 
 ## Session state (in-conversation only)
 
-**Binding**: `product_id`, `requirement_id`, `review_id`, `review_url`, Review 页面后台任务句柄/存活状态, five-field snapshot, `url`.
+**Binding**: `product_id`, `requirement_id`, `review_id`, `review_url`, Review 页面后台任务句柄/存活状态, `requirement_data` 中的 five-field snapshot、`summary` 与 `url`。`display_id` 不属于后续流程的必需状态。
 
 **Open questions**: `open_questions` 保存当前全部未解决存疑的完整文字。首次呈现时写入 §7.2 展示的完整清单；每次修订按 §8 step 6 做移除 / 保留 / 新增，再把更新后的完整清单输出。存疑不属于 Review 页面数据，不能只依赖 Review State 或临时聊天概括来恢复。
 
@@ -595,7 +623,7 @@ Authoritative rules live in **Workflow**; this section is navigation only. On co
 | **修订（Chat 或页面）** — 统一走 Review State，锁定 → AI → 下一 Round；Chat 只出链接 + 完整剩余存疑 + 简短引导 | §8 |
 | **Archive / confirm / receipt** | §9（页面触发、Chat 只报结果）; UNKNOWN reconcile 页面侧处理 → §10 |
 | **Batch-internal dedup** | §5 Step 4（跨 Round 的 `id` 唯一性由 Review State 的 `next_seq` 保证，不在 Chat session state 里维护） |
-| **API** | 生成期读 → `cawplan api GET`（§2）；Review 相关 → `cawplan qa-insights testpoint-review *`（§7.1/§8/§9）；`references/CAWPLAN_OPEN_API.md` §15 |
+| **API** | 生成期读 → `cawplan qa-insights requirements resolve|get` + `testpoints list`（§1–§2）；Review 相关 → `cawplan qa-insights testpoint-review *`（§7.1/§8/§9）；`references/CAWPLAN_OPEN_API.md` §15 |
 | **Trigger boundary** | §1 决策树 P3 → 框2；兜底 → 框1；ticket URL without test-point intent → not this skill |
 | **Failures** | §9 失败/冲突分支；Review State 保留，不丢草稿 |
 
