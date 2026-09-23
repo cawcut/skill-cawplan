@@ -36,6 +36,7 @@ cawplan products list --search "UniFi Access"
 | 11 | `cawplan-testcase-generate` | `/cawplan-testcase-generate` | Expand archived test points into executable test cases and export CSV (read-only, no CawPlan write) |
 | 12 | `cawplan-my-work` | `/cawplan-my-work` | Show your own tickets and critical issues, grouped by product line/product/version |
 | 13 | `cawplan-ux-tracking` | `/cawplan-ux-tracking` | Find tickets needing UX (pending) by version, priority, or Team |
+| 14 | `cawplan-support-metrics` | `/cawplan-support-metrics` | Safely export, import, and reconcile Support Ops ticket metrics |
 
 ## Quick Reference
 
@@ -54,6 +55,7 @@ cawplan products list --search "UniFi Access"
 | 11 | Generate test cases and export CSV | `/cawplan-testcase-generate 按上面的生成用例` |
 | 12 | See my own tasks | `/cawplan-my-work what's on my plate for UniFi Access 4.1.10?` |
 | 13 | Find tickets needing UX | `/cawplan-ux-tracking which high-priority tickets need UX but don't have a design yet?` |
+| 14 | Import Support metrics | `/cawplan-support-metrics validate this Support Ops metrics export, dry-run only` |
 
 More examples: `COOKBOOK.md`.
 

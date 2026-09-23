@@ -97,16 +97,17 @@
 ### Search Version Tickets
 - Endpoint: `POST /api/v1/public/openapi/tickets/search`
 - Query params: `time_range` or (`start_date` + `end_date`), optionally also (`updated_start_date` + `updated_end_date`), `page_size`, `page_num`
-- Body: `product_ids[]`, `product_line_ids[]`, `version_ids[]`, `unique_ids[]`, `display_ids[]`, `parent_ids[]`, `type[]`, `status[]`, `excluded_status[]`, `ux[]`, `status_categories[]`, `excluded_status_categories[]`, `priority[]`, `platform[]`, `assignees[]`, `search`
+- Body: `product_ids[]`, `product_line_ids[]`, `version_ids[]`, `unique_ids[]`, `display_ids[]`, `parent_ids[]`, `label_ids[]`, `label_names[]`, `type[]` (legacy), `status[]`, `excluded_status[]`, `ux[]`, `status_categories[]`, `excluded_status_categories[]`, `priority[]`, `platform[]`, `assignees[]`, `search`
 - Notes:
     - OR within same field; AND across fields.
+    - **Use labels for ticket classification.** `label_ids[]` and `label_names[]` match tickets carrying any supplied label. Prefer `label_ids[]` after resolving the product-visible catalog with `cawplan labels list --product_id <product_id>`; `label_names[]` is available when exact names are already known. `type[]` is a legacy compatibility filter and must not drive new category-classification workflows.
     - `ux[]` filters by UX state (`NOT_REQUIRED`, `PENDING`, `READY`). `excluded_status[]` excludes tickets whose status key is in the supplied list. `status_categories[]` includes, and `excluded_status_categories[]` excludes, resolved product-line categories (`BACKLOG`, `UNSTARTED`, `STARTED`, `TESTING`, `COMPLETE`, `CANCELED`, `JIRA`). CLI: `--ux PENDING,READY --excluded_status DONE,CANCELED --status_categories STARTED,TESTING --excluded_status_categories COMPLETE,CANCELED`.
     - `unique_ids[]` / `display_ids[]` are exact-match lookups (Linear `fetchIssuesByIds` / global `getIssue`). When either is set, **the time window is not required** (no `time_range` / date range needed).
     - `parent_ids[]` returns **all** sub-issues of the given parents (Linear `getChildIssues`). It is a bounded relationship lookup, so it also **exempts the time window** — the full child set is returned regardless of age (a dependency-aware scheduler must not lose old children). `time_range` is therefore not required when `parent_ids[]` is set.
 - **`start_date`/`end_date` filter `created_at`, not `updated_at`** — this is easy to miss since the field name isn't in the param name. A ticket created before the window but changed (status, assignee, comments, etc.) within it will **not** show up from `start_date`/`end_date` alone, no matter how the request is otherwise scoped (product/version/assignee filters don't change this). If the actual question is "what changed in this window" (release reports, member/team activity reports) rather than "what was created in this window," that's `updated_start_date`/`updated_end_date` (below), not `start_date`/`end_date`.
 - **`updated_start_date`/`updated_end_date`** — independent, optional filter on `updated_at`. No default, not required, can be combined with `start_date`/`end_date` (AND) or used alone (pair with `start_date 2000-01-01`/today per the workaround below if you don't also want the created_at window narrowing results). `updated_at` has **no DB index** (unlike `created_at`), so keep this paired with a narrowing filter (`product_ids`, `assignees`, etc.) rather than firing it alone across a whole workspace/product line.
 - **`updated_at` is not "completed at"** — it's the record's overall last-modified time, refreshed by *any* field change (status, version transfer, priority, assignee, comments, etc.), not specifically a status→`DONE` transition. Confirmed live: [CAWP-18478](https://app.cawplan.com/issue/CAWP-18478) moved to `DONE` on 2026-08-13 (inside an 08-10~08-16 report window), then had an unrelated version transfer (1.6.34 → 1.6.33) on 2026-08-17 that bumped `updated_at` to 08-17 — a report scoped to `--updated_start_date 2026-08-10 --updated_end_date 2026-08-16` silently drops this ticket even though it genuinely completed inside the window. The same mechanism can also cause a **false positive** the other way: a ticket that completed *before* a window but got an unrelated edit *inside* the window will show up as "changed" with a current status of `DONE`, which is easy to mis-report as "completed in this window" if you only check current status. Any report computing "completed in window N" from `status`/`updated_at` alone is subject to both failure modes — use **Get Version Ticket History** (below) to verify the actual completion timestamp instead of trusting `updated_at` or current status for that specific claim.
-- **Canonical workaround for "every matching ticket regardless of age" queries** (e.g. release health checks, UX-pending sweeps, stale-ticket detection, or "what changed" reports that need `updated_start_date`/`updated_end_date` without the `created_at` window also narrowing results): none of `--version_ids`/`--product_ids`/`--product_line_ids`/`--priority`/`--type`/`--status`/`--assignees` exempt the time window on their own. Two valid options, pick per need:
+- **Canonical workaround for "every matching ticket regardless of age" queries** (e.g. release health checks, UX-pending sweeps, stale-ticket detection, or "what changed" reports that need `updated_start_date`/`updated_end_date` without the `created_at` window also narrowing results): none of `--version_ids`/`--product_ids`/`--product_line_ids`/`--label_ids`/`--label_names`/`--priority`/`--type`/`--status`/`--assignees` exempt the time window on their own. Two valid options, pick per need:
     1. Pass a deliberately maximal window, e.g. `--start_date 2000-01-01 --end_date <today>` — use when you need a field only present on the full `VersionTicket` shape (see below), since Poll Tickets doesn't return it, or when combining with `updated_start_date`/`updated_end_date`.
     2. Switch to **Poll Tickets** (below) instead, which has no time window at all — use when the fields you need are in Poll's lightweight shape.
    Skills should reference this section rather than re-deriving the workaround independently.
@@ -279,11 +280,16 @@ per occurrence, tagged by `domain` + `metric` (e.g. `domain=cawplan_subscription
 `metric=new`), plus a fixed dimension bundle (`app`, `platform`, `product`,
 `workspace_id`, `plan`, `region`, `environment`) and arbitrary extra tags.
 `workspace_id` is the tenant-attribution dimension — every domain here is
-workspace-scoped data, so filter/group by it whenever a query should be
-scoped to one tenant rather than the whole database. Fields are `value`,
-`count`, `cost`, `credit` — only the ones actually supplied on a point are
-stored (no zero-fill), so query results distinguish "not measured" from
-"measured zero". Every domain is prefixed `cawplan_`.
+workspace-scoped data. Unlike the other six dimensions, though, it is never
+caller-controlled: both endpoints force it from the caller's authenticated
+identity server-side (`scopeQueryToCallerWorkspace` on query,
+`IngestKeyMetricsCommand.Execute` on ingest, both in `uid.core-product`) —
+a `tag.workspace_id=...`/`dimensions.workspace_id` value the caller supplies
+is silently overridden, not honored, on either endpoint. There is currently
+no way to query across more than one workspace through this API. Fields are
+`value`, `count`, `cost`, `credit` — only the ones actually supplied on a
+point are stored (no zero-fill), so query results distinguish "not measured"
+from "measured zero". Every domain is prefixed `cawplan_`.
 
 Every domain and metric name is defined up front in `internal/metrics/metrics.go`
 in `uid.core-product`, but a defined metric doesn't necessarily have a producer
@@ -309,8 +315,17 @@ indistinguishable at query time:
 | `cawplan_qa_insight` | `qa_result` | On `execution` events only: the literal `pass`/`pass_with_issues`/`failed` value. The standard `result` tag that `metrics.QAExecutionResult` writes is only `passed`/`failed` (`pass_with_issues` collapses into `passed` there) — `qa_result` preserves the three-way distinction. |
 | `cawplan_subscription` | `from_plan`/`to_plan` | On `upgrade`/`downgrade` only — and those two metrics aren't wired to any producer yet (see above), so this tag has no real data behind it right now either. |
 | `cawplan_ticket` | `from_status`/`to_status` | On `ticket_status_changed` only. |
+| `cawplan_api` | `route` | On both `throttled` and `request` — the path that was rate-limited/served, e.g. `/api/v1/public/openapi/key-metrics/ingest`. |
+| `cawplan_api` | `status_code` | On `request` only (not wired to a producer yet, see above). |
 
 Not every domain has one — check the producer code (`docs/cawplan-ticket-metrics-collection.md` in `uid.core-product` for tickets) if a dynamic tag you expect isn't showing up in query results; it may simply not have been wired for that call site yet.
+
+`cawplan_api.throttled` specifically: the rate limiters currently wired to it
+(`internal/middleware.IPRateLimiter`, `.APIKeyRateLimiter`) emit with an empty
+`Dimensions{}`, so these points carry no `workspace_id` tag at all — filtering
+by it returns nothing, which doesn't mean there were no throttle events, only
+that this producer hasn't been tagged with workspace attribution yet. `route`
+is the only reliable way to slice this metric today.
 
 #### Ingest one or more events
 - Endpoint: `POST /api/v1/public/openapi/key-metrics/ingest`
@@ -330,6 +345,12 @@ Not every domain has one — check the producer code (`docs/cawplan-ticket-metri
   `tags`, and `timestamp` are all optional (`timestamp` defaults to receipt
   time). The whole batch is validated up front and rejected as one
   `INVALID_INPUT` response on the first bad item — there is no partial write.
+- Rate limited to 180 requests/minute per calling credential (the whole
+  `Authorization` header value, hashed — a Bearer token and a raw API key are
+  bucketed the same way, so this applies to CLI callers too). Exceeding it
+  returns HTTP 429 with `{"code":"RATE_LIMITED",...}` directly, not a
+  `CommonResp`-shaped business error. Batch (`--items`) rather than looping
+  single-item calls when writing many events at once.
 - Maps to cawplan CLI: `cawplan metrics ingest --domain <domain> --metric <metric> --value <n> [--dimensions <json>] [--tags <json>]`,
   or `cawplan metrics ingest --items <json array>` for a batch.
 
@@ -350,7 +371,12 @@ Not every domain has one — check the producer code (`docs/cawplan-ticket-metri
   its own maximum, or narrow the time range/filters).
 - The `start`–`end` span and the row count are both capped server-side; this
   is a shared multi-tenant read path, not a per-product cache, so it will
-  reject an attempt to pull unbounded history in one call.
+  reject an attempt to pull unbounded history in one call. Current defaults:
+  span capped at 186 days (~6 months — a span wider than that is rejected as
+  `FAILURE_INVALID_INPUT`, not silently truncated to less data), row count
+  capped at 5000 (surfaced via `data.truncated`, not an error). Both are
+  configurable server-side (`MetricsConfig`), so treat these as the current
+  defaults, not a hard contract.
 - Maps to cawplan CLI: `cawplan metrics query --domain <domain> --start <iso> --end <iso> [--metric <metric>] [--granularity day] [--tag key:value ...] [--group_by k1,k2] [--fields value,count]`.
 - By default `query` only prints the JSON (`data.rows`). For a chart the caller just wants to look
   at in-conversation rather than a file to keep, there's no CLI rendering step needed at all — hand
@@ -462,8 +488,16 @@ Not every domain has one — check the producer code (`docs/cawplan-ticket-metri
 - Endpoint: `POST /api/v1/public/openapi/knowledge/datasets`
 - Body: `name` (required), `description` (optional), `permission` (optional: `only_me` | `all_team_members` | `partial_members`, default `only_me`); also accepts the other `KBCreateDatasetRequest` fields (`indexing_technique`, `embedding_model`, ...) if needed, passed straight through to Dify.
 - Response: the created dataset — the raw Dify id, name, etc., plus `document_count: 0` patched in for shape-consistency with the datasets-list response.
-- Maps to cawplan CLI: `cawplan knowledge datasets create --name <name> [--description <text>] [--permission <level>]`.
+- Maps to cawplan CLI: `cawplan knowledge datasets create --name <name> [--description <text>] [--permission <level>] [--product <id>...]`.
 - Implementation note: proxies to Dify's `POST /api/v1/datasets` and also creates a PRM `knowledge_dataset` tracking record (same as the internal `KbCreateDataset`), but — unlike the internal API, which swaps the response id for the PRM `unique_id` — the public response keeps the raw Dify id, consistent with every other public knowledge endpoint.
+- Does **not** itself accept a product/product_id — a new dataset starts unbound from any CawPlan product. The CLI's `--product` flag is sugar: it calls this endpoint, then a follow-up `PUT .../products` call (below) with the returned dataset id.
+
+### Get / Set Products a Dataset Is Bound To
+- Endpoints: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/products`, `PUT /api/v1/public/openapi/knowledge/datasets/{dataset_id}/products`
+- `dataset_id` is the PRM unique_id (the `id` returned by datasets-list/create above).
+- `PUT` body: `{"product_ids": [...]}` — replaces the full set of bound products (not additive); an empty array unbinds all.
+- Binding a dataset to a product scopes it for that product's knowledge search (`product_id` param on the search/get-datasets-by-product paths) and for permission-based dataset visibility.
+- Maps to cawplan CLI: `cawplan knowledge datasets products get --dataset <id>`, `cawplan knowledge datasets products set --dataset <id> [--product <id>...]`.
 
 ### List Documents in a Dataset
 - Endpoint: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents`
@@ -546,6 +580,11 @@ Not every domain has one — check the producer code (`docs/cawplan-ticket-metri
 - Implementation note: the CLI sends real multipart (Node's native `FormData`/`Blob`, no base64
   encoding) via a `formData` option added to `cawplanRequest` (`cli/src/lib/http.ts`) — everything else
   on this CLI is JSON-only.
+- The `data` part also accepts an optional `folder` key (e.g. `"BE/features/plan-track"`), stored as
+  the dataset's "folder" custom metadata value on the resulting document — the field is created on the
+  dataset automatically on first use. Lets callers sort/group synced documents by their original
+  directory structure via `documents list`/`get`, which already surface each document's metadata.
+  Maps to cawplan CLI: `cawplan knowledge documents upload ... --folder <path>`.
 
 ### Poll File-Upload Job Status
 - Endpoint: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/ai-jobs/{job_id}`
@@ -573,6 +612,20 @@ Not every domain has one — check the producer code (`docs/cawplan-ticket-metri
   repeat `--text-file` to batch multiple text documents into the same dataset (one request per file).
   Do not mix `--file` and `--text-file` in the same invocation — the CLI rejects that locally; run it
   twice for a mixed batch.
+- Also accepts the optional `folder` field described under the file-upload section above, with the
+  same "folder" metadata effect.
+
+### Update an Existing Document — File (async) / Text (sync)
+- Endpoints: `POST .../documents/{document_id}/update-by-file` and `POST .../documents/{document_id}/update-by-text`
+  — same dataset-scoped paths as create, plus a `document_id` from `documents list`.
+- Same body shapes and behavior as the corresponding create endpoints above (update-by-file is async
+  with a `job_id` to poll; update-by-text is sync), except no `name`/`text` are required — omit `text`
+  on update-by-text to leave the document's content unchanged and only touch metadata (e.g. re-set
+  `folder` without editing content). Both accept the same optional `folder` field as create.
+- Use this for re-syncing a document whose source changed since it was created — for a brand-new
+  document use create-by-file/create-by-text instead.
+- Maps to cawplan CLI: `cawplan knowledge documents update --dataset <id> --document <id> [--file <path> | --text-file <path>] [--folder <path>]`.
+  Mirrors `documents upload`'s `--no-wait`/`--poll-interval`/`--poll-timeout` flags for the `--file` case.
 
 ### Search Knowledge Base
 - Endpoint: `POST /api/v1/public/openapi/knowledge/search`

@@ -1,5 +1,5 @@
 ---
-version: 0.2.0
+version: 0.2.9
 name: cawplan-risk-assessment
 description: |
   Assess CawPlan version release risk via QA Insights rule engine: compute risk level, structured reasons, suggested actions, and save confirmed assessment to Version.

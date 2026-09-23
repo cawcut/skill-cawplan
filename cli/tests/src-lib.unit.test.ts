@@ -978,7 +978,7 @@ describe("src lib oauth", () => {
 });
 
 describe("src lib http", () => {
-  test("tickets search sends UX and status filters as arrays", async () => {
+  test("tickets search sends label, UX, and status filters as arrays", async () => {
     await writeCredentials({
       accessToken: "access",
       refreshToken: "refresh",
@@ -998,6 +998,8 @@ describe("src lib http", () => {
 
     await program.parseAsync([
       "node", "cawplan", "tickets", "search", "--time_range", "1m",
+      "--label_ids", "label-a,label-b",
+      "--label_names", "Bugfix,Defect",
       "--ux", "PENDING,READY",
       "--excluded_status", "DONE,CANCELED",
       "--status_categories", "STARTED,TESTING",
@@ -1006,6 +1008,8 @@ describe("src lib http", () => {
 
     expect(requestBodies).toHaveLength(1);
     expect(JSON.parse(requestBodies[0]!)).toEqual({
+      label_ids: ["label-a", "label-b"],
+      label_names: ["Bugfix", "Defect"],
       ux: ["PENDING", "READY"],
       excluded_status: ["DONE", "CANCELED"],
       status_categories: ["STARTED", "TESTING"],

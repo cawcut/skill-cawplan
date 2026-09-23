@@ -132,8 +132,12 @@ wrong — see SHAPE REFINEMENT above.
   the assistant offered alternatives (`那就统一不要显示数量`, "then do it uniformly that way") →
   `decision`, NOT `direction_constraint`. Interim workaround until backend ships (`你可以先这么做，等
   /purchase/lines 支持分页`) → `decision`. `需要迁移` when choosing to proceed with migration the
-  assistant offered → `decision`. Routine `"commit & push"` → `approval` or `process_control`, NOT
-  `decision`. `"you decide"` is NOT `decision`.
+  assistant offered → `decision`. Any commit/push hand-off after the assistant delivered implementation this session → `approval`,
+  NOT `decision` (no option menu was chosen) and NOT `other_meta` (there is delivered work behind it):
+  `"commit & push"`, `"commit with prefix [CWP-x] & push"`, `"BE git commit"`, bare `"push"`.
+  Confirming while **naming** the option the assistant put forward (`对, 就是用workflow来源的节点预估来`)
+  → `decision`, not `approval` — the leading `对`/`是的` is agreement, naming which one is the choice.
+  `"you decide"` is NOT `decision`.
 - `approval` — positive evaluation or accepting word ("looks good", "可以", "同意", "that works, go
   ahead"). Bare "continue"/"继续" without evaluative word → `process_control`.
 - `verification` — testing, validation, self-check ("add a unit test", "verify this works"). Post-deploy
@@ -156,7 +160,25 @@ wrong — see SHAPE REFINEMENT above.
   evaluative content and no concrete task.
 - `other_meta` — off-topic chat, thanks, or concrete routine dev-tooling/git action with no
   feature-level content ("commit the code", "switch branches", "pull latest"). NOT
-  `process_control` when it's a concrete tool command.
+  `process_control` when it's a concrete tool command. **Exception** — a commit/push hand-off that
+  FOLLOWS work the assistant just delivered is `approval`, not `other_meta`; `other_meta`'s git case
+  is for a git action with no delivered work behind it.
+
+### Pasted command or response body
+
+A message whose bulk is a pasted curl, credential block or response payload is classified by what the
+paste **demonstrates**, not by the sentence wrapping it:
+
+- it shows what an endpoint NORMALLY returns → `context_supply` — including when introduced by a
+  corrective framing (`并非 ... ，而是同 curl ... 返回列表`): the correction is framing, the paste is
+  the payload. Not `question_clarification`, not `direction_constraint`.
+- it shows that something MALFUNCTIONS (garbled/mojibake output, wrong values, an error response) →
+  `correction_defect` with topic `bug`, even when the framing is neutral (`更新curl ...`).
+
+Scope: applies only when the pasted bulk is literally a command invocation or a response body. It does
+NOT apply to a client attachment wrapper ("# Files mentioned by the user:", clipboard image paths), a
+bare link or PR URL, or a screenshot path — those are ambient wrappers; classify by the ask beside them.
+It also does not apply when the message states a build/change ask alongside the paste.
 
 ## Priority order (highest → lowest)
 
@@ -197,7 +219,8 @@ See `TOPIC_TAXONOMY.md` for the topic column. Category primary only:
 | "string 类型可以看看是不是 RFC3339 格式" | `verification` |
 | "第6怎么设计比较合适" (follow-up to deploy checklist) | `planning` |
 | "comment没有生效" | `correction_defect` |
-| prev ends with "需要我 commit & push 吗？" + content "commit & push" | `decision` |
+| prev ends with "需要我 commit & push 吗？" + content "commit & push" | `approval` |
+| "BE git commit" (after the assistant delivered and verified the work) | `approval` |
 | prev offers to implement + content "直接改" | `approval` |
 | "JIRA可以post message卡片，CawPlan不可以，是什么原因" | `question_clarification` |
 | "创建ticket卡片标题去掉display_id" | `requirement` |

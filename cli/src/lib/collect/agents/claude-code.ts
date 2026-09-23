@@ -102,8 +102,10 @@ interface SessionRef {
 
 /**
  * Read the first line and the last chunk of a JSONL file to get date bounds.
- * Reads only the first 4KB (for firstDate) and last 4KB (for lastDate) to avoid
- * loading the full file — large sessions can be 15MB+.
+ * Starts with a 4KB window at each end and doubles it (up to MAX_CHUNK) until a
+ * full line parses — avoids loading the full file for large sessions (15MB+)
+ * while still finding a timestamp when the boundary line itself exceeds 4KB
+ * (e.g. a hook-attachment event with a long command/output field).
  */
 function getFileDateBounds(filePath: string): { firstDate: string | null; lastDate: string | null } {
   let fd: number | null = null;
@@ -112,7 +114,8 @@ function getFileDateBounds(filePath: string): { firstDate: string | null; lastDa
     if (fileSize === 0) return { firstDate: null, lastDate: null };
 
     fd = openSync(filePath, "r");
-    const CHUNK = 4096;
+    const INITIAL_CHUNK = 4096;
+    const MAX_CHUNK = 1024 * 1024;
 
     const extractFirstDate = (buf: Buffer): string | null => {
       for (const line of buf.toString("utf-8").split("\n")) {
@@ -125,34 +128,45 @@ function getFileDateBounds(filePath: string): { firstDate: string | null; lastDa
             const d = new Date(ts);
             if (!Number.isNaN(d.getTime())) return localDateString(d);
           }
-        } catch { /* partial line at buffer edge */ }
+        } catch { /* partial line at buffer edge — retry with a bigger window */ }
       }
       return null;
     };
 
-    // Read first CHUNK bytes for firstDate
-    const headBuf = Buffer.allocUnsafe(Math.min(CHUNK, fileSize));
-    readSync(fd, headBuf, 0, headBuf.length, 0);
-    const firstDate = extractFirstDate(headBuf);
+    const extractLastDate = (buf: Buffer): string | null => {
+      const lines = buf.toString("utf-8").split("\n");
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const trimmed = lines[i].trim();
+        if (!trimmed) continue;
+        try {
+          const obj = JSON.parse(trimmed) as Record<string, unknown>;
+          const ts = obj["timestamp"] as string | undefined;
+          if (ts) {
+            const d = new Date(ts);
+            if (!Number.isNaN(d.getTime())) return localDateString(d);
+          }
+        } catch { /* partial line at buffer edge — retry with a bigger window */ }
+      }
+      return null;
+    };
 
-    // Read last CHUNK bytes for lastDate (scan backward)
-    const tailOffset = Math.max(0, fileSize - CHUNK);
-    const tailBuf = Buffer.allocUnsafe(fileSize - tailOffset);
-    readSync(fd, tailBuf, 0, tailBuf.length, tailOffset);
-    const tailLines = tailBuf.toString("utf-8").split("\n");
+    let firstDate: string | null = null;
+    for (let chunkSize = INITIAL_CHUNK; ; chunkSize *= 2) {
+      const readSize = Math.min(chunkSize, fileSize);
+      const headBuf = Buffer.allocUnsafe(readSize);
+      readSync(fd, headBuf, 0, readSize, 0);
+      firstDate = extractFirstDate(headBuf);
+      if (firstDate || readSize >= fileSize || chunkSize >= MAX_CHUNK) break;
+    }
 
     let lastDate: string | null = null;
-    for (let i = tailLines.length - 1; i >= 0; i--) {
-      const trimmed = tailLines[i].trim();
-      if (!trimmed) continue;
-      try {
-        const obj = JSON.parse(trimmed) as Record<string, unknown>;
-        const ts = obj["timestamp"] as string | undefined;
-        if (ts) {
-          const d = new Date(ts);
-          if (!Number.isNaN(d.getTime())) { lastDate = localDateString(d); break; }
-        }
-      } catch { /* partial first line in tail buffer */ }
+    for (let chunkSize = INITIAL_CHUNK; ; chunkSize *= 2) {
+      const readSize = Math.min(chunkSize, fileSize);
+      const tailOffset = fileSize - readSize;
+      const tailBuf = Buffer.allocUnsafe(readSize);
+      readSync(fd, tailBuf, 0, readSize, tailOffset);
+      lastDate = extractLastDate(tailBuf);
+      if (lastDate || readSize >= fileSize || chunkSize >= MAX_CHUNK) break;
     }
 
     return { firstDate, lastDate };

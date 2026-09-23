@@ -1,5 +1,5 @@
 ---
-version: 0.2.8
+version: 0.2.9
 name: cawplan-qa-commit
 description: |
   Use when the user asks to collect, submit, upload, or summarize CawPlan QA session daily JSON — e.g. 提交 QA 日报, QA 日报, 测试日报, 提交测试日报, QA 会话上报, or /cawplan-qa-commit.

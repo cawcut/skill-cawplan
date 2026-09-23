@@ -1,10 +1,10 @@
 ---
-version: 0.2.8
+version: 0.2.9
 name: cawplan-metrics
 description: |
   Query or write generic CawPlan business metrics (subscriptions, CawPlan tickets, QA, workflow executions, tokens/credit, API usage, ...) via the metrics store, optionally charting the result.
   Use when: the user asks to query, chart, or plot a business metric like subscription upgrades, ticket creation/status-change counts, QA test point/report counts, workflow success/failure rates, token consumption, or API usage over time; or asks to record/write/log a business metric event.
-  NOT for: a combined product health overview mixing metrics + feedback + critical issues (use `cawplan-product-insights`), device/app install metrics (that public endpoint has been retired), AI feedback categorization (`cawplan analytics get`), ticket creation, or critical issue lists.
+  NOT for: Support Ops sheet exports/backfills/reconciliation (use `cawplan-support-metrics`), a combined product health overview mixing metrics + feedback + critical issues (use `cawplan-product-insights`), device/app install metrics (that public endpoint has been retired), AI feedback categorization (`cawplan analytics get`), ticket creation, or critical issue lists.
 argument-hint: "[domain/metric + time range for a query; OR event to record]"
 allowed-tools: Bash
 ---
@@ -142,6 +142,8 @@ dashboards only.
 
 ## Decision Guide
 
+- For Support Ops Google Sheet exports, CSM ticket-count backfills, corrections, or reconciliation:
+  use `cawplan-support-metrics`.
 - For a combined product health overview (feedback + critical issues, without device metrics,
   which are no longer available through this CLI): use `cawplan-product-insights`.
 - For AI-categorized feedback trends only: `cawplan analytics get <product_id>`.

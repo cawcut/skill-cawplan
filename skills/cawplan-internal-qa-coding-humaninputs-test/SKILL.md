@@ -1,5 +1,5 @@
 ---
-version: 0.2.8
+version: 0.2.9
 name: cawplan-internal-qa-coding-humaninputs-test
 description: |
   Internal QA check for the AI-coding human-input classifier: pulls already-uploaded human inputs via the cawplan CLI, classifies each one via cawplan-internal-qa-coding-humaninputs, and compares category and/or topic against persisted cloud labels — in category-only, topic-only, or both-together mode — reporting accuracy and concrete mismatches for manual review.

@@ -6,13 +6,33 @@
 
 | 规则 | 行为 |
 |------|------|
-| 有展开用例（`title`+`steps`/`expected`） | `INLINE` |
-| 仅测试点 | `REQUIREMENT`（可能 1 TP = 1 Case） |
+| ≥1 条已展开用例（判定见 **§StepsCheck**） | `INLINE` |
+| 仅测试点 / 无 case 明细 | `REQUIREMENT`（可能 1 TP = 1 Case；Step 0.6 视同 **0 条已展开**） |
+| 会话内用例但 **0 条已展开**（全标题态） | `INLINE` 或待用户选源；Step 0.6 走 **框 Steps-confirm** |
 | `source.type=VERSION` | ❌ 不用 |
 | 只跳过不覆盖 | 无强制更新；`SKIP` 不 update |
 | refs 幂等 | `cawplan:req_*;cawplan:tp_*;cawplan:case_*` 完整命中才 SKIP |
 
 **错 Suite 重导**：映射按 `product_id`+`case_id`/refs，**不会因换 Suite 自动迁移**；已有映射仍 `SKIP`。
+
+## §StepsCheck（Step 0.6 · preview / `mappings get` 前）
+
+**目的**：避免全标题态批量进 TestRail；**非强制停止**——用户可显式选「不展开，继续导入」。
+
+| 规则 | 行为 |
+|------|------|
+| 触发时机 | Step 0/0.5 定 `source.type` 与用例集合后；**早于** Step 1 `mappings get`、convert、preview |
+| P1/P1b | 仍执行本检查（热接力 **不跳过** Step 0.6） |
+| 「已展开」单条定义 | `steps[]` 中至少一步：`content` 或 `expected` **trim 后非空**（与 A3 / `convert` 红线一致） |
+| INLINE | 对 interim JSON 或会话内 `cases[]` 逐条统计；`expanded_count ≥ 1` → **无感**进入 Step 1 |
+| INLINE 全标题 | `expanded_count === 0` → `ux §StepsConfirm`（除非 `§ConfirmState.steps_confirm` 已为 `continue_without_steps` 且数据源指纹未变） |
+| REQUIREMENT | 客户端无 steps → 恒为 **0 条已展开** → 同 **框 Steps-confirm** |
+| 用户选「先去展开」 | **仅引导话术**（推荐 `/cawplan-testcase-generate` 或「展开第 X / 全部展开」）；**禁止 Read** `cawplan-testcase-generate`；**禁止**代用户自动展开；展开完成后用户说「**按上面导入 TestRail**」等 → 重跑 Step 0.6 |
+| 用户选「不展开，继续导入」 | 写入 `steps_confirm = continue_without_steps` + `steps_check_fingerprint`（见 §ConfirmState）→ Step 1 |
+| 用户选「先不导入」 | 收束；不 preview |
+| 换用例集 | 变更 `cases[]` 条数/标题指纹或 `requirement_id` → **清** `steps_confirm` / `steps_check_fingerprint` → 须重走本步 |
+
+**禁止**：全标题且未 `continue_without_steps` 时调用 `mappings get`、convert、preview、execute。
 
 ## §Suite
 
@@ -62,6 +82,8 @@ Agent 须记住（内部，不对用户默认展示）：
 | `confirmed_version_name` | Intent 命中后的版本（无弹窗，见 §Version） |
 | `cached_sections_by_suite` | 本会话内 `sections list` 结果缓存，key 为 `suite_id`（内部用，不对用户展示） |
 | `testrail_origin` | `testrail_project_url` 或 Suite `url` 解析出的 `https://{host}`（`ux §TestRailLinks`） |
+| `steps_confirm` | `continue_without_steps`：用户于框 Steps-confirm 选「不展开，继续导入」；未设置或 `paused` 表示未放行 |
+| `steps_check_fingerprint` | 放行时的数据源指纹（INLINE：`cases.length` + 各 `title` 拼接 hash 或等价摘要；REQUIREMENT：`requirement_id`）；指纹变则清 `steps_confirm` |
 
 **复用**：同会话重 preview（仅改数据源/修正用例、**未换 Suite/Section 归属**）→ **免框 3/3.5**，仍须在 `§Preview` 表头与框 4 展示已确认值。
 
@@ -70,7 +92,7 @@ Agent 须记住（内部，不对用户默认展示）：
 - 用户 Intent「换 Suite」或选不同 Suite → 清 `confirmed_suite_*` **及** `confirmed_parent_section_*`（Section 属于特定 Suite，不可跨 Suite 复用）→ 重走框 3 → 框 3.5
 - 用户 Intent「换 Section 归属」或选不同 Section/改选「新建顶级」→ 仅清 `confirmed_parent_section_*` → 重走框 3.5（不影响已确认的 Suite）
 - 用户提到新版本 → 直接更新 `confirmed_version_name`（无弹窗，不影响 Suite/Section）
-- 换 `product_id` → 清全部 ConfirmState（含 `cached_sections_by_suite`）
+- 换 `product_id` → 清全部 ConfirmState（含 `cached_sections_by_suite`、`steps_confirm`、`steps_check_fingerprint`）
 
 ## §字段
 
@@ -115,7 +137,7 @@ camelCase → snake_case（`testPointId`→`test_point_id` 等）。`tag`→`tag
 | INLINE | `source`+`cases[]`+`suite_id` | `--source-type INLINE` |
 | REQUIREMENT | `source`+`requirement_id`+`suite_id` | `--source-type REQUIREMENT --requirement-id` |
 
-preview 前自检：`source.type` · **已确认 `suite_id`**（框 3）· **已确认 Section 归属**（框 3.5，`parent_section_id` 或不传）· INLINE 有 cases · REQUIREMENT 有 requirement_id（`version_name` 无需确认，有则带上）
+preview 前自检：`source.type` · **Step 0.6 已放行**（≥1 已展开 **或** `steps_confirm === continue_without_steps`）· **已确认 `suite_id`**（框 3）· **已确认 Section 归属**（框 3.5，`parent_section_id` 或不传）· INLINE 有 cases · REQUIREMENT 有 requirement_id（`version_name` 无需确认，有则带上）
 
 **INLINE body 示例**：
 
@@ -135,7 +157,7 @@ preview 前自检：`source.type` · **已确认 `suite_id`**（框 3）· **已
 
 ## §Convert（A3 interim JSON → INLINE body）
 
-**顺序（MUST）**：`mappings get` → **框 3 Suite** → **框 3.5 Section 归属**（如选「已有 Section」，先 `sections list` 匹配出 ID）→ `node convert_generate_to_import.js ... --suite-id <confirmed> [--parent-section-id <confirmed>] [--version-name <v>]` → preview。`version_name` 无需等待确认，命中 Intent 或用例自带即可直接带上。
+**顺序（MUST）**：Step 0.6 **§StepsCheck**（全标题须 Steps-confirm 或已 `continue_without_steps`）→ `mappings get` → **框 3 Suite** → **框 3.5 Section 归属**（如选「已有 Section」，先 `sections list` 匹配出 ID）→ `node convert_generate_to_import.js ... --suite-id <confirmed> [--parent-section-id <confirmed>] [--version-name <v>]` → preview。`version_name` 无需等待确认，命中 Intent 或用例自带即可直接带上。
 
 禁止在框 3/3.5 确认前传入 `default_suite_id` 或静默 `parent_section_id`。
 
