@@ -93,6 +93,29 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
    here; for the full raw list (dozens+, mostly empty), fall back to a plain-text tree instead of
    forcing it through many chained `AskUserQuestion` calls.
 
+   **When the user names a CawPlan product instead of a dataset** (e.g. "what's in the knowledge
+   base for Access Card?" — product lookups themselves are `/cawplan-product-insights`'s job, not
+   this skill's; assume the product_id is already resolved by the time you get here), narrow the
+   same root list to that product instead of listing everything:
+   ```bash
+   cawplan knowledge datasets list --product <product_id>
+   ```
+   A product can optionally organize its datasets under a module tree (`product_modules` — the
+   same tree QA test-suites use). Check it before deciding whether to narrow further:
+   ```bash
+   cawplan knowledge datasets modules --product <product_id>
+   ```
+   - If that returns no modules, the product has none — just use the `--product`-only list above,
+     no module step.
+   - If it returns modules, and the user didn't already name one, offer them as a pick (bounded
+     `AskUserQuestion`, same caps as any other level here — plain text if there are many), then
+     narrow with both flags:
+     ```bash
+     cawplan knowledge datasets list --product <product_id> --module <module_id>
+     ```
+   Do not use `-i`/`--interactive` on either command from an Agent — same restriction as `browse`
+   below (step 5): it requires a real interactive terminal, which a human runs directly, not you.
+
 2. **List documents in a dataset** — second level of the tree, when browsing a specific dataset's
    contents (the user picked a dataset from step 1, or named one directly):
    ```bash
@@ -307,6 +330,7 @@ user was browsing again after a leaf result so they can continue.
 
 - User gives no starting point at all ("what's in the knowledge base?"): `datasets list` — the root of the tree; filter to non-empty datasets, then `AskUserQuestion` if that fits ≤16, else plain text.
 - User names a specific dataset (or a few) ("search the X dataset for..."): resolve each with `datasets list` first, then `search --dataset <id>` (repeat for multiple).
+- User names a CawPlan product instead of a dataset ("what's in the knowledge base for X?"): `datasets list --product <product_id>`; first check `datasets modules --product <product_id>` — if it has modules and the user didn't name one, offer them as a pick, then add `--module <module_id>` to the list call; if it has none, skip straight to the product-only list.
 - User asks a general question with no dataset context: go straight to `search` with no `--dataset`.
 - User asks "what documents are in X": `documents list --dataset <id>`, not `search`.
 - User asks for a document's full content/summary, or search results only surface a title/fragment with no body: `documents get --dataset <id> --document <id>`.

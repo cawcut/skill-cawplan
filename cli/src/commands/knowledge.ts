@@ -216,11 +216,58 @@ export function registerKnowledgeCommand(program: Command): void {
 
   datasets
     .command("list")
-    .description("List all knowledge datasets accessible in the current workspace")
-    .action(async () => {
+    .description(
+      "List all knowledge datasets accessible in the current workspace. Add --product to narrow to " +
+        "one CawPlan product's linked datasets, and --module to further narrow to one " +
+        "product_modules tree node (requires --product; see: cawplan knowledge datasets modules " +
+        "--product <id>). Use -i/--interactive to pick a product from a menu instead -- and, only " +
+        "when that product actually has any modules, a module too (otherwise this just lists every " +
+        "dataset under the product, no module prompt shown).",
+    )
+    .option("--product <id>", "Product id to narrow to (see: cawplan products list)")
+    .option("--module <id>", "product_modules tree node id to further narrow to (requires --product)")
+    .option(
+      "-i, --interactive",
+      "Pick a product from a menu (when --product wasn't given), then a module too if that product " +
+        "has any (else datasets are listed for the whole product). Requires an interactive terminal.",
+    )
+    .action(async (opts) => {
+      let productId: string | undefined = opts.product;
+      let moduleId: string | undefined = opts.module;
+
+      if (opts.interactive) {
+        assertInteractiveTerminal("cawplan knowledge datasets list --interactive requires an interactive terminal");
+        if (!productId) {
+          const picked = await selectProductIdInteractive();
+          if (!picked) {
+            console.error(JSON.stringify({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
+            process.exitCode = 1;
+            return;
+          }
+          productId = picked;
+        }
+        if (!moduleId) {
+          const modules = await fetchFlatModules(productId);
+          if (modules.length > 0) {
+            const picked = await selectModuleIdInteractive(productId, { allowNone: "All datasets under this product" }, modules);
+            if (picked === undefined) {
+              console.error(JSON.stringify({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
+              process.exitCode = 1;
+              return;
+            }
+            if (typeof picked === "string") moduleId = picked;
+          }
+        }
+      }
+
+      const query: Record<string, string> = {};
+      if (productId) query.product_id = productId;
+      if (moduleId) query.module_id = moduleId;
+
       const result = await cawplanRequest({
         method: "GET",
         path: "/api/v1/public/openapi/knowledge/datasets",
+        query,
       });
       console.log(JSON.stringify(result, null, 2));
     });
@@ -261,8 +308,9 @@ export function registerKnowledgeCommand(program: Command): void {
   async function selectModuleIdInteractive(
     productId: string,
     extraChoices: { allowClear?: string; allowNone?: string } = {},
+    prefetchedModules?: ModuleTreeNode[],
   ): Promise<ModulePickerChoice | undefined> {
-    const modules = await fetchFlatModules(productId);
+    const modules = prefetchedModules ?? (await fetchFlatModules(productId));
     if (modules.length === 0) {
       console.error(`No modules found for product ${productId}.`);
       return undefined;
