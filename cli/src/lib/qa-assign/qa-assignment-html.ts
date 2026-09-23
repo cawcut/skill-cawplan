@@ -273,7 +273,8 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     .human-inputs { margin: 0; padding: 0; list-style: none; max-width: 100%; overflow: hidden; cursor: help; }
     .human-inputs li { font-size: 11px; color: var(--text-02); line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .human-inputs li + li { color: var(--text-03); margin-top: 2px; }
-    .human-inputs:focus { outline: 2px solid var(--uBlue-06); outline-offset: 2px; border-radius: 2px; }
+    .human-inputs:focus { outline: none; }
+    .human-inputs:focus-visible { outline: 1px solid var(--border-sub); outline-offset: 2px; border-radius: 2px; }
     .input-tooltip { position: fixed; z-index: 10000; width: min(460px, calc(100vw - 32px)); max-height: min(280px, calc(100vh - 32px)); overflow: auto; overscroll-behavior: contain; padding: 12px 14px; border: 1px solid var(--border-sub); border-radius: 8px; background: rgba(255,255,255,.98); color: var(--text-01); box-shadow: 0 6px 18px rgba(33,33,36,.10); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.2) transparent; }
     .input-tooltip::-webkit-scrollbar { width: 6px; }
     .input-tooltip::-webkit-scrollbar-track { background: transparent; }
