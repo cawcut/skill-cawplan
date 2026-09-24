@@ -132,6 +132,22 @@ function totalTokens(buckets: UsageBucket[]): number {
     );
 }
 
+/**
+ * Imported conversations are represented by every supported agent as a session
+ * with zero usage. Keep this policy at the common aggregation boundary so an
+ * imported conversation which is later continued is included as soon as that
+ * agent records token usage for it.
+ */
+function recordedSessionTokens(session: SessionData): number {
+    // Prefer neither source exclusively: a continued session can retain a
+    // zero summary from its import while subsequently gaining detailed usage.
+    return Math.max(session.total_tokens ?? 0, totalTokens(session.usage_breakdown));
+}
+
+function sessionHasRecordedTokens(session: SessionData): boolean {
+    return recordedSessionTokens(session) > 0;
+}
+
 function sessionCost(buckets: UsageBucket[], round2: (value: number) => number): number {
     const total = buckets.reduce((sum, bucket) => sum + normalizeUsageBucketCurrency(bucket).cost, 0);
     return round2(total);
@@ -263,7 +279,7 @@ export function buildDailyApiJson(
 
     sessions = sessions.filter((session) => {
         const hasHumanInput = (session.human_inputs ?? []).length > 0;
-        return hasHumanInput && !isCodingCommitOnlySession(session);
+        return hasHumanInput && sessionHasRecordedTokens(session) && !isCodingCommitOnlySession(session);
     });
 
     // 1. Merge all session usage_breakdown buckets
@@ -359,7 +375,7 @@ export function buildDailyApiJson(
             model_usage: modelUsage,
             usage_breakdown: usageBreakdown,
             models: session.models ?? Object.keys(modelUsage),
-            total_tokens: session.total_tokens ?? totalTokens(usageBreakdown),
+            total_tokens: recordedSessionTokens(session),
             session_cost: session.session_cost ?? sessionCost(usageBreakdown, r2),
             cost_basis: session.cost_basis ?? costBasis(session),
             token_source: session.token_source ?? tokenSource(session),

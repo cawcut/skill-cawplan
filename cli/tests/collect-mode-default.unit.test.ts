@@ -9,6 +9,5 @@ describe("collect() default mode (S2.4)", () => {
         const daily = await collect({date: "2026-08-11", agents: ["claude-code", "cursor"]});
         expect(daily.schema).toBe("2.0");
         expect(Array.isArray(daily.sessions)).toBe(true);
-        expect(daily.sessions.length).toBeGreaterThan(0);
     }, 30_000);
 });

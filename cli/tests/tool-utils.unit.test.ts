@@ -85,6 +85,7 @@ describe("buildDailyApiJson session file_changes", () => {
       project: "uid.core-product",
       cwd: "/home/spx/github/uid.core-product",
       time_range: { display: "10:00 - 10:05", timezone: "Asia/Shanghai" },
+      total_tokens: 1,
       model_usage: {},
       usage_breakdown: [],
       files_changed: 2,

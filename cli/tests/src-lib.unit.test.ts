@@ -525,6 +525,7 @@ describe("src lib collect cost currency", () => {
       project: "flow-cawplan-skill",
       cwd: "/repo/flow-cawplan-skill",
       time_range: { display: "10:00 - 10:05", timezone: "UTC" },
+      total_tokens: 1,
       model_usage: {},
       usage_breakdown: [],
       files_changed: 0,
@@ -735,6 +736,7 @@ describe("src lib collect cost currency", () => {
       project: "flow-cawplan-skill",
       cwd: "/repo/flow-cawplan-skill",
       time_range: { display: "11:00 - 11:30", timezone: "UTC" },
+      total_tokens: 1,
       model_usage: {},
       usage_breakdown: [],
       files_changed: 1,
@@ -752,6 +754,52 @@ describe("src lib collect cost currency", () => {
     expect(daily.human_inputs.map((input) => input.session_id)).toEqual(["real-work", "real-work"]);
     expect(daily.totals.sessions).toBe(1);
     expect(daily.totals.cost).toEqual({});
+  });
+
+  test("excludes zero-token imported sessions from every agent while keeping continued sessions", () => {
+    const session = (agent: string, id: string, totalTokens: number, detailedTokens = 0): SessionData => ({
+      schema: "2.0",
+      date: "2026-06-17",
+      agent,
+      session_id: id,
+      session_name: id,
+      project: "flow-cawplan-skill",
+      cwd: "/repo/flow-cawplan-skill",
+      time_range: {display: "10:00 - 10:05", timezone: "UTC"},
+      total_tokens: totalTokens,
+      model_usage: {},
+      usage_breakdown: detailedTokens === 0 ? [] : [{
+        model: "gpt-5",
+        speed: "standard",
+        service_tier: "standard",
+        effort: "default",
+        api_calls: 1,
+        input_tokens: detailedTokens,
+        output_tokens: 0,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cost: 0,
+        currency: "$",
+      }],
+      files_changed: 0,
+      repos_touched: [],
+      message_stats: {user: 1, assistant: 1, tool_calls: 0},
+      human_inputs: [{category: "direction", content: "continue the imported conversation", session_id: id}],
+    });
+
+    const daily = buildDailyApiJson([
+      session("codex", "codex-imported", 0),
+      session("claude-code", "claude-imported", 0),
+      session("cursor-gui", "cursor-imported", 0),
+      // Imported summary remains zero, but the later conversation has detailed usage.
+      session("codex", "codex-continued", 0, 250),
+    ], "2026-06-17", "xin.li");
+
+    expect(daily.sessions.map((item) => item.session_id)).toEqual(["codex-continued"]);
+    expect(daily.human_inputs.map((item) => item.session_id)).toEqual(["codex-continued"]);
+    expect(daily.totals.sessions).toBe(1);
+    expect(daily.totals.agents).toEqual(["codex"]);
+    expect(daily.sessions[0]?.total_tokens).toBe(250);
   });
 
   test("calculateCost does not double-count cache tokens", () => {
