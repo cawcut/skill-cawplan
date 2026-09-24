@@ -272,25 +272,35 @@ export function registerKnowledgeCommand(program: Command): void {
       console.log(JSON.stringify(result, null, 2));
     });
 
+  interface ModuleTreeNodeKnowledgeDataset {
+    id?: string;
+    name?: string;
+  }
+
   interface ModuleTreeNode {
     id?: string;
     parent_id?: string | null;
     name?: string;
     level?: number;
+    knowledge?: ModuleTreeNodeKnowledgeDataset[];
     children?: ModuleTreeNode[];
   }
 
   function flattenModuleTree(nodes: ModuleTreeNode[] | undefined, out: ModuleTreeNode[]): void {
     for (const node of nodes ?? []) {
-      out.push({ id: node.id, parent_id: node.parent_id ?? null, name: node.name, level: node.level });
+      out.push({ id: node.id, parent_id: node.parent_id ?? null, name: node.name, level: node.level, knowledge: node.knowledge });
       flattenModuleTree(node.children, out);
     }
   }
 
+  // expand=knowledge embeds each node's already-linked knowledge datasets directly in this one
+  // call, so callers (the -i module picker, `datasets modules`) don't need a separate
+  // `datasets list --product --module` round trip just to see what's already placed where.
   async function fetchFlatModules(productId: string): Promise<ModuleTreeNode[]> {
     const result = await cawplanRequest({
       method: "GET",
       path: `/api/v1/public/openapi/product/${encodeURIComponent(productId)}/module-tree`,
+      query: { expand: "knowledge" },
     });
     const nodes = (result as { data?: { nodes?: ModuleTreeNode[] } })?.data?.nodes;
     const flat: ModuleTreeNode[] = [];
@@ -321,7 +331,9 @@ export function registerKnowledgeCommand(program: Command): void {
     for (const m of modules) {
       if (!m.id) continue;
       const indent = "  ".repeat(Math.max(0, (m.level ?? 1) - 1));
-      choices.push({ name: `${indent}${m.name ?? m.id}`, value: m.id });
+      const datasetNames = (m.knowledge ?? []).map((k) => k.name).filter((n): n is string => Boolean(n));
+      const suffix = datasetNames.length > 0 ? ` (${datasetNames.join(", ")})` : "";
+      choices.push({ name: `${indent}${m.name ?? m.id}${suffix}`, value: m.id });
     }
     try {
       return await withTtyShortcuts(
@@ -577,28 +589,28 @@ export function registerKnowledgeCommand(program: Command): void {
   datasets
     .command("modules")
     .description(
-      "List a product's module tree (id, parent_id, name only) to find a module id for " +
-        "'datasets create --module' / 'datasets products set-module'. Use -i/--interactive to pick " +
-        "one from a menu and print just that entry instead of the full list.",
+      "List a product's module tree (id, parent_id, name, and any knowledge datasets already " +
+        "placed under each node) to find a module id for 'datasets create --module' / " +
+        "'datasets products set-module'. Use -i/--interactive to pick one from a menu and print " +
+        "just that entry instead of the full list.",
     )
     .requiredOption("--product <id>", "Product id (see: cawplan products list)")
     .option("-i, --interactive", "Pick one module from a menu instead of listing all of them. Requires an interactive terminal.")
     .action(async (opts) => {
+      const modules = await fetchFlatModules(opts.product);
       if (opts.interactive) {
         assertInteractiveTerminal("cawplan knowledge datasets modules --interactive requires an interactive terminal");
-        const picked = await selectModuleIdInteractive(opts.product);
+        const picked = await selectModuleIdInteractive(opts.product, {}, modules);
         if (picked === undefined) {
           console.error(JSON.stringify({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
           process.exitCode = 1;
           return;
         }
-        const modules = await fetchFlatModules(opts.product);
         const chosen = modules.find((m) => m.id === picked);
         console.log(JSON.stringify({ code: "SUCCESS", data: chosen, msg: "success" }, null, 2));
         return;
       }
-      const flat = await fetchFlatModules(opts.product);
-      console.log(JSON.stringify({ code: "SUCCESS", data: flat, msg: "success" }, null, 2));
+      console.log(JSON.stringify({ code: "SUCCESS", data: modules, msg: "success" }, null, 2));
     });
 
   const documents = knowledge.command("documents").description("Manage knowledge documents");
