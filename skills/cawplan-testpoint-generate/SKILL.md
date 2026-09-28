@@ -349,15 +349,19 @@ Step 5 产出最终测试点列表后，**在向 Chat 输出任何内容之前**
    （`--test-points`/`--requirement` 为同形状的内联 JSON 版本，二选一即可。）
 
 3. 命令返回 `{review_id, file, draft_count, archived_count, group_count, count_before}`。记录 `review_id` 到 session binding（与 `product_id`/`requirement_id` 同级，见 Session state）；Chat 数量只读 `draft_count`/`group_count`，不得从输入或页面自行重数。
-4. 用 Agent 的**托管后台任务**启动页面服务（不得在前台等它退出）：
+4. 用 Agent 的**托管后台任务**启动页面服务（先拿 URL，再按平台能力等待）：
 
    ```bash
    cawplan qa-insights testpoint-review open --review-id <id> --no-browser
    ```
 
-   必须使用 Agent 工具的托管后台能力（例如 Bash `run_in_background: true`），保留该任务句柄；**禁止**用 `nohup`、`&`、`disown` 或终端复用器把服务脱离当前 Claude 对话。读取启动输出中的 `Open this URL to review test points: <url>`，记录完整的 `review_url` 与后台任务句柄；只等 URL 出现就继续 Chat 输出，不等服务结束。页面服务仍在运行时禁止为同一 `review_id` 再启动第二个 `open`。
+   必须使用 Agent 工具的托管后台能力（例如 Bash `run_in_background: true`），保留该任务句柄；**禁止**用 `nohup`、`&`、`disown` 或终端复用器把服务脱离当前 Agent 对话。读取启动输出中的 `Open this URL to review test points: <url>`，记录完整的 `review_url` 与后台任务句柄；只等 URL 出现就继续 Chat 输出，不在 URL 出现前等待服务结束。页面服务仍在运行时禁止为同一 `review_id` 再启动第二个 `open`。
 
-   **后台任务结束后先识别页面动作**：Ask AI 和 Save to CawPlan 成功都会关闭同一个 `open` 后台任务，任务完成通知本身不能区分二者。收到通知后，只从其 output file 提取一行 `TESTPOINT_REVIEW_EVENT <event>`（例如用 `rg -o 'TESTPOINT_REVIEW_EVENT (optimize_requested|save_completed)' <output-file>`）；不得根据通用的任务完成摘要猜测动作，也不得把该文件中的归档响应正文回显到 Chat。`save_completed` → 直接转 §9 的成功回执流程，禁止进入 §8；事件缺失或不合法 → 读取最新 Review State 再判定，不猜测。
+   **按 Agent 的任务续跑能力分流（页面动作与后续业务流程完全相同，只改变等待方式）**：
+   - **Claude**：若托管后台任务结束通知会自动唤醒同一对话，保持现有后台通知逻辑；按 §7.2 输出后可结束当前响应，收到任务完成通知再识别事件并续跑。不得改成 Codex 的前台附着等待，也不得重复启动 `open`。
+   - **Codex / ChatGPT**：后台命令返回 `session_id` 后，如果当前 turn 结束，之后的命令完成事件只会写入会话日志、不会自动发起新的模型 turn。因此拿到 URL 后，必须把 §7.2（修订轮则为 §8 的输出契约）作为 **commentary / 中间消息**发给 SQA，**不得发送 final、不得结束当前 turn**；随后立刻用 `write_stdin` 空输入（或平台等价的 session wait）等待同一个 `session_id`，单次最多等待 60 秒。单次等待超时只表示该时间段内没有页面事件，**不是**整体等待超时；只要返回结果仍含 `session_id`，就必须立即静默续等，等待次数和累计时长均不得作为停止条件，也不得改发“当前等待你确认/编辑”等 final 来收尾。只有收到合法页面事件、任务异常退出，或 SQA 明确取消/切换任务时才停止等待。服务退出后在当前 turn 内识别事件并续跑。此规则适用于首次打开、恢复页面、优化后打开下一 Round，以及 §9 的保存等待；每次 `open` 都必须保留并等待它自己的 `session_id`。
+
+   **后台任务结束后先识别页面动作**：Ask AI 和 Save to CawPlan 成功都会关闭同一个 `open` 后台任务，任务完成通知本身不能区分二者。收到通知后，只从任务输出提取一行 `TESTPOINT_REVIEW_EVENT <event>`：Claude 从 output file 读取（例如 `rg -o 'TESTPOINT_REVIEW_EVENT (optimize_requested|save_completed)' <output-file>`），Codex 从上述同一个 attached session 的最终输出读取；不得根据通用的任务完成摘要猜测动作，也不得把任务输出中的归档响应正文回显到 Chat。`save_completed` → 直接转 §9 的成功回执流程，禁止进入 §8；事件缺失或不合法 → 读取最新 Review State 再判定，不猜测。
 
    **页面 Ask AI 的自动主流程**：确认事件为 `optimize_requested` 后，必须先把 `正在优化，请稍候…` / `Optimizing, please wait…`（跟随会话语言二选一）作为用户可见文字发到 Chat，且这段文字必须出现在事件识别后的第一个工具调用之前；然后读取最新 Review State。页面点击已经完成锁定，**此入口跳过 §8 step 1，禁止调用 `request-optimize`**；若 `review_status` 是 `pending_optimize` 或 `optimizing`，直接从 §8 step 2 继续。完成 `apply-optimization` 后按 §8 step 5 打开下一 Round 的 Review 页面。
 
