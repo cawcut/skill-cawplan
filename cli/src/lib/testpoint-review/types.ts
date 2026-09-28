@@ -16,6 +16,8 @@ export type TestPoint = {
   id: string;
   original: TestPointFields;
   current: TestPointFields;
+  /** Human Input collection baseline for the current AI round. */
+  round_baseline?: TestPointFields | null;
   // QA-facing edit state for the CURRENT round (independent of ai_status — a
   // point can be "edited" by QA while ai_status is still "none" from a prior
   // round, or vice versa after an AI round touches a point QA never edited).
@@ -48,6 +50,8 @@ export type ReviewStatus = "reviewing" | "pending_optimize" | "optimizing" | "op
 
 export type ReviewState = {
   schema_version: 1;
+  /** Present only on Reviews that support HTML Human Input event collection. */
+  human_input_event_version?: 1;
   review_id: string;
   round: number;
   review_status: ReviewStatus;

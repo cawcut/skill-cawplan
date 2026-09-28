@@ -1,4 +1,4 @@
-import {afterEach, beforeEach, describe, expect, test} from "vitest";
+import {afterEach, beforeEach, describe, expect, test, vi} from "vitest";
 import {mkdtempSync, readFileSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
@@ -33,11 +33,35 @@ describe("dispatchTestPointReviewRequest optimize (whole-page lock, no real AI c
     });
 
     test("does not lock or close the page when there is no change to optimize", async () => {
-        const result = await dispatchTestPointReviewRequest(req("POST", "/api/optimize"), "{}", TOKEN, {reviewState: state});
+        const recordHumanInput = vi.fn();
+        const result = await dispatchTestPointReviewRequest(req("POST", "/api/optimize"), "{}", TOKEN, {reviewState: state, recordHumanInput});
 
         expect(result).toEqual({status: 200, body: {outcome: "NO_CHANGES"}});
         expect(state.review_status).toBe("reviewing");
         expect(state.optimize_requested_at).toBeUndefined();
+        expect(recordHumanInput).not.toHaveBeenCalled();
+    });
+
+    test("records page optimize once, skips locked retry, and recorder exceptions do not block locking", async () => {
+        state.test_points[0].status = "edited";
+        state.test_points[0].current.title = "changed";
+        const recordHumanInput = vi.fn(() => { throw new Error("disk failure"); });
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+        const first = await dispatchTestPointReviewRequest(
+            req("POST", "/api/optimize"), "{}", TOKEN, {reviewState: state, recordHumanInput},
+        );
+        const second = await dispatchTestPointReviewRequest(
+            req("POST", "/api/optimize"), "{}", TOKEN, {reviewState: state, recordHumanInput},
+        );
+
+        expect(first.closeServer).toBe(true);
+        expect(second.closeServer).toBe(false);
+        expect(state.review_status).toBe("pending_optimize");
+        expect(recordHumanInput).toHaveBeenCalledOnce();
+        expect(recordHumanInput).toHaveBeenCalledWith(state, "optimize");
+        expect(error).toHaveBeenCalledWith("Warning: QA Human Input event was not recorded; Review action continues.");
+        error.mockRestore();
     });
 
     test("locks every test point, including ones without comments", async () => {

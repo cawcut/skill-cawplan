@@ -87,6 +87,8 @@ describe("startTestPointReviewWebServer optimize handoff (design §7, plan step 
         // The CLI command's `await startTestPointReviewWebServer(...)` must actually resolve —
         // this is what lets the waiting Agent's shell command exit and read the saved state.
         await expect(serverPromise).resolves.toBeUndefined();
+        expect(errorSpy).toHaveBeenCalledWith("TESTPOINT_REVIEW_EVENT optimize_requested");
+        expect(errorSpy).not.toHaveBeenCalledWith("TESTPOINT_REVIEW_EVENT save_completed");
 
         const persisted = JSON.parse(readFileSync(reviewFilePath(state.review_id), "utf8")) as ReviewState;
         expect(persisted.review_status).toBe("pending_optimize");
@@ -112,6 +114,8 @@ describe("startTestPointReviewWebServer optimize handoff (design §7, plan step 
             expect(result.status).toBe(200);
             expect(archiveTestPoints).toHaveBeenCalledOnce();
             await expect(resolvesWithin(serverPromise, 500)).resolves.toBeUndefined();
+            expect(errorSpy).toHaveBeenCalledWith("TESTPOINT_REVIEW_EVENT save_completed");
+            expect(errorSpy).not.toHaveBeenCalledWith("TESTPOINT_REVIEW_EVENT optimize_requested");
         } finally {
             heldSocket.destroy();
         }

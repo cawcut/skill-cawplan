@@ -111,6 +111,7 @@ export function createReviewStateFromInput(input: CreateReviewInput): ReviewStat
       id,
       original: { ...fields },
       current: { ...fields },
+      round_baseline: {...fields, tags: [...fields.tags]},
       status: "unchanged",
       source: "ai",
       ai_status: "none",
@@ -121,6 +122,7 @@ export function createReviewStateFromInput(input: CreateReviewInput): ReviewStat
 
   return {
     schema_version: 1,
+    human_input_event_version: 1,
     review_id: `rv_${randomUUID()}`,
     round: 1,
     review_status: "reviewing",

@@ -1,5 +1,5 @@
 ---
-version: 0.2.9
+version: 0.2.10
 name: cawplan-testpoint-generate
 description: |
   Generate test-point coverage outlines from an archived CawPlan Requirement (five fields), with an open-questions list, and batch-archive test points after SQA confirmation.
@@ -17,9 +17,10 @@ allowed-tools: Bash
 
 适用于本 Skill 的所有路径和每一次工具调用：用户不需要关注内部执行过程。除本 Skill 明确规定的最终结果、需要 SQA 确认/补充的信息及下一步操作外，保持静默。
 
-- 不得在工具调用前后输出进度播报或过程说明，包括但不限于：正在检查/修复/重试、JSON 字段或文件格式、状态核验、后台任务、本地 Review 服务启动/重启/关闭。
+- 不得在工具调用前后输出进度播报或过程说明，包括但不限于：正在检查/修复/重试、JSON 字段或文件格式、状态核验、后台任务、本地 Review 服务启动/重启/关闭。**唯一例外**是 §7.1 的页面 Ask AI 自动回调：确认任务输出事件为 `optimize_requested` 后，必须在任何后续工具调用前先输出一次规定的“正在优化”提示，避免 Chat 在生成下一 Round 期间看起来没有响应。
 - 内部可自行验证和重试；成功后直接输出该阶段规定的用户可见结果，不复述内部操作、命令输出或重试次数。
 - 仅当无法自动恢复且需要 SQA 行动时，简要说明用户可感知的阻塞及所需操作；不要暴露内部实现细节。
+- HTML Review 的 Human Input 由 CLI 内部采集；不得为了 QA reporting 在 Chat 或工具结果中额外回显、总结或拼接页面事件。Optimize 所需的 `testpoint-review show` 不受此约束影响。
 
 ## Bootstrap
 
@@ -356,7 +357,9 @@ Step 5 产出最终测试点列表后，**在向 Chat 输出任何内容之前**
 
    必须使用 Agent 工具的托管后台能力（例如 Bash `run_in_background: true`），保留该任务句柄；**禁止**用 `nohup`、`&`、`disown` 或终端复用器把服务脱离当前 Claude 对话。读取启动输出中的 `Open this URL to review test points: <url>`，记录完整的 `review_url` 与后台任务句柄；只等 URL 出现就继续 Chat 输出，不等服务结束。页面服务仍在运行时禁止为同一 `review_id` 再启动第二个 `open`。
 
-   **页面 Ask AI 的自动主流程**：SQA 点击 Ask AI to Optimize 后，页面会锁定并关闭本地服务；这会让上述**托管后台任务**在当前 Claude 对话中结束。收到该任务完成事件后，先立即输出 `正在优化，请稍候…` / `Optimizing, please wait…`（跟随会话语言二选一），再读取最新 Review State：若 `review_status` 是 `pending_optimize` 或 `optimizing`，直接从 §8 step 2 继续，不得再次调用 `request-optimize`。完成 `apply-optimization` 后按 §8 step 5 打开下一 Round 的 Review 页面。
+   **后台任务结束后先识别页面动作**：Ask AI 和 Save to CawPlan 成功都会关闭同一个 `open` 后台任务，任务完成通知本身不能区分二者。收到通知后，只从其 output file 提取一行 `TESTPOINT_REVIEW_EVENT <event>`（例如用 `rg -o 'TESTPOINT_REVIEW_EVENT (optimize_requested|save_completed)' <output-file>`）；不得根据通用的任务完成摘要猜测动作，也不得把该文件中的归档响应正文回显到 Chat。`save_completed` → 直接转 §9 的成功回执流程，禁止进入 §8；事件缺失或不合法 → 读取最新 Review State 再判定，不猜测。
+
+   **页面 Ask AI 的自动主流程**：确认事件为 `optimize_requested` 后，必须先把 `正在优化，请稍候…` / `Optimizing, please wait…`（跟随会话语言二选一）作为用户可见文字发到 Chat，且这段文字必须出现在事件识别后的第一个工具调用之前；然后读取最新 Review State。页面点击已经完成锁定，**此入口跳过 §8 step 1，禁止调用 `request-optimize`**；若 `review_status` 是 `pending_optimize` 或 `optimizing`，直接从 §8 step 2 继续。完成 `apply-optimization` 后按 §8 step 5 打开下一 Round 的 Review 页面。
 
 **不存在**"先在 Chat 展示、SQA 确认后才建 review"这种中间态——只要 Step 5 完成，Review 就已经创建。
 
@@ -397,6 +400,12 @@ SQA 发送「恢复 Review 页面」（或对应英文）时：使用当前 bind
 ### 8. Revise from SQA feedback
 
 **Review State（`review_id` 对应的持久化数据）是测试点的唯一事实源。** Chat 和 Review 页面都是输入入口，但都不在会话里各自维护一份测试点数据——任何一轮处理前先读最新 Review State，不能假设 Chat 记得的内容和页面当前状态一致（页面上可能已经有 QA 直接做的 Edit/Delete/Add）。
+
+**先按入口分流，再执行下面的编号步骤：**
+
+- **Chat 修订意见** → 从 step 1 开始，由 Chat 主动锁定 Review。
+- **§7.1 页面 Ask AI 自动回调** → 页面已经锁定 Review，跳过 step 1，直接执行 step 2；即使稍后读到 `pending_optimize` 或 `optimizing`，也不得补调 `request-optimize`。
+- **`继续优化 Review 页面` / `Continue optimization` fallback** → 按本节 Fallback trigger 先执行 step 2；只有 State 仍待优化才从 step 3 继续，同样不得调用 `request-optimize`。
 
 **Chat 里任何形式的修订意见，统一走同一条路径**，不区分"回复存疑" / "自然语言整体修订"（如"补充超过上限的边界场景"）/ 看起来机械的单条操作（如"删除第 3 条"）——都视为针对当前 Review 的新一轮 AI 输入，不单独开一条"直连编辑、不占用 Round"的快速通道：
 
@@ -496,7 +505,7 @@ Review 页面：[打开最新版本](<review_url>)
 
 **保存前置条件**：若页面仍有任一测试点 Comment 或 Overall Feedback，且尚未被一次成功的 Ask AI 优化消费，Save to CawPlan 必须拒绝提交并提示先 Ask AI；没有确认弹窗或强制提交入口。仅 Edit / Delete / Add（没有上述未处理反馈）可以直接按当前页面状态保存。
 
-**成功回执自动触发，不需要 SQA 回报**：SQA 在页面点击 Save to CawPlan 成功后，页面会关闭本地 Server；Agent 刚才那条挂起的 `open` 调用随之结束，读取最终 Review State 里本轮新增的 `archived: true` 条目数，**自动**在 Chat 输出成功回执（§9.5 格式，逐字文案与追加条件均保留不变），不需要 SQA 再回 Chat 说一遍"保存好了"。
+**成功回执自动触发，不需要 SQA 回报**：SQA 在页面点击 Save to CawPlan 成功后，页面会关闭本地 Server；Agent 刚才那条挂起的 `open` 调用随之结束。按 §7.1 从任务 output file 确认事件为 `save_completed` 后，读取一次最终 Review State，取得本轮新增的 `archived: true` 条目数，**自动**在 Chat 输出成功回执（§9.5 格式，逐字文案与追加条件均保留不变）；禁止输出“正在优化”、调用 `request-optimize` 或进入 §8，也不需要 SQA 再回 Chat 说一遍"保存好了"。
 
 **唯一前提（⚠️ 需要同一对话）**：页面服务必须由当前 Agent 对话在后台启动并保留任务句柄，归档时才能等待它结束并自动回执。SQA 不需要、也不应再去终端手动运行 `open`。如果中途换了新对话，新对话没有旧后台任务句柄，应先确认旧服务已停止，再启动一次并返回新链接。
 

@@ -192,6 +192,48 @@ describe("dispatchTestPointReviewRequest /api/save-to-cawplan (design §4/§4.1,
         expect(archiveTestPoints).not.toHaveBeenCalled();
     });
 
+    test("records after feedback validation and before delete-only NOOP", async () => {
+        state.test_points[0].status = "deleted";
+        state.test_points[1].archived = true;
+        state.test_points[2].archived = true;
+        const recordHumanInput = vi.fn(() => ({status: "written" as const, eventId: "hie_1"}));
+        const archiveTestPoints = vi.fn<ArchiveTestPointsFn>();
+
+        const result = await dispatchTestPointReviewRequest(
+            req("POST", "/api/save-to-cawplan"), "{}", TOKEN,
+            {reviewState: state, archiveTestPoints, recordHumanInput},
+        );
+
+        expect(result.body).toEqual({archived_count: 0, outcome: "NOOP"});
+        expect(recordHumanInput).toHaveBeenCalledOnce();
+        expect(recordHumanInput).toHaveBeenCalledWith(state, "save");
+        expect(archiveTestPoints).not.toHaveBeenCalled();
+    });
+
+    test("does not record blocked Save and recorder exceptions do not block archive", async () => {
+        state.test_points[0].comments.push({id: "c_1", text: "blocked", author: "qa", resolved: false});
+        const blockedRecorder = vi.fn();
+        const archiveTestPoints = vi.fn<ArchiveTestPointsFn>().mockResolvedValue(successEnvelope());
+        const blocked = await dispatchTestPointReviewRequest(
+            req("POST", "/api/save-to-cawplan"), "{}", TOKEN,
+            {reviewState: state, archiveTestPoints, recordHumanInput: blockedRecorder},
+        );
+        expect(blocked.status).toBe(409);
+        expect(blockedRecorder).not.toHaveBeenCalled();
+
+        state.test_points[0].comments = [];
+        const throwingRecorder = vi.fn(() => { throw new Error("disk failure"); });
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+        const saved = await dispatchTestPointReviewRequest(
+            req("POST", "/api/save-to-cawplan"), "{}", TOKEN,
+            {reviewState: state, archiveTestPoints, recordHumanInput: throwingRecorder},
+        );
+        expect(saved.status).toBe(200);
+        expect(archiveTestPoints).toHaveBeenCalledOnce();
+        expect(error).toHaveBeenCalledWith("Warning: QA Human Input event was not recorded; Review action continues.");
+        error.mockRestore();
+    });
+
     test("rejects force:true when comments have not been processed by AI", async () => {
         state.test_points[0].comments.push({id: "c_1", text: "边界没覆盖", author: "qa", resolved: false});
         const archiveTestPoints = vi.fn<ArchiveTestPointsFn>().mockResolvedValue(successEnvelope());
