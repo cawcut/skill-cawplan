@@ -316,6 +316,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
 
     let batch = false;
     let reports = [];
+    let ticketTitles = {};
     let products = [];
     let mappings = [];
     let showAssignedSessions = false;
@@ -647,12 +648,17 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
 
     ${INLINE_TICKET_DETAIL_URL}
 
+    function ticketTitle(ticket) {
+      const displayId = String(ticket || '').trim().toUpperCase();
+      return ticketTitles[displayId] || ('Open ' + displayId);
+    }
+
     function ticketLinkHtml(ticket) {
-      return '<a class="ticket-link" href="' + escapeHtml(ticketDetailUrl(ticket)) + '" target="_blank" rel="noopener noreferrer" title="Open ' + escapeHtml(ticket) + '">' + escapeHtml(ticket) + '</a>';
+      return '<a class="ticket-link" href="' + escapeHtml(ticketDetailUrl(ticket)) + '" target="_blank" rel="noopener noreferrer" title="' + escapeHtml(ticketTitle(ticket)) + '">' + escapeHtml(ticket) + '</a>';
     }
 
     function ticketOpenLinkHtml(ticket) {
-      return '<a class="ticket-link ticket-open-link" href="' + escapeHtml(ticketDetailUrl(ticket)) + '" target="_blank" rel="noopener noreferrer" title="Open ' + escapeHtml(ticket) + '">Open</a>';
+      return '<a class="ticket-link ticket-open-link" href="' + escapeHtml(ticketDetailUrl(ticket)) + '" target="_blank" rel="noopener noreferrer" title="' + escapeHtml(ticketTitle(ticket)) + '">Open</a>';
     }
 
     function ticketOptionRows(session) {
@@ -663,7 +669,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
         '<div class="ticket-option">' +
           '<label class="ticket-option-choice">' +
             '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '"' + (selected.has(ticket) ? ' checked' : '') + ' />' +
-            '<span class="ticket-option-label">' + escapeHtml(ticket) + '</span>' +
+          '<span class="ticket-option-label" title="' + escapeHtml(ticketTitle(ticket)) + '">' + escapeHtml(ticket) + '</span>' +
           '</label>' +
           ticketOpenLinkHtml(ticket) +
         '</div>'
@@ -674,7 +680,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       const tickets = sessionTickets(session);
       if (tickets.length === 0) return '<span class="ticket-placeholder">Select tickets</span>';
       return tickets.map((ticket) =>
-        '<span class="ticket-tag" data-ticket="' + escapeHtml(ticket) + '">' +
+        '<span class="ticket-tag" data-ticket="' + escapeHtml(ticket) + '" title="' + escapeHtml(ticketTitle(ticket)) + '">' +
           ticketLinkHtml(ticket) +
           '<button class="ticket-remove" type="button" data-ticket="' + escapeHtml(ticket) + '" aria-label="Remove ' + escapeHtml(ticket) + '">×</button>' +
         '</span>'
@@ -704,7 +710,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       const trigger = picker.querySelector('.ticket-trigger');
       trigger.innerHTML = selected.length
         ? selected.map((ticket) =>
-          '<span class="ticket-tag" data-ticket="' + escapeHtml(ticket) + '">' +
+            '<span class="ticket-tag" data-ticket="' + escapeHtml(ticket) + '" title="' + escapeHtml(ticketTitle(ticket)) + '">' +
             ticketLinkHtml(ticket) +
             '<button class="ticket-remove" type="button" data-ticket="' + escapeHtml(ticket) + '" aria-label="Remove ' + escapeHtml(ticket) + '">×</button>' +
           '</span>'
@@ -725,7 +731,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
       label.className = 'ticket-option';
       label.innerHTML = '<label class="ticket-option-choice">' +
         '<input class="ticket-option-cb" type="checkbox" value="' + escapeHtml(ticket) + '"' + (checked ? ' checked' : '') + ' />' +
-        '<span class="ticket-option-label">' + escapeHtml(ticket) + '</span>' +
+        '<span class="ticket-option-label" title="' + escapeHtml(ticketTitle(ticket)) + '">' + escapeHtml(ticket) + '</span>' +
         '</label>' +
         ticketOpenLinkHtml(ticket);
       options.appendChild(label);
@@ -1185,6 +1191,7 @@ export function assignmentHtml(portalBase = "https://app.cawplan.com"): string {
         api('/api/product-repos'),
       ]);
       batch = Boolean(reportData.batch);
+      ticketTitles = reportData.ticket_titles || {};
       reports = Array.isArray(reportData.reports)
         ? reportData.reports
         : [{file: reportData.file || '', date: reportData.report.date, report: reportData.report}];

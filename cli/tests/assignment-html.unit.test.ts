@@ -157,6 +157,10 @@ describe("assignmentHtml - tickets column", () => {
         expect(html).toContain("function ticketDetailUrl(ticket)");
         expect(html).toContain("function ticketLinkHtml(ticket)");
         expect(html).toContain("function ticketOpenLinkHtml(ticket)");
+        expect(html).toContain("let ticketTitles = {};");
+        expect(html).toContain("function ticketTitle(ticket)");
+        expect(html).toContain("ticketTitles[displayId]");
+        expect(html).toContain("ticketTitles = reportData.ticket_titles || {};");
         expect(html).toContain("target=\"_blank\"");
         expect(html).toContain("rel=\"noopener noreferrer\"");
         expect(html).toContain("function ticketOptionRows(session)");
@@ -179,7 +183,8 @@ describe("assignmentHtml - tickets column", () => {
         expect(html).toContain("class=\"ticket-warning hidden\"");
         expect(html).toContain(">Open</a>");
         expect(html).toContain("'<label class=\"ticket-option-choice\">' +");
-        expect(html).toContain("'<span class=\"ticket-option-label\">' + escapeHtml(ticket) + '</span>'");
+        expect(html).toContain("'<span class=\"ticket-option-label\" title=\"' + escapeHtml(ticketTitle(ticket)) + '\">' + escapeHtml(ticket) + '</span>'");
+        expect(html).toContain("'<span class=\"ticket-tag\" data-ticket=\"' + escapeHtml(ticket) + '\" title=\"' + escapeHtml(ticketTitle(ticket)) + '\">'");
         expect(html).not.toContain("'<input class=\"ticket-option-cb\" type=\"checkbox\" value=\"' + escapeHtml(ticket) + '\"' + (selected.has(ticket) ? ' checked' : '') + ' />' +\n          ticketLinkHtml(ticket)");
     });
 
