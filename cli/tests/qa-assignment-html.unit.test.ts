@@ -166,8 +166,16 @@ describe("qaAssignmentHtml session and input columns", () => {
         const daily = mockDailyFixture();
         const session = {...daily.sessions[0]!, session_title: ""};
         const row = renderQaSessionRowHtml(session, MOCK_PRODUCTS, {daily});
-        expect(row).toContain('<td class="title-cell"></td>');
-        expect(row).not.toContain(`<td class="title-cell">${session.session_id}</td>`);
+        expect(row).toContain('<td class="title-cell"><span class="title-text"></span></td>');
+        expect(row).not.toContain(`<span class="title-text">${session.session_id}</span>`);
+    });
+
+    test("clamps only the title text to three lines in both render paths", () => {
+        const html = qaAssignmentHtml({bootstrap: bootstrapFixture()});
+        expect(html).toContain('.title-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }');
+        expect(html).toContain("'<td class=\"title-cell\"><span class=\"title-text\">' + escapeHtml(title) + '</span></td>'");
+        expect(html).not.toContain('.title-cell { display: -webkit-box');
+        expect(html).not.toContain('tr { display: -webkit-box');
     });
 
     test("interactive page wires browser input preview and bounded tooltip", () => {
