@@ -1,5 +1,5 @@
 ---
-version: 0.2.9
+version: 0.2.10
 name: cawplan-ticket-report-generate
 description: |
   Generate and upsert a Ticket-scoped QA Report (PROGRESS or COMPLETION) for any CawPlan Ticket (anchor) + Version: collect anchor-relative subtree/relation/execution data, apply result rules, render ticket-qa-report.1 template, and persist via existing Portal qa_report POST/PUT.

@@ -1,5 +1,5 @@
 ---
-version: 0.2.9
+version: 0.2.10
 name: cawplan-metrics
 description: |
   Query or write generic CawPlan business metrics (subscriptions, CawPlan tickets, QA, workflow executions, tokens/credit, API usage, ...) via the metrics store, optionally charting the result.

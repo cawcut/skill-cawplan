@@ -32,6 +32,7 @@ import {
     applyTicketRefsToSessions,
     normalizeSessionTicketIdsToUniqueIds,
 } from "../ai-session/ticket-context.js";
+import {cleanupQaHumanInputOutbox, mergeQaHumanInputOutbox} from "./qa-human-input-outbox.js";
 
 function formatElapsed(ms: number): string {
     const totalSeconds = Math.max(0, Math.round(ms / 1000));
@@ -460,6 +461,21 @@ export async function collectQaResult(opts: CollectOptions): Promise<QaCollectRe
     // engineer's requirement description or test case list can easily exceed
     // the 1500-char cutoff coding uses to skip noisy/pasted turns.
     const {sessions} = await scanSessions({...opts, maxTurnLength: opts.maxTurnLength ?? Infinity}, logger);
+
+    logger.step("Clean up QA Human Input outbox", () => {
+        try {
+            cleanupQaHumanInputOutbox();
+        } catch {
+            console.warn("Warning: Some expired QA Human Input outbox files could not be cleaned up; QA collection continues.");
+        }
+    });
+    logger.step("Merge QA Human Input outbox", () => {
+        try {
+            mergeQaHumanInputOutbox(sessions, date);
+        } catch {
+            console.warn("Warning: QA Human Input outbox could not be merged; QA collection continues.");
+        }
+    });
 
     const payload = logger.step("Build QA daily API JSON", () => buildQaDailyPayload(sessions, date, author));
 

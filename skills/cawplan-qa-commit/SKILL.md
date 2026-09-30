@@ -1,5 +1,5 @@
 ---
-version: 0.2.9
+version: 0.2.10
 name: cawplan-qa-commit
 description: |
   Use when the user asks to collect, submit, upload, or summarize CawPlan QA session daily JSON — e.g. 提交 QA 日报, QA 日报, 测试日报, 提交测试日报, QA 会话上报, or /cawplan-qa-commit.
@@ -21,6 +21,8 @@ cawplan skill check
 This skill supports two workflows:
 - **Single-day workflow:** Collect → Assign → Review → Upload
 - **Month-missing workflow:** Query cloud missing QA dates for a month → collect, assign, review, and upload only missing dates
+
+`cawplan session collect --mode qa` automatically merges HTML Review Human Input events. Do not read the local outbox or manually append/summarize its events; surface any collector warnings through the existing Data quality notes.
 
 **Out of scope for this skill (do not improvise):**
 - `cawplan session backfill` — that command checks **coding** dailies (`ai-session-usage`), not QA. Use `cawplan session qa-backfill --dry-run` instead.

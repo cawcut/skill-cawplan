@@ -99,7 +99,7 @@ export function renderQaSessionRowHtml(
 
     return `<tr data-session-id="${escapeHtml(session.session_id)}">` +
         `<td class="sid-cell"><code>${escapeHtml(session.session_id)}</code></td>` +
-        `<td class="title-cell">${escapeHtml(title)}</td>` +
+        `<td class="title-cell"><span class="title-text">${escapeHtml(title)}</span></td>` +
         `<td class="input-cell">${qaHumanInputsHtml(report, session)}</td>` +
         `<td class="agent-cell">${escapeHtml(session.agent || "—")}</td>` +
         `<td class="models-cell" title="${escapeHtml(sessionModelsText(session))}">${escapeHtml(sessionModelsText(session)) || `<span class="muted">—</span>`}</td>` +
@@ -268,6 +268,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     tbody tr:last-child td { border-bottom: none; }
     tbody tr:hover td { background: var(--bg-hover); }
     .sid-cell code { font-size: 11px; }
+    .title-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
     .dt-cell { font-size: 12px; color: var(--text-02); white-space: nowrap; vertical-align: middle; text-align: right; }
     .input-cell { overflow: hidden; }
     .human-inputs { margin: 0; padding: 0; list-style: none; max-width: 100%; overflow: hidden; cursor: help; }
@@ -628,7 +629,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       const title = resolveSessionTitle(session);
       return '<tr data-session-id="' + escapeHtml(session.session_id) + '">' +
         '<td class="sid-cell"><code>' + escapeHtml(session.session_id) + '</code></td>' +
-        '<td class="title-cell">' + escapeHtml(title) + '</td>' +
+        '<td class="title-cell"><span class="title-text">' + escapeHtml(title) + '</span></td>' +
         '<td class="input-cell">' + qaHumanInputsHtml(daily, session) + '</td>' +
         '<td class="agent-cell">' + escapeHtml(session.agent || "—") + '</td>' +
         '<td class="models-cell" title="' + escapeHtml(sessionModelsText(session)) + '">' + sessionModelsHtml(session) + '</td>' +

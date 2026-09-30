@@ -29,9 +29,11 @@ export function advanceReviewRound(reviewState: ReviewState, aiOutput: AiRoundOu
     }
 
     const modifiedFields = modifiedById.get(testPoint.id);
+    const current = modifiedFields ? { ...modifiedFields, tags: [...modifiedFields.tags] } : testPoint.current;
     survivors.push({
       ...testPoint,
-      current: modifiedFields ? { ...modifiedFields } : testPoint.current,
+      current,
+      round_baseline: {...current, tags: [...current.tags]},
       status: "unchanged",
       ai_status: modifiedFields ? "modified" : "none",
       comments: [],
@@ -46,6 +48,7 @@ export function advanceReviewRound(reviewState: ReviewState, aiOutput: AiRoundOu
       id,
       original: { ...fields },
       current: { ...fields },
+      round_baseline: {...fields, tags: [...fields.tags]},
       status: "added",
       source: "ai",
       ai_status: "added",

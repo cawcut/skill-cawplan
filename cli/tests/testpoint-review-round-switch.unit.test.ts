@@ -68,6 +68,7 @@ describe("advanceReviewRound (design §3.2/§3.3/§3.6, plan step 16.5)", () => 
         expect(added!.ai_status).toBe("added");
         expect(added!.source).toBe("ai");
         expect(added!.original).toEqual({title: "new AI test point", group: "g", tags: [], priority: "LOW"});
+        expect(added!.round_baseline).toEqual(added!.current);
         expect(state.next_seq).toBe(nextSeqBefore + 1);
     });
 
@@ -102,6 +103,7 @@ describe("advanceReviewRound (design §3.2/§3.3/§3.6, plan step 16.5)", () => 
         const survivor = state.test_points.find((tp) => tp.id === "tp_001")!;
         expect(survivor.original).toEqual(originalBefore);
         expect(survivor.current).toEqual(aiFields);
+        expect(survivor.round_baseline).toEqual(aiFields);
         expect(survivor.original).not.toEqual(survivor.current);
     });
 

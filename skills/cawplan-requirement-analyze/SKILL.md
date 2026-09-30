@@ -1,5 +1,5 @@
 ---
-version: 0.2.9
+version: 0.2.10
 name: cawplan-requirement-analyze
 description: |
   Analyze SQA requirement inputs into five structured fields plus a display summary, and archive a Requirement to CawPlan QA Insights.

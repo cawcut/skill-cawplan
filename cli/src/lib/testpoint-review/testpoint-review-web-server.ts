@@ -13,6 +13,11 @@ import { loadReviewState, saveReviewState } from "./store.js";
 import { formatTestPointId } from "./test-point-id.js";
 import type { ReviewState, TestPointFields } from "./types.js";
 import type { QAInsightsWriteEnvelope } from "../qa-insights/types.js";
+import {
+  tryRecordTestPointReviewHumanInput,
+  type RecordHumanInputResult,
+  type TestPointReviewHumanInputAction,
+} from "./human-input-event.js";
 
 const localHost = "127.0.0.1";
 
@@ -66,6 +71,7 @@ export interface TestPointReviewServerDeps {
   reviewState?: ReviewState;
   archiveTestPoints?: ArchiveTestPointsFn;
   reconcileTestPoints?: ReconcileTestPointsFn;
+  recordHumanInput?: (state: ReviewState, action: TestPointReviewHumanInputAction) => RecordHumanInputResult;
 }
 
 export interface TestPointReviewServerOptions {
@@ -350,6 +356,7 @@ function addTestPoint(
     id,
     original: { ...fields },
     current: { ...fields },
+    round_baseline: null,
     status: "added" as const,
     source: "qa" as const,
     ai_status: "none" as const,
@@ -414,7 +421,27 @@ export function requestOptimize(reviewState: ReviewState): RequestOptimizeResult
   return { reviewState, alreadyLocked: false, lockedIds: allTestPointIds(reviewState) };
 }
 
-function optimizeReview(reviewState: ReviewState): TestPointReviewDispatchResult {
+const HUMAN_INPUT_WARNING = "Warning: QA Human Input event was not recorded; Review action continues.";
+
+function recordHumanInputBestEffort(
+  reviewState: ReviewState,
+  action: TestPointReviewHumanInputAction,
+  recorder: NonNullable<TestPointReviewServerDeps["recordHumanInput"]>,
+): void {
+  try {
+    const result = recorder(reviewState, action);
+    if (result.status === "failed" || result.status === "skipped_no_session") {
+      console.error(HUMAN_INPUT_WARNING);
+    }
+  } catch {
+    console.error(HUMAN_INPUT_WARNING);
+  }
+}
+
+function optimizeReview(
+  reviewState: ReviewState,
+  recordHumanInput: NonNullable<TestPointReviewServerDeps["recordHumanInput"]>,
+): TestPointReviewDispatchResult {
   const hasPageChanges = reviewState.test_points.some(
     (tp) =>
       tp.archived !== true &&
@@ -426,6 +453,17 @@ function optimizeReview(reviewState: ReviewState): TestPointReviewDispatchResult
   if (!hasPageChanges) {
     return { status: 200, body: { outcome: "NO_CHANGES" } };
   }
+
+  if (isReviewLocked(reviewState)) {
+    const {lockedIds} = requestOptimize(reviewState);
+    return {
+      status: 200,
+      body: {review_status: reviewState.review_status, locked_ids: lockedIds},
+      closeServer: false,
+    };
+  }
+
+  recordHumanInputBestEffort(reviewState, "optimize", recordHumanInput);
 
   const { alreadyLocked, lockedIds } = requestOptimize(reviewState);
   return {
@@ -456,6 +494,7 @@ async function saveToCawPlan(
   reviewState: ReviewState,
   archiveTestPoints: ArchiveTestPointsFn,
   reconcileTestPoints: ReconcileTestPointsFn,
+  recordHumanInput: NonNullable<TestPointReviewServerDeps["recordHumanInput"]>,
 ): Promise<TestPointReviewDispatchResult> {
   if (isReviewLocked(reviewState)) {
     return { status: 409, body: { error: "review is locked for AI optimization" } };
@@ -472,6 +511,8 @@ async function saveToCawPlan(
       },
     };
   }
+
+  recordHumanInputBestEffort(reviewState, "save", recordHumanInput);
 
   const pending = testPointsPendingArchive(reviewState);
   if (pending.length === 0) {
@@ -614,7 +655,7 @@ export async function dispatchTestPointReviewRequest(
       return { status: 404, body: { error: "no review state loaded" } };
     }
 
-    return optimizeReview(deps.reviewState);
+    return optimizeReview(deps.reviewState, deps.recordHumanInput ?? tryRecordTestPointReviewHumanInput);
   }
 
   if (req.method === "POST" && url.pathname === SAVE_TO_CAWPLAN_PATH) {
@@ -626,6 +667,7 @@ export async function dispatchTestPointReviewRequest(
       deps.reviewState,
       deps.archiveTestPoints ?? defaultArchiveTestPoints,
       deps.reconcileTestPoints ?? defaultReconcileTestPoints,
+      deps.recordHumanInput ?? tryRecordTestPointReviewHumanInput,
     );
   }
 
@@ -735,7 +777,11 @@ export async function startTestPointReviewWebServer(
       }
       void handleTestPointReviewHttpRequest(req, res, token, effectiveDeps).then((shouldClose) => {
         if (shouldClose) {
-          console.error("Optimization requested; review is saved and locked. Closing local server.");
+          const requestPath = new URL(req.url ?? "/", `http://${localHost}`).pathname;
+          const completionEvent = requestPath === SAVE_TO_CAWPLAN_PATH
+            ? "TESTPOINT_REVIEW_EVENT save_completed"
+            : "TESTPOINT_REVIEW_EVENT optimize_requested";
+          console.error(completionEvent);
           closeServerSoon();
         }
       });

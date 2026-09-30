@@ -49,6 +49,7 @@ describe("dispatchTestPointReviewRequest add test point route", () => {
         expect(added.original).toEqual(added.current);
         expect(added.status).toBe("added");
         expect(added.source).toBe("qa");
+        expect(added.round_baseline).toBeNull();
         expect(added.ai_status).toBe("none");
         expect(added.comments).toEqual([]);
         expect(state.next_seq).toBe(previousNextSeq + 1);
