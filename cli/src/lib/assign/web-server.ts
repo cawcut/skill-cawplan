@@ -107,6 +107,27 @@ function requestHasToken(req: IncomingMessage, token: string): boolean {
     return url.searchParams.get("token") === token;
 }
 
+async function ticketTitlesForReports(reports: AssignmentReport[]): Promise<Record<string, string>> {
+    const displayIDs = [...new Set(reports.flatMap(({daily}) => daily.sessions.flatMap(
+        (session) => session.ticket_display_ids ?? []
+    )).map((id) => String(id).trim().toUpperCase()).filter(Boolean))];
+    if (displayIDs.length === 0) return {};
+
+    try {
+        const contexts = await resolveTicketContexts(displayIDs);
+        return Object.fromEntries(contexts.flatMap((context) => {
+            const displayID = context.ticket_display_id?.trim().toUpperCase();
+            const title = context.title?.trim();
+            return displayID && title ? [[displayID, title]] : [];
+        }));
+    } catch (error) {
+        // Ticket titles are an assignment-page enhancement. Do not prevent users
+        // from assigning products when contextual lookup is temporarily unavailable.
+        console.warn(`Warning: ticket title lookup failed: ${(error as Error).message}`);
+        return {};
+    }
+}
+
 async function ticketWarningsForAssignment(
     session: Pick<DailyApiJson["sessions"][number], "session_id">,
     assignment: WebAssignment,
@@ -320,15 +341,18 @@ export async function startAssignmentWebServer(reports: AssignmentReport[], batc
                 }
 
                 if (req.method === "GET" && url.pathname === "/api/report") {
+                    const ticket_titles = await ticketTitlesForReports(reports);
                     if (batchMode) {
                         sendJson(res, 200, {
                             batch: true,
                             reports: reports.map(assignmentReportPayload),
+                            ticket_titles,
                         });
                     } else {
                         sendJson(res, 200, {
                             batch: false,
                             ...assignmentReportPayload(reports[0]),
+                            ticket_titles,
                         });
                     }
                     return;

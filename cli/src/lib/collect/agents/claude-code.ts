@@ -582,8 +582,11 @@ export function collectClaudeCodeSession(
     if (typeof content === "string") {
       text = extractUserMessage(content)?.trim() ?? null;
     } else if (Array.isArray(content)) {
-      const textBlock = (content as Record<string, unknown>[]).find((b) => b["type"] === "text");
-      if (textBlock) text = String(textBlock["text"] ?? "").trim();
+      const textParts = (content as Record<string, unknown>[])
+        .filter((b) => b["type"] === "text")
+        .map((b) => String(b["text"] ?? ""))
+        .filter(Boolean);
+      if (textParts.length) text = textParts.join("\n").trim();
     }
     if (!text || text.length < 0) continue;
     if (/\[Request interrupted/.test(text)) continue;
