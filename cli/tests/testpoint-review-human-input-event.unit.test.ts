@@ -56,6 +56,11 @@ describe("TestPoint Review Human Input projection and writer", () => {
 
     const units = projectTestPointReviewHumanInput(state, "optimize");
     expect(units.map((entry) => entry.kind)).toEqual(["edit", "comment", "delete", "add", "overall_feedback"]);
+    expect(units[0].content).toMatch(/^\[Edit Test Point\]\nOriginal: \{.*\}\nUpdated: \{.*\}$/);
+    expect(units[1].content).toMatch(/^\[Comment Test Point\]\nTest Point: \{.*\}\nComment: 补并发$/);
+    expect(units[2].content).toMatch(/^\[Delete Test Point\]\nOriginal: \{.*\}$/);
+    expect(units[3].content).toMatch(/^\[Add Test Point\]\nContent: \{.*\}$/);
+    expect(units[4].content).toBe("[Overall Feedback]\nContent: 整体反馈");
     expect(units.map((entry) => entry.content).join("\n")).not.toContain("tp_999");
     expect(units[3].content).toContain('"tags":["b","a"]');
     expect(projectTestPointReviewHumanInput(state, "save").map((entry) => entry.kind)).toEqual(["edit", "delete", "add"]);

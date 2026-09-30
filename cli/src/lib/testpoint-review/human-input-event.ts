@@ -86,7 +86,7 @@ function labels(state: ReviewState): {
 } {
   return state.language === "en"
     ? {original: "Original", updated: "Updated", content: "Content", testPoint: "Test Point", comment: "Comment", separator: ": "}
-    : {original: "原内容", updated: "修改为", content: "内容", testPoint: "测试点", comment: "评论", separator: "："};
+    : {original: "Original", updated: "Updated", content: "Content", testPoint: "Test Point", comment: "Comment", separator: ": "};
 }
 
 /** Pure projection of one page action. Throws only for an internally-invalid enabled Review. */
