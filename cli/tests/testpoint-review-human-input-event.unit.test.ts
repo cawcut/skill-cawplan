@@ -96,6 +96,19 @@ describe("TestPoint Review Human Input projection and writer", () => {
     );
   });
 
+  test("records a priority-only edit with the old and selected values", () => {
+    const state = createFixtureReviewState({productId: "p", requirementId: "r"});
+    state.test_points[0].status = "edited";
+    state.test_points[0].current.priority = "LOW";
+
+    const units = projectTestPointReviewHumanInput(state, "save");
+
+    expect(units).toHaveLength(1);
+    expect(units[0].kind).toBe("edit");
+    expect(units[0].content).toContain('"priority":"HIGH"');
+    expect(units[0].content).toContain('"priority":"LOW"');
+  });
+
   test("keeps unit ids across actions, changes event ids, and includes round in unit ids", () => {
     const state = createFixtureReviewState({productId: "p", requirementId: "r"});
     state.test_points[0].status = "edited";

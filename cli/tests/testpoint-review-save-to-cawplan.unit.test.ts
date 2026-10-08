@@ -74,6 +74,8 @@ describe("dispatchTestPointReviewRequest /api/save-to-cawplan (design §4/§4.1,
     });
 
     test("submits all non-deleted, non-archived test points and marks them archived on SUCCESS", async () => {
+        state.test_points[0].current.priority = "LOW";
+        state.test_points[0].status = "edited";
         const archiveTestPoints = vi.fn<ArchiveTestPointsFn>().mockResolvedValue(successEnvelope());
 
         const result = await dispatchTestPointReviewRequest(
@@ -88,7 +90,10 @@ describe("dispatchTestPointReviewRequest /api/save-to-cawplan (design §4/§4.1,
         expect(archiveTestPoints).toHaveBeenCalledWith(
             "prod_1",
             "req_1",
-            {test_points: expect.arrayContaining([expect.objectContaining({is_edited: false})])},
+            {test_points: expect.arrayContaining([
+                expect.objectContaining({priority: "LOW", is_edited: true}),
+                expect.objectContaining({is_edited: false}),
+            ])},
         );
         expect(state.test_points.every((tp) => tp.archived === true)).toBe(true);
         // Step 20: a successful save closes the local server (same hand-back mechanism as /api/optimize)

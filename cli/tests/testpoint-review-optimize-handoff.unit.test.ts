@@ -62,6 +62,7 @@ describe("startTestPointReviewWebServer optimize handoff (design §7, plan step 
         process.env.CAWPLAN_TESTPOINT_REVIEW_PATH = dir;
         state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
         state.test_points[0].status = "edited";
+        state.test_points[0].current.priority = "LOW";
         saveReviewState(state);
     });
 
@@ -93,6 +94,7 @@ describe("startTestPointReviewWebServer optimize handoff (design §7, plan step 
         const persisted = JSON.parse(readFileSync(reviewFilePath(state.review_id), "utf8")) as ReviewState;
         expect(persisted.review_status).toBe("pending_optimize");
         expect(persisted.optimize_requested_at).toBeDefined();
+        expect(persisted.test_points[0].current.priority).toBe("LOW");
     });
 
     test("successful Save to CawPlan closes despite a browser connection that remains open", async () => {

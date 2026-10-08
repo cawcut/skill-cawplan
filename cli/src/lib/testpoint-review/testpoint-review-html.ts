@@ -1,3 +1,4 @@
+import { TESTPOINT_PRIORITIES } from "../qa-insights/types.js";
 import type { ReviewState, TestPoint } from "./types.js";
 
 function escapeHtml(value: string): string {
@@ -32,6 +33,13 @@ const AI_STATUS_LABEL: Record<TestPoint["ai_status"], string> = {
   modified: "AI Modified",
   added: "AI Added",
 };
+
+function renderPriorityOptions(selectedPriority: string): string {
+  return TESTPOINT_PRIORITIES.map(
+    (priority) =>
+      `<option value="${priority}"${priority === selectedPriority ? " selected" : ""}>${priority}</option>`,
+  ).join("");
+}
 
 const COLUMN_HEADERS: Record<"zh" | "en", { seq: string; title: string; tags: string; priority: string; actions: string }> = {
   zh: { seq: "序号", title: "标题", tags: "标签", priority: "优先级", actions: "操作" },
@@ -86,7 +94,7 @@ function renderRow(seq: string, tp: TestPoint, pageLocked: boolean): string {
             ${aiStatusLabel ? renderOriginalCompare(tp) : ""}
           </td>
           <td><span class="field" data-field="tags" data-editable="${editable}">${f.tags.map((t) => escapeHtml(t)).join(", ")}</span></td>
-          <td><span class="field" data-field="priority" data-editable="${editable}">${escapeHtml(f.priority)}</span></td>
+          <td><select class="add-tp-input priority-select" data-field="priority" data-editable="${editable}" aria-label="Priority"${isLocked || isDeleted ? " disabled" : ""}>${renderPriorityOptions(f.priority)}</select></td>
           <td>
             ${actionButton}
             <button type="button" class="comment-toggle-btn" data-action="toggle-comments">Comment<span class="comment-count">${commentCount > 0 ? `(${commentCount})` : ""}</span></button>
@@ -131,10 +139,7 @@ function renderAddTestPointPanel(pageLocked: boolean): string {
       <input type="text" class="add-tp-input" id="add-tp-group" placeholder="Group"${disabledAttr} />
       <input type="text" class="add-tp-input" id="add-tp-tags" placeholder="Tags (comma-separated)"${disabledAttr} />
       <select class="add-tp-input" id="add-tp-priority"${disabledAttr}>
-        <option value="CRITICAL">CRITICAL</option>
-        <option value="HIGH">HIGH</option>
-        <option value="MEDIUM" selected>MEDIUM</option>
-        <option value="LOW">LOW</option>
+        ${renderPriorityOptions("MEDIUM")}
       </select>
       <button type="button" class="comment-submit-btn" id="add-tp-submit"${disabledAttr}>Submit</button>
     </div>`;
@@ -452,7 +457,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     }
     th:nth-child(1) { width: 52px; }
     th:nth-child(3) { width: 160px; }
-    th:nth-child(4) { width: 90px; }
+    th:nth-child(4) { width: 120px; }
     th:nth-child(5) { width: 172px; }
     tr.tp-row { transition: background 0.1s ease; background: var(--surface); }
     tr.tp-row:hover { background: var(--surface-tint); }
@@ -506,6 +511,33 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     .field[data-editable="true"] { cursor: text; border-radius: 4px; padding: 3px 6px; margin: -3px -6px; transition: background 0.12s ease; }
     .field[data-editable="true"]:hover { background: var(--surface-tint); }
     .field[contenteditable="true"] { background: #fff8e4; outline: 1.5px solid var(--amber-bar); box-shadow: 0 0 0 3px rgba(219, 165, 40, 0.14); }
+    .priority-select {
+      width: 100px;
+      min-width: 0;
+      padding: 0 24px 0 8px;
+      border-color: transparent;
+      background-color: transparent;
+      background-image: none;
+      box-shadow: none;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      transition: background-color 0.12s ease;
+    }
+    .priority-select:hover, .priority-select:focus {
+      border-color: transparent;
+      background-color: var(--line-soft);
+      background-image:
+        linear-gradient(45deg, transparent 50%, var(--ink-500) 50%),
+        linear-gradient(135deg, var(--ink-500) 50%, transparent 50%);
+      background-position:
+        calc(100% - 11px) 50%,
+        calc(100% - 7px) 50%;
+      background-repeat: no-repeat;
+      background-size: 4px 4px;
+      box-shadow: none;
+      outline: none;
+    }
 
     .delete-btn, .restore-btn, .comment-toggle-btn, .comment-submit-btn {
       font-size: 12px;
@@ -574,7 +606,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     tr.tp-row.locked .field[data-editable="false"]:hover { background: none; }
     .status-label.locked-label { background: var(--surface-tint); color: var(--ink-500); }
     .delete-btn:disabled, .restore-btn:disabled, .comment-delete-btn:disabled,
-    .comment-submit-btn:disabled, .comment-input:disabled {
+    .comment-submit-btn:disabled, .comment-input:disabled, .priority-select:disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
@@ -677,6 +709,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       var lastKnownUpdatedAt = ${JSON.stringify(state.updated_at)};
 
       function fieldValue(el, fieldName) {
+        if (fieldName === "priority") return el.value.trim();
         var text = el.textContent || "";
         if (fieldName === "tags") {
           return text.split(",").map(function (t) { return t.trim(); }).filter(Boolean);
@@ -740,6 +773,11 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
             actionCell.outerHTML = '<button type="button" class="delete-btn" data-action="delete">Delete</button>';
           }
           wireActionButton(row.querySelector(".delete-btn, .restore-btn"));
+        }
+
+        var prioritySelect = row.querySelector(".priority-select");
+        if (prioritySelect) {
+          prioritySelect.disabled = status === "deleted" || row.getAttribute("data-locked") === "true";
         }
 
         applyFilterToRow(row);
@@ -1095,12 +1133,24 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         });
       }
 
+      function wirePrioritySelect(el) {
+        var row = el.closest(".tp-row");
+        el.addEventListener("change", function () {
+          if (row.classList.contains("status-deleted") || row.getAttribute("data-locked") === "true") return;
+          saveField(row, "priority", el);
+        });
+      }
+
       function lockRow(row) {
         row.classList.add("locked");
         row.setAttribute("data-locked", "true");
 
         row.querySelectorAll(".field[data-editable=\\"true\\"]").forEach(function (field) {
           field.setAttribute("data-editable", "false");
+        });
+        row.querySelectorAll(".priority-select").forEach(function (select) {
+          select.setAttribute("data-editable", "false");
+          select.disabled = true;
         });
 
         var titleCell = row.querySelector(".tp-title-cell");
@@ -1239,6 +1289,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       }
 
       document.querySelectorAll(".field[data-editable=\\"true\\"]").forEach(wireField);
+      document.querySelectorAll(".priority-select[data-editable=\\"true\\"]").forEach(wirePrioritySelect);
       document.querySelectorAll(".delete-btn, .restore-btn").forEach(wireActionButton);
       document.querySelectorAll(".comment-toggle-btn").forEach(wireCommentToggle);
       document.querySelectorAll(".ai-status-label").forEach(wireOriginalCompareToggle);
