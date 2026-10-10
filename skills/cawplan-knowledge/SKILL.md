@@ -100,19 +100,26 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
    ```bash
    cawplan knowledge datasets list --product <product_id>
    ```
-   A product can optionally organize its datasets under a module tree (`product_modules` — the
-   same tree QA test-suites use). Check it before deciding whether to narrow further:
+   This returns the datasets the product **owns** (created under it) plus the datasets **linked** to
+   it — two different relationships, don't conflate them. Only owned datasets can sit under a
+   module: a product can optionally organize its owned datasets under a module tree
+   (`product_modules` — the same tree QA test-suites use), and a dataset has at most one module.
+   Linked datasets never belong to a module. Check the tree before deciding whether to narrow
+   further:
    ```bash
    cawplan knowledge datasets modules --product <product_id>
    ```
-   - If that returns no modules, the product has none — just use the `--product`-only list above,
-     no module step.
+   - If that returns no modules, the product has none — just use the `--product`-only list above
+     (owned + linked), no module step.
    - If it returns modules, and the user didn't already name one, offer them as a pick (bounded
      `AskUserQuestion`, same caps as any other level here — plain text if there are many), then
      narrow with both flags:
      ```bash
      cawplan knowledge datasets list --product <product_id> --module <module_id>
      ```
+     `--module` keeps only the product's **owned** datasets placed under that module — linked
+     datasets are excluded, so an empty result means "nothing owned under this module", not
+     "nothing in the product".
    Do not use `-i`/`--interactive` on either command from an Agent — same restriction as `browse`
    below (step 5): it requires a real interactive terminal, which a human runs directly, not you.
 
@@ -330,7 +337,7 @@ user was browsing again after a leaf result so they can continue.
 
 - User gives no starting point at all ("what's in the knowledge base?"): `datasets list` — the root of the tree; filter to non-empty datasets, then `AskUserQuestion` if that fits ≤16, else plain text.
 - User names a specific dataset (or a few) ("search the X dataset for..."): resolve each with `datasets list` first, then `search --dataset <id>` (repeat for multiple).
-- User names a CawPlan product instead of a dataset ("what's in the knowledge base for X?"): `datasets list --product <product_id>`; first check `datasets modules --product <product_id>` — if it has modules and the user didn't name one, offer them as a pick, then add `--module <module_id>` to the list call; if it has none, skip straight to the product-only list.
+- User names a CawPlan product instead of a dataset ("what's in the knowledge base for X?"): `datasets list --product <product_id>` (owned + linked datasets); first check `datasets modules --product <product_id>` — if it has modules and the user didn't name one, offer them as a pick, then add `--module <module_id>` to the list call (owned datasets under that module only; linked ones have no module); if it has none, skip straight to the product-only list.
 - User asks a general question with no dataset context: go straight to `search` with no `--dataset`.
 - User asks "what documents are in X": `documents list --dataset <id>`, not `search`.
 - User asks for a document's full content/summary, or search results only surface a title/fragment with no body: `documents get --dataset <id> --document <id>`.
