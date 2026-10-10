@@ -482,15 +482,17 @@ is the only reliable way to slice this metric today.
 ### List Knowledge Datasets
 - Endpoint: `GET /api/v1/public/openapi/knowledge/datasets`
 - Response: `data.datasets[]` — every dataset the caller can access, each `{id, name, document_count}`. `id` is the raw dataset id used by the other two knowledge endpoints below.
+- Optional query: `product_id` (the product's owned + linked datasets), `module_id` (keeps only owned datasets with at least one document under that module). Maps to `--product` / `--module`.
 - Maps to cawplan CLI: `cawplan knowledge datasets list`.
 
 ### Create Knowledge Dataset
 - Endpoint: `POST /api/v1/public/openapi/knowledge/datasets`
 - Body: `name` (required), `description` (optional), `permission` (optional: `only_me` | `all_team_members` | `partial_members`, default `only_me`); also accepts the other `KBCreateDatasetRequest` fields (`indexing_technique`, `embedding_model`, ...) if needed, passed straight through to Dify.
 - Response: the created dataset — the raw Dify id, name, etc., plus `document_count: 0` patched in for shape-consistency with the datasets-list response.
-- Maps to cawplan CLI: `cawplan knowledge datasets create --name <name> [--description <text>] [--permission <level>] [--product <id>...]`.
+- Body also accepts `product_id` (optional): the product that directly **owns** the dataset. Ownership is required for the dataset's documents to be placed under that product's modules. Distinct from linking via `PUT .../products` below.
+- Maps to cawplan CLI: `cawplan knowledge datasets create --name <name> [--description <text>] [--permission <level>] [--owner-product <id>] [--product <id>...]` (`--owner-product` → `product_id`).
 - Implementation note: proxies to Dify's `POST /api/v1/datasets` and also creates a PRM `knowledge_dataset` tracking record (same as the internal `KbCreateDataset`), but — unlike the internal API, which swaps the response id for the PRM `unique_id` — the public response keeps the raw Dify id, consistent with every other public knowledge endpoint.
-- Does **not** itself accept a product/product_id — a new dataset starts unbound from any CawPlan product. The CLI's `--product` flag is sugar: it calls this endpoint, then a follow-up `PUT .../products` call (below) with the returned dataset id.
+- Linking is separate: the CLI's `--product` flag is sugar — it calls this endpoint, then a follow-up `PUT .../products` call (below) with the returned dataset id.
 
 ### Get / Set Products a Dataset Is Bound To
 - Endpoints: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/products`, `PUT /api/v1/public/openapi/knowledge/datasets/{dataset_id}/products`
@@ -580,11 +582,6 @@ is the only reliable way to slice this metric today.
 - Implementation note: the CLI sends real multipart (Node's native `FormData`/`Blob`, no base64
   encoding) via a `formData` option added to `cawplanRequest` (`cli/src/lib/http.ts`) — everything else
   on this CLI is JSON-only.
-- The `data` part also accepts an optional `folder` key (e.g. `"BE/features/plan-track"`), stored as
-  the dataset's "folder" custom metadata value on the resulting document — the field is created on the
-  dataset automatically on first use. Lets callers sort/group synced documents by their original
-  directory structure via `documents list`/`get`, which already surface each document's metadata.
-  Maps to cawplan CLI: `cawplan knowledge documents upload ... --folder <path>`.
 
 ### Poll File-Upload Job Status
 - Endpoint: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/ai-jobs/{job_id}`
@@ -612,19 +609,22 @@ is the only reliable way to slice this metric today.
   repeat `--text-file` to batch multiple text documents into the same dataset (one request per file).
   Do not mix `--file` and `--text-file` in the same invocation — the CLI rejects that locally; run it
   twice for a mixed batch.
-- Also accepts the optional `folder` field described under the file-upload section above, with the
-  same "folder" metadata effect.
+- Both create-by-text (JSON `module_id`) and create-by-file (form field `module_id`, or `module_id` inside the `data` JSON) accept an optional module; it must belong to the dataset's owner product, otherwise `BAD_REQUEST`. CLI: `documents upload ... --module <id>`.
+
+### Set a Document's Module
+- Endpoint: `PUT /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/{document_id}/module`
+- Body: `{"module_id": "<id>"}`; an empty string removes the document from its module. Module must belong to the dataset's owner product.
+- Maps to cawplan CLI: `cawplan knowledge documents set-module --dataset <id> --document <id> (--module <id> | --clear)`.
 
 ### Update an Existing Document — File (async) / Text (sync)
 - Endpoints: `POST .../documents/{document_id}/update-by-file` and `POST .../documents/{document_id}/update-by-text`
   — same dataset-scoped paths as create, plus a `document_id` from `documents list`.
 - Same body shapes and behavior as the corresponding create endpoints above (update-by-file is async
   with a `job_id` to poll; update-by-text is sync), except no `name`/`text` are required — omit `text`
-  on update-by-text to leave the document's content unchanged and only touch metadata (e.g. re-set
-  `folder` without editing content). Both accept the same optional `folder` field as create.
+  on update-by-text to leave the document's content unchanged (e.g. only rename it).
 - Use this for re-syncing a document whose source changed since it was created — for a brand-new
   document use create-by-file/create-by-text instead.
-- Maps to cawplan CLI: `cawplan knowledge documents update --dataset <id> --document <id> [--file <path> | --text-file <path>] [--folder <path>]`.
+- Maps to cawplan CLI: `cawplan knowledge documents update --dataset <id> --document <id> [--file <path> | --text-file <path>]`.
   Mirrors `documents upload`'s `--no-wait`/`--poll-interval`/`--poll-timeout` flags for the `--file` case.
 
 ### Search Knowledge Base
