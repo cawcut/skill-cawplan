@@ -366,6 +366,143 @@ describe("cursor-gui mtime fallback", () => {
     db.close();
   });
 
+  test("parseGuiSessionTranscript excludes Cursor simulated task-result bubbles from human inputs", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
+
+    const sessionId = "simulated-msg-sess";
+    const injectedText =
+      "Briefly inform the user about the task result and perform any follow-up actions (if needed). If there's no follow-ups needed, don't explicitly say that.";
+    const realUser =
+      '{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Monday, Sep 7, 2026, 3:48 PM (UTC+8)</timestamp>\\n<user_query>\\ncompare local release-core-ga-real with release-core-proto\\n</user_query>"}]}}';
+    // Cursor writes the injected prompt into the transcript as a bare <user_query> (no <timestamp>).
+    const injectedUser = JSON.stringify({
+      role: "user",
+      message: { content: [{ type: "text", text: `<user_query>${injectedText}</user_query>` }] },
+    });
+    const nextUser =
+      '{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Monday, Sep 7, 2026, 4:40 PM (UTC+8)</timestamp>\\n<user_query>\\ncheck what commit d751b700 affects\\n</user_query>"}]}}';
+    const assistant = '{"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}';
+
+    writeTranscript(
+      "proj-a",
+      sessionId,
+      [realUser, assistant, injectedUser, assistant, nextUser, assistant],
+      new Date("2026-09-07T17:30:00")
+    );
+
+    const insert = db.prepare("INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)");
+    insert.run(
+      `bubbleId:${sessionId}:u1`,
+      JSON.stringify({
+        type: 1,
+        text: "compare local release-core-ga-real with release-core-proto",
+        createdAt: "2026-09-07T07:48:06.374Z",
+      })
+    );
+    insert.run(
+      `bubbleId:${sessionId}:u2`,
+      JSON.stringify({
+        type: 1,
+        isSimulatedMsg: true,
+        simulatedMsgReason: 3,
+        text: `<system_notification>\nThe following task has finished.\n</system_notification>\n<user_query>${injectedText}</user_query>`,
+        createdAt: "2026-09-07T08:38:00.000Z",
+      })
+    );
+    insert.run(
+      `bubbleId:${sessionId}:u3`,
+      JSON.stringify({ type: 1, text: "check what commit d751b700 affects", createdAt: "2026-09-07T08:40:08.300Z" })
+    );
+    insert.run(
+      `bubbleId:${sessionId}:a1`,
+      JSON.stringify({ type: 2, text: "ok", createdAt: "2026-09-07T08:39:00.000Z" })
+    );
+
+    const parsed = parseGuiSessionTranscript(sessionId, "2026-09-07", { db });
+
+    expect(parsed.humanInputs.map((h) => h.content)).toEqual([
+      "compare local release-core-ga-real with release-core-proto",
+      "check what commit d751b700 affects",
+    ]);
+    expect(parsed.messageStats.user).toBe(2);
+
+    db.close();
+  });
+
+  test("parseGuiSessionTranscript keeps user bubbles without createdAt by dating them from transcript timestamp tags", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
+
+    // Shape of the CWP-21304 session: Cursor left createdAt empty on the earlier real prompts,
+    // while the simulated task-result bubble and later prompts carry a createdAt.
+    const sessionId = "undated-bubbles-sess";
+    const user = (ts: string, query: string) =>
+      JSON.stringify({
+        role: "user",
+        message: { content: [{ type: "text", text: `<timestamp>${ts}</timestamp>\n<user_query>\n${query}\n</user_query>` }] },
+      });
+    const injectedUser = JSON.stringify({
+      role: "user",
+      message: { content: [{ type: "text", text: "<user_query>Briefly inform the user about the task result.</user_query>" }] },
+    });
+    const assistant = '{"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}';
+
+    writeTranscript(
+      "proj-a",
+      sessionId,
+      [
+        user("Monday, Sep 7, 2026, 3:19 PM (UTC+8)", "compare local release-core-ga-real with release-core-proto"),
+        assistant,
+        user("Monday, Sep 7, 2026, 3:47 PM (UTC+8)", "both branches are re-pulled, compare again"),
+        assistant,
+        injectedUser,
+        assistant,
+        user("Monday, Sep 7, 2026, 4:40 PM (UTC+8)", "check what commit d751b700 affects"),
+        assistant,
+      ],
+      new Date("2026-09-07T17:30:00")
+    );
+
+    const insert = db.prepare("INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)");
+    insert.run(
+      `bubbleId:${sessionId}:u1`,
+      JSON.stringify({ type: 1, text: "compare local release-core-ga-real with release-core-proto", conversationTurnIndex: 0 })
+    );
+    insert.run(
+      `bubbleId:${sessionId}:u2`,
+      JSON.stringify({ type: 1, text: "both branches are re-pulled, compare again", conversationTurnIndex: 1 })
+    );
+    insert.run(
+      `bubbleId:${sessionId}:sim`,
+      JSON.stringify({
+        type: 1,
+        isSimulatedMsg: true,
+        text: "<system_notification>done</system_notification>\n<user_query>Briefly inform the user about the task result.</user_query>",
+        createdAt: "2026-09-07T07:48:06.374Z",
+      })
+    );
+    insert.run(
+      `bubbleId:${sessionId}:u3`,
+      JSON.stringify({ type: 1, text: "check what commit d751b700 affects", createdAt: "2026-09-07T08:40:08.300Z" })
+    );
+    insert.run(
+      `bubbleId:${sessionId}:a1`,
+      JSON.stringify({ type: 2, text: "ok", createdAt: "2026-09-07T08:41:00.000Z" })
+    );
+
+    const parsed = parseGuiSessionTranscript(sessionId, "2026-09-07", { db });
+
+    expect(parsed.humanInputs.map((h) => [h.content, h.start_time, h.time_precision])).toEqual([
+      ["compare local release-core-ga-real with release-core-proto", "2026-09-07T07:19:00.000Z", "approximate"],
+      ["both branches are re-pulled, compare again", "2026-09-07T07:47:00.000Z", "approximate"],
+      ["check what commit d751b700 affects", "2026-09-07T08:40:08.300Z", "exact"],
+    ]);
+    expect(parsed.messageStats.user).toBe(3);
+
+    db.close();
+  });
+
   test("parseGuiSessionTranscript prefers bubble createdAt over transcript timestamp tags", () => {
     const db = new DatabaseSync(":memory:");
     db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
