@@ -1471,6 +1471,69 @@ describe("src lib collect codex", () => {
     ]);
   });
 
+  test("keeps Codex-injected <skill> file contents out of human inputs", async () => {
+    const codexHome = join(tmpDir, "codex");
+    const sessionsDir = join(codexHome, "sessions", "codex-skill-injection");
+    await mkdir(sessionsDir, { recursive: true });
+    process.env.CODEX_HOME = codexHome;
+
+    const skillBlock = [
+      "<skill>",
+      "<name>cawplan-testpoint-generate</name>",
+      "<path>/Users/ubnt/.agents/skills/cawplan-testpoint-generate/SKILL.md</path>",
+      "---",
+      "version: 0.2.9",
+      "name: cawplan-testpoint-generate",
+      "---",
+      "## Bootstrap",
+      "",
+      "Run `cawplan skill check` first.",
+      "</skill>",
+    ].join("\n");
+    const userTurn = (ts: string, texts: string[]) => ({
+      type: "response_item",
+      timestamp: ts,
+      payload: {
+        type: "message",
+        role: "user",
+        content: texts.map((text) => ({ type: "input_text", text })),
+      },
+    });
+    const assistantTurn = (ts: string, text: string) => ({
+      type: "response_item",
+      timestamp: ts,
+      payload: { type: "message", role: "assistant", content: [{ type: "output_text", text }] },
+    });
+    const invocation =
+      "[$cawplan-testpoint-generate](/Users/ubnt/.agents/skills/cawplan-testpoint-generate/SKILL.md) 关联工单:CWP-22903";
+    const events = [
+      userTurn("2026-09-28T02:00:00.000Z", [invocation]),
+      // Codex injects the invoked skill's SKILL.md as its own user message.
+      userTurn("2026-09-28T02:00:00.100Z", [skillBlock]),
+      assistantTurn("2026-09-28T02:01:00.000Z", "开始生成测试点。"),
+      // Skill block and real text in the same message: keep only the real text.
+      userTurn("2026-09-28T02:05:00.000Z", [skillBlock, "补充边界场景"]),
+      assistantTurn("2026-09-28T02:06:00.000Z", "已补充。"),
+    ];
+    const rolloutPath = join(sessionsDir, "rollout.jsonl");
+    await writeFile(rolloutPath, events.map((event) => JSON.stringify(event)).join("\n"), "utf-8");
+
+    const db = createCodexStateDb(codexHome);
+    try {
+      insertCodexThread(db, {
+        id: "codex-skill-injection",
+        rolloutPath,
+        createdAt: Math.floor(new Date("2026-09-28T01:59:00.000Z").getTime() / 1000),
+      });
+    } finally {
+      db.close();
+    }
+
+    const [session] = collectCodexSessions("2026-09-28");
+
+    expect(session?.human_inputs?.map((input) => input.content)).toEqual([invocation, "补充边界场景"]);
+  });
+
   test("resolves Codex rollout paths copied from another sessions root", async () => {
     const codexHome = join(tmpDir, "codex");
     const rolloutDir = join(codexHome, "sessions", "2026", "06", "17");

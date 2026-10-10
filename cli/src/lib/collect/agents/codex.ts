@@ -202,6 +202,14 @@ function extractTextContent(content: unknown): string {
     .trim();
 }
 
+// When a skill is invoked ("[$name](path)"), Codex injects that skill's full SKILL.md as a user
+// message wrapped in <skill><name>…</name><path>…</path>…</skill>. It is not human input.
+const CODEX_SKILL_BLOCK_RE = /<skill>\s*<name>[\s\S]*?<\/skill>/g;
+
+function stripCodexSkillBlocks(text: string): string {
+  return text.replace(CODEX_SKILL_BLOCK_RE, "").trim();
+}
+
 function isHumanInputText(text: string): boolean {
   if (text.includes("<environment_context>")) return false;
   if (text.includes("<INSTRUCTIONS>")) return false;
@@ -412,8 +420,8 @@ function parseRollout(
       if (role === "user") {
         result.userCount++;
         if (!result.isSubagent && eventType === "response_item" && payloadType === "message") {
-          const text = extractTextContent(payload?.["content"]);
-          if (isHumanInputText(text)) {
+          const text = stripCodexSkillBlocks(extractTextContent(payload?.["content"]));
+          if (text && isHumanInputText(text)) {
             const key = stableHumanInputKey(text, ts);
             if (!seenHumanInputs.has(key)) {
               seenHumanInputs.add(key);
