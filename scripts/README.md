@@ -29,28 +29,29 @@ Requires the `cawplan` CLI (logged in, `cawplan skill check` passes) and `jq` on
 synced_mtime}`, plus the resolved `dataset_id`). Commit this file so contributors and CI share the
 same mapping instead of re-uploading duplicates.
 
-**First-time dataset creation** — these only take effect when the dataset doesn't exist yet (no
-effect on a dataset that's already resolved by name):
+**Product ownership and modules**:
 
 | Env var | Effect |
 |---|---|
-| `KNOWLEDGE_DATASET_PRODUCT_ID` | Binds the new dataset to a CawPlan product id (see `cawplan products list`), so it's scoped for product-scoped knowledge search. |
-| `KNOWLEDGE_DATASET_MODULE_ID` | Also places the new dataset under that product's `product_modules` tree node. Only applied when `KNOWLEDGE_DATASET_PRODUCT_ID` is also set. |
+| `KNOWLEDGE_DATASET_PRODUCT_ID` | Only when the dataset doesn't exist yet: creates it **owned** by that CawPlan product id (`datasets create --owner-product`, see `cawplan products list`) and also **links** it to the same product (`--product`), so it stays scoped for product-scoped knowledge search. Ownership is what allows its documents to use that product's modules. No effect on a dataset that's already resolved by name. |
+| `KNOWLEDGE_DATASET_MODULE_ID` | Passed as `--module` on every `documents upload` the script performs, so new documents are created under that `product_modules` tree node. The module must belong to the dataset's owner product (otherwise the upload fails with `BAD_REQUEST`). Re-syncs via `documents update` don't move existing documents. |
 
 ```bash
 KNOWLEDGE_DATASET_PRODUCT_ID=<id> scripts/sync-knowledge.sh
 KNOWLEDGE_DATASET_PRODUCT_ID=<id> KNOWLEDGE_DATASET_MODULE_ID=<id> scripts/sync-knowledge.sh
 ```
 
-To rebind an *existing* dataset's product or module later, don't re-run this script with the env
-vars set (no effect) — use the CLI directly:
+To relink an *existing* dataset's products, or move an already-synced document into (or out of)
+a module, use the CLI directly:
 
 ```bash
 cawplan knowledge datasets products set --dataset <id> --product <product_id>
-cawplan knowledge datasets products set-module --dataset <id> --product <product_id> --module <module_id>
+cawplan knowledge documents set-module --dataset <id> --document <document_id> --module <module_id>
+cawplan knowledge documents set-module --dataset <id> --document <document_id> --clear
 ```
 
-To find a `module_id`, list a product's module tree (`{id, parent_id, name}` only):
+To find a `module_id`, list a product's module tree (`{id, parent_id, name, knowledge}`, where
+`knowledge` lists the datasets that have at least one document under that node):
 
 ```bash
 cawplan knowledge datasets modules --product <product_id>
@@ -64,10 +65,12 @@ scripts/sync-knowledge.sh -i
 ```
 
 This runs `cawplan knowledge datasets create --name "<repo dataset name>" -i` **uncaptured** (a
-real terminal on stdout, which the CLI's own picker needs), so you get the product-then-module
-menu; the script then resolves the new dataset's id with a separate, plain (capturable) lookup by
-name. Every other call the script makes stays non-interactive — only that one create call is
-special-cased. For CI or repeat runs afterward, skip `-i` and set the env vars above instead.
+real terminal on stdout, which the CLI's own picker needs), so you get a product menu; the picked
+product becomes the dataset's owner and is also linked. The script then resolves the new dataset's
+id with a separate, plain (capturable) lookup by name. There is no module menu here — set
+`KNOWLEDGE_DATASET_MODULE_ID` to upload documents into a module. Every other call the script makes
+stays non-interactive — only that one create call is special-cased. For CI or repeat runs
+afterward, skip `-i` and set the env vars above instead.
 
 ## validate-skills.sh
 

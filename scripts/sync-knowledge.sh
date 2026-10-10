@@ -3,19 +3,26 @@
 # repo (override with KNOWLEDGE_DATASET_NAME), via the `cawplan` CLI.
 #
 # - If the dataset doesn't exist yet and KNOWLEDGE_DATASET_PRODUCT_ID is set, the new dataset is
-#   bound to that CawPlan product id (see: cawplan products list) so it's scoped for
-#   product-scoped knowledge search. Only applied at creation time — has no effect on a dataset
-#   that already exists (use `cawplan knowledge datasets products set` to rebind one later).
-# - Also at creation time, if KNOWLEDGE_DATASET_PRODUCT_ID and KNOWLEDGE_DATASET_MODULE_ID are
-#   both set, the new dataset is placed under that product_modules tree node (see: cawplan
-#   knowledge datasets products set-module to rebind one later). To find a module id, run
+#   created as OWNED by that CawPlan product id (see: cawplan products list; `datasets create
+#   --owner-product`) -- ownership is what lets its documents be placed under that product's
+#   module tree -- and is also linked to it (`--product`) so it stays scoped for product-scoped
+#   knowledge search as before. Only applied at creation time — has no effect on a dataset that
+#   already exists (use `cawplan knowledge datasets products set` to relink one later; ownership
+#   can't be changed from this script).
+# - If KNOWLEDGE_DATASET_MODULE_ID is set, every document this script uploads (`documents upload`)
+#   is created under that product_modules tree node (`--module`). The module must belong to the
+#   dataset's owner product, so the dataset must have been created with an owner product (see
+#   above). Updates of existing documents don't move them; use `cawplan knowledge documents
+#   set-module` for that. To find a module id, run
 #   `cawplan knowledge datasets modules --product <id>` -- it prints every module as
-#   {id, parent_id, name} so you can pick one and set KNOWLEDGE_DATASET_MODULE_ID.
-# - Pass -i / --interactive to this script to pick product and/or module from a menu at
-#   creation time instead of setting the env vars above (only applies when the dataset doesn't
-#   exist yet; ignored once it does). Only that one `cawplan ... create -i` call runs uncaptured
-#   (a real terminal on stdout, required by the CLI's own picker) -- every other call this
-#   script makes, including resolving the new dataset's id afterward, stays capturable/scriptable.
+#   {id, parent_id, name, knowledge} so you can pick one and set KNOWLEDGE_DATASET_MODULE_ID.
+# - Pass -i / --interactive to this script to pick the product from a menu at creation time
+#   instead of setting KNOWLEDGE_DATASET_PRODUCT_ID (the picked product becomes the owner and is
+#   also linked; only applies when the dataset doesn't exist yet; ignored once it does).
+#   KNOWLEDGE_DATASET_MODULE_ID still applies to uploads as usual. Only that one
+#   `cawplan ... create -i` call runs uncaptured (a real terminal on stdout, required by the
+#   CLI's own picker) -- every other call this script makes, including resolving the new
+#   dataset's id afterward, stays capturable/scriptable.
 # - New files (no entry in the state file below) are uploaded with `documents upload`.
 # - Existing files are re-synced with `documents update` only when their mtime has advanced past
 #   the mtime recorded at last sync — unchanged files are skipped.
@@ -31,9 +38,9 @@
 # Usage:
 #   scripts/sync-knowledge.sh                                        # sync
 #   scripts/sync-knowledge.sh --dry-run                              # show what would happen, without calling the API
-#   scripts/sync-knowledge.sh -i                                     # first-time create: pick product/module from a menu
-#   KNOWLEDGE_DATASET_PRODUCT_ID=<id> scripts/sync-knowledge.sh       # bind a newly-created dataset to a product
-#   KNOWLEDGE_DATASET_PRODUCT_ID=<id> KNOWLEDGE_DATASET_MODULE_ID=<id> scripts/sync-knowledge.sh  # + place it in a module
+#   scripts/sync-knowledge.sh -i                                     # first-time create: pick the owner product from a menu
+#   KNOWLEDGE_DATASET_PRODUCT_ID=<id> scripts/sync-knowledge.sh       # create the dataset owned by (and linked to) a product
+#   KNOWLEDGE_DATASET_PRODUCT_ID=<id> KNOWLEDGE_DATASET_MODULE_ID=<id> scripts/sync-knowledge.sh  # + upload new docs into a module
 
 set -euo pipefail
 
@@ -108,9 +115,8 @@ if [[ -z "$DATASET_ID" ]]; then
           '.data.datasets[]? | select(.name == $name) | .id' | head -n1)"
       else
         create_args=(knowledge datasets create --name "$DATASET_NAME")
-        [[ -n "${KNOWLEDGE_DATASET_PRODUCT_ID:-}" ]] && create_args+=(--product "$KNOWLEDGE_DATASET_PRODUCT_ID")
-        if [[ -n "${KNOWLEDGE_DATASET_PRODUCT_ID:-}" && -n "${KNOWLEDGE_DATASET_MODULE_ID:-}" ]]; then
-          create_args+=(--module "$KNOWLEDGE_DATASET_MODULE_ID")
+        if [[ -n "${KNOWLEDGE_DATASET_PRODUCT_ID:-}" ]]; then
+          create_args+=(--owner-product "$KNOWLEDGE_DATASET_PRODUCT_ID" --product "$KNOWLEDGE_DATASET_PRODUCT_ID")
         fi
         DATASET_ID="$(cawplan "${create_args[@]}" | jq -r '.data.id')"
       fi
@@ -147,6 +153,7 @@ while IFS= read -r -d '' file; do
     fi
 
     args=(knowledge documents upload --dataset "$DATASET_ID" --file "$file")
+    [[ -n "${KNOWLEDGE_DATASET_MODULE_ID:-}" ]] && args+=(--module "$KNOWLEDGE_DATASET_MODULE_ID")
 
     if ! resp="$(cawplan "${args[@]}")"; then
       echo "  FAILED: $rel_path"
