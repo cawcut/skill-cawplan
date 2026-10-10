@@ -5,56 +5,74 @@ Repo-maintenance and integration scripts for flow-cawplan-skill.
 ## sync-knowledge.sh
 
 Syncs every Markdown file in the *current* repo into one CawPlan knowledge dataset named after
-that repo, via the `cawplan` CLI (`cawplan knowledge ...`). Meant to be copied into (or symlinked
-from) another repo's `scripts/` directory and run there — it always resolves paths relative to
-its own location, not to this repo.
+that repo, via the `cawplan` CLI (`cawplan knowledge ...`), and — when you give it a product —
+mirrors the repo's directory structure as that product's module tree. Meant to be copied into (or
+symlinked from) another repo's `scripts/` directory and run there — it always resolves paths
+relative to its own location, not to this repo.
 
 ```bash
-scripts/sync-knowledge.sh            # sync
-scripts/sync-knowledge.sh --dry-run  # show what would happen, without calling the API
+scripts/sync-knowledge.sh --product <product_id>   # sync into the product's module tree
+scripts/sync-knowledge.sh                          # sync again (product remembered in the state file)
+scripts/sync-knowledge.sh --dry-run                # show what would happen, without changing anything
 ```
 
-Requires the `cawplan` CLI (logged in, `cawplan skill check` passes) and `jq` on `PATH`.
+Requires the `cawplan` CLI (logged in, `cawplan skill check` passes) and `jq` on `PATH`. Works with
+the bash 3.2 that ships with macOS.
 
-**What it does:**
+**Product and module tree** (`--product <id>`, or `KNOWLEDGE_DATASET_PRODUCT_ID`; see
+`cawplan products list`):
 
-- Resolves (or creates) a dataset named after the repo — override with `KNOWLEDGE_DATASET_NAME`.
-- New `.md` files (no entry in the state file) are uploaded with `documents upload`.
-- Changed files (mtime newer than last sync) are re-synced with `documents update`.
-- Unchanged files are skipped.
-- Deletions are **not** handled — removing a local `.md` file does not delete or archive its
-  knowledge document; do that manually if a doc is retired.
+- A new dataset is created **owned** by that product (`datasets create --owner-product`, which is
+  what lets its documents live in the product's modules) and also **linked** to it (`--product`),
+  so it stays scoped for product-scoped knowledge search. Ownership can't be changed from this
+  script, so for an *existing* dataset the product must already be its owner.
+- A top-level module named after the repo is created under the product (override the name with
+  `KNOWLEDGE_MODULE_NAME`), and **one sub-module per directory**: `docs/design/api.md` goes in
+  `<repo>/docs/design`; files at the repo root go in `<repo>`. Missing modules are created,
+  existing ones (same name under the same parent) are reused.
+- The module tree is at most 5 levels deep, so directories nested deeper than the repo module + 4
+  levels are filed under their level-5 ancestor (the script prints a `NOTE` for each).
+- Every document is created under its directory's module, and the state file keeps each
+  document's `module_id` and `module_path`.
+- Without a product the dataset is synced flat, with no modules (files with the same name in
+  different directories can't be told apart then if the state file is lost).
 
-**State**: tracked in `.knowledge-sync-state.json` at the repo root (`path -> {document_id,
-synced_mtime}`, plus the resolved `dataset_id`). Commit this file so contributors and CI share the
-same mapping instead of re-uploading duplicates.
+**Every run** first fetches **all** documents of the dataset (and, with a product, the whole module
+tree) from the server, compares them with the local files, and only then changes anything:
 
-**Product ownership and modules**:
-
-| Env var | Effect |
+| Situation | Action |
 |---|---|
-| `KNOWLEDGE_DATASET_PRODUCT_ID` | Only when the dataset doesn't exist yet: creates it **owned** by that CawPlan product id (`datasets create --owner-product`, see `cawplan products list`) and also **links** it to the same product (`--product`), so it stays scoped for product-scoped knowledge search. Ownership is what allows its documents to use that product's modules. No effect on a dataset that's already resolved by name. |
-| `KNOWLEDGE_DATASET_MODULE_ID` | Passed as `--module` on every `documents upload` the script performs, so new documents are created under that `product_modules` tree node. The module must belong to the dataset's owner product (otherwise the upload fails with `BAD_REQUEST`). Re-syncs via `documents update` don't move existing documents. |
+| No document for the file yet | `NEW` — `documents upload --module <dir module>` |
+| The recorded document is gone from the server | `GONE` + `NEW` — uploaded again |
+| Not in the state file, but the server has a document with the same name **and module** | `ADOPT` — reused and re-synced (e.g. after a lost state file) |
+| The document's module differs from its directory's module | `MOVE` — `documents set-module` |
+| File mtime is newer than the last sync | `EDIT` — `documents update` |
+| Otherwise | skipped |
 
-```bash
-KNOWLEDGE_DATASET_PRODUCT_ID=<id> scripts/sync-knowledge.sh
-KNOWLEDGE_DATASET_PRODUCT_ID=<id> KNOWLEDGE_DATASET_MODULE_ID=<id> scripts/sync-knowledge.sh
-```
+The server is the source of truth for modules, so a document moved by hand is moved back on the
+next run. Uploads always pass `--force`: the same file name may exist in several directories, and
+the script does its own duplicate detection (by name **and** module) from the server's list.
+Deletions are **not** handled — removing a local `.md` file does not delete or archive its
+knowledge document (or an emptied module); do that manually if a doc is retired.
 
-To relink an *existing* dataset's products, or move an already-synced document into (or out of)
-a module, use the CLI directly:
+**State**: tracked in `.knowledge-sync-state.json` at the repo root — `dataset_id`, `product_id`
+and `files` (`path -> {document_id, synced_mtime, module_id, module_path}`). Commit this file so
+contributors and CI share the same mapping instead of re-uploading duplicates.
+
+| Env var / flag | Effect |
+|---|---|
+| `--product <id>` / `KNOWLEDGE_DATASET_PRODUCT_ID` | Product that owns the dataset and whose module tree is used (see above). Remembered in the state file. |
+| `KNOWLEDGE_DATASET_NAME` | Dataset name (default: the repo name). |
+| `KNOWLEDGE_MODULE_NAME` | Name of the top-level module (default: the repo name). |
+| `--dry-run` | Reads from the server but changes nothing, and writes no state file. |
+
+To relink an *existing* dataset's products, or move a document by hand, use the CLI directly:
 
 ```bash
 cawplan knowledge datasets products set --dataset <id> --product <product_id>
 cawplan knowledge documents set-module --dataset <id> --document <document_id> --module <module_id>
 cawplan knowledge documents set-module --dataset <id> --document <document_id> --clear
-```
-
-To find a `module_id`, list a product's module tree (`{id, parent_id, name, knowledge}`, where
-`knowledge` lists the datasets that have at least one document under that node):
-
-```bash
-cawplan knowledge datasets modules --product <product_id>
+cawplan knowledge modules list --product <product_id>      # {id, parent_id, name, knowledge}
 ```
 
 **Interactive bootstrap**: pass `-i`/`--interactive` to this script itself (only has an effect
@@ -66,11 +84,13 @@ scripts/sync-knowledge.sh -i
 
 This runs `cawplan knowledge datasets create --name "<repo dataset name>" -i` **uncaptured** (a
 real terminal on stdout, which the CLI's own picker needs), so you get a product menu; the picked
-product becomes the dataset's owner and is also linked. The script then resolves the new dataset's
-id with a separate, plain (capturable) lookup by name. There is no module menu here — set
-`KNOWLEDGE_DATASET_MODULE_ID` to upload documents into a module. Every other call the script makes
-stays non-interactive — only that one create call is special-cased. For CI or repeat runs
-afterward, skip `-i` and set the env vars above instead.
+product becomes the dataset's owner and is also linked, and the script reads it back to build the
+module tree. Every other call the script makes stays non-interactive. For CI or repeat runs
+afterward, skip `-i` and pass `--product`.
+
+**Tests**: `bash scripts/tests/sync-knowledge.test.sh` runs the script against a stateful fake
+`cawplan` (`scripts/tests/fake-cawplan.sh`) — module tree creation, no-op re-runs, edits, moved and
+deleted documents, adoption after a lost state file, flat mode, `--dry-run`, pagination.
 
 ## validate-skills.sh
 
