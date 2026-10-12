@@ -119,6 +119,18 @@ export function normalizeSessionRepoContext(sessions: SessionData[], resolveRepo
         }
 
         const cwd = (session.cwd ?? "").trim();
+
+        // Files decide the repo: pick the repo with the most touched files. Entries
+        // whose repo is just the cwd path (no git remote found) are not real matches.
+        const topRepo = [...(session.repos_touched ?? [])]
+            .sort((a, b) => (b.files ?? 0) - (a.files ?? 0))
+            .find((r) => !!(r.repo_name ?? r.repo_url ?? r.repo) && r.repo !== cwd);
+        const topRepoName = toRepoName(topRepo?.repo_name ?? topRepo?.repo_url ?? topRepo?.repo);
+        if (topRepoName) {
+            session.project = topRepoName;
+            continue;
+        }
+
         if (cwd) {
             const resolvedRepo = (resolveRepo(cwd) ?? "").trim();
             const repoName = toRepoName(resolvedRepo);
@@ -130,14 +142,9 @@ export function normalizeSessionRepoContext(sessions: SessionData[], resolveRepo
             }
         }
 
-        const topRepo = [...(session.repos_touched ?? [])]
-            .sort((a, b) => (b.files ?? 0) - (a.files ?? 0))
-            .find((r) => !!r.repo);
-        const topRepoName = toRepoName(topRepo?.repo_name ?? topRepo?.repo_url ?? topRepo?.repo);
-        if (topRepoName) {
-            session.project = topRepoName;
-            continue;
-        }
+        const anyRepo = [...(session.repos_touched ?? [])].find((r) => !!(r.repo_name ?? r.repo_url ?? r.repo));
+        const anyRepoName = toRepoName(anyRepo?.repo_name ?? anyRepo?.repo_url ?? anyRepo?.repo);
+        if (anyRepoName) session.project = anyRepoName;
     }
 }
 

@@ -23,7 +23,7 @@ import {DatabaseSync} from "node:sqlite";
 import {activityOverlapsLocalDate, dayBoundsMs, isTimestampOnLocalDate, localDateString} from "../date-utils.js";
 import {cursorProjectsDir, cursorStateDbCandidates} from "../paths.js";
 import {FileChange, HumanInput, RepoTouched} from "../types.js";
-import {gitRemoteRepo, gitFileNumstat} from "../git.js";
+import {gitRemoteRepo, gitFileNumstat, inferGitRootFromPath} from "../git.js";
 import {classifyHumanInput} from "../aggregators/human-category.js";
 import {extractAssistantTextFromBlocks, joinAssistantMessages} from "../aggregators/human-assistant.js";
 import {parsePatchDeltas, extractPathFromInput, estimateToolDeltas, appendFileDelta, mergeFileDeltas, type FileDelta} from "../aggregators/tool-utils.js";
@@ -1015,23 +1015,6 @@ function statsFromFileDeltas(
         end_time,
         assistant_message,
     };
-}
-
-function inferGitRootFromPath(filePath: string | null | undefined): string {
-    if (!filePath || !isAbsolute(filePath)) return "";
-    let current = filePath;
-    try {
-        if (existsSync(current) && !statSync(current).isDirectory()) {
-            current = dirname(current);
-        }
-    } catch {
-        // Continue by walking parent paths; the target file may not exist yet.
-    }
-    while (current && current !== dirname(current)) {
-        if (existsSync(join(current, ".git"))) return current;
-        current = dirname(current);
-    }
-    return "";
 }
 
 function resolveCwdForFile(sessionCwd: string, filePath: string): string {

@@ -393,7 +393,7 @@ describe("src lib collect repo context normalization", () => {
     ]);
   });
 
-  test("prefers cwd git remote over repos_touched when normalizing project", () => {
+  test("prefers the repo of touched files over the cwd git remote when normalizing project", () => {
     const sessions = [{
       schema: "2.0" as const,
       date: "2026-06-17",
@@ -412,7 +412,7 @@ describe("src lib collect repo context normalization", () => {
 
     normalizeSessionRepoContext(sessions, () => "Ubiquiti-UID/repo-from-cwd");
 
-    expect(sessions[0]?.project).toBe("repo-from-cwd");
+    expect(sessions[0]?.project).toBe("repo-from-repos-touched");
   });
 
   test("falls back to repos_touched when cwd cannot resolve a repo", () => {

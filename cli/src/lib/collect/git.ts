@@ -1,5 +1,6 @@
 import { execFileSync, execSync } from "node:child_process";
-import { relative } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, relative } from "node:path";
 
 export function gitAuthor(): string {
   try {
@@ -39,6 +40,32 @@ export function gitRemoteRepo(cwd: string): string {
   } catch {
     return cwd;
   }
+}
+
+/** Walk up from an absolute file path to the nearest directory containing `.git`. */
+export function inferGitRootFromPath(filePath: string | null | undefined): string {
+  if (!filePath || !isAbsolute(filePath)) return "";
+  let current = filePath;
+  try {
+    if (existsSync(current) && !statSync(current).isDirectory()) {
+      current = dirname(current);
+    }
+  } catch {
+    // Continue by walking parent paths; the target file may not exist yet.
+  }
+  while (current && current !== dirname(current)) {
+    if (existsSync(join(current, ".git"))) return current;
+    current = dirname(current);
+  }
+  return "";
+}
+
+/**
+ * Resolve the repo a file belongs to from its own git root, falling back to the
+ * session cwd for relative paths or files outside any checkout.
+ */
+export function gitRemoteRepoForFile(sessionCwd: string, filePath: string): string {
+  return gitRemoteRepo(inferGitRootFromPath(filePath) || sessionCwd);
 }
 
 function parseNumstatLine(line: string): { added: number; deleted: number } {
