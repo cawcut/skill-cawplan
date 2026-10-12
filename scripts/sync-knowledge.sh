@@ -391,10 +391,54 @@ record_state() {  # path doc_id mtime module_id module_path
 # would fail the same way, so the run stops.
 fatal_not_owner=0
 
+# The server keeps ONE document per name in a dataset (uploading a same-named file overwrites it),
+# so a file whose base name is shared with another file (README.md in several directories) is
+# named "<its module's name>-<base>": BE/sdd/README.md -> "sdd-README.md". Only when even that
+# collides is the whole directory path used ("BE-sdd-README.md"). A unique base name keeps its own
+# name, and so does the repo-root file, so an existing root "README.md" document stays the root one.
+ALL_MD_RELS="$(cd "$REPO_ROOT" && find . -type f -name '*.md' -not -path '*/.git/*' -not -path '*/node_modules/*' | sed 's|^\./||' | sort)"
+ALL_MD_BASENAMES="$(sed 's|.*/||' <<<"$ALL_MD_RELS")"
+
+# module_prefixed_name REL_PATH -> "<innermost module name>-<base>" (the module is the file's
+# directory, folded like module_path_for does).
+module_prefixed_name() {
+  local mpath
+  mpath="$(module_path_for "$(dirname "$1")")"
+  printf '%s-%s' "${mpath##*/}" "$(basename "$1")"
+}
+
+# Every file's candidate name, to spot collisions between candidates.
+ALL_CANDIDATE_NAMES=""
+while IFS= read -r rel; do
+  [[ -z "$rel" ]] && continue
+  base="$(basename "$rel")"
+  if [[ "$rel" == "$base" ]] || [[ "$(grep -cxF -- "$base" <<<"$ALL_MD_BASENAMES")" -le 1 ]]; then
+    ALL_CANDIDATE_NAMES="$ALL_CANDIDATE_NAMES$base"$'\n'
+  else
+    ALL_CANDIDATE_NAMES="$ALL_CANDIDATE_NAMES$(module_prefixed_name "$rel")"$'\n'
+  fi
+done <<<"$ALL_MD_RELS"
+
+# doc_name_for REL_PATH -> the document name to use on the server.
+doc_name_for() {
+  local rel="$1" base cand
+  base="$(basename "$rel")"
+  if [[ "$rel" == "$base" ]] || [[ "$(grep -cxF -- "$base" <<<"$ALL_MD_BASENAMES")" -le 1 ]]; then
+    printf '%s' "$base"
+    return
+  fi
+  cand="$(module_prefixed_name "$rel")"
+  if [[ "$(grep -cxF -- "$cand" <<<"$ALL_CANDIDATE_NAMES")" -le 1 ]]; then
+    printf '%s' "$cand"
+  else
+    printf '%s' "${rel//\//-}"
+  fi
+}
+
 while IFS= read -r -d '' file; do
   rel_path="${file#"$REPO_ROOT"/}"
   mtime="$(file_mtime "$file")"
-  base_name="$(basename "$file")"
+  base_name="$(doc_name_for "$rel_path")"
 
   desired_module_id=""
   desired_module_path=""
@@ -435,6 +479,9 @@ while IFS= read -r -d '' file; do
     if [[ -z "$remote" && "$DATASET_ID" != "<dry-run-dataset-id>" ]]; then
       echo "GONE   $rel_path (document $existing_doc_id no longer on the server)"
       existing_doc_id=""
+    elif [[ -n "$remote" && "$(echo "$remote" | jq -r '.name')" != "$base_name" ]]; then
+      echo "RENAME $rel_path (recorded document is named \"$(echo "$remote" | jq -r '.name')\"; using \"$base_name\")"
+      existing_doc_id=""
     fi
   fi
 
@@ -457,11 +504,21 @@ while IFS= read -r -d '' file; do
 
     # --force: the same file name may legitimately exist in another directory (module); this
     # script does its own duplicate detection above, by name AND module.
-    args=(knowledge documents upload --dataset "$DATASET_ID" --file "$file" --force)
+    upload_file="$file"
+    upload_tmp=""
+    if [[ "$base_name" != "$(basename "$file")" ]]; then
+      upload_tmp="$(mktemp -d)"
+      upload_file="$upload_tmp/$base_name"
+      cp "$file" "$upload_file"
+    fi
+    args=(knowledge documents upload --dataset "$DATASET_ID" --file "$upload_file" --force)
     [[ -n "$desired_module_id" ]] && args+=(--module "$desired_module_id")
 
     resp=""
-    if ! resp="$(cawplan "${args[@]}")"; then
+    upload_ok=1
+    resp="$(cawplan "${args[@]}")" || upload_ok=0
+    [[ -n "$upload_tmp" ]] && rm -rf "$upload_tmp"
+    if [[ "$upload_ok" -eq 0 ]]; then
       echo "  FAILED: $rel_path"
       failed_count=$((failed_count + 1))
       continue
@@ -477,6 +534,11 @@ while IFS= read -r -d '' file; do
         fatal_not_owner=1
         break
       fi
+      continue
+    fi
+    if jq -e --arg p "$rel_path" --arg id "$doc_id" 'any(.files | to_entries[]; .key != $p and .value.document_id == $id)' "$STATE_FILE" >/dev/null; then
+      echo "  FAILED: $rel_path -- the server returned document $doc_id, already recorded for another file (same document name?)"
+      failed_count=$((failed_count + 1))
       continue
     fi
     record_state "$rel_path" "$doc_id" "$mtime" "$desired_module_id" "$desired_module_path"
