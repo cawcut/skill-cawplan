@@ -14,6 +14,8 @@ import {collectCodexSessions} from "./agents/codex.js";
 import {
     buildSessionCookie,
     fetchUsageEvents,
+    describeCursorApiRoute,
+    markCursorUsageUnavailable,
     aggregateCursorUsage,
     aggregateCursorUsageBySession,
     buildCursorAttributionWindows,
@@ -358,7 +360,7 @@ export async function scanSessions(
         try {
             const {cookie} = logger.step("Build Cursor Dashboard session cookie", () => buildSessionCookie());
             const {startMs, endMs} = dayBoundsMs(date);
-            logger.log(`Fetch Cursor Dashboard usage events for ${new Date(startMs).toISOString()} - ${new Date(endMs).toISOString()}...`);
+            logger.log(`Fetch Cursor Dashboard usage events for ${new Date(startMs).toISOString()} - ${new Date(endMs).toISOString()} (${describeCursorApiRoute()})...`);
             const cursorApiStartedAt = Date.now();
             const events = await fetchUsageEvents(startMs, endMs, cookie);
             logger.log(`Fetched ${events.length} Cursor Dashboard usage event(s) in ${formatElapsed(Date.now() - cursorApiStartedAt)}.`);
@@ -415,7 +417,17 @@ export async function scanSessions(
                 cursorApiUsage = logger.step("Aggregate Cursor usage globally", () => aggregateCursorUsage(events, date));
             }
         } catch (e) {
-            console.warn(`Warning: cursor API: ${(e as Error).message}`);
+            const reason = (e as Error).message;
+            const affected = markCursorUsageUnavailable(sessions, reason);
+            if (affected > 0) {
+                console.warn([
+                    `Warning: Cursor dashboard API failed (${describeCursorApiRoute()}): ${reason}`,
+                    `  ${affected} Cursor GUI session(s) on ${date} have no token/cost data; coding reports drop sessions without tokens.`,
+                    `  Check your network/proxy (HTTPS_PROXY / NO_PROXY are honored) and that Cursor is signed in, then collect ${date} again.`,
+                ].join("\n"));
+            } else {
+                console.warn(`Warning: cursor API: ${reason}`);
+            }
         }
     }
 

@@ -9,6 +9,9 @@
  *   3. ItemTable key "cursorAuth/accessToken" in state.vscdb (same SQLite as cursor-gui)
  *   The token is decoded as a JWT to extract the userId, then composed into a session cookie.
  *
+ * Network: honors HTTPS_PROXY / ALL_PROXY / NO_PROXY (curl semantics; http:// proxies via CONNECT)
+ *   because node:https ignores them, and retries transient network failures.
+ *
  * Endpoint: POST https://cursor.com/api/dashboard/get-filtered-usage-events
  *   Paginates (500 events/page) over a time range to fetch all usage events.
  *   Each event contains: model, tokenUsage (inputTokens / outputTokens / cacheTokens),
@@ -16,7 +19,10 @@
  *
  * If no token is available, this module throws and collect() treats it as a non-fatal warning.
  */
+import {request as httpRequest} from "node:http";
 import {request} from "node:https";
+import type {Socket} from "node:net";
+import {connect as tlsConnect} from "node:tls";
 import {existsSync} from "node:fs";
 import {DatabaseSync} from "node:sqlite";
 import {HumanInput, ModelUsageEntry, UsageBucket} from "../types.js";
@@ -177,17 +183,126 @@ function cursorApiTimeoutMs(): number {
     return positiveIntEnv("CAWPLAN_CURSOR_API_TIMEOUT_MS", DEFAULT_CURSOR_API_TIMEOUT_MS);
 }
 
-function httpsPost(
+function matchesNoProxy(host: string, port: number, noProxy: string): boolean {
+    for (const raw of noProxy.split(/[\s,]+/)) {
+        const entry = raw.trim().toLowerCase();
+        if (!entry) continue;
+        if (entry === "*") return true;
+        const m = entry.match(/^(.*?)(?::(\d+))?$/);
+        const entryHost = (m?.[1] ?? entry).replace(/^\*?\./, "");
+        if (m?.[2] && Number(m[2]) !== port) continue;
+        if (entryHost && (host === entryHost || host.endsWith(`.${entryHost}`))) return true;
+    }
+    return false;
+}
+
+/**
+ * Proxy to use for an https URL, following curl's environment conventions
+ * (https_proxy/HTTPS_PROXY, then all_proxy/ALL_PROXY; NO_PROXY bypass). Only
+ * http:// proxies are supported; null means connect directly.
+ * Exported for unit tests.
+ */
+export function resolveHttpsProxy(target: URL, env: NodeJS.ProcessEnv = process.env): URL | null {
+    const raw = env["https_proxy"] ?? env["HTTPS_PROXY"] ?? env["all_proxy"] ?? env["ALL_PROXY"];
+    if (!raw || !raw.trim()) return null;
+    const noProxy = env["no_proxy"] ?? env["NO_PROXY"] ?? "";
+    if (matchesNoProxy(target.hostname.toLowerCase(), Number(target.port) || 443, noProxy)) return null;
+    let proxy: URL;
+    try {
+        proxy = new URL(raw.includes("://") ? raw.trim() : `http://${raw.trim()}`);
+    } catch {
+        return null;
+    }
+    return proxy.protocol === "http:" ? proxy : null;
+}
+
+const CURSOR_DASHBOARD_URL = "https://cursor.com/api/dashboard/get-filtered-usage-events";
+
+/** How Cursor dashboard requests are routed, for logs. Never includes proxy credentials. */
+export function describeCursorApiRoute(env: NodeJS.ProcessEnv = process.env): string {
+    const proxy = resolveHttpsProxy(new URL(CURSOR_DASHBOARD_URL), env);
+    return proxy ? `via proxy ${proxy.protocol}//${proxy.host}` : "direct";
+}
+
+function openProxyTunnel(proxy: URL, host: string, port: number, timeoutMs: number): Promise<Socket> {
+    return new Promise((resolve, reject) => {
+        const headers: Record<string, string> = {Host: `${host}:${port}`};
+        if (proxy.username || proxy.password) {
+            const credentials = `${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`;
+            headers["Proxy-Authorization"] = `Basic ${Buffer.from(credentials).toString("base64")}`;
+        }
+        const req = httpRequest({
+            host: proxy.hostname,
+            port: Number(proxy.port) || 80,
+            method: "CONNECT",
+            path: `${host}:${port}`,
+            headers,
+        });
+        req.setTimeout(timeoutMs, () => {
+            req.destroy(new Error(`Proxy CONNECT to ${proxy.host} timed out after ${Math.round(timeoutMs / 1000)}s`));
+        });
+        req.once("connect", (res, socket) => {
+            req.setTimeout(0);
+            if (res.statusCode !== 200) {
+                socket.destroy();
+                reject(new Error(`Proxy ${proxy.host} rejected CONNECT ${host}:${port}: HTTP ${res.statusCode}`));
+                return;
+            }
+            resolve(socket);
+        });
+        req.once("error", (err: NodeJS.ErrnoException) => {
+            reject(Object.assign(new Error(`Proxy ${proxy.host} unreachable: ${err.message}`), {code: err.code}));
+        });
+        req.end();
+    });
+}
+
+const RETRYABLE_NETWORK_CODES = new Set([
+    "ECONNRESET", "ECONNREFUSED", "ECONNABORTED", "ETIMEDOUT", "EPIPE", "EAI_AGAIN", "UND_ERR_SOCKET",
+]);
+
+/** Transient failures worth retrying: socket/TLS drops, timeouts, HTTP 429/5xx. Exported for unit tests. */
+export function isRetryableNetworkError(err: unknown): boolean {
+    const e = err as NodeJS.ErrnoException | undefined;
+    if (e?.code && RETRYABLE_NETWORK_CODES.has(e.code)) return true;
+    const message = e?.message ?? "";
+    return /socket disconnected|socket hang up|timed out|Cursor API HTTP (429|5\d\d)/i.test(message);
+}
+
+const DEFAULT_RETRY_DELAYS_MS = [1_000, 3_000];
+
+/** Run `task`, retrying retryable network errors once per delay. Exported for unit tests. */
+export async function withNetworkRetries<T>(
+    task: () => Promise<T>,
+    delaysMs: number[] = DEFAULT_RETRY_DELAYS_MS,
+    sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await task();
+        } catch (err) {
+            if (attempt >= delaysMs.length || !isRetryableNetworkError(err)) throw err;
+            await sleep(delaysMs[attempt]);
+        }
+    }
+}
+
+async function httpsPost(
     url: string,
     body: Record<string, unknown>,
     headers: Record<string, string>
 ): Promise<unknown> {
+    const parsed = new URL(url);
+    const timeoutMs = cursorApiTimeoutMs();
+    const proxy = resolveHttpsProxy(parsed);
+    const port = Number(parsed.port) || 443;
+    const tunnel = proxy ? await openProxyTunnel(proxy, parsed.hostname, port, timeoutMs) : null;
+
     return new Promise((resolve, reject) => {
-        const parsed = new URL(url);
         const bodyStr = JSON.stringify(body);
-        const timeoutMs = cursorApiTimeoutMs();
         const options = {
             hostname: parsed.hostname,
+            port,
             path: parsed.pathname + parsed.search,
             method: "POST",
             headers: {
@@ -195,6 +310,8 @@ function httpsPost(
                 "Content-Length": Buffer.byteLength(bodyStr),
                 ...headers,
             },
+            // Run TLS to the real host over the proxy's CONNECT tunnel (end-to-end encrypted).
+            ...(tunnel ? {createConnection: () => tlsConnect({socket: tunnel, servername: parsed.hostname})} : {}),
         };
 
         const req = request(options, (res) => {
@@ -245,8 +362,8 @@ export async function fetchUsageEvents(
             page,
         };
 
-        const data = await httpsPost(
-            "https://cursor.com/api/dashboard/get-filtered-usage-events",
+        const data = await withNetworkRetries(() => httpsPost(
+            CURSOR_DASHBOARD_URL,
             body,
             {
                 // Keep both cookie forms for compatibility across API versions.
@@ -254,7 +371,7 @@ export async function fetchUsageEvents(
                 "User-Agent": "cawplan-cli/1.0",
                 Origin: "https://cursor.com",
             }
-        ) as Record<string, unknown>;
+        )) as Record<string, unknown>;
 
         // Cursor API has changed field names across versions.
         const events =
@@ -271,6 +388,24 @@ export async function fetchUsageEvents(
     }
 
     return allEvents;
+}
+
+/**
+ * When the dashboard API fails, Cursor GUI sessions have no token/cost data at all. Label them
+ * with the real reason instead of the generic "no matching billing event". Returns how many
+ * sessions were affected.
+ */
+export function markCursorUsageUnavailable(
+    sessions: Array<{agent: string; usage_breakdown: unknown[]; token_source?: string}>,
+    reason: string
+): number {
+    let count = 0;
+    for (const s of sessions) {
+        if (s.agent !== "cursor-gui" || s.usage_breakdown.length > 0) continue;
+        s.token_source = `unavailable (Cursor dashboard API failed: ${reason})`;
+        count++;
+    }
+    return count;
 }
 
 /**
