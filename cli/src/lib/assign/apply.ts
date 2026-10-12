@@ -1,4 +1,4 @@
-import {canonicalRepoNameFromMapping, repoKeys} from "./matching.js";
+import {canonicalRepoNameFromMapping, findMappingForSession, repoKeys} from "./matching.js";
 import type {DailyApiJson} from "../collect/types.js";
 import type {DailySession, ProductRepoMapping} from "./types.js";
 
@@ -78,5 +78,36 @@ export function applyProductRepoMappingToProject(
         updated++;
     }
 
+    return updated;
+}
+
+/**
+ * A session may touch several repositories. After the primary mapping is applied,
+ * resolve the remaining touched repos on their own so each carries its product.
+ */
+export function applyMappingsToOtherTouchedRepos(
+    daily: DailyApiJson,
+    session: DailySession,
+    mappings: ProductRepoMapping[],
+    warn?: (message: string) => void
+): number {
+    let updated = 0;
+    for (const touched of session.repos_touched ?? []) {
+        if (touched.product_id) continue;
+        const mapping = findMappingForSession({repos_touched: [touched]}, mappings, {warn}) as
+            | ProductRepoMapping
+            | undefined;
+        if (!mapping?.product_id) continue;
+        const canonicalRepo = canonicalRepoNameFromMapping(mapping);
+        const keys = new Set(repoKeys(touched.repo_name ?? touched.repo));
+        for (const target of [touched, ...(daily.repos ?? []).filter((r) =>
+            repoKeys(r.repo_name ?? r.repo).some((key) => keys.has(key)))]) {
+            if (canonicalRepo) target.repo_name = canonicalRepo;
+            target.repo_url = mapping.repo_url;
+            target.product_id = mapping.product_id;
+            target.product_name = mapping.product_name;
+        }
+        updated++;
+    }
     return updated;
 }

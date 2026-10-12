@@ -1,6 +1,6 @@
 import type {DailyApiJson} from "../collect/types.js";
 import {normalizeSessionRepoContext} from "../collect/index.js";
-import {applyProductRepoMappingToProject} from "./apply.js";
+import {applyMappingsToOtherTouchedRepos, applyProductRepoMappingToProject} from "./apply.js";
 import {findMappingForSession} from "./matching.js";
 import {
     createProductRepoMapping,
@@ -29,6 +29,7 @@ export function autoAssignAllFromMappings(
         if (!mapping?.product_id) continue;
         const sessionLabel = session.session_name ?? session.session_title ?? session.session_id ?? `session ${index + 1}`;
         matched += applyProductRepoMappingToProject(daily, session, mapping);
+        applyMappingsToOtherTouchedRepos(daily, session, mappings, (message) => console.error(`Warning: ${message}`));
         const repoLabel = mapping.repo_name ?? mapping.repo_url ?? "product only";
         console.error(
             `Auto-assigned session "${sessionLabel}" to ${mapping.product_name ?? mapping.product_id} / ${repoLabel}`
