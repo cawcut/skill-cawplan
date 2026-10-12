@@ -243,7 +243,7 @@ Use a compact table for numbers if useful, but always include the narrative summ
 
 Use this flow after collection or inspection for every report before review/upload, regardless of whether sessions already have `product_id`. The Web assignment page is also where ticket display IDs can be checked or edited.
 
-Do not ask the user to choose an assignment mode. Always use the local Web assignment flow.
+Do not ask the user to choose an assignment mode. Always use the local Web assignment flow. When every session in the report(s) already has a product (for example, auto-assigned from existing mappings), `cawplan session assign --web` prints a notice and exits immediately without opening the page; continue straight to review. Pass `--force` only if the user explicitly asks to open the page anyway (e.g. to edit tickets).
 
 For one report, run:
 ```bash

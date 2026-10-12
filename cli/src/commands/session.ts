@@ -26,7 +26,7 @@ import {
     toProductChoices,
 } from "../lib/assign/products-api.js";
 import {readDailyReport} from "../lib/assign/report-io.js";
-import {assertAllSessionsHaveProduct, warnMissingProductAssignment} from "../lib/assign/session-checks.js";
+import {assertAllSessionsHaveProduct, reportsNeedAssignment, warnMissingProductAssignment} from "../lib/assign/session-checks.js";
 import {
     assignReportsFromTty,
     readDailyReports,
@@ -326,12 +326,17 @@ function registerSessionSubcommands(session: Command): void {
         .option("--file <path>", "Path to ai-daily JSON file")
         .option("--files <path>", "Batch assign ai-daily JSON file paths with --web or --tty (repeatable)", (val: string, prev: string[]) => [...prev, val], [] as string[])
         .option("--tty", "Assign sessions using cloud mappings and interactive selector when available")
-        .option("--web", "Assign sessions in a local web page")
+        .option("--web", "Assign sessions in a local web page (skipped when every session already has a product)")
+        .option("--force", "With --web, open the page even when every session already has a product")
         .action(async (opts) => {
             try {
                 if (Array.isArray(opts.files) && opts.files.length > 0) {
                     const reports = readDailyReports(opts.files.map(String));
                     if (opts.web) {
+                        if (!opts.force && !reportsNeedAssignment(reports)) {
+                            console.error("All sessions already have a product; skipping the assignment page. Use --force to open it anyway.");
+                            return;
+                        }
                         await startAssignmentWebServer(reports, true);
                         return;
                     }
@@ -348,6 +353,10 @@ function registerSessionSubcommands(session: Command): void {
                 if (!opts.file) throw new Error("--file is required unless --files is set");
                 const daily = readDailyReport(String(opts.file));
                 if (opts.web) {
+                    if (!opts.force && !reportsNeedAssignment([{daily}])) {
+                        console.error("All sessions already have a product; skipping the assignment page. Use --force to open it anyway.");
+                        return;
+                    }
                     await startAssignmentWebServer([{file: String(opts.file), daily}]);
                     return;
                 }

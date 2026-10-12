@@ -77,11 +77,11 @@ describe("applyQaWebAssignments", () => {
         await applyQaWebAssignments(daily, [{
             session_id: "11111111-1111-1111-1111-111111111111",
             product_id: PRODUCT_B,
-            ticket_display_ids: ["CWP-100"],
+            ticket_display_ids: ["CWP-00100"],
         }]);
         expect(daily.sessions[0]?.product_id).toBe(PRODUCT_B);
-        expect(daily.sessions[0]?.ticket_display_ids).toEqual(["CWP-100"]);
-        expect(daily.sessions[0]?.ticket_ids).toEqual(["ticket-CWP-100"]);
+        expect(daily.sessions[0]?.ticket_display_ids).toEqual(["CWP-00100"]);
+        expect(daily.sessions[0]?.ticket_ids).toEqual(["ticket-CWP-00100"]);
     });
 
     test("rejects clearing product_id", async () => {
@@ -125,7 +125,7 @@ describe("applyQaWebAssignments", () => {
 
 describe("normalizeTicketDisplayIds", () => {
     test("extracts display IDs from issue URLs", () => {
-        expect(normalizeTicketDisplayIds(["https://app.cawplan.com/issue/CWP-42"])).toEqual(["CWP-42"]);
+        expect(normalizeTicketDisplayIds(["https://app.cawplan.com/issue/CWP-42"])).toEqual(["CWP-00042"]);
     });
 });
 
@@ -183,7 +183,7 @@ describe("dispatchQaAssignRequest", () => {
                 assignments: [{
                     session_id: "11111111-1111-1111-1111-111111111111",
                     product_id: PRODUCT_B,
-                    ticket_display_ids: ["CWP-9"],
+                    ticket_display_ids: ["CWP-00009"],
                 }],
             }),
             report,
@@ -193,7 +193,7 @@ describe("dispatchQaAssignRequest", () => {
         expect(result.status).toBe(200);
         const saved = readQaDailyReport(reportPath);
         expect(saved.sessions[0]?.product_id).toBe(PRODUCT_B);
-        expect(saved.sessions[0]?.ticket_display_ids).toEqual(["CWP-9"]);
+        expect(saved.sessions[0]?.ticket_display_ids).toEqual(["CWP-00009"]);
     });
 
     test("rejects one session mapped to two products", async () => {

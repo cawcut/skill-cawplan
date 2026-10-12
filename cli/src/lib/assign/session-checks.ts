@@ -29,3 +29,8 @@ export function warnMissingProductAssignment(file: string, daily: DailyApiJson):
     console.error(`Single-file web fallback: cawplan session assign --file ${file} --web`);
     return true;
 }
+
+/** True when any session in any report still lacks a product, i.e. the web page has work to do. */
+export function reportsNeedAssignment(reports: Array<{daily: DailyApiJson}>): boolean {
+    return reports.some(({daily}) => missingProductSessionLabels(daily).length > 0);
+}

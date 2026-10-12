@@ -9,10 +9,14 @@ export const INLINE_ESCAPE_HTML = `function escapeHtml(value) {
 
 export const INLINE_TICKET_DISPLAY_ID_FROM_INPUT = `function ticketDisplayIdFromInput(value) {
       const trimmed = String(value || '').trim();
-      const urlMatch = /https?:\\/\\/[^\\s/]+\\/issue\\/([A-Za-z]+-\\d+)/i.exec(trimmed);
-      if (urlMatch && urlMatch[1]) return urlMatch[1].toUpperCase();
+      const pad = (id) => {
+        const dash = id.lastIndexOf('-');
+        return id.slice(0, dash).toUpperCase() + '-' + id.slice(dash + 1).padStart(5, '0');
+      };
+      const urlMatch = /https?:\\/\\/[^\\s/]+\\/issue\\/([A-Za-z][A-Za-z0-9]*-\\d+)/i.exec(trimmed);
+      if (urlMatch && urlMatch[1]) return pad(urlMatch[1]);
       const displayMatch = /^[A-Za-z][A-Za-z0-9]+-\\d+$/.exec(trimmed);
-      return displayMatch ? trimmed.toUpperCase() : '';
+      return displayMatch ? pad(trimmed) : '';
     }`;
 
 export const INLINE_TICKET_DETAIL_URL = `function ticketDetailUrl(ticket) {
