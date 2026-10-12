@@ -240,6 +240,16 @@ function isSubagentSessionMeta(event: Record<string, unknown>): boolean {
   return !!source?.["subagent"];
 }
 
+// Codex's "Import from Claude Code" replays each external conversation as turns whose
+// `task_started` turn_id is `external-import-turn-<n>`, stamped with the import time and
+// followed by a seeded token_count. That history was already collected from the source
+// agent, so only turns started natively in Codex count as Codex work.
+const CODEX_EXTERNAL_IMPORT_TURN_PREFIX = "external-import-";
+
+function isExternalImportTurnStart(payload: Record<string, unknown> | undefined): boolean {
+  return String(payload?.["turn_id"] ?? "").startsWith(CODEX_EXTERNAL_IMPORT_TURN_PREFIX);
+}
+
 function stableHumanInputKey(text: string, ts?: string): string {
   const normalized = text.replace(/\s+/g, " ").trim();
   const hash = createHash("sha256").update(normalized).digest("hex");
@@ -306,6 +316,7 @@ function parseRollout(
   model: string | null;
   rolloutPath: string | null;
   isSubagent: boolean;
+  isImported: boolean;
   toolOutputs: string[];
 } {
   const result = {
@@ -324,6 +335,7 @@ function parseRollout(
     model: null as string | null,
     rolloutPath: null as string | null,
     isSubagent: false,
+    isImported: false,
     toolOutputs: [] as string[],
   };
 
@@ -355,6 +367,9 @@ function parseRollout(
   let currentHumanInputIndex: number | null = null;
   let activeModel: string | null = null;
   const seenTokenCounts = new Set<string>();
+  let inImportedTurn = false;
+  let importedTurnSeen = false;
+  let nativeTurnSeen = false;
 
   const lines = timed(opts, `Split Codex rollout lines ${sessionId}`, () => content.split("\n"));
   timed(opts, `Parse Codex rollout events ${sessionId}`, () => {
@@ -372,6 +387,13 @@ function parseRollout(
       const d = ts ? new Date(ts) : null;
       const eventOnDate = !filterDate || (d !== null && !isNaN(d.getTime()) && localDateString(d) === filterDate);
 
+      if (eventType === "event_msg" && payloadType === "task_started") {
+        inImportedTurn = isExternalImportTurnStart(payload);
+        if (inImportedTurn) importedTurnSeen = true;
+        else nativeTurnSeen = true;
+      }
+      if (inImportedTurn) continue;
+
       if (eventType === "turn_context") {
         const contextModel = String(payload?.["model"] ?? event["model"] ?? "").trim();
         if (contextModel) {
@@ -380,7 +402,8 @@ function parseRollout(
         }
       }
 
-      if (eventOnDate && d !== null && !isNaN(d.getTime())) {
+      // session_meta is the file header, not activity; for imported rollouts it carries the import time.
+      if (eventOnDate && eventType !== "session_meta" && d !== null && !isNaN(d.getTime())) {
           if (!result.firstTs || d < result.firstTs) result.firstTs = d;
           if (!result.lastTs || d > result.lastTs) result.lastTs = d;
       }
@@ -544,7 +567,8 @@ function parseRollout(
   if (result.isSubagent) {
     result.humanInputs = [];
   }
-  logCodex(opts, `Codex session ${sessionId}: users=${result.userCount}, assistants=${result.assistantCount}, tool_calls=${result.toolCallCount}, token_events=${result.tokenCountEvents}, files=${result.filesChanged}.`);
+  result.isImported = importedTurnSeen && !nativeTurnSeen;
+  logCodex(opts, `Codex session ${sessionId}: users=${result.userCount}, assistants=${result.assistantCount}, tool_calls=${result.toolCallCount}, imported=${result.isImported}, token_events=${result.tokenCountEvents}, files=${result.filesChanged}.`);
 
   return result;
 }
@@ -706,6 +730,11 @@ export function collectCodexSessions(filterDate: string, opts?: CodexCollectOpti
 
         // Parse rollout for message counts and timestamps scoped to the target day.
         const rolloutData = parseRollout(thread.rollout_path, sessionsDir, thread.id, filterDate, opts);
+        if (rolloutData.isImported && rolloutData.rolloutPath) {
+          seenRolloutPaths.add(rolloutData.rolloutPath);
+          logCodex(opts, `Skip Codex thread ${thread.id}: imported from another agent with no native Codex turn.`);
+          continue;
+        }
         const hasRolloutActivityOnDate =
           rolloutData.firstTs !== null ||
           rolloutData.userCount > 0 ||
@@ -737,6 +766,10 @@ export function collectCodexSessions(filterDate: string, opts?: CodexCollectOpti
         if (seenRolloutPaths.has(rolloutFile)) continue;
         const rolloutData = parseRollout(rolloutFile, sessionsDir, basename(rolloutFile, ".jsonl"), filterDate, opts);
         if (!rolloutData.rolloutPath || seenRolloutPaths.has(rolloutData.rolloutPath)) continue;
+        if (rolloutData.isImported) {
+          logCodex(opts, `Skip Codex fallback rollout ${rolloutFile}: imported from another agent with no native Codex turn.`);
+          continue;
+        }
         const hasActivity =
           rolloutData.firstTs !== null ||
           rolloutData.userCount > 0 ||

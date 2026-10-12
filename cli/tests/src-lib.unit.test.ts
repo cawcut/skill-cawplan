@@ -1534,6 +1534,133 @@ describe("src lib collect codex", () => {
     expect(session?.human_inputs?.map((input) => input.content)).toEqual([invocation, "补充边界场景"]);
   });
 
+  // Shape mirrors a real Codex Desktop "Import from Claude Code" rollout: every replayed
+  // turn starts with an `external-import-turn-<n>` task_started, all stamped with the
+  // import time, plus a seeded token_count carrying only total_tokens.
+  const importedClaudeTurns = (importTs: string, prompts: string[]) => [
+    {
+      type: "session_meta",
+      timestamp: importTs,
+      payload: { id: "imported", originator: "Codex Desktop", source: "vscode", history_mode: "legacy" },
+    },
+    ...prompts.flatMap((text, index) => [
+      { type: "event_msg", timestamp: importTs, payload: { type: "task_started", turn_id: `external-import-turn-${index + 1}` } },
+      { type: "event_msg", timestamp: importTs, payload: { type: "user_message", message: text } },
+      {
+        type: "response_item",
+        timestamp: importTs,
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text }] },
+      },
+      {
+        type: "response_item",
+        timestamp: importTs,
+        payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "imported reply" }] },
+      },
+      { type: "event_msg", timestamp: importTs, payload: { type: "task_complete", turn_id: `external-import-turn-${index + 1}` } },
+    ]),
+    {
+      type: "event_msg",
+      timestamp: importTs,
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, total_tokens: 858 },
+          last_token_usage: { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, total_tokens: 858 },
+        },
+      },
+    },
+  ];
+  const writeJsonl = (path: string, events: unknown[]) =>
+    writeFile(path, events.map((event) => JSON.stringify(event)).join("\n"), "utf-8");
+
+  test("skips Codex sessions imported from Claude Code with no native Codex turn", async () => {
+    const codexHome = join(tmpDir, "codex");
+    const rolloutDir = join(codexHome, "sessions", "2026", "10", "12");
+    await mkdir(rolloutDir, { recursive: true });
+    process.env.CODEX_HOME = codexHome;
+
+    const importTs = "2026-10-12T09:32:51.657Z";
+    const threadRollout = join(rolloutDir, "rollout-2026-10-12T17-32-51-imported-thread.jsonl");
+    await writeJsonl(threadRollout, importedClaudeTurns(importTs, ["<command-message>cawplan-testpoint-generate</command-message>"]));
+    // Imported rollouts that are not (yet) indexed in the state DB are found by the date-directory scan.
+    await writeJsonl(
+      join(rolloutDir, "rollout-2026-10-12T17-32-51-imported-fallback.jsonl"),
+      importedClaudeTurns(importTs, ["submit today's QA report", "[Request interrupted by user]"]),
+    );
+
+    const db = createCodexStateDb(codexHome);
+    try {
+      insertCodexThread(db, {
+        id: "codex-imported-thread",
+        rolloutPath: threadRollout,
+        createdAt: Math.floor(new Date(importTs).getTime() / 1000),
+      });
+    } finally {
+      db.close();
+    }
+
+    expect(collectCodexSessions("2026-10-12")).toEqual([]);
+  });
+
+  test("keeps only the native Codex turns of a continued imported session", async () => {
+    const codexHome = join(tmpDir, "codex");
+    const rolloutDir = join(codexHome, "sessions", "2026", "10", "12");
+    await mkdir(rolloutDir, { recursive: true });
+    process.env.CODEX_HOME = codexHome;
+
+    const importTs = "2026-10-12T09:32:51.657Z";
+    const rolloutPath = join(rolloutDir, "rollout-2026-10-12T17-32-51-imported-continued.jsonl");
+    await writeJsonl(rolloutPath, [
+      ...importedClaudeTurns(importTs, ["imported Claude Code prompt"]),
+      { type: "event_msg", timestamp: "2026-10-12T10:00:00.000Z", payload: { type: "task_started", turn_id: "native-turn-1" } },
+      { type: "turn_context", timestamp: "2026-10-12T10:00:00.000Z", payload: { model: "gpt-5.5" } },
+      {
+        type: "response_item",
+        timestamp: "2026-10-12T10:00:00.100Z",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "continue in Codex" }] },
+      },
+      {
+        type: "response_item",
+        timestamp: "2026-10-12T10:01:00.000Z",
+        payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "continued" }] },
+      },
+      {
+        type: "event_msg",
+        timestamp: "2026-10-12T10:01:00.000Z",
+        payload: {
+          type: "token_count",
+          info: { last_token_usage: { input_tokens: 1000, cached_input_tokens: 200, output_tokens: 50 } },
+        },
+      },
+    ]);
+
+    const db = createCodexStateDb(codexHome);
+    try {
+      insertCodexThread(db, {
+        id: "codex-imported-continued",
+        rolloutPath,
+        createdAt: Math.floor(new Date(importTs).getTime() / 1000),
+      });
+    } finally {
+      db.close();
+    }
+
+    const sessions = collectCodexSessions("2026-10-12");
+    expect(sessions).toHaveLength(1);
+    const [session] = sessions;
+    expect(session?.human_inputs?.map((input) => input.content)).toEqual(["continue in Codex"]);
+    expect(session?.message_stats).toEqual({ user: 1, assistant: 1, tool_calls: 0 });
+    expect(session?.time_range.start).toBe("2026-10-12T10:00:00.000Z");
+    // The seeded import token_count must not be billed as Codex usage.
+    expect(session?.usage_breakdown).toHaveLength(1);
+    expect(session?.usage_breakdown[0]).toMatchObject({
+      model: "gpt-5.5",
+      input_tokens: 800,
+      cache_read_input_tokens: 200,
+      output_tokens: 50,
+    });
+  });
+
   test("resolves Codex rollout paths copied from another sessions root", async () => {
     const codexHome = join(tmpDir, "codex");
     const rolloutDir = join(codexHome, "sessions", "2026", "06", "17");
