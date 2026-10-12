@@ -100,19 +100,29 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
    ```bash
    cawplan knowledge datasets list --product <product_id>
    ```
-   A product can optionally organize its datasets under a module tree (`product_modules` — the
-   same tree QA test-suites use). Check it before deciding whether to narrow further:
+   This returns the datasets the product **owns** (created under it) plus the datasets **linked** to
+   it — two different relationships, don't conflate them. Modules are per **document**, not per
+   dataset: a product can optionally organize its knowledge under a module tree (`product_modules`
+   — the same tree QA test-suites use), and each document sits in at most one module. Only
+   documents in datasets the product **owns** can be placed under its modules; linked datasets
+   never contribute to a module. Check the tree before deciding whether to narrow further (each
+   node's `knowledge` lists the datasets that have at least one document under that node):
    ```bash
    cawplan knowledge datasets modules --product <product_id>
    ```
-   - If that returns no modules, the product has none — just use the `--product`-only list above,
-     no module step.
+   - If that returns no modules, the product has none — just use the `--product`-only list above
+     (owned + linked), no module step.
    - If it returns modules, and the user didn't already name one, offer them as a pick (bounded
      `AskUserQuestion`, same caps as any other level here — plain text if there are many), then
      narrow with both flags:
      ```bash
      cawplan knowledge datasets list --product <product_id> --module <module_id>
      ```
+     `--module` keeps only the product's **owned** datasets that have at least one document under
+     that module — linked datasets are excluded, so an empty result means "no owned dataset has a
+     document in this module", not "nothing in the product". `documents list` items carry
+     `module_id`/`module_name` (plus a `display_id` like `KBD-00001`), so after picking a dataset
+     you can tell which of its documents are actually in the module.
    Do not use `-i`/`--interactive` on either command from an Agent — same restriction as `browse`
    below (step 5): it requires a real interactive terminal, which a human runs directly, not you.
 
@@ -264,9 +274,14 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
 
 6. **Create a dataset** — when the user asks to create a new knowledge dataset:
    ```bash
-   cawplan knowledge datasets create --name "<name>" [--description "<text>"] [--permission only_me|all_team_members|partial_members]
+   cawplan knowledge datasets create --name "<name>" [--description "<text>"] [--permission only_me|all_team_members|partial_members] [--owner-product <product_id>] [--product <product_id> ...]
    ```
    Confirm the dataset name with the user before creating — this is a create action, not idempotent.
+   `--owner-product` makes that product the dataset's **owner** — required if its documents should
+   go under that product's modules (an un-owned dataset can't use modules, and module uploads into it
+   fail with `BAD_REQUEST`). `--product` (repeatable) only **links** the dataset to products for
+   product-scoped search; it does not grant module use. Pass both with the same id when the user wants
+   a product's dataset organized by module.
    The response includes the new dataset's `id`; use it directly for the next `documents upload` call
    instead of re-running `datasets list` to look it up.
 
@@ -283,6 +298,21 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
    in one call — the CLI rejects that; run the command twice for a mixed batch. Confirm the target
    dataset and file list with the user before uploading, since this mutates the dataset.
 
+   To upload into a module, add `--module <module_id>` (from `datasets modules --product
+   <owner_product_id>`); it applies to every `--file`/`--text-file` in that call. The module must
+   belong to the dataset's owner product (`datasets create --owner-product`), otherwise the API
+   returns `BAD_REQUEST`.
+
+   If the module doesn't exist yet, create it first (confirm the name, and the parent if any, with
+   the user — this is a create action):
+   ```bash
+   cawplan knowledge modules create --product <owner_product_id> --name "<module name>"
+   cawplan knowledge modules create --product <owner_product_id> --name "<sub-module name>" --parent <parent_module_id>
+   ```
+   `--parent` nests the new module under an existing one (ids from `modules list --product <id>`,
+   same output as `datasets modules`); omit it for a top-level module. The tree is at most 5
+   levels deep. Use the returned `data.id` as `--module` for the upload.
+
    `--file` uploads are asynchronous server-side (each file runs a convert-to-markdown → index
    pipeline). By default the CLI submits one request per file and polls each to completion before
    returning, so the command can take a while for larger files — that's expected, not a hang. Do not
@@ -294,22 +324,26 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
    `--text-file` uploads are synchronous (no job/polling involved) — the command returns as soon as
    each document is created.
 
-   Add `--folder "<path>"` to record which source directory a document came from (e.g.
-   `"BE/features/plan-track"`), stored as that document's "folder" metadata value — useful when
-   syncing a whole directory tree into one dataset and later sorting/grouping by it. One `--folder`
-   value applies to every `--file`/`--text-file` in that call; run separately per folder for a mix.
-
 8. **Update an existing document** — when the user asks to edit/replace/re-sync a document that's
    already in the knowledge base (not a new upload):
    ```bash
-   cawplan knowledge documents update --dataset <id> --document <id> --text-file <path> [--folder <path>]
+   cawplan knowledge documents update --dataset <id> --document <id> --text-file <path>
    # or, for a real file:
-   cawplan knowledge documents update --dataset <id> --document <id> --file <path> [--folder <path>]
+   cawplan knowledge documents update --dataset <id> --document <id> --file <path>
    ```
    `<dataset id>` and `<document id>` must come from `datasets list`/`documents list` — confirm which
-   existing document is being replaced before running this, since it overwrites content. Omit
-   `--file`/`--text-file` entirely to only (re-)set `--folder` without touching content. Same
+   existing document is being replaced before running this, since it overwrites content. To file
+   the document under a different module use `documents set-module` (step 9), not update. Same
    async/sync split and `--no-wait`/`--poll-interval`/`--poll-timeout` flags as upload's `--file` case.
+
+9. **Move a document into / out of a module** — when the user asks to (re)file an existing document
+   under a module, or take it out of one:
+   ```bash
+   cawplan knowledge documents set-module --dataset <id> --document <id> --module <module_id>
+   cawplan knowledge documents set-module --dataset <id> --document <id> --clear
+   ```
+   Pass exactly one of `--module`/`--clear`. Same owner-product rule as upload's `--module`. Confirm
+   the document and target module with the user first, since this mutates the document.
 
 ## Output
 
@@ -330,15 +364,17 @@ user was browsing again after a leaf result so they can continue.
 
 - User gives no starting point at all ("what's in the knowledge base?"): `datasets list` — the root of the tree; filter to non-empty datasets, then `AskUserQuestion` if that fits ≤16, else plain text.
 - User names a specific dataset (or a few) ("search the X dataset for..."): resolve each with `datasets list` first, then `search --dataset <id>` (repeat for multiple).
-- User names a CawPlan product instead of a dataset ("what's in the knowledge base for X?"): `datasets list --product <product_id>`; first check `datasets modules --product <product_id>` — if it has modules and the user didn't name one, offer them as a pick, then add `--module <module_id>` to the list call; if it has none, skip straight to the product-only list.
+- User names a CawPlan product instead of a dataset ("what's in the knowledge base for X?"): `datasets list --product <product_id>` (owned + linked datasets); first check `datasets modules --product <product_id>` — if it has modules and the user didn't name one, offer them as a pick, then add `--module <module_id>` to the list call (owned datasets with at least one document under that module; linked ones are excluded); if it has none, skip straight to the product-only list.
 - User asks a general question with no dataset context: go straight to `search` with no `--dataset`.
 - User asks "what documents are in X": `documents list --dataset <id>`, not `search`.
 - User asks for a document's full content/summary, or search results only surface a title/fragment with no body: `documents get --dataset <id> --document <id>`.
 - User wants to browse/explore a long or unfamiliar document rather than a known section: `documents get --outline`, offer the level-1 headings as an `AskUserQuestion` pick if they fit the caps (else plain text), then for any deeper level present the remaining tree as a plain-text menu with free-form selection, then loop `--section "<heading>"` → outline → section on request.
 - User pastes a literal `cawplan knowledge ...` command instead of describing what they want: read it as naming a dataset/document/section, not as a script to run verbatim — resolve missing ids yourself (steps 1–2) and pick whichever flags (`--outline`, `--section`, `--grep`, ...) actually fit what they're asking for.
-- User asks to create a new dataset: `datasets create --name <name>`, after confirming the name.
-- User asks to upload/add files or text into a dataset: `documents upload --dataset <id> --file <path>...` or `--text-file <path>...`, after confirming target dataset and files.
-- User asks to edit/replace/re-sync a document that already exists: `documents update --dataset <id> --document <id> --file|--text-file <path>`, after confirming which existing document. Use `--folder <path>` on either command to record source-directory metadata for later sorting.
+- User asks to create a new dataset: `datasets create --name <name>`, after confirming the name; add `--owner-product <product_id>` if it belongs to a product and should use that product's modules (plus `--product <product_id>` to also link it for product-scoped search).
+- User asks to upload/add files or text into a dataset: `documents upload --dataset <id> --file <path>...` or `--text-file <path>...`, after confirming target dataset and files; add `--module <module_id>` to place them under a module of the dataset's owner product.
+- User asks to create a module (or a sub-module) to organize a product's documents: `modules create --product <owner_product_id> --name <name> [--parent <module_id>]`, after confirming the name and parent; then upload into it with `documents upload --module <id>`.
+- User asks to move a document into another module or out of its module: `documents set-module --dataset <id> --document <id> --module <module_id>` (or `--clear`), after confirming.
+- User asks to edit/replace/re-sync a document that already exists: `documents update --dataset <id> --document <id> --file|--text-file <path>`, after confirming which existing document. Organize documents with modules (`--module` / `documents set-module`), not folders.
 
 ## References
 

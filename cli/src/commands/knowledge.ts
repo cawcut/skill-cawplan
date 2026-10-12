@@ -218,14 +218,18 @@ export function registerKnowledgeCommand(program: Command): void {
     .command("list")
     .description(
       "List all knowledge datasets accessible in the current workspace. Add --product to narrow to " +
-        "one CawPlan product's linked datasets, and --module to further narrow to one " +
-        "product_modules tree node (requires --product; see: cawplan knowledge datasets modules " +
-        "--product <id>). Use -i/--interactive to pick a product from a menu instead -- and, only " +
-        "when that product actually has any modules, a module too (otherwise this just lists every " +
-        "dataset under the product, no module prompt shown).",
+        "one CawPlan product's datasets (owned + linked), and --module to keep only that product's " +
+        "OWNED datasets that have at least one document under that product_modules tree node " +
+        "(requires --product; see: cawplan knowledge datasets modules --product <id>). Use " +
+        "-i/--interactive to pick a product from a menu instead -- and, only when that product " +
+        "actually has any modules, a module too (otherwise this just lists every dataset under the " +
+        "product, no module prompt shown).",
     )
-    .option("--product <id>", "Product id to narrow to (see: cawplan products list)")
-    .option("--module <id>", "product_modules tree node id to further narrow to (requires --product)")
+    .option("--product <id>", "Product id to narrow to: its owned + linked datasets (see: cawplan products list)")
+    .option(
+      "--module <id>",
+      "product_modules tree node id: keep only owned datasets with at least one document under it (requires --product)",
+    )
     .option(
       "-i, --interactive",
       "Pick a product from a menu (when --product wasn't given), then a module too if that product " +
@@ -293,9 +297,9 @@ export function registerKnowledgeCommand(program: Command): void {
     }
   }
 
-  // expand=knowledge embeds each node's already-linked knowledge datasets directly in this one
-  // call, so callers (the -i module picker, `datasets modules`) don't need a separate
-  // `datasets list --product --module` round trip just to see what's already placed where.
+  // expand=knowledge embeds, per node, the datasets that have at least one document under that
+  // node directly in this one call, so callers (the -i module picker, `datasets modules`) don't
+  // need a separate `datasets list --product --module` round trip just to see what's where.
   async function fetchFlatModules(productId: string): Promise<ModuleTreeNode[]> {
     const result = await cawplanRequest({
       method: "GET",
@@ -308,16 +312,15 @@ export function registerKnowledgeCommand(program: Command): void {
     return flat;
   }
 
-  const CLEAR_MODULE = Symbol("clear-module");
   const NO_MODULE = Symbol("no-module");
-  type ModulePickerChoice = string | typeof CLEAR_MODULE | typeof NO_MODULE;
+  type ModulePickerChoice = string | typeof NO_MODULE;
 
   // Interactively selects a module id from productId's module tree, indented by tree depth.
-  // Returns the picked module id, CLEAR_MODULE / NO_MODULE if those extra choices were offered
-  // and picked, or undefined if the list was empty or the user cancelled (Esc).
+  // Returns the picked module id, NO_MODULE if that extra choice was offered and picked, or
+  // undefined if the list was empty or the user cancelled (Esc).
   async function selectModuleIdInteractive(
     productId: string,
-    extraChoices: { allowClear?: string; allowNone?: string } = {},
+    extraChoices: { allowNone?: string } = {},
     prefetchedModules?: ModuleTreeNode[],
   ): Promise<ModulePickerChoice | undefined> {
     const modules = prefetchedModules ?? (await fetchFlatModules(productId));
@@ -326,7 +329,6 @@ export function registerKnowledgeCommand(program: Command): void {
       return undefined;
     }
     const choices: Array<{ name: string; value: ModulePickerChoice }> = [];
-    if (extraChoices.allowClear) choices.push({ name: extraChoices.allowClear, value: CLEAR_MODULE });
     if (extraChoices.allowNone) choices.push({ name: extraChoices.allowNone, value: NO_MODULE });
     for (const m of modules) {
       if (!m.id) continue;
@@ -390,10 +392,12 @@ export function registerKnowledgeCommand(program: Command): void {
   datasets
     .command("create")
     .description(
-      "Create a new knowledge dataset. Pass --product to also bind it to one or more CawPlan " +
-        "products (repeat for multiple), scoping it for product-scoped knowledge search. Pass " +
-        "--module to also place it under a product_modules tree node for every --product given, " +
-        "or -i/--interactive (with exactly one --product) to pick one from a menu instead.",
+      "Create a new knowledge dataset. Pass --owner-product to create it as OWNED by that CawPlan " +
+        "product -- required for its documents to be placed under that product's module tree " +
+        "(documents upload --module / documents set-module). Pass --product to also link it to one " +
+        "or more products (repeat for multiple), scoping it for product-scoped knowledge search; " +
+        "linking is separate from ownership. Use -i/--interactive (with neither flag given) to pick " +
+        "a product from a menu, which is used as both owner and linked product.",
     )
     .requiredOption("--name <name>", "Dataset name")
     .option("--description <text>", "Optional dataset description")
@@ -402,26 +406,26 @@ export function registerKnowledgeCommand(program: Command): void {
       "Access permission: only_me | all_team_members | partial_members (default: only_me)",
     )
     .option(
+      "--owner-product <id>",
+      "Product id that directly owns the new dataset (see: cawplan products list). Required for " +
+        "the dataset's documents to use that product's modules.",
+    )
+    .option(
       "--product <id>",
-      "Product id to bind the new dataset to (see: cawplan products list). Repeat for multiple.",
+      "Product id to link the new dataset to (see: cawplan products list). Repeat for multiple.",
       collect,
       [] as string[],
     )
     .option(
-      "--module <id>",
-      "product_modules node id to place the dataset under, applied to every --product given " +
-        "(see: cawplan knowledge datasets modules --product <id>). Requires at least one --product.",
-    )
-    .option(
       "-i, --interactive",
-      "Pick product and/or module from a menu instead of --product/--module: prompts for a " +
-        "product first when no --product was given, then for a module (with a \"No module\" " +
-        "option) when exactly one product is in play. Requires an interactive terminal.",
+      "Pick a product from a menu when neither --owner-product nor --product was given; the picked " +
+        "product becomes the owner and is also linked. Requires an interactive terminal.",
     )
     .action(async (opts) => {
       let productIds = opts.product as string[];
+      let ownerProductId: string | undefined = opts.ownerProduct;
 
-      if (opts.interactive && productIds.length === 0) {
+      if (opts.interactive && productIds.length === 0 && !ownerProductId) {
         assertInteractiveTerminal("cawplan knowledge datasets create --interactive requires an interactive terminal");
         const pickedProduct = await selectProductIdInteractive();
         if (!pickedProduct) {
@@ -429,31 +433,14 @@ export function registerKnowledgeCommand(program: Command): void {
           process.exitCode = 1;
           return;
         }
+        ownerProductId = pickedProduct;
         productIds = [pickedProduct];
-      }
-
-      let moduleId: string | undefined = opts.module;
-      if (!moduleId && opts.interactive) {
-        assertInteractiveTerminal("cawplan knowledge datasets create --interactive requires an interactive terminal");
-        if (productIds.length !== 1) {
-          console.error(
-            JSON.stringify({ code: "ERROR", data: null, msg: "--interactive module selection requires exactly one product" }, null, 2),
-          );
-          process.exitCode = 1;
-          return;
-        }
-        const picked = await selectModuleIdInteractive(productIds[0], { allowNone: "No module" });
-        if (picked === undefined) {
-          console.error(JSON.stringify({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
-          process.exitCode = 1;
-          return;
-        }
-        if (typeof picked === "string") moduleId = picked;
       }
 
       const body: Record<string, unknown> = { name: opts.name };
       if (opts.description) body.description = opts.description;
       if (opts.permission) body.permission = opts.permission;
+      if (ownerProductId) body.product_id = ownerProductId;
 
       const result = await cawplanRequest({
         method: "POST",
@@ -478,25 +465,11 @@ export function registerKnowledgeCommand(program: Command): void {
         body: { product_ids: productIds },
       });
 
-      let moduleResults: unknown[] | undefined;
-      if (moduleId) {
-        moduleResults = [];
-        for (const productId of productIds) {
-          const moduleResult = await cawplanRequest({
-            method: "PUT",
-            path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(datasetId)}/products/${encodeURIComponent(productId)}/module`,
-            body: { module_id: moduleId },
-          });
-          moduleResults.push({ product_id: productId, ...(moduleResult as Record<string, unknown>) });
-        }
-      }
-
       const merged = {
         ...(result as Record<string, unknown>),
         data: {
           ...(result as { data?: Record<string, unknown> }).data,
           product_ids: (productsResult as { data?: { product_ids?: string[] } })?.data?.product_ids ?? productIds,
-          ...(moduleResults ? { modules: moduleResults } : {}),
         },
       };
       console.log(JSON.stringify(merged, null, 2));
@@ -535,64 +508,13 @@ export function registerKnowledgeCommand(program: Command): void {
       console.log(JSON.stringify(result, null, 2));
     });
 
-  datasetProducts
-    .command("set-module")
-    .description(
-      "Place a dataset (within one already-bound product) under a product_modules tree node, or " +
-        "clear the placement with --clear. Creates the (dataset, product) binding if it doesn't " +
-        "already exist. Use -i/--interactive to pick from a menu instead of --module/--clear.",
-    )
-    .requiredOption("--dataset <id>", "Dataset id (see: cawplan knowledge datasets list)")
-    .requiredOption("--product <id>", "Product id to place the dataset under in this product's module tree")
-    .option("--module <id>", "product_modules node id to place the dataset under")
-    .option("--clear", "Clear the current module placement instead of setting one")
-    .option("-i, --interactive", "Pick --module (or clear) from a menu instead. Requires an interactive terminal.")
-    .action(async (opts) => {
-      if (opts.module && opts.clear) {
-        console.error(
-          JSON.stringify({ code: "ERROR", data: null, msg: "Use --module or --clear, not both" }, null, 2),
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      let moduleId: string | undefined;
-      if (opts.clear) {
-        moduleId = "";
-      } else if (opts.module) {
-        moduleId = opts.module;
-      } else if (opts.interactive) {
-        assertInteractiveTerminal("cawplan knowledge datasets products set-module --interactive requires an interactive terminal");
-        const picked = await selectModuleIdInteractive(opts.product, { allowClear: "Clear current placement" });
-        if (picked === undefined) {
-          console.error(JSON.stringify({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
-          process.exitCode = 1;
-          return;
-        }
-        moduleId = picked === CLEAR_MODULE ? "" : (picked as string);
-      } else {
-        console.error(
-          JSON.stringify({ code: "ERROR", data: null, msg: "Provide --module <id>, --clear, or -i/--interactive" }, null, 2),
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      const result = await cawplanRequest({
-        method: "PUT",
-        path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/products/${encodeURIComponent(opts.product)}/module`,
-        body: { module_id: moduleId },
-      });
-      console.log(JSON.stringify(result, null, 2));
-    });
-
   datasets
     .command("modules")
     .description(
-      "List a product's module tree (id, parent_id, name, and any knowledge datasets already " +
-        "placed under each node) to find a module id for 'datasets create --module' / " +
-        "'datasets products set-module'. Use -i/--interactive to pick one from a menu and print " +
-        "just that entry instead of the full list.",
+      "List a product's module tree (id, parent_id, name, and `knowledge`: the datasets that have " +
+        "at least one document under each node) to find a module id for 'documents upload --module' " +
+        "/ 'documents set-module' / 'datasets list --module'. Use -i/--interactive to pick one from " +
+        "a menu and print just that entry instead of the full list.",
     )
     .requiredOption("--product <id>", "Product id (see: cawplan products list)")
     .option("-i, --interactive", "Pick one module from a menu instead of listing all of them. Requires an interactive terminal.")
@@ -611,6 +533,47 @@ export function registerKnowledgeCommand(program: Command): void {
         return;
       }
       console.log(JSON.stringify({ code: "SUCCESS", data: modules, msg: "success" }, null, 2));
+    });
+
+  const modules = knowledge
+    .command("modules")
+    .description("Manage a product's module tree (product_modules), used to organize documents");
+
+  modules
+    .command("list")
+    .description(
+      "List a product's module tree (id, parent_id, name, and `knowledge`: the datasets that have at " +
+        "least one document under each node). Same output as 'datasets modules'.",
+    )
+    .requiredOption("--product <id>", "Product id (see: cawplan products list)")
+    .action(async (opts) => {
+      const nodes = await fetchFlatModules(opts.product);
+      console.log(JSON.stringify({ code: "SUCCESS", data: nodes, msg: "success" }, null, 2));
+    });
+
+  modules
+    .command("create")
+    .description(
+      "Create a module (product_modules tree node) under a product, optionally under a parent " +
+        "module. Documents of datasets the product owns (datasets create --owner-product) can then " +
+        "be uploaded into it with 'documents upload --module <id>' or moved there with " +
+        "'documents set-module'. The response's data.id is the new module id.",
+    )
+    .requiredOption("--product <id>", "Product id (see: cawplan products list)")
+    .requiredOption("--name <name>", "Module name")
+    .option(
+      "--parent <id>",
+      "Parent module id (see: cawplan knowledge modules list --product <id>); omit for a top-level module",
+    )
+    .action(async (opts) => {
+      const body: Record<string, unknown> = { name: opts.name };
+      if (opts.parent) body.parent_id = opts.parent;
+      const result = await cawplanRequest({
+        method: "POST",
+        path: `/api/v1/public/openapi/product/${encodeURIComponent(opts.product)}/module-tree`,
+        body,
+      });
+      console.log(JSON.stringify(result, null, 2));
     });
 
   const documents = knowledge.command("documents").description("Manage knowledge documents");
@@ -858,6 +821,11 @@ export function registerKnowledgeCommand(program: Command): void {
       "Create the document even if the dataset already has one with the same name (default: skip it and " +
         "point at 'documents update' instead of creating a duplicate)",
     )
+    .option(
+      "--module <id>",
+      "product_modules node id to create every uploaded document under (see: cawplan knowledge datasets " +
+        "modules --product <id>). Must belong to the dataset's owner product (datasets create --owner-product).",
+    )
     .action(async (opts) => {
       const files = opts.file as string[];
       const textFiles = opts.textFile as string[];
@@ -903,6 +871,7 @@ export function registerKnowledgeCommand(program: Command): void {
           // it, so send it explicitly here rather than relying on that inheritance.
           const fileData: Record<string, unknown> = { indexing_technique: "high_quality" };
           formData.append("data", JSON.stringify(fileData));
+          if (opts.module) formData.append("module_id", opts.module);
           try {
             const result = await cawplanRequest({
               method: "POST",
@@ -954,6 +923,7 @@ export function registerKnowledgeCommand(program: Command): void {
           }
         }
         const body: Record<string, unknown> = { name, text: readFileSync(filePath, "utf8") };
+        if (opts.module) body.module_id = opts.module;
         try {
           const result = await cawplanRequest({
             method: "POST",
@@ -1049,6 +1019,38 @@ export function registerKnowledgeCommand(program: Command): void {
         method: "POST",
         path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/documents/${encodeURIComponent(opts.document)}/update-by-text`,
         body,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  documents
+    .command("set-module")
+    .description(
+      "Move a document under a product_modules tree node, or remove it from its module with --clear. " +
+        "The module must belong to the dataset's owner product (datasets create --owner-product).",
+    )
+    .requiredOption("--dataset <id>", "Dataset id the document belongs to (see: cawplan knowledge datasets list)")
+    .requiredOption("--document <id>", "Document id (see: cawplan knowledge documents list)")
+    .option("--module <id>", "product_modules node id (see: cawplan knowledge datasets modules --product <id>)")
+    .option("--clear", "Remove the document from its current module instead of setting one")
+    .action(async (opts) => {
+      if (opts.module && opts.clear) {
+        console.error(
+          JSON.stringify({ code: "ERROR", data: null, msg: "Use --module or --clear, not both" }, null, 2),
+        );
+        process.exitCode = 1;
+        return;
+      }
+      if (!opts.module && !opts.clear) {
+        console.error(JSON.stringify({ code: "ERROR", data: null, msg: "Provide --module <id> or --clear" }, null, 2));
+        process.exitCode = 1;
+        return;
+      }
+
+      const result = await cawplanRequest({
+        method: "PUT",
+        path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/documents/${encodeURIComponent(opts.document)}/module`,
+        body: { module_id: opts.clear ? "" : opts.module },
       });
       console.log(JSON.stringify(result, null, 2));
     });

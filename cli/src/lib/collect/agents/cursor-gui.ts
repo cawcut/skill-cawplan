@@ -230,6 +230,15 @@ function parseTsValue(raw: unknown): Date | null {
 }
 
 /** Exported for unit tests. */
+/**
+ * Cursor stores prompts it injects on the user's behalf (e.g. "Briefly inform the user about the
+ * task result..." after a background task finishes) as user bubbles flagged `isSimulatedMsg`.
+ * They are not human input.
+ */
+function isSimulatedUserBubble(data: Record<string, unknown>): boolean {
+    return data["isSimulatedMsg"] === true;
+}
+
 export function normalizeBubbleMatchText(text: string): string {
     return extractHumanInputText(text).replace(/\s+/g, " ").trim().toLowerCase();
 }
@@ -244,6 +253,8 @@ interface UserBubble {
 interface SessionBubbleTimeline {
     userBubbles: UserBubble[];
     assistantTimes: Date[];
+    /** Real user bubbles Cursor stored without createdAt; see adoptUndatedUserBubbles(). */
+    undatedUserTexts?: string[];
 }
 
 function loadSessionBubbleTimeline(
@@ -256,22 +267,27 @@ function loadSessionBubbleTimeline(
 
         const userBubbles: UserBubble[] = [];
         const assistantTimes: Date[] = [];
+        const undatedUserTexts: string[] = [];
 
         for (const row of rows) {
             try {
                 const data = JSON.parse(row.value) as Record<string, unknown>;
                 const createdAt = parseTsValue(data["createdAt"]);
-                if (!createdAt) continue;
                 if (data["type"] === 1) {
+                    if (isSimulatedUserBubble(data)) continue;
                     const text = String(data["text"] ?? "").trim();
                     if (!text) continue;
+                    if (!createdAt) {
+                        undatedUserTexts.push(text);
+                        continue;
+                    }
                     userBubbles.push({
                         createdAt,
                         text,
                         normalized: normalizeBubbleMatchText(text),
                         composerIndex: 0,
                     });
-                } else {
+                } else if (createdAt) {
                     assistantTimes.push(createdAt);
                 }
             } catch {
@@ -279,16 +295,56 @@ function loadSessionBubbleTimeline(
             }
         }
 
-        if (!userBubbles.length) return null;
-        userBubbles.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-        userBubbles.forEach((bubble, index) => {
-            bubble.composerIndex = index;
-        });
+        if (!userBubbles.length && !undatedUserTexts.length) return null;
+        sortAndIndexUserBubbles(userBubbles);
         assistantTimes.sort((a, b) => a.getTime() - b.getTime());
-        return {userBubbles, assistantTimes};
+        return {userBubbles, assistantTimes, undatedUserTexts};
     } catch {
         return null;
     }
+}
+
+function sortAndIndexUserBubbles(userBubbles: UserBubble[]): void {
+    userBubbles.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    userBubbles.forEach((bubble, index) => {
+        bubble.composerIndex = index;
+    });
+}
+
+/**
+ * Cursor sometimes leaves createdAt empty on real user bubbles (CWP-21304: the first 9 prompts of
+ * a session). Dropping them loses the prompts entirely, because with bubble authority unmatched
+ * transcript turns are skipped. Date each one from the matching transcript turn's <timestamp>
+ * tag instead. Tags have minute precision, so callers should mark the result approximate.
+ * Returns the adopted bubbles. Exported for unit tests.
+ */
+export function adoptUndatedUserBubbles(timeline: SessionBubbleTimeline, lines: string[]): Set<UserBubble> {
+    const adopted = new Set<UserBubble>();
+    const undated = timeline.undatedUserTexts ?? [];
+    if (!undated.length) return adopted;
+
+    const candidates: UserBubble[] = undated.map((text) => ({
+        createdAt: new Date(0),
+        text,
+        normalized: normalizeBubbleMatchText(text),
+        composerIndex: 0,
+    }));
+    const usedCandidates = new Set<number>();
+    const usedDated = new Set<number>();
+    for (const text of extractTranscriptUserTexts(lines)) {
+        const ts = parseTimestampFromText(text);
+        const extracted = extractHumanInputText(text);
+        if (!ts || !extracted) continue;
+        // A turn that belongs to a dated bubble must not claim an undated look-alike.
+        if (matchUserBubble(extracted, timeline.userBubbles, usedDated)) continue;
+        const matched = matchUserBubble(extracted, candidates, usedCandidates);
+        if (!matched) continue;
+        matched.createdAt = ts;
+        timeline.userBubbles.push(matched);
+        adopted.add(matched);
+    }
+    if (adopted.size) sortAndIndexUserBubbles(timeline.userBubbles);
+    return adopted;
 }
 
 /** Exported for unit tests. */
@@ -1060,9 +1116,13 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
         readFileSync(transcriptPath, "utf-8").split("\n")
     );
     logCursorGui(logOpts, `Transcript ${sessionId} has ${lines.length} line(s).`);
-    const fullBubbleTimeline = opts?.db
+    const loadedBubbleTimeline = opts?.db
         ? timed(logOpts, `Load bubble timeline for ${sessionId}`, () => loadSessionBubbleTimeline(opts.db!, sessionId))
         : null;
+    const adoptedBubbles = loadedBubbleTimeline
+        ? adoptUndatedUserBubbles(loadedBubbleTimeline, lines)
+        : new Set<UserBubble>();
+    const fullBubbleTimeline = loadedBubbleTimeline?.userBubbles.length ? loadedBubbleTimeline : null;
     if (fullBubbleTimeline) {
         logCursorGui(
             logOpts,
@@ -1071,7 +1131,7 @@ function parseTranscript(sessionId: string, filterDate?: string, opts?: ParseTra
     }
     let resolvedTimes = new Map<number, Date>();
     let resolvedAtByBubble = new Map<UserBubble, Date>();
-    const approxBubbles = new Set<UserBubble>();
+    const approxBubbles = new Set<UserBubble>(adoptedBubbles);
     if (fullBubbleTimeline) {
         const preStats = timed(logOpts, `Accumulate transcript stats for ${sessionId}`, () =>
             accumulateTranscriptStatsByContent(
@@ -1536,6 +1596,7 @@ function parseBubbleSession(
         }
 
         const type = data["type"];
+        if (type === 1 && isSimulatedUserBubble(data)) continue;
         const text = bubbleText(data);
         const extracted = type === 1 ? extractHumanInputText(text) : "";
 

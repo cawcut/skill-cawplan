@@ -10,21 +10,27 @@ export const COST_CURRENCY = "$";
 
 const PRICING: Record<string, PricingEntry> = {
 
-    // Claude ($/MTok - official pricing from https://platform.claude.com/docs/en/about-claude/pricing)
+    // Claude ($/MTok - official pricing from https://platform.claude.com/docs/en/about-claude/pricing,
+    // verified 2026-10-10). Cache writes use the 5-minute rate.
+    // Haiku 5.5 uses the <=100K prompt tier: some usage records aggregate
+    // multiple requests, so their per-request prompt tier cannot be inferred.
     "claude-fable-5-1": {input: 10, output: 50, cache_read: 0.25, cache_write: 12.50, currency: "$"},
     "claude-mythos-5-1": {input: 10, output: 50, cache_read: 0.25, cache_write: 12.50, currency: "$"},
     "claude-fable-5": {input: 10, output: 50, cache_read: 1, cache_write: 12.50, currency: "$"},
     "claude-mythos-5": {input: 10, output: 50, cache_read: 1, cache_write: 12.50, currency: "$"},
+    "claude-opus-5-5": {input: 4, output: 20, cache_read: 0.20, cache_write: 5, currency: "$"},
     "claude-opus-5": {input: 5, output: 25, cache_read: 0.50, cache_write: 6.25, currency: "$"},
     "claude-opus-4-8": {input: 5, output: 25, cache_read: 0.50, cache_write: 6.25, currency: "$"},
     "claude-opus-4-7": {input: 5, output: 25, cache_read: 0.50, cache_write: 6.25, currency: "$"},
     "claude-opus-4-6": {input: 5, output: 25, cache_read: 0.50, cache_write: 6.25, currency: "$"},
     "claude-opus-4-5": {input: 5, output: 25, cache_read: 0.50, cache_write: 6.25, currency: "$"},
-    // Fast mode is available only for Opus 5 and Opus 4.8.
+    // Fast mode is available only for Opus 5.5, Opus 5 and Opus 4.8.
+    "claude-opus-5-5-fast": {input: 8, output: 40, cache_read: 0.40, cache_write: 10, currency: "$"},
     "claude-opus-5-fast": {input: 10, output: 50, cache_read: 1, cache_write: 12.50, currency: "$"},
     "claude-opus-4-8-fast": {input: 10, output: 50, cache_read: 1, cache_write: 12.50, currency: "$"},
     "claude-opus-4-1": {input: 15, output: 75, cache_read: 1.50, cache_write: 18.75, currency: "$"},
     "claude-opus-4": {input: 15, output: 75, cache_read: 1.50, cache_write: 18.75, currency: "$"},
+    "claude-sonnet-5-5": {input: 2, output: 10, cache_read: 0.10, cache_write: 2.50, currency: "$"},
     // Claude Sonnet 5's $2/$10 introductory pricing is now the standard price
     // (confirmed 2026-08-13 on the official pricing page) — the previously
     // scheduled increase to $3/$15 on 2026-09-01 will not happen.
@@ -33,17 +39,22 @@ const PRICING: Record<string, PricingEntry> = {
     "claude-sonnet-4-6": {input: 3, output: 15, cache_read: 0.30, cache_write: 3.75, currency: "$"},
     "claude-sonnet-4-5": {input: 3, output: 15, cache_read: 0.30, cache_write: 3.75, currency: "$"},
     "claude-sonnet-4": {input: 3, output: 15, cache_read: 0.30, cache_write: 3.75, currency: "$"},
+    "claude-haiku-5-5": {input: 0.10, output: 0.50, cache_read: 0.01, cache_write: 0.125, currency: "$"},
     "claude-haiku-4-5": {input: 1, output: 5, cache_read: 0.10, cache_write: 1.25, currency: "$"},
     "claude-haiku-3-5": {input: 0.80, output: 4, cache_read: 0.08, cache_write: 1, currency: "$"},
 
     // OpenAI standard, short-context pricing ($/MTok - official pricing from
-    // https://developers.openai.com/api/docs/pricing, updated 2026-09-07).
+    // https://developers.openai.com/api/docs/pricing, verified 2026-10-10).
     // Long-context pricing is intentionally not represented: usage records do
     // not expose the information needed to determine that billing tier.
+    "gpt-6.1-sol": {input: 2, output: 10, cache_read: 0.10, cache_write: 2.50, currency: "$"},
+    "gpt-6-sol": {input: 2, output: 10, cache_read: 0.20, cache_write: 2.50, currency: "$"},
+    "gpt-6-luna": {input: 0.10, output: 0.50, cache_read: 0.01, cache_write: 0.125, currency: "$"},
     "gpt-6-astra": {input: 10, output: 50, cache_read: 1, cache_write: 12.50, currency: "$"},
     "gpt-5.6-sol": {input: 4, output: 20, cache_read: 0.40, cache_write: 5, currency: "$"},
     "gpt-5.6-terra": {input: 2, output: 12, cache_read: 0.20, cache_write: 2.50, currency: "$"},
     "gpt-5.6-luna": {input: 0.20, output: 1.20, cache_read: 0.02, cache_write: 0.25, currency: "$"},
+    "gpt-5.5-cyber": {input: 12.50, output: 75, cache_read: 1.25, cache_write: 0, currency: "$"},
     "gpt-5.6-cyber": {input: 12.50, output: 75, cache_read: 1.25, cache_write: 15.625, currency: "$"},
     "gpt-daybreak-blue-latest": {input: 4, output: 20, cache_read: 0.40, cache_write: 5, currency: "$"},
     "gpt-daybreak-red-latest": {input: 12.50, output: 75, cache_read: 1.25, cache_write: 15.625, currency: "$"},
@@ -71,6 +82,9 @@ const PRICING: Record<string, PricingEntry> = {
     "gpt-5-pro": {input: 15, output: 120, cache_read: 0, cache_write: 0, currency: "$"},
 
     // OpenAI Fast mode, short-context pricing.
+    "gpt-6.1-sol-fast": {input: 4, output: 20, cache_read: 0.20, cache_write: 5, currency: "$"},
+    "gpt-6-sol-fast": {input: 4, output: 20, cache_read: 0.40, cache_write: 5, currency: "$"},
+    "gpt-6-luna-fast": {input: 0.20, output: 1, cache_read: 0.02, cache_write: 0.25, currency: "$"},
     "gpt-6-astra-fast": {input: 20, output: 100, cache_read: 2, cache_write: 25, currency: "$"},
     "gpt-5.6-sol-fast": {input: 8, output: 40, cache_read: 0.80, cache_write: 10, currency: "$"},
     "gpt-5.6-terra-fast": {input: 4, output: 24, cache_read: 0.40, cache_write: 5, currency: "$"},

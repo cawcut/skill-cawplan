@@ -48,6 +48,17 @@ function isSidechainEvent(event: Record<string, unknown>): boolean {
   return message?.["isSidechain"] === true || message?.["sidechain"] === true;
 }
 
+/**
+ * Claude Code writes harness-generated turns (background task notifications, scheduled wakeups,
+ * local-command caveats) as `type: "user"` events. They are not human input. Events without
+ * `origin` (older builds) fall through to the text filters in the extraction loop.
+ */
+function isHarnessInjectedUserEvent(event: Record<string, unknown>): boolean {
+  if (event["isMeta"] === true) return true;
+  const kind = (event["origin"] as Record<string, unknown> | undefined)?.["kind"];
+  return typeof kind === "string" && kind !== "human";
+}
+
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.round(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -576,6 +587,7 @@ export function collectClaudeCodeSession(
     const event = events[i];
     if (isSidechainEvent(event)) continue;
     if (event["type"] !== "user") continue;
+    if (isHarnessInjectedUserEvent(event)) continue;
     const message = event["message"] as Record<string, unknown> | undefined;
     const content = message?.["content"];
     let text: string | null = null;
@@ -590,6 +602,7 @@ export function collectClaudeCodeSession(
     }
     if (!text || text.length < 0) continue;
     if (/\[Request interrupted/.test(text)) continue;
+    if (/^<task-notification>/.test(text)) continue;
     if (/^Continue from where you left off\.?$/i.test(text)) continue;
     if (/^Base directory for this skill:/.test(text)) continue;
     if (/^This session is being continued/.test(text)) continue;
