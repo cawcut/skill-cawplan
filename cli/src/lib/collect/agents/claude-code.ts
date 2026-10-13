@@ -59,6 +59,16 @@ function isHarnessInjectedUserEvent(event: Record<string, unknown>): boolean {
   return typeof kind === "string" && kind !== "human";
 }
 
+// Harness-written blocks that Claude Code embeds inside a user turn. They can sit anywhere in the
+// text (a <system-reminder> is often prepended, a queued notification can follow typed text), so
+// they are stripped rather than matched at the start of the message.
+const HARNESS_BLOCK_RE =
+  /<task-notification>[\s\S]*?<\/task-notification>|<system-reminder>[\s\S]*?<\/system-reminder>/g;
+
+export function stripHarnessBlocks(text: string): string {
+  return text.replace(HARNESS_BLOCK_RE, "").trim();
+}
+
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.round(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -617,9 +627,9 @@ export function collectClaudeCodeSession(
         .filter(Boolean);
       if (textParts.length) text = textParts.join("\n").trim();
     }
+    if (text) text = stripHarnessBlocks(text);
     if (!text || text.length < 0) continue;
     if (/\[Request interrupted/.test(text)) continue;
-    if (/^<task-notification>/.test(text)) continue;
     if (/^Continue from where you left off\.?$/i.test(text)) continue;
     if (/^Base directory for this skill:/.test(text)) continue;
     if (/^This session is being continued/.test(text)) continue;
