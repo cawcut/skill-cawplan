@@ -140,3 +140,19 @@ describe("applyProductRepoMappingToProject", () => {
         expect(daily.sessions[0].project).toBe("support-ticket");
     });
 });
+
+describe("applyMappingsToOtherTouchedRepos", () => {
+    test("assigns each touched repo of a multi-repo session to its own product", async () => {
+        const {applyMappingsToOtherTouchedRepos} = await import("../src/lib/assign/apply");
+        const repo = (name: string) => ({repo: name, repo_name: name, files: 1, added: 1, deleted: 0});
+        const session: any = {project: "a", repos_touched: [repo("a"), repo("b")]};
+        const daily: any = {sessions: [session], repos: [repo("a"), repo("b")]};
+        const mappings: any = [
+            {product_id: "p1", product_name: "P1", repo_name: "a"},
+            {product_id: "p2", product_name: "P2", repo_name: "b"},
+        ];
+        expect(applyMappingsToOtherTouchedRepos(daily, session, mappings)).toBe(2);
+        expect(session.repos_touched.map((r: any) => r.product_id)).toEqual(["p1", "p2"]);
+        expect(daily.repos.map((r: any) => r.product_id)).toEqual(["p1", "p2"]);
+    });
+});

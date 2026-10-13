@@ -2,7 +2,7 @@ import {createHash} from "node:crypto";
 import {describe, expect, test} from "vitest";
 import {assignmentHtml} from "../src/lib/assign/assignment-html.js";
 
-const CODING_HTML_SNAPSHOT_SHA256 = "8f3fb1d896cce3af1f0f921740c41209c7a96843a8b7db5aa8a7b5853795349e";
+const CODING_HTML_SNAPSHOT_SHA256 = "90bfef0bd63dbf5f814155f07082ae53fdfaa9c65f3767f264f3f7f8ff8c5b6d";
 
 describe("assignmentHtml batch-1 shared snippet stability", () => {
     test("uses shared browser snippets for escapeHtml and ticket helpers", () => {

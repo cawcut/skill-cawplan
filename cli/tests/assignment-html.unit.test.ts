@@ -152,7 +152,7 @@ describe("assignmentHtml - tickets column", () => {
         expect(html).not.toContain("session.ticket_ids");
         expect(html).toContain("function allTicketDisplayIds()");
         expect(html).toContain("function ticketDisplayIdFromInput(value)");
-        expect(html).toContain("urlMatch[1].toUpperCase()");
+        expect(html).toContain("pad(urlMatch[1])");
         expect(html).toContain("ticketDisplayIdFromInput(value)");
         expect(html).toContain("function ticketDetailUrl(ticket)");
         expect(html).toContain("function ticketLinkHtml(ticket)");

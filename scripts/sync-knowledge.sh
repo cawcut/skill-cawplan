@@ -7,7 +7,7 @@
 # - Pass the CawPlan product with --product <id> (or KNOWLEDGE_DATASET_PRODUCT_ID; see:
 #   cawplan products list). A new dataset is then created OWNED by that product
 #   (`datasets create --owner-product`, which is what lets its documents live in the product's
-#   modules) and also linked to it (`--product`) so it stays scoped for product-scoped search.
+#   modules); it is not separately linked (`--product`).
 #   The product id is remembered in the state file, so later runs don't need it again.
 # - With a product, the repo is mirrored as a module tree under it: a top-level module named
 #   after the repo (override with KNOWLEDGE_MODULE_NAME), one sub-module per directory, and every
@@ -16,10 +16,10 @@
 #   reused. The module tree is at most 5 levels deep, so directories nested deeper than the repo
 #   module + 4 levels are folded into their level-5 ancestor.
 # - Without a product the dataset is synced flat (no modules), as before.
-# - Pass -i / --interactive to pick the product from a menu when the dataset doesn't exist yet
-#   (the picked product becomes the owner and is also linked). Only that one
-#   `cawplan ... create -i` call runs uncaptured (the CLI's picker needs a real terminal); every
-#   other call stays capturable/scriptable.
+# - With no product given and no dataset recorded yet, a numbered product menu is shown first
+#   (when run from a terminal, or with -i / --interactive; type text to filter, Enter = flat sync).
+# - A product that already has a dataset reuses it -- preferring the one named
+#   after the repo; a new dataset is created only when the product has none.
 #
 # Every run
 # 1. Resolves the dataset, then fetches ALL of its documents (and, with a product, the whole
@@ -34,7 +34,12 @@
 # - Deletions are NOT handled: removing a local .md file does not delete or archive its knowledge
 #   document (or empty module). Handle that manually if a doc is retired.
 #
-# State is tracked in .knowledge-sync-state.json at the repo root: dataset_id, product_id and
+# Modules are matched by id once known: the root module is looked up among the product's
+# top-level modules by name (then remembered as root_module_id), and a document's recorded
+# module id is used as-is while it still exists on the server. A module is only created when
+# no id / same-name module is found.
+#
+# State is tracked in .knowledge-sync-state.json at the repo root: dataset_id, product_id, root_module_id and
 # files (path -> {document_id, synced_mtime, module_id, module_path}). Commit this file so the
 # mapping is shared across contributors and CI runs, instead of re-uploading duplicates. The
 # server stays the source of truth for module ids: they are re-checked on every run.
@@ -46,7 +51,7 @@
 #   scripts/sync-knowledge.sh --product <id>                          # sync into the product's module tree
 #   scripts/sync-knowledge.sh                                         # sync (product remembered in the state file; flat if none)
 #   scripts/sync-knowledge.sh --dry-run                               # show what would happen, without changing anything
-#   scripts/sync-knowledge.sh -i                                      # first-time create: pick the owner product from a menu
+#   scripts/sync-knowledge.sh -i                                      # first run: pick the product from a menu
 #   KNOWLEDGE_DATASET_PRODUCT_ID=<id> scripts/sync-knowledge.sh        # same as --product <id>
 
 set -euo pipefail
@@ -114,18 +119,108 @@ if [[ -z "$PRODUCT_ID" ]]; then
   PRODUCT_ID="$(jq -r '.product_id // empty' "$STATE_FILE")"
 fi
 
+# pick_product -> sets PRODUCT_ID from a numbered menu of the CawPlan products (read from the
+# terminal, menu on stderr). Typing text filters the list by name; an empty answer skips the
+# choice (flat sync). Returns non-zero if the catalog can't be listed.
+pick_product() {
+  local resp all shown choice n
+  resp="$(cawplan products list)" || { echo "error: failed to list products" >&2; return 1; }
+  all="$(echo "$resp" | jq -c '[.data[]? | select(.unique_id) | {id: .unique_id, name: (.name // .unique_id)}] | sort_by(.name | ascii_downcase)')"
+  if [[ "$(jq 'length' <<<"$all")" -eq 0 ]]; then
+    echo "No products found." >&2
+    return 0
+  fi
+  shown="$all"
+  while true; do
+    {
+      echo "Select the product that owns the knowledge dataset:"
+      jq -r 'to_entries[] | "  \(.key + 1)) \(.value.name)  (\(.value.id))"' <<<"$shown"
+      printf 'Number, text to filter by name, or Enter to skip (flat sync): '
+    } >&2
+    IFS= read -r choice </dev/tty || return 0
+    if [[ -z "$choice" ]]; then
+      return 0
+    elif [[ "$choice" =~ ^[0-9]+$ ]]; then
+      n="$(jq 'length' <<<"$shown")"
+      if [[ "$choice" -ge 1 && "$choice" -le "$n" ]]; then
+        PRODUCT_ID="$(jq -r --argjson i "$((choice - 1))" '.[$i].id' <<<"$shown")"
+        return 0
+      fi
+      echo "Out of range." >&2
+    else
+      shown="$(jq -c --arg q "$choice" '[.[] | select(.name | ascii_downcase | contains($q | ascii_downcase))]' <<<"$all")"
+      if [[ "$(jq 'length' <<<"$shown")" -eq 0 ]]; then
+        echo "No product matches \"$choice\"." >&2
+        shown="$all"
+      fi
+    fi
+  done
+}
+
+# Offer the product menu first when no product is known: always with -i (even if a dataset is
+# already recorded), otherwise only on a terminal while the dataset isn't known yet.
+if [[ -z "$PRODUCT_ID" ]]; then
+  if [[ "$INTERACTIVE" -eq 1 || ( -z "$DATASET_ID" && -t 0 && -t 2 ) ]]; then
+    pick_product
+    # A recorded dataset only stays if it is listed under the picked product;
+    # otherwise resolve again below within that product (reuse its dataset, or create one).
+    if [[ -n "$PRODUCT_ID" && -n "$DATASET_ID" ]]; then
+      if ! cawplan knowledge datasets list --product "$PRODUCT_ID" \
+        | jq -e --arg id "$DATASET_ID" '.data.datasets[]? | select(.id == $id)' >/dev/null 2>&1; then
+        echo "Recorded dataset $DATASET_ID is not part of product $PRODUCT_ID; resolving within the product."
+        DATASET_ID=""
+      fi
+    fi
+  fi
+fi
+
+# dataset_id_by_name JSON NAME -> id of the dataset with that name in a `datasets list` response.
+dataset_id_by_name() {
+  jq -r --arg name "$2" '.data.datasets[]? | select(.name == $name) | .id' <<<"$1" | head -n1
+}
+
 if [[ -z "$DATASET_ID" ]]; then
   echo "Resolving dataset \"$DATASET_NAME\"..."
-  EXISTING_DATASETS="$(cawplan knowledge datasets list)"
-  DATASET_ID="$(echo "$EXISTING_DATASETS" | jq -r --arg name "$DATASET_NAME" \
-    '.data.datasets[]? | select(.name == $name) | .id' | head -n1)"
+  # With a product, look at ITS datasets first: only a product with no usable
+  # dataset gets a new one.
+  if [[ -n "$PRODUCT_ID" ]]; then
+    EXISTING_DATASETS="$(cawplan knowledge datasets list --product "$PRODUCT_ID")"
+    product_dataset_count="$(jq -r '.data.datasets | length' <<<"$EXISTING_DATASETS" 2>/dev/null || echo 0)"
+    echo "Product $PRODUCT_ID has $product_dataset_count dataset(s)."
+  else
+    EXISTING_DATASETS="$(cawplan knowledge datasets list)"
+    product_dataset_count=0
+  fi
+  DATASET_ID="$(dataset_id_by_name "$EXISTING_DATASETS" "$DATASET_NAME")"
   # A custom KNOWLEDGE_DATASET_NAME might not match an older dataset created before the override
   # was set (or after a repo rename) — fall back to the repo name before deciding no dataset
   # exists, so switching/adding an override doesn't spawn a duplicate dataset.
   if [[ -z "$DATASET_ID" && "$DATASET_NAME" != "$REPO_NAME" ]]; then
     echo "Not found by \"$DATASET_NAME\", falling back to repo name \"$REPO_NAME\"..."
-    DATASET_ID="$(echo "$EXISTING_DATASETS" | jq -r --arg name "$REPO_NAME" \
-      '.data.datasets[]? | select(.name == $name) | .id' | head -n1)"
+    DATASET_ID="$(dataset_id_by_name "$EXISTING_DATASETS" "$REPO_NAME")"
+  fi
+  # The product already has dataset(s), none named like this repo: reuse one instead of creating.
+  if [[ -z "$DATASET_ID" && "$product_dataset_count" -gt 0 ]]; then
+    if [[ "$product_dataset_count" -eq 1 ]]; then
+      DATASET_ID="$(jq -r '.data.datasets[0].id' <<<"$EXISTING_DATASETS")"
+    elif [[ "$INTERACTIVE" -eq 1 || ( -t 0 && -t 2 ) ]]; then
+      {
+        echo "The product has several datasets; pick one to sync into:"
+        jq -r '.data.datasets | to_entries[] | "  \(.key + 1)) \(.value.name)  (\(.value.id), \(.value.document_count // 0) docs)"' <<<"$EXISTING_DATASETS"
+        printf 'Number (Enter = create a new dataset "%s"): ' "$DATASET_NAME"
+      } >&2
+      IFS= read -r choice </dev/tty || choice=""
+      if [[ "$choice" =~ ^[0-9]+$ && "$choice" -ge 1 && "$choice" -le "$product_dataset_count" ]]; then
+        DATASET_ID="$(jq -r --argjson i "$((choice - 1))" '.data.datasets[$i].id' <<<"$EXISTING_DATASETS")"
+      fi
+    else
+      echo "error: product $PRODUCT_ID has $product_dataset_count datasets, none named \"$DATASET_NAME\"." >&2
+      echo "       Set KNOWLEDGE_DATASET_NAME to one of them (or write its id as dataset_id in $STATE_FILE)." >&2
+      exit 1
+    fi
+  fi
+  if [[ -n "$DATASET_ID" && -n "$PRODUCT_ID" ]]; then
+    echo "Using existing dataset $DATASET_ID of product $PRODUCT_ID."
   fi
   if [[ -z "$DATASET_ID" ]]; then
     if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -133,25 +228,11 @@ if [[ -z "$DATASET_ID" ]]; then
       DATASET_ID="<dry-run-dataset-id>"
     else
       echo "Dataset \"$DATASET_NAME\" not found, creating it..."
-      if [[ "$INTERACTIVE" -eq 1 ]]; then
-        # Run uncaptured so the CLI's own -i picker gets a real terminal on stdout (see the
-        # header comment above): we deliberately don't parse this call's JSON output, then
-        # re-resolve the dataset id by name afterward with a plain, capturable lookup.
-        cawplan knowledge datasets create --name "$DATASET_NAME" -i
-        DATASET_ID="$(cawplan knowledge datasets list | jq -r --arg name "$DATASET_NAME" \
-          '.data.datasets[]? | select(.name == $name) | .id' | head -n1)"
-        # The picked product is both owner and link: read it back so the module tree can be used.
-        if [[ -n "$DATASET_ID" && -z "$PRODUCT_ID" ]]; then
-          PRODUCT_ID="$(cawplan knowledge datasets products get --dataset "$DATASET_ID" 2>/dev/null \
-            | jq -r '.data.product_ids[0] // empty' 2>/dev/null || true)"
-        fi
-      else
-        create_args=(knowledge datasets create --name "$DATASET_NAME")
-        if [[ -n "$PRODUCT_ID" ]]; then
-          create_args+=(--owner-product "$PRODUCT_ID" --product "$PRODUCT_ID")
-        fi
-        DATASET_ID="$(cawplan "${create_args[@]}" | jq -r '.data.id')"
+      create_args=(knowledge datasets create --name "$DATASET_NAME")
+      if [[ -n "$PRODUCT_ID" ]]; then
+        create_args+=(--owner-product "$PRODUCT_ID")
       fi
+      DATASET_ID="$(cawplan "${create_args[@]}" | jq -r '.data.id')"
       if [[ -z "$DATASET_ID" || "$DATASET_ID" == "null" ]]; then
         echo "error: failed to create dataset \"$DATASET_NAME\"" >&2
         exit 1
@@ -233,14 +314,24 @@ module_path_for() {
 # creating any missing module on the way (an existing module with the same name under the same
 # parent is reused). Returns non-zero when a module can't be created.
 MODULE_RESULT=""
+ROOT_MODULE_ID="$(jq -r '.root_module_id // empty' "$STATE_FILE")"
 ensure_module_path() {
   local path="$1" parent="" seg built="" id resp args
   local segs
   IFS='/' read -r -a segs <<<"$path"
   for seg in "${segs[@]}"; do
     built="${built:+$built/}$seg"
-    id="$(jq -r --arg parent "$parent" --arg name "$seg" \
-      '[.[] | select((.parent_id // "") == $parent and .name == $name)][0].id // empty' <<<"$MODULES_JSON")"
+    id=""
+    # The root module: the id remembered in the state file wins while it still exists on the
+    # server; otherwise fall through to the top-level module with the same name.
+    if [[ -z "$parent" && -n "$ROOT_MODULE_ID" ]] \
+      && jq -e --arg id "$ROOT_MODULE_ID" 'any(.[]; .id == $id)' <<<"$MODULES_JSON" >/dev/null; then
+      id="$ROOT_MODULE_ID"
+    fi
+    if [[ -z "$id" ]]; then
+      id="$(jq -r --arg parent "$parent" --arg name "$seg" \
+        '[.[] | select((.parent_id // "") == $parent and .name == $name)][0].id // empty' <<<"$MODULES_JSON")"
+    fi
     if [[ -z "$id" ]]; then
       if [[ "$DRY_RUN" -eq 1 ]]; then
         echo "[dry-run] would create module \"$built\""
@@ -264,6 +355,7 @@ ensure_module_path() {
       MODULES_JSON="$(jq -c --arg id "$id" --arg parent "$parent" --arg name "$seg" \
         '. + [{id: $id, parent_id: (if $parent == "" then null else $parent end), name: $name}]' <<<"$MODULES_JSON")"
     fi
+    [[ -z "$parent" ]] && ROOT_MODULE_ID="$id"
     parent="$id"
   done
   MODULE_RESULT="$parent"
@@ -288,6 +380,9 @@ skipped_count=0
 failed_count=0
 
 record_state() {  # path doc_id mtime module_id module_path
+  if [[ -n "$ROOT_MODULE_ID" ]]; then
+    jq_update_in_place --arg r "$ROOT_MODULE_ID" '.root_module_id = $r'
+  fi
   jq_update_in_place --arg p "$1" --arg id "$2" --argjson mtime "$3" --arg m "$4" --arg mp "$5" \
     '.files[$p] = {document_id: $id, synced_mtime: $mtime, module_id: (if $m == "" then null else $m end), module_path: (if $mp == "" then null else $mp end)}'
 }
@@ -296,21 +391,75 @@ record_state() {  # path doc_id mtime module_id module_path
 # would fail the same way, so the run stops.
 fatal_not_owner=0
 
+# The server keeps ONE document per name in a dataset (uploading a same-named file overwrites it),
+# so a file whose base name is shared with another file (README.md in several directories) is
+# named "<its module's name>-<base>": BE/sdd/README.md -> "sdd-README.md". Only when even that
+# collides is the whole directory path used ("BE-sdd-README.md"). A unique base name keeps its own
+# name, and so does the repo-root file, so an existing root "README.md" document stays the root one.
+ALL_MD_RELS="$(cd "$REPO_ROOT" && find . -type f -name '*.md' -not -path '*/.git/*' -not -path '*/node_modules/*' | sed 's|^\./||' | sort)"
+ALL_MD_BASENAMES="$(sed 's|.*/||' <<<"$ALL_MD_RELS")"
+
+# module_prefixed_name REL_PATH -> "<innermost module name>-<base>" (the module is the file's
+# directory, folded like module_path_for does).
+module_prefixed_name() {
+  local mpath
+  mpath="$(module_path_for "$(dirname "$1")")"
+  printf '%s-%s' "${mpath##*/}" "$(basename "$1")"
+}
+
+# Every file's candidate name, to spot collisions between candidates.
+ALL_CANDIDATE_NAMES=""
+while IFS= read -r rel; do
+  [[ -z "$rel" ]] && continue
+  base="$(basename "$rel")"
+  if [[ "$rel" == "$base" ]] || [[ "$(grep -cxF -- "$base" <<<"$ALL_MD_BASENAMES")" -le 1 ]]; then
+    ALL_CANDIDATE_NAMES="$ALL_CANDIDATE_NAMES$base"$'\n'
+  else
+    ALL_CANDIDATE_NAMES="$ALL_CANDIDATE_NAMES$(module_prefixed_name "$rel")"$'\n'
+  fi
+done <<<"$ALL_MD_RELS"
+
+# doc_name_for REL_PATH -> the document name to use on the server.
+doc_name_for() {
+  local rel="$1" base cand
+  base="$(basename "$rel")"
+  if [[ "$rel" == "$base" ]] || [[ "$(grep -cxF -- "$base" <<<"$ALL_MD_BASENAMES")" -le 1 ]]; then
+    printf '%s' "$base"
+    return
+  fi
+  cand="$(module_prefixed_name "$rel")"
+  if [[ "$(grep -cxF -- "$cand" <<<"$ALL_CANDIDATE_NAMES")" -le 1 ]]; then
+    printf '%s' "$cand"
+  else
+    printf '%s' "${rel//\//-}"
+  fi
+}
+
 while IFS= read -r -d '' file; do
   rel_path="${file#"$REPO_ROOT"/}"
   mtime="$(file_mtime "$file")"
-  base_name="$(basename "$file")"
+  base_name="$(doc_name_for "$rel_path")"
 
   desired_module_id=""
   desired_module_path=""
   if [[ -n "$PRODUCT_ID" ]]; then
     desired_module_path="$(module_path_for "$(dirname "$rel_path")")"
-    if ! ensure_module_path "$desired_module_path"; then
-      echo "FAILED $rel_path (module \"$desired_module_path\")"
-      failed_count=$((failed_count + 1))
-      continue
+    # Once a document is tied to a module id, that id is what counts: reuse it while the module
+    # still exists on the server and the directory is unchanged. Only a missing id (or a moved
+    # file) goes through name resolution, which creates the module if needed.
+    recorded_module_id="$(jq -r --arg p "$rel_path" --arg mp "$desired_module_path" \
+      '.files[$p] | select(.module_path == $mp) | .module_id // empty' "$STATE_FILE")"
+    if [[ -n "$recorded_module_id" ]] \
+      && jq -e --arg id "$recorded_module_id" 'any(.[]; .id == $id)' <<<"$MODULES_JSON" >/dev/null; then
+      desired_module_id="$recorded_module_id"
+    else
+      if ! ensure_module_path "$desired_module_path"; then
+        echo "FAILED $rel_path (module \"$desired_module_path\")"
+        failed_count=$((failed_count + 1))
+        continue
+      fi
+      desired_module_id="$MODULE_RESULT"
     fi
-    desired_module_id="$MODULE_RESULT"
   fi
   module_label=""
   [[ -n "$desired_module_path" ]] && module_label="  [$desired_module_path]"
@@ -329,6 +478,9 @@ while IFS= read -r -d '' file; do
     remote="$(remote_doc "$existing_doc_id")"
     if [[ -z "$remote" && "$DATASET_ID" != "<dry-run-dataset-id>" ]]; then
       echo "GONE   $rel_path (document $existing_doc_id no longer on the server)"
+      existing_doc_id=""
+    elif [[ -n "$remote" && "$(echo "$remote" | jq -r '.name')" != "$base_name" ]]; then
+      echo "RENAME $rel_path (recorded document is named \"$(echo "$remote" | jq -r '.name')\"; using \"$base_name\")"
       existing_doc_id=""
     fi
   fi
@@ -352,11 +504,21 @@ while IFS= read -r -d '' file; do
 
     # --force: the same file name may legitimately exist in another directory (module); this
     # script does its own duplicate detection above, by name AND module.
-    args=(knowledge documents upload --dataset "$DATASET_ID" --file "$file" --force)
+    upload_file="$file"
+    upload_tmp=""
+    if [[ "$base_name" != "$(basename "$file")" ]]; then
+      upload_tmp="$(mktemp -d)"
+      upload_file="$upload_tmp/$base_name"
+      cp "$file" "$upload_file"
+    fi
+    args=(knowledge documents upload --dataset "$DATASET_ID" --file "$upload_file" --force)
     [[ -n "$desired_module_id" ]] && args+=(--module "$desired_module_id")
 
     resp=""
-    if ! resp="$(cawplan "${args[@]}")"; then
+    upload_ok=1
+    resp="$(cawplan "${args[@]}")" || upload_ok=0
+    [[ -n "$upload_tmp" ]] && rm -rf "$upload_tmp"
+    if [[ "$upload_ok" -eq 0 ]]; then
       echo "  FAILED: $rel_path"
       failed_count=$((failed_count + 1))
       continue
@@ -368,10 +530,15 @@ while IFS= read -r -d '' file; do
       failed_count=$((failed_count + 1))
       if echo "$resp" | grep -q "owned by a product"; then
         echo "error: dataset $DATASET_ID is not owned by product $PRODUCT_ID, so its documents can't be placed in the product's modules." >&2
-        echo "       Re-create the dataset with --product, or use a dataset created with 'datasets create --owner-product'." >&2
+        echo "       Re-create the dataset with --owner-product, or use a dataset created with 'datasets create --owner-product'." >&2
         fatal_not_owner=1
         break
       fi
+      continue
+    fi
+    if jq -e --arg p "$rel_path" --arg id "$doc_id" 'any(.files | to_entries[]; .key != $p and .value.document_id == $id)' "$STATE_FILE" >/dev/null; then
+      echo "  FAILED: $rel_path -- the server returned document $doc_id, already recorded for another file (same document name?)"
+      failed_count=$((failed_count + 1))
       continue
     fi
     record_state "$rel_path" "$doc_id" "$mtime" "$desired_module_id" "$desired_module_path"

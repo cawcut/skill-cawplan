@@ -24,7 +24,7 @@ import { homedir } from "node:os";
 import { claudeProjectsDir } from "../paths.js";
 import { SessionData, FileChange, RepoTouched, HumanInput, UsageBucket, MessageStats } from "../types.js";
 import { aggregateUsageBuckets, bucketKey, foldBucketsToModel, mergeUsageBuckets } from "../aggregators/tokens.js";
-import { gitRemoteRepo } from "../git.js";
+import { gitRemoteRepo, gitRemoteRepoForFile, inferGitRootFromPath } from "../git.js";
 import { ChunkMessage } from "../aggregators/chunks.js";
 import {isTimestampOnLocalDate, localDateString, formatLocalTime, getLocalTimezone} from "../date-utils.js";
 import {appendAssistantMessage, extractAssistantTextFromBlocks} from "../aggregators/human-assistant.js";
@@ -463,6 +463,16 @@ export function collectClaudeCodeSession(
 
   // Files changed — parse from tool_use events (Edit, Write, Read tool calls)
   const filesChanged: FileChange[] = [];
+  const repoByRoot = new Map<string, string>();
+  const repoForFile = (filePath: string): string => {
+    const key = inferGitRootFromPath(filePath) || cwd;
+    let repo = repoByRoot.get(key);
+    if (repo === undefined) {
+      repo = gitRemoteRepoForFile(cwd, filePath);
+      repoByRoot.set(key, repo);
+    }
+    return repo;
+  };
   const filesSet = new Set<string>();
   timed(opts, `Extract Claude file changes ${sessionId}`, () => {
   for (const event of events) {
@@ -490,7 +500,7 @@ export function collectClaudeCodeSession(
         }
         if (!filesSet.has(filePath)) {
           filesSet.add(filePath);
-          filesChanged.push({ path: filePath, added, deleted, repo: repoRemote, change_type: toolName });
+          filesChanged.push({ path: filePath, added, deleted, repo: repoForFile(filePath), change_type: toolName });
         } else {
           const existing = filesChanged.find((f) => f.path === filePath);
           if (existing) { existing.added += added; existing.deleted += deleted; }
@@ -548,7 +558,7 @@ export function collectClaudeCodeSession(
         }
         if (!filesSet.has(filePath)) {
           filesSet.add(filePath);
-          filesChanged.push({ path: filePath, added, deleted, repo: repoRemote, change_type: toolName });
+          filesChanged.push({ path: filePath, added, deleted, repo: repoForFile(filePath), change_type: toolName });
         } else {
           const existing = filesChanged.find((f) => f.path === filePath);
           if (existing) { existing.added += added; existing.deleted += deleted; }
@@ -561,14 +571,21 @@ export function collectClaudeCodeSession(
   const usageBreakdown = Object.values(buckets);
 
   // Repos touched — group by git remote, summing line counts
-  const reposTouched: RepoTouched[] = repoRemote
-    ? [{
-        repo: repoRemote,
-        files: filesChanged.length,
-        added: filesChanged.reduce((s, f) => s + (f.added ?? 0), 0),
-        deleted: filesChanged.reduce((s, f) => s + (f.deleted ?? 0), 0),
-      }]
-    : [];
+  const repoStats = new Map<string, RepoTouched>();
+  for (const f of filesChanged) {
+    const repo = f.repo || repoRemote;
+    if (!repo) continue;
+    const cur = repoStats.get(repo) ?? { repo, files: 0, added: 0, deleted: 0 };
+    cur.files += 1;
+    cur.added += f.added ?? 0;
+    cur.deleted += f.deleted ?? 0;
+    repoStats.set(repo, cur);
+  }
+  const reposTouched: RepoTouched[] = repoStats.size > 0
+    ? Array.from(repoStats.values())
+    : repoRemote
+      ? [{ repo: repoRemote, files: 0, added: 0, deleted: 0 }]
+      : [];
 
   const linesAdded = filesChanged.reduce((s, f) => s + (f.added ?? 0), 0);
   const linesDeleted = filesChanged.reduce((s, f) => s + (f.deleted ?? 0), 0);

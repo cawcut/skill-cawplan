@@ -1,9 +1,17 @@
 import {existsSync, readdirSync, readFileSync} from "node:fs";
 import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
-import {describe, expect, test} from "vitest";
+import {describe, expect, test, vi} from "vitest";
 import {collect, collectQaResult} from "../src/lib/collect/index.js";
 import {assignProjectsFromCloudMappings} from "../src/lib/assign/auto-assign.js";
+
+// This test runs real collection over the machine's local agent data; keep it off the network.
+// The Cursor dashboard API is reachable through HTTPS_PROXY now, and three collects per case
+// would otherwise spend most of the 60s timeout on live requests.
+vi.mock("../src/lib/collect/agents/cursor-api.js", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../src/lib/collect/agents/cursor-api.js")>()),
+    fetchUsageEvents: async () => [],
+}));
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BASELINE_DIR = join(__dirname, "fixtures", "coding-baseline");

@@ -53,7 +53,14 @@ describe("normalizePortalBase", () => {
 
 describe("parseTicketDisplayIdFromInput", () => {
     test("extracts display id from issue URL", () => {
-        expect(parseTicketDisplayIdFromInput("https://app.cawplan.com/issue/cwp-42")).toBe("CWP-42");
+        expect(parseTicketDisplayIdFromInput("https://app.cawplan.com/issue/cwp-42")).toBe("CWP-00042");
+    });
+
+    test("zero-pads the number to 5 digits like CawPlan display ids", () => {
+        expect(parseTicketDisplayIdFromInput("prm-699")).toBe("PRM-00699");
+        expect(parseTicketDisplayIdFromInput("PRM-0699")).toBe("PRM-00699");
+        expect(parseTicketDisplayIdFromInput("CWP-16319")).toBe("CWP-16319");
+        expect(parseTicketDisplayIdFromInput("CWP-123456")).toBe("CWP-123456");
     });
 
     test("accepts bare display ids", () => {
@@ -73,6 +80,7 @@ describe("parseTicketDisplayIdFromInput", () => {
         const samples = [
             "https://app.cawplan.com/issue/CWP-42",
             "CAWP-18575",
+            "prm-699",
             "bad",
             "",
             null,
@@ -87,7 +95,7 @@ describe("parseTicketDisplayIdFromInput", () => {
 describe("normalizeTicketDisplayIds", () => {
     test("deduplicates and uppercases display ids", () => {
         expect(normalizeTicketDisplayIds(["cwp-1", "CWP-1", "https://app.cawplan.com/issue/CWP-2"]))
-            .toEqual(["CWP-1", "CWP-2"]);
+            .toEqual(["CWP-00001", "CWP-00002"]);
     });
 
     test("returns empty array for non-array input", () => {
@@ -126,7 +134,7 @@ describe("ticketDetailUrl", () => {
 
 describe("normalizeTicketDisplayIdList", () => {
     test("filters invalid entries", () => {
-        expect(normalizeTicketDisplayIdList(["CWP-1", "nope", ""])).toEqual(["CWP-1"]);
+        expect(normalizeTicketDisplayIdList(["CWP-1", "nope", ""])).toEqual(["CWP-00001"]);
     });
 });
 
