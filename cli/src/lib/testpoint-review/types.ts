@@ -12,6 +12,15 @@ export type TestPointComment = {
   resolved: boolean;
 };
 
+export type OpenQuestion = {
+  id: string;
+  text: string;
+  /** Latest answer explicitly submitted in the HTML Review page. */
+  answer: string | null;
+  /** HTML answer at the start of this AI round, used by Human Input projection. */
+  round_answer_baseline: string | null;
+};
+
 export type TestPoint = {
   id: string;
   original: TestPointFields;
@@ -65,5 +74,8 @@ export type ReviewState = {
   updated_at: string;
   test_points: TestPoint[];
   global_comments: TestPointComment[];
+  /** Absent only on legacy Reviews created before Questions to Confirm support. */
+  open_questions?: OpenQuestion[];
+  next_question_seq?: number;
   deleted_tombstones: DeletedTombstone[];
 };

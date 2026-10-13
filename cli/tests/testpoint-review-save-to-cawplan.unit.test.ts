@@ -74,6 +74,8 @@ describe("dispatchTestPointReviewRequest /api/save-to-cawplan (design §4/§4.1,
     });
 
     test("submits all non-deleted, non-archived test points and marks them archived on SUCCESS", async () => {
+        state.test_points[0].current.priority = "LOW";
+        state.test_points[0].status = "edited";
         const archiveTestPoints = vi.fn<ArchiveTestPointsFn>().mockResolvedValue(successEnvelope());
 
         const result = await dispatchTestPointReviewRequest(
@@ -88,7 +90,10 @@ describe("dispatchTestPointReviewRequest /api/save-to-cawplan (design §4/§4.1,
         expect(archiveTestPoints).toHaveBeenCalledWith(
             "prod_1",
             "req_1",
-            {test_points: expect.arrayContaining([expect.objectContaining({is_edited: false})])},
+            {test_points: expect.arrayContaining([
+                expect.objectContaining({priority: "LOW", is_edited: true}),
+                expect.objectContaining({is_edited: false}),
+            ])},
         );
         expect(state.test_points.every((tp) => tp.archived === true)).toBe(true);
         // Step 20: a successful save closes the local server (same hand-back mechanism as /api/optimize)
@@ -190,6 +195,41 @@ describe("dispatchTestPointReviewRequest /api/save-to-cawplan (design §4/§4.1,
 
         expect(result.status).toBe(409);
         expect(archiveTestPoints).not.toHaveBeenCalled();
+    });
+
+    test("rejects with 409 when a question answer has not yet been processed by AI", async () => {
+        state.open_questions = [{id: "oq_001", text: "Which policy?", answer: "Use strict mode", round_answer_baseline: null}];
+        const archiveTestPoints = vi.fn<ArchiveTestPointsFn>();
+        const recordHumanInput = vi.fn();
+
+        const result = await dispatchTestPointReviewRequest(
+            req("POST", "/api/save-to-cawplan"),
+            "{}",
+            TOKEN,
+            {reviewState: state, archiveTestPoints, recordHumanInput},
+        );
+
+        expect(result.status).toBe(409);
+        expect(result.body).toMatchObject({error: "unresolved_feedback", answered_question_count: 1});
+        expect(recordHumanInput).not.toHaveBeenCalled();
+        expect(archiveTestPoints).not.toHaveBeenCalled();
+    });
+
+    test("allows Save when a question answer was already consumed in the current round baseline", async () => {
+        state.open_questions = [{
+            id: "oq_001", text: "Which policy?", answer: "Use strict mode", round_answer_baseline: "Use strict mode",
+        }];
+        const archiveTestPoints = vi.fn<ArchiveTestPointsFn>().mockResolvedValue(successEnvelope());
+
+        const result = await dispatchTestPointReviewRequest(
+            req("POST", "/api/save-to-cawplan"),
+            "{}",
+            TOKEN,
+            {reviewState: state, archiveTestPoints},
+        );
+
+        expect(result.status).toBe(200);
+        expect(archiveTestPoints).toHaveBeenCalledOnce();
     });
 
     test("records after feedback validation and before delete-only NOOP", async () => {

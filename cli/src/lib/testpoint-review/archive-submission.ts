@@ -36,20 +36,27 @@ export type UnresolvedFeedbackCheck = {
   hasUnresolvedFeedback: boolean;
   commentedTestPointCount: number;
   globalCommentCount: number;
+  answeredQuestionCount: number;
 };
 
 /**
- * Design §4.2: submitting while comments/overall feedback are still unresolved must be
- * rejected. A comment remains pending until an AI optimization round consumes it; archived
- * rows are no longer part of the Review, but comments on a deleted row still need that AI pass.
+ * Design §4.2: submitting while comments/overall feedback/answered questions are still
+ * unresolved must be rejected. A human input remains pending until an AI optimization round
+ * consumes it; archived rows are no longer part of the Review, but comments on a deleted row
+ * still need that AI pass. An unanswered question, a cleared answer, or an answer already used
+ * as the current round baseline does not block submission.
  */
 export function checkUnresolvedFeedback(reviewState: ReviewState): UnresolvedFeedbackCheck {
   const commentedTestPointCount = reviewState.test_points.filter((tp) => tp.archived !== true && tp.comments.length > 0).length;
   const globalCommentCount = reviewState.global_comments.length;
+  const answeredQuestionCount = (reviewState.open_questions ?? []).filter(
+    (question) => Boolean(question.answer) && question.answer !== question.round_answer_baseline,
+  ).length;
   return {
-    hasUnresolvedFeedback: commentedTestPointCount > 0 || globalCommentCount > 0,
+    hasUnresolvedFeedback: commentedTestPointCount > 0 || globalCommentCount > 0 || answeredQuestionCount > 0,
     commentedTestPointCount,
     globalCommentCount,
+    answeredQuestionCount,
   };
 }
 

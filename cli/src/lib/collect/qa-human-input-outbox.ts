@@ -1,10 +1,19 @@
 import {readFileSync, readdirSync, unlinkSync} from "node:fs";
 import {join} from "node:path";
 import {qaHumanInputOutboxDir, type TestPointReviewHumanInputEvent} from "../testpoint-review/human-input-event.js";
+import {parseEvents} from "./agents/claude-code.js";
+import {extractTextContent, isHumanInputText, rolloutFilesForDate, stripCodexSkillBlocks} from "./agents/codex.js";
+import {codexSessionsDir} from "./paths.js";
+import {appendAssistantMessage, extractAssistantTextFromBlocks} from "./aggregators/human-assistant.js";
+import {findClaudeCodeJsonlPathBySessionId} from "./qa-trace-extract.js";
 import type {HumanInput, SessionData} from "./types.js";
 
 export interface QaHumanInputOutboxOptions {
   dir?: string;
+  /** Test seam: resolves a Claude Code session's JSONL path. */
+  findClaudeJsonlPath?: (sessionId: string, date: string) => string | undefined;
+  /** Test seam: resolves a Codex session's rollout JSONL path. */
+  findCodexRolloutPath?: (sessionId: string, date: string) => string | undefined;
   warn?: (message: string) => void;
 }
 
@@ -55,7 +64,7 @@ function isValidEvent(value: unknown): value is TestPointReviewHumanInputEvent {
     isPlainObject(unit) &&
     typeof unit.unit_id === "string" && unit.unit_id.startsWith("hiu_") &&
     (unit.kind === "edit" || unit.kind === "delete" || unit.kind === "add" ||
-      unit.kind === "comment" || unit.kind === "overall_feedback") &&
+      unit.kind === "comment" || unit.kind === "overall_feedback" || unit.kind === "answer_question") &&
     typeof unit.content === "string" && unit.content.length > 0
   );
 }
@@ -108,6 +117,142 @@ function eventSession(event: TestPointReviewHumanInputEvent, sessions: SessionDa
   return matches.size === 1 ? [...matches][0] : undefined;
 }
 
+const REVIEW_ANCHOR_MAX_LAG_MS = 5000;
+
+type TraceEvent = Record<string, unknown>;
+
+/** Agent-specific view of a transcript: where a Review submit shows up, and what counts as a turn/reply. */
+interface ReplyTrace {
+  events: TraceEvent[];
+  /** Indexes of events marking a Review submit having been received. */
+  anchors: number[];
+  used: Set<number>;
+  isHumanTurn(event: TraceEvent): boolean;
+  assistantText(event: TraceEvent): string;
+}
+
+function contentBlocks(event: TraceEvent): Array<Record<string, any>> {
+  const content = (event["message"] as {content?: unknown} | undefined)?.content;
+  return Array.isArray(content) ? content : [];
+}
+
+/**
+ * Claude: a Review submit has no human turn; its only trace is the `task-notification`
+ * fired when the page-backed `testpoint-review open` background task ends.
+ */
+function claudeTrace(events: TraceEvent[]): ReplyTrace {
+  const toolIds = new Set<string>();
+  const tasks = new Set<string>();
+  for (const event of events) {
+    if (event["type"] === "assistant") {
+      for (const block of contentBlocks(event)) {
+        if (block.type === "tool_use" && block.name === "Bash"
+          && block.input?.run_in_background === true
+          && typeof block.input.command === "string"
+          && /\bqa-insights\s+testpoint-review\s+open\b/.test(block.input.command)) {
+          toolIds.add(block.id);
+        }
+      }
+    } else if (event["type"] === "user") {
+      const taskId = (event["toolUseResult"] as {backgroundTaskId?: unknown} | undefined)?.backgroundTaskId;
+      if (typeof taskId === "string"
+        && contentBlocks(event).some((b) => b.type === "tool_result" && toolIds.has(b.tool_use_id))) {
+        tasks.add(taskId);
+      }
+    }
+  }
+  const anchors: number[] = [];
+  events.forEach((event, index) => {
+    const content = (event["message"] as {content?: unknown} | undefined)?.content;
+    if (event["type"] !== "user" || typeof content !== "string" || !content.startsWith("<task-notification>")) return;
+    const taskId = /<task-id>([^<]+)<\/task-id>/.exec(content)?.[1];
+    if (taskId && tasks.has(taskId)) anchors.push(index);
+  });
+  return {
+    events, anchors, used: new Set(),
+    isHumanTurn(event) {
+      if (event["type"] !== "user" || event["isSidechain"] === true || event["isMeta"] === true) return false;
+      const kind = (event["origin"] as {kind?: unknown} | undefined)?.kind;
+      if (typeof kind === "string" && kind !== "human") return false;
+      const content = (event["message"] as {content?: unknown} | undefined)?.content;
+      return typeof content === "string" || contentBlocks(event).some((b) => b.type === "text");
+    },
+    assistantText(event) {
+      if (event["type"] !== "assistant" || event["isSidechain"] === true) return "";
+      return extractAssistantTextFromBlocks((event["message"] as {content?: unknown} | undefined)?.content);
+    },
+  };
+}
+
+const CODEX_REVIEW_EVENT_RE = /TESTPOINT_REVIEW_EVENT (?:optimize_requested|save_completed)/;
+
+/**
+ * Codex: the page-backed command's output carries `TESTPOINT_REVIEW_EVENT <action>`;
+ * its first emission is the `item_completed` event_msg (later `write_stdin` re-reads
+ * of the same output are response_items and are not anchors).
+ */
+function codexTrace(events: TraceEvent[]): ReplyTrace {
+  const payload = (event: TraceEvent) => event["payload"] as Record<string, unknown> | undefined;
+  const anchors: number[] = [];
+  events.forEach((event, index) => {
+    const p = payload(event);
+    if (event["type"] === "event_msg" && p?.["type"] === "item_completed" && CODEX_REVIEW_EVENT_RE.test(JSON.stringify(p))) {
+      anchors.push(index);
+    }
+  });
+  const message = (event: TraceEvent, role: string) => {
+    const p = payload(event);
+    return event["type"] === "response_item" && p?.["type"] === "message" && p["role"] === role ? p : undefined;
+  };
+  return {
+    events, anchors, used: new Set(),
+    isHumanTurn(event) {
+      const p = message(event, "user");
+      if (!p) return false;
+      const text = stripCodexSkillBlocks(extractTextContent(p["content"]));
+      return !!text && isHumanInputText(text);
+    },
+    assistantText(event) {
+      const p = message(event, "assistant");
+      return p ? extractTextContent(p["content"]) : "";
+    },
+  };
+}
+
+function codexRolloutPath(sessionId: string, date: string): string | undefined {
+  return rolloutFilesForDate(codexSessionsDir(), date).find((file) => file.endsWith(`-${sessionId}.jsonl`));
+}
+
+/**
+ * The AI reply is the assistant text between the nearest unused anchor after
+ * `occurred_at` and the next human turn / anchor. Returns undefined (never a guess)
+ * when no anchor or no reply text exists.
+ */
+function assistantReplyForReviewSubmit(trace: ReplyTrace, occurredAt: string): string | undefined {
+  const occurredMs = Date.parse(occurredAt);
+  let anchor: number | undefined;
+  let bestLag = Infinity;
+  for (const index of trace.anchors) {
+    if (trace.used.has(index)) continue;
+    const lag = Date.parse(String(trace.events[index]["timestamp"] ?? "")) - occurredMs;
+    if (lag >= -1000 && lag <= REVIEW_ANCHOR_MAX_LAG_MS && lag < bestLag) {
+      anchor = index;
+      bestLag = lag;
+    }
+  }
+  if (anchor === undefined) return undefined;
+  trace.used.add(anchor);
+
+  let reply: string | undefined;
+  for (let i = anchor + 1; i < trace.events.length; i++) {
+    const ev = trace.events[i];
+    if (trace.anchors.includes(i) || trace.isHumanTurn(ev)) break;
+    const text = trace.assistantText(ev);
+    if (text) reply = appendAssistantMessage(reply, text);
+  }
+  return reply;
+}
+
 /** Mutates scanned sessions by appending uniquely-attributed HTML Review Human Inputs. */
 export function mergeQaHumanInputOutbox(
   sessions: SessionData[],
@@ -116,6 +261,26 @@ export function mergeQaHumanInputOutbox(
 ): void {
   const events = readQaHumanInputOutbox(date, options);
   const seenUnitIds = new Set<string>();
+  const traces = new Map<string, ReplyTrace | null>();
+  const traceFor = (agent: string, sessionId: string): ReplyTrace | null => {
+    const key = `${agent}:${sessionId}`;
+    if (!traces.has(key)) {
+      let trace: ReplyTrace | null = null;
+      try {
+        if (agent === "claude-code") {
+          const path = (options.findClaudeJsonlPath ?? findClaudeCodeJsonlPathBySessionId)(sessionId, date);
+          if (path) trace = claudeTrace(parseEvents(path));
+        } else if (agent === "codex") {
+          const path = (options.findCodexRolloutPath ?? codexRolloutPath)(sessionId, date);
+          if (path) trace = codexTrace(parseEvents(path));
+        }
+      } catch {
+        trace = null;
+      }
+      traces.set(key, trace);
+    }
+    return traces.get(key) ?? null;
+  };
   for (const {event, line} of events) {
     const matched = eventSession(event, sessions);
     if (!matched) {
@@ -130,8 +295,12 @@ export function mergeQaHumanInputOutbox(
     });
     if (remainingUnits.length === 0) continue;
 
+    const trace = traceFor(matched.agent, matched.session_id);
+    const assistantMessage = trace ? assistantReplyForReviewSubmit(trace, event.occurred_at) : undefined;
+
     const input: HumanInput = {
       category: "correction",
+      ...(assistantMessage ? {assistant_message: assistantMessage} : {}),
       content: remainingUnits.map((entry) => entry.content).join("\n\n"),
       session_id: matched.session_id,
       session_agent: matched.agent,

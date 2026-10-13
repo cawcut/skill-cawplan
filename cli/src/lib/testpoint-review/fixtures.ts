@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { formatTestPointId } from "./test-point-id.js";
+import {createOpenQuestions} from "./create-review.js";
 import type { ReviewState, TestPoint } from "./types.js";
 
 const FIXTURE_TEST_POINTS: Array<Pick<TestPoint["current"], "title" | "group" | "tags" | "priority">> = [
@@ -27,8 +28,10 @@ export function createFixtureReviewState(params: {
   productId: string;
   requirementId: string;
   language?: "zh" | "en";
+  openQuestions?: string[];
 }): ReviewState {
   const now = new Date().toISOString();
+  const openQuestions = createOpenQuestions(params.openQuestions);
   const testPoints: TestPoint[] = FIXTURE_TEST_POINTS.map((fields, index) => {
     const id = formatTestPointId(index + 1);
     return {
@@ -61,6 +64,8 @@ export function createFixtureReviewState(params: {
     updated_at: now,
     test_points: testPoints,
     global_comments: [],
+    open_questions: openQuestions,
+    next_question_seq: openQuestions.length + 1,
     deleted_tombstones: [],
   };
 }

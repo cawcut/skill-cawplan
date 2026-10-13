@@ -44,6 +44,30 @@ describe("test point review layout", () => {
         expect(html).toContain('<option value="MEDIUM" selected>MEDIUM</option>');
     });
 
+    test("uses the same priority selector for existing test points and selects the current value", () => {
+        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+        state.test_points[0].current.priority = "LOW";
+
+        const html = testPointReviewHtml(state, "tok");
+
+        expect(html).toContain(
+            '<select class="add-tp-input priority-select" data-field="priority" data-editable="true" aria-label="Priority">',
+        );
+        expect(html).toContain('<option value="LOW" selected>LOW</option>');
+        expect(html).not.toContain('<span class="field" data-field="priority"');
+        expect(html).toContain('saveField(row, "priority", el)');
+    });
+
+    test("gives the priority selector a roomy, borderless text-style presentation", () => {
+        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+
+        const html = testPointReviewHtml(state, "tok");
+
+        expect(html).toContain("th:nth-child(4) { width: 120px; }");
+        expect(html).toMatch(/\.priority-select \{[\s\S]*width: 100px;[\s\S]*border-color: transparent;[\s\S]*background-color: transparent;/);
+        expect(html).toMatch(/\.priority-select:hover, \.priority-select:focus \{[\s\S]*background-color: var\(--line-soft\);[\s\S]*background-image:/);
+    });
+
     test("shows the Chat fallback after Ask AI to Optimize", () => {
         const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
 
@@ -60,7 +84,7 @@ describe("test point review layout", () => {
 
         const html = testPointReviewHtml(state, "tok");
 
-        expect(html).toContain("Comments or Overall Feedback must be processed by Ask AI before saving.");
+        expect(html).toContain("Comments, Overall Feedback, or answered Questions must be processed by Ask AI before saving.");
         expect(html).not.toContain("Save anyway");
     });
 });

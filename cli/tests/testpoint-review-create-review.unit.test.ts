@@ -31,6 +31,8 @@ describe("createReviewStateFromInput", () => {
     expect(state.round).toBe(1);
     expect(state.review_status).toBe("reviewing");
     expect(state.language).toBe("zh");
+    expect(state.open_questions).toEqual([]);
+    expect(state.next_question_seq).toBe(1);
   });
 
   test("defaults group/tags/priority when omitted, and honors language + requirement snapshot", () => {
@@ -87,7 +89,33 @@ describe("createReviewStateFromInput", () => {
       archived_count: 2,
       group_count: 2,
       count_before: 2,
+      open_question_count: 0,
     });
+  });
+
+  test("creates ordered Questions to Confirm with stable ids and empty answers", () => {
+    const state = createReviewStateFromInput({
+      productId: "prod_1",
+      requirementId: "req_1",
+      testPoints: [{title: "draft"}],
+      openQuestions: ["  First question  ", "Second question"],
+    });
+
+    expect(state.open_questions).toEqual([
+      {id: "oq_001", text: "First question", answer: null, round_answer_baseline: null},
+      {id: "oq_002", text: "Second question", answer: null, round_answer_baseline: null},
+    ]);
+    expect(state.next_question_seq).toBe(3);
+    expect(reviewStartCounts(state).open_question_count).toBe(2);
+  });
+
+  test("rejects malformed open questions", () => {
+    expect(() => createReviewStateFromInput({
+      productId: "prod_1",
+      requirementId: "req_1",
+      testPoints: [{title: "draft"}],
+      openQuestions: ["ok", "  "],
+    })).toThrow("open_questions[1] must be a non-empty string");
   });
 
   test("keeps generated ids unique when an archived API id uses the local id format", () => {

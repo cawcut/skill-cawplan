@@ -53,17 +53,33 @@ describe("TestPoint Review Human Input projection and writer", () => {
       comments: [],
     });
     state.global_comments.push({id: "overall-1", text: "整体反馈", author: "qa", resolved: false});
+    state.open_questions = [{
+      id: "oq_001", text: "并发时如何处理？", answer: "只允许第一个成功", round_answer_baseline: null,
+    }];
 
     const units = projectTestPointReviewHumanInput(state, "optimize");
-    expect(units.map((entry) => entry.kind)).toEqual(["edit", "comment", "delete", "add", "overall_feedback"]);
+    expect(units.map((entry) => entry.kind)).toEqual(["edit", "comment", "delete", "add", "overall_feedback", "answer_question"]);
     expect(units[0].content).toMatch(/^\[Edit Test Point\]\nOriginal: \{.*\}\nUpdated: \{.*\}$/);
     expect(units[1].content).toMatch(/^\[Comment Test Point\]\nTest Point: \{.*\}\nComment: 补并发$/);
     expect(units[2].content).toMatch(/^\[Delete Test Point\]\nOriginal: \{.*\}$/);
     expect(units[3].content).toMatch(/^\[Add Test Point\]\nContent: \{.*\}$/);
     expect(units[4].content).toBe("[Overall Feedback]\nContent: 整体反馈");
+    expect(units[5].content).toBe("[Answer Question]\nQuestion: 并发时如何处理？\nAnswer: 只允许第一个成功");
     expect(units.map((entry) => entry.content).join("\n")).not.toContain("tp_999");
     expect(units[3].content).toContain('"tags":["b","a"]');
-    expect(projectTestPointReviewHumanInput(state, "save").map((entry) => entry.kind)).toEqual(["edit", "delete", "add"]);
+    expect(projectTestPointReviewHumanInput(state, "save").map((entry) => entry.kind)).toEqual(["edit", "delete", "add", "answer_question"]);
+  });
+
+  test("projects only the final non-empty HTML answer and suppresses unchanged or cleared values", () => {
+    const state = createFixtureReviewState({productId: "p", requirementId: "r"});
+    state.open_questions = [{id: "oq_001", text: "Question", answer: "final", round_answer_baseline: null}];
+    const projected = projectTestPointReviewHumanInput(state, "optimize");
+    expect(projected).toHaveLength(1);
+    expect(projected[0].content).toContain("Answer: final");
+    state.open_questions[0].round_answer_baseline = "final";
+    expect(projectTestPointReviewHumanInput(state, "optimize")).toEqual([]);
+    state.open_questions[0].answer = null;
+    expect(projectTestPointReviewHumanInput(state, "optimize")).toEqual([]);
   });
 
   test("suppresses net-zero edits, QA add-then-delete, AI additions, archived points, and resolved feedback", () => {
@@ -94,6 +110,19 @@ describe("TestPoint Review Human Input projection and writer", () => {
     expect(projectTestPointReviewHumanInput(state, "save")[0].content).toMatch(
       /^\[Edit Test Point\]\nOriginal: \{.*\}\nUpdated: \{.*\}$/,
     );
+  });
+
+  test("records a priority-only edit with the old and selected values", () => {
+    const state = createFixtureReviewState({productId: "p", requirementId: "r"});
+    state.test_points[0].status = "edited";
+    state.test_points[0].current.priority = "LOW";
+
+    const units = projectTestPointReviewHumanInput(state, "save");
+
+    expect(units).toHaveLength(1);
+    expect(units[0].kind).toBe("edit");
+    expect(units[0].content).toContain('"priority":"HIGH"');
+    expect(units[0].content).toContain('"priority":"LOW"');
   });
 
   test("keeps unit ids across actions, changes event ids, and includes round in unit ids", () => {

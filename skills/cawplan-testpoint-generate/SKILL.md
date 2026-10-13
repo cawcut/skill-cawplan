@@ -339,16 +339,18 @@ Step 5 产出最终测试点列表后，**在向 Chat 输出任何内容之前**
    - **本轮新增草稿**：`{title, group, tags, priority}`；不得带 `id`，`archived` 省略（或为 `false`）。
    - **CawPlan 已归档测试点**（仅增量场景）：`{id, title, group, tags, priority, archived: true}`；`id` 必须使用 §2 refresh 返回的服务端原值，不得改写或生成。
    - `testpoint-review start` 只把 `archived: true` 的条数作为 Review State 的 `count_before`；输入总数不是 reconcile 基线。页面隐藏这些已归档行，Save to CawPlan 永远只提交未归档草稿。
+   - 把 §5 的完整存疑清单作为字符串数组传给 `--open-questions-file`（无存疑时传空数组）；CLI 为问题分配稳定 ID，Review State 是问题及 HTML 答案的唯一事实源。
 2. 调用：
 
    ```bash
    cawplan qa-insights testpoint-review start --product-id <id> --requirement-id <id> \
-     --lang <会话语言 zh|en> --test-points-file <path> [--requirement-file <path>]
+     --lang <会话语言 zh|en> --test-points-file <path> [--requirement-file <path>] \
+     --open-questions-file <path>
    ```
 
    （`--test-points`/`--requirement` 为同形状的内联 JSON 版本，二选一即可。）
 
-3. 命令返回 `{review_id, file, draft_count, archived_count, group_count, count_before}`。记录 `review_id` 到 session binding（与 `product_id`/`requirement_id` 同级，见 Session state）；Chat 数量只读 `draft_count`/`group_count`，不得从输入或页面自行重数。
+3. 命令返回 `{review_id, file, draft_count, archived_count, group_count, count_before, open_question_count}`。记录 `review_id` 到 session binding（与 `product_id`/`requirement_id` 同级，见 Session state）；校验 `open_question_count` 与传入清单一致。Chat 测试点数量只读 `draft_count`/`group_count`，不得从输入或页面自行重数。
 4. 用 Agent 的**托管后台任务**启动页面服务（先拿 URL，再按平台能力等待）：
 
    ```bash
@@ -393,7 +395,9 @@ SQA 发送「恢复 Review 页面」（或对应英文）时：使用当前 bind
 
 **禁止退化成只给命令或只给 `review_id`。** `review_url` 是本机临时地址；页面服务存活时复用同一链接。服务已关闭才重新后台启动一次 `open --no-browser` 并替换为新 URL，禁止同时运行两个相同 Review 服务。普通 Review 不设固定时长过期；10 分钟阈值只用于识别点击 Ask AI 后长期未回调的优化请求，并提示 SQA 手动继续优化。
 
-然后是**存疑清单**（§5）：〔指向哪〕+〔为什么疑〕+〔建议动作〕；无覆盖勾选矩阵；若没有存疑，明确说明"没有存疑项"/"no open questions"。存疑清单只在 Chat 呈现，不写入 Review 数据（页面数据模型没有这个概念）。
+然后是**存疑清单**（§5）：从最新 Review State 的 `open_questions` 逐条读取完整文字并展示〔指向哪〕+〔为什么疑〕+〔建议动作〕；无覆盖勾选矩阵；若没有存疑，明确说明"没有存疑项"/"no open questions"。Chat 必须保留完整展示，HTML 失效时仍可查看；问题的唯一事实源是 Review State，不在 session 另存一份。
+
+Review 页面在 Overall Feedback 下方展示 **Questions to Confirm**：有存疑时默认收起，顶部只显示问题总数；展开后答案输入框始终可编辑，停止输入约 650ms 后无感自动保存，失焦时立即保存，不显示提交按钮或回答状态标签。超过 4 条时区域内部滚动；存疑为空时隐藏整个 Questions 区域。清空输入框会把答案持久化为 `null`；成功不提示，失败时保留输入并显示可重试错误。页面隐藏 / 离开时会尽可能提交最新输入；点击 Ask AI to Optimize 或 Save to CawPlan 前必须先成功 flush 未保存答案，否则阻止对应操作。答案随 Review State 持久化，恢复页面后仍在；未回答问题不阻止 Save。
 
 **尾巴**（存疑清单之后，**仅首次呈现**逐字输出；修订轮改走 §8 的精简输出契约；**不做弹框**；**跟随会话语言**二选一，不同时输出）：
 > 有修改意见可以直接在这里说，或者去 Review 页面编辑；确认没问题后，请在 Review 页面点击 Save to CawPlan 完成提交。
@@ -413,6 +417,8 @@ SQA 发送「恢复 Review 页面」（或对应英文）时：使用当前 bind
 
 **Chat 里任何形式的修订意见，统一走同一条路径**，不区分"回复存疑" / "自然语言整体修订"（如"补充超过上限的边界场景"）/ 看起来机械的单条操作（如"删除第 3 条"）——都视为针对当前 Review 的新一轮 AI 输入，不单独开一条"直连编辑、不占用 Round"的快速通道：
 
+无论由页面还是 Chat 触发 Optimize，共享锁定边界都会把当前 Round 已保存的 Edit / Add / Delete / Comment / Overall Feedback / HTML Answer Question 一起投影到既有 Human Input outbox。HTML 答案以 `[Answer Question]` 记录问题和当前最终非空答案；边界前无论自动保存多少次都只收集最后值，清空为 `null` 的答案不收集。Chat 原文继续只由 transcript 收集，不进入该 projector，也不与 HTML 答案做特殊去重。
+
 1. 调用 `cawplan qa-insights testpoint-review request-optimize --review-id <id>` 锁定当前 Review（效果等价于页面点击 "Ask AI to Optimize"：整页锁定、`review_status` 变 `pending_optimize`，但不需要页面已打开）。
 2. 读取最新 Review State（页面编辑、删除、新增和评论均以此为准）：
 
@@ -420,8 +426,8 @@ SQA 发送「恢复 Review 页面」（或对应英文）时：使用当前 bind
    cawplan qa-insights testpoint-review show --review-id <id>
    ```
 
-   用输出的完整 State（尤其是 `test_points[].current`、`status`、`comments`、`global_comments` 和 `requirement`）作为本轮 AI 推理的唯一页面输入，不得只使用 Chat 里旧的测试点内容。
-3. 把「最新 Review State + 本轮 Chat 输入」交给 AI 推理，产出下一 Round 的修改/新增。写入 `apply-optimization` 前，输出 JSON **必须**是以下形状（每条 `modified` 与 `added` 都须提供完整的 `title` / `group` / `tags` / `priority`）：
+   用输出的完整 State（尤其是 `test_points[].current`、`status`、`comments`、`global_comments`、`open_questions` 及其 HTML 答案和 `requirement`）作为本轮 AI 推理的唯一页面输入，不得只使用 Chat 里旧的测试点或存疑内容。
+3. 把「最新 Review State + 本轮 Chat 输入」交给 AI 推理，产出下一 Round 的修改/新增及完整活动存疑集合。Chat 中对存疑的回答只是本轮自然语言输入，不写入或覆盖 Review State 的 HTML 答案；如与 HTML 答案冲突，由 AI 在本轮统一理解，不做 CLI 冲突检测或跨入口去重。写入 `apply-optimization` 前，输出 JSON **必须**是以下形状（每条 `modified` 与 `added` 都须提供完整的 `title` / `group` / `tags` / `priority`）：
 
    ```json
    {
@@ -443,26 +449,26 @@ SQA 发送「恢复 Review 页面」（或对应英文）时：使用当前 bind
          "tags": ["..."],
          "priority": "HIGH"
        }
-     ]
+     ],
+     "questions": {
+       "retained_ids": ["oq_001"],
+       "added": ["〔恢复〕失败恢复方向仍未明确；建议确认是否允许重试。"]
+     }
    }
    ```
 
-   `Review State` 中的 `current` 只是现状快照，**不是** `modified` 的输出字段；也不能把 `title` / `group` / `tags` / `priority` 平铺在 `modified` 条目上，必须放进 `fields`。
+   `Review State` 中的 `current` 只是现状快照，**不是** `modified` 的输出字段；也不能把 `title` / `group` / `tags` / `priority` 平铺在 `modified` 条目上，必须放进 `fields`。`questions` 完整决定下一 Round：`retained_ids` 保留既有问题及 HTML 答案，未列出的移除，`added` 创建无答案的新问题；不再另做“是否真正解决”的判断。
 4. 调用 `apply-optimization` 落盘，命令必须使用 `--output-file`：
 
    ```bash
    cawplan qa-insights testpoint-review apply-optimization --review-id <id> --output-file <absolute-json-path>
    ```
 
-   该命令是**原子操作**：任一条输出不合法时，会明确报出字段路径，且不会应用任何条目、清评论、改变状态或推进 Round；此时保持原来的 `pending_optimize`，修正**同一份** JSON 后直接重试 `apply-optimization`，不得再次调用 `request-optimize`。全部校验通过后才 round + 1、页面恢复可编辑。
+   该命令是**原子操作**：任一测试点或 `questions` 输出不合法时，会明确报出字段路径，且不会应用任何条目、更新存疑、清评论、改变状态或推进 Round；此时保持原来的 `pending_optimize`，修正**同一份** JSON 后直接重试 `apply-optimization`，不得再次调用 `request-optimize`。全部校验通过后才一次写入测试点与存疑、round + 1、页面恢复可编辑。
 
 **Fallback trigger**：SQA 在 Claude Chat 发送 `继续优化 Review 页面` 或 `Continue optimization` 时，先执行本节 step 2 的 `show`，再根据该 State 推理；若它处于 `pending_optimize` 或 `optimizing`，直接从本节 step 3 继续，不能再调用 `request-optimize`。`恢复 Review 页面` 仍只按 §7 的恢复规则重开页面；即使页面处于 pending，也不在该触发词下自动推进优化。
 5. 确认当前页面服务是否仍存活：存活则复用 `review_url`（服务会从 Review State 重新读取最新 Round）；已关闭则后台重新执行一次 `open --no-browser` 并记录新 URL。禁止同时运行两个相同 Review 服务。
-6. 更新会话中的 `open_questions`：
-   - 用户本轮已明确回答、且已据此修改/新增测试点的存疑 → 移除；
-   - 用户未回答的旧存疑 → 保留**完整原文**，不得缩成轴名、关键词或数量；
-   - 本轮新产生的存疑 → 以「指向哪 + 为什么疑 + 建议动作」完整加入；
-   - 修订后得到的 `open_questions` = **当前全部未解决存疑**，不是只记录本轮新增项。
+6. `apply-optimization` 成功后重新读取最新 Review State；Chat 的完整剩余存疑清单只取其中 `open_questions`。不得在 session 中再人工维护移除 / 保留 / 新增规则，也不得根据答案充分性改写 AI 返回结果。
 
 #### 修订后 Chat 输出契约
 
@@ -507,7 +513,9 @@ Review 页面：[打开最新版本](<review_url>)
 
 这样确保 archived 状态、排除 deleted、未处理反馈拦截、重复提交保护等逻辑始终只有一套（页面侧 `/api/save-to-cawplan`），不产生 Chat / 页面两条归档路径。
 
-**保存前置条件**：若页面仍有任一测试点 Comment 或 Overall Feedback，且尚未被一次成功的 Ask AI 优化消费，Save to CawPlan 必须拒绝提交并提示先 Ask AI；没有确认弹窗或强制提交入口。仅 Edit / Delete / Add（没有上述未处理反馈）可以直接按当前页面状态保存。
+**保存前置条件**：若页面仍有任一测试点 Comment、Overall Feedback，或本 Round 新增/修改的非空 Questions to Confirm 答案，且尚未被一次成功的 Ask AI 优化消费，Save to CawPlan 必须拒绝提交并提示先 Ask AI；没有确认弹窗或强制提交入口。仅 Edit / Delete / Add（没有上述未处理人工输入）可以直接按当前页面状态保存。
+
+页面点击 Save 时会先 flush 尚未保存的 Questions 答案，再执行上述前置校验。未回答问题、清空为 `null` 的答案，以及已被上一轮 AI 消费并成为当前 `round_answer_baseline` 的答案不阻塞 Save；非空且不同于 baseline 的答案必须先 Ask AI。被拦截的 Save 不触发 Human Input 收集；成功 Optimize 时，HTML 中本 Round 最终非空且相对 baseline 有变化的答案由既有 Human Input projector/outbox 收集，清空为 `null` 的答案跳过 Human Input。
 
 **成功回执自动触发，不需要 SQA 回报**：SQA 在页面点击 Save to CawPlan 成功后，页面会关闭本地 Server；Agent 刚才那条挂起的 `open` 调用随之结束。按 §7.1 从任务 output file 确认事件为 `save_completed` 后，读取一次最终 Review State，取得本轮新增的 `archived: true` 条目数，**自动**在 Chat 输出成功回执（§9.5 格式，逐字文案与追加条件均保留不变）；禁止输出“正在优化”、调用 `request-optimize` 或进入 §8，也不需要 SQA 再回 Chat 说一遍"保存好了"。
 
@@ -551,7 +559,7 @@ SQA wants to change/delete a row **with `id`** → direct them to Test Suites UI
 
 **Binding**: `product_id`, `requirement_id`, `review_id`, `review_url`, Review 页面后台任务句柄/存活状态, `requirement_data` 中的 five-field snapshot、`summary` 与 `url`。`display_id` 不属于后续流程的必需状态。
 
-**Open questions**: `open_questions` 保存当前全部未解决存疑的完整文字。首次呈现时写入 §7.2 展示的完整清单；每次修订按 §8 step 6 做移除 / 保留 / 新增，再把更新后的完整清单输出。存疑不属于 Review 页面数据，不能只依赖 Review State 或临时聊天概括来恢复。
+**Open questions**: 不在 session state 维护第二份清单。活动存疑及 HTML 最终答案都持久化在 Review State；Chat 首次和每轮修订展示都从该 State 读取。Chat 回答只保留为当前轮自然语言输入，不回写问题答案。
 
 **测试点内容本身不在这份 session state 里维护**——Review State（`review_id` 对应的持久化数据）是唯一事实源（§8）。这份 session state 只记"当前在跟哪个 Requirement / 哪个 Review 打交道"，不记录草稿内容、谁改了哪行、`is_edited` 等——这些都从 Review State 读取或由页面/`apply-optimization` 计算，不在 Chat 会话里重复维护一份。
 

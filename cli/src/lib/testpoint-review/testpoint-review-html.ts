@@ -1,3 +1,4 @@
+import { TESTPOINT_PRIORITIES } from "../qa-insights/types.js";
 import type { ReviewState, TestPoint } from "./types.js";
 
 function escapeHtml(value: string): string {
@@ -32,6 +33,13 @@ const AI_STATUS_LABEL: Record<TestPoint["ai_status"], string> = {
   modified: "AI Modified",
   added: "AI Added",
 };
+
+function renderPriorityOptions(selectedPriority: string): string {
+  return TESTPOINT_PRIORITIES.map(
+    (priority) =>
+      `<option value="${priority}"${priority === selectedPriority ? " selected" : ""}>${priority}</option>`,
+  ).join("");
+}
 
 const COLUMN_HEADERS: Record<"zh" | "en", { seq: string; title: string; tags: string; priority: string; actions: string }> = {
   zh: { seq: "序号", title: "标题", tags: "标签", priority: "优先级", actions: "操作" },
@@ -86,7 +94,7 @@ function renderRow(seq: string, tp: TestPoint, pageLocked: boolean): string {
             ${aiStatusLabel ? renderOriginalCompare(tp) : ""}
           </td>
           <td><span class="field" data-field="tags" data-editable="${editable}">${f.tags.map((t) => escapeHtml(t)).join(", ")}</span></td>
-          <td><span class="field" data-field="priority" data-editable="${editable}">${escapeHtml(f.priority)}</span></td>
+          <td><select class="add-tp-input priority-select" data-field="priority" data-editable="${editable}" aria-label="Priority"${isLocked || isDeleted ? " disabled" : ""}>${renderPriorityOptions(f.priority)}</select></td>
           <td>
             ${actionButton}
             <button type="button" class="comment-toggle-btn" data-action="toggle-comments">Comment<span class="comment-count">${commentCount > 0 ? `(${commentCount})` : ""}</span></button>
@@ -120,6 +128,39 @@ function renderGlobalFeedbackPanel(globalComments: TestPoint["comments"], pageLo
     </section>`;
 }
 
+function renderQuestionsPanel(state: ReviewState, pageLocked: boolean): string {
+  const questions = state.open_questions ?? [];
+  if (questions.length === 0) return "";
+  const disabledAttr = pageLocked ? " disabled" : "";
+  const items = questions.map((question, index) => {
+    return `
+        <li class="question-item" data-question-id="${escapeHtml(question.id)}">
+          <div class="question-heading">
+            <span class="question-number">${index + 1}.</span>
+            <span class="question-text">${escapeHtml(question.text)}</span>
+          </div>
+          <div class="question-answer-form">
+            <textarea class="question-answer-input" rows="2" placeholder="Write your answer…"${disabledAttr}>${escapeHtml(question.answer ?? "")}</textarea>
+            <div class="question-save-error" role="alert" aria-live="polite">
+              <span class="question-save-error-text"></span>
+              <button type="button" class="question-save-retry">Retry</button>
+            </div>
+          </div>
+        </li>`;
+  }).join("");
+  return `
+    <details class="questions-panel" id="questions-panel">
+      <summary>
+        <span class="questions-icon" aria-hidden="true">?</span>
+        <span class="questions-title">Questions to Confirm</span>
+        <span class="questions-counts">${questions.length} ${questions.length === 1 ? "question" : "questions"}</span>
+        <span class="questions-expand-label"><span class="when-closed">Expand</span><span class="when-open">Collapse</span></span>
+      </summary>
+      <ol class="questions-list">${items}
+      </ol>
+    </details>`;
+}
+
 function renderAddTestPointPanel(pageLocked: boolean): string {
   const disabledAttr = pageLocked ? " disabled" : "";
   return `
@@ -131,10 +172,7 @@ function renderAddTestPointPanel(pageLocked: boolean): string {
       <input type="text" class="add-tp-input" id="add-tp-group" placeholder="Group"${disabledAttr} />
       <input type="text" class="add-tp-input" id="add-tp-tags" placeholder="Tags (comma-separated)"${disabledAttr} />
       <select class="add-tp-input" id="add-tp-priority"${disabledAttr}>
-        <option value="CRITICAL">CRITICAL</option>
-        <option value="HIGH">HIGH</option>
-        <option value="MEDIUM" selected>MEDIUM</option>
-        <option value="LOW">LOW</option>
+        ${renderPriorityOptions("MEDIUM")}
       </select>
       <button type="button" class="comment-submit-btn" id="add-tp-submit"${disabledAttr}>Submit</button>
     </div>`;
@@ -186,7 +224,7 @@ function renderSaveToCawPlanBar(pageLocked: boolean, visibleCount: number): stri
 function renderActionNotices(optimizeHint: string, optimizeHintIsStale: boolean): string {
   return `
     <div class="action-notices" aria-live="polite" aria-atomic="true">
-      <span class="action-notice optimize-hint${optimizeHintIsStale ? " optimize-hint-stale" : ""}" id="optimize-hint">${escapeHtml(optimizeHint)}</span>
+      <span class="optimize-hint action-notice${optimizeHintIsStale ? " optimize-hint-stale" : ""}" id="optimize-hint">${escapeHtml(optimizeHint)}</span>
       <span class="action-notice save-cawplan-hint" id="save-cawplan-hint"></span>
     </div>`;
 }
@@ -349,6 +387,94 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     .global-feedback .comment-input { background: var(--surface); height: 28px; }
     .global-feedback .comment-submit-btn { height: 28px; }
 
+    .questions-panel {
+      margin: 16px 0;
+      border: 1px solid #dce4fb;
+      border-radius: var(--radius-md);
+      background: #f8faff;
+      overflow: hidden;
+    }
+    .questions-panel summary {
+      min-height: 38px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      cursor: pointer;
+      list-style: none;
+      color: var(--ink-700);
+    }
+    .questions-panel summary::-webkit-details-marker { display: none; }
+    .questions-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #ef8b32;
+      color: #fff;
+      font-weight: 700;
+      flex: 0 0 18px;
+    }
+    .questions-title { color: var(--ink-900); font-weight: 650; }
+    .questions-counts { color: var(--ink-500); font-size: 12px; }
+    .questions-expand-label { margin-left: auto; color: var(--accent); font-size: 12px; }
+    .questions-expand-label .when-open { display: none; }
+    .questions-panel[open] .questions-expand-label .when-closed { display: none; }
+    .questions-panel[open] .questions-expand-label .when-open { display: inline; }
+    .questions-list {
+      margin: 0;
+      padding: 0 12px 10px;
+      list-style: none;
+      max-height: 420px;
+      overflow-y: auto;
+      border-top: 1px solid #e5eafb;
+    }
+    .question-item { padding: 11px 2px; border-bottom: 1px solid var(--line-soft); }
+    .question-item:last-child { border-bottom: 0; }
+    .question-heading { display: flex; align-items: flex-start; gap: 7px; }
+    .question-number { color: var(--ink-400); font-family: var(--font-mono); }
+    .question-text { flex: 1; color: var(--ink-900); }
+    .question-answer-form { margin: 8px 0 0 23px; }
+    .question-answer-input {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      resize: vertical;
+      min-height: 52px;
+      padding: 7px 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      font-family: inherit;
+      font-size: inherit;
+      line-height: inherit;
+      color: var(--ink-900);
+      background: var(--surface);
+    }
+    .question-answer-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .question-answer-input:disabled { cursor: not-allowed; opacity: 0.65; }
+    .question-save-error {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      margin-top: 5px;
+      color: var(--red);
+      font-size: 12px;
+    }
+    .question-save-error.visible { display: flex; }
+    .question-save-retry {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--accent-strong);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: inherit;
+      text-decoration: underline;
+    }
+    .question-save-retry.hidden { display: none; }
+
     .review-actions {
       display: flex;
       align-items: center;
@@ -452,7 +578,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     }
     th:nth-child(1) { width: 52px; }
     th:nth-child(3) { width: 160px; }
-    th:nth-child(4) { width: 90px; }
+    th:nth-child(4) { width: 120px; }
     th:nth-child(5) { width: 172px; }
     tr.tp-row { transition: background 0.1s ease; background: var(--surface); }
     tr.tp-row:hover { background: var(--surface-tint); }
@@ -506,6 +632,33 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     .field[data-editable="true"] { cursor: text; border-radius: 4px; padding: 3px 6px; margin: -3px -6px; transition: background 0.12s ease; }
     .field[data-editable="true"]:hover { background: var(--surface-tint); }
     .field[contenteditable="true"] { background: #fff8e4; outline: 1.5px solid var(--amber-bar); box-shadow: 0 0 0 3px rgba(219, 165, 40, 0.14); }
+    .priority-select {
+      width: 100px;
+      min-width: 0;
+      padding: 0 24px 0 8px;
+      border-color: transparent;
+      background-color: transparent;
+      background-image: none;
+      box-shadow: none;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      transition: background-color 0.12s ease;
+    }
+    .priority-select:hover, .priority-select:focus {
+      border-color: transparent;
+      background-color: var(--line-soft);
+      background-image:
+        linear-gradient(45deg, transparent 50%, var(--ink-500) 50%),
+        linear-gradient(135deg, var(--ink-500) 50%, transparent 50%);
+      background-position:
+        calc(100% - 11px) 50%,
+        calc(100% - 7px) 50%;
+      background-repeat: no-repeat;
+      background-size: 4px 4px;
+      box-shadow: none;
+      outline: none;
+    }
 
     .delete-btn, .restore-btn, .comment-toggle-btn, .comment-submit-btn {
       font-size: 12px;
@@ -574,7 +727,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     tr.tp-row.locked .field[data-editable="false"]:hover { background: none; }
     .status-label.locked-label { background: var(--surface-tint); color: var(--ink-500); }
     .delete-btn:disabled, .restore-btn:disabled, .comment-delete-btn:disabled,
-    .comment-submit-btn:disabled, .comment-input:disabled {
+    .comment-submit-btn:disabled, .comment-input:disabled, .priority-select:disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
@@ -661,6 +814,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       <p class="meta-line"><span class="review-id">${escapeHtml(state.review_id)}</span><span class="sep">·</span>${visibleTestPoints.length} total${archivedCount > 0 ? `<span class="sep">·</span>Already saved to CawPlan: ${archivedCount}` : ""}<span class="save-hint" id="save-hint"></span></p>
     </div>
     ${renderGlobalFeedbackPanel(state.global_comments, pageLocked)}
+    ${renderQuestionsPanel(state, pageLocked)}
     <section class="review-actions" aria-label="Review actions">
       ${renderAddTestPointPanel(pageLocked)}
       ${renderOptimizeBar(state.review_status)}
@@ -677,6 +831,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       var lastKnownUpdatedAt = ${JSON.stringify(state.updated_at)};
 
       function fieldValue(el, fieldName) {
+        if (fieldName === "priority") return el.value.trim();
         var text = el.textContent || "";
         if (fieldName === "tags") {
           return text.split(",").map(function (t) { return t.trim(); }).filter(Boolean);
@@ -714,6 +869,210 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         });
       }
 
+      // Question answers have their own serial queue because every Review mutation
+      // shares the same updated_at revision. Existing mutations keep their current
+      // behavior; this small gate only prevents them from racing an answer save.
+      var questionStates = [];
+      var questionQueue = [];
+      var questionDrainPromise = null;
+      var activeNonQuestionMutations = 0;
+      var nonQuestionIdleWaiters = [];
+      var questionInputsFrozen = false;
+
+      function normalizeQuestionAnswer(value) {
+        var trimmed = String(value == null ? "" : value).trim();
+        return trimmed || null;
+      }
+
+      function waitForNonQuestionIdle() {
+        if (activeNonQuestionMutations === 0) return Promise.resolve();
+        return new Promise(function (resolve) { nonQuestionIdleWaiters.push(resolve); });
+      }
+
+      function finishNonQuestionMutation() {
+        activeNonQuestionMutations = Math.max(0, activeNonQuestionMutations - 1);
+        if (activeNonQuestionMutations !== 0) return;
+        var waiters = nonQuestionIdleWaiters.splice(0);
+        waiters.forEach(function (resolve) { resolve(); });
+      }
+
+      function runNonQuestionMutation(factory) {
+        return flushQuestionAnswers({ requireSuccess: false, waitForNonQuestion: false }).catch(function () { return false; }).then(function () {
+          activeNonQuestionMutations += 1;
+          var result;
+          try {
+            result = factory();
+          } catch (error) {
+            finishNonQuestionMutation();
+            throw error;
+          }
+          return Promise.resolve(result).then(function (value) {
+            finishNonQuestionMutation();
+            return value;
+          }, function (error) {
+            finishNonQuestionMutation();
+            throw error;
+          });
+        });
+      }
+
+      function setQuestionError(state, message, canRetry) {
+        state.error = message || "";
+        state.errorEl.classList.toggle("visible", Boolean(message));
+        state.errorText.textContent = message || "";
+        state.retryBtn.classList.toggle("hidden", !canRetry);
+      }
+
+      function cancelQuestionTimers(state) {
+        if (state.debounceTimer) clearTimeout(state.debounceTimer);
+        if (state.retryTimer) clearTimeout(state.retryTimer);
+        state.debounceTimer = null;
+        state.retryTimer = null;
+      }
+
+      function enqueueQuestionSave(state, options) {
+        options = options || {};
+        if (options.keepalive) state.keepalive = true;
+        state.desiredValue = normalizeQuestionAnswer(state.input.value);
+        state.dirty = state.forceSave || state.desiredValue !== state.savedValue;
+        if (!state.dirty || state.saving || state.queued || state.conflictBlocked) return;
+        state.queued = true;
+        questionQueue.push(state);
+        startQuestionDrain();
+      }
+
+      function scheduleQuestionRetry(state) {
+        if (state.autoRetryCount >= 1 || state.retryTimer || state.conflictBlocked) return;
+        state.autoRetryCount += 1;
+        state.retryTimer = setTimeout(function () {
+          state.retryTimer = null;
+          enqueueQuestionSave(state);
+        }, 1500);
+      }
+
+      function startQuestionDrain() {
+        if (questionDrainPromise) return questionDrainPromise;
+        questionDrainPromise = (async function () {
+          while (questionQueue.length > 0) {
+            var state = questionQueue.shift();
+            state.queued = false;
+            if (state.conflictBlocked) continue;
+            state.desiredValue = normalizeQuestionAnswer(state.input.value);
+            state.dirty = state.forceSave || state.desiredValue !== state.savedValue;
+            if (!state.dirty) continue;
+
+            await waitForNonQuestionIdle();
+            var submittedValue = state.desiredValue;
+            var requestRevision = state.retryRevision || lastKnownUpdatedAt;
+            var keepalive = state.keepalive;
+            state.retryRevision = null;
+            state.keepalive = false;
+            state.saving = true;
+            try {
+              var url = "/api/open-questions/" + encodeURIComponent(state.id) + "/answer?token=" +
+                encodeURIComponent(token) + "&updated_at=" + encodeURIComponent(requestRevision);
+              var res = await fetch(url, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ answer: submittedValue }),
+                keepalive: keepalive,
+              });
+              var data = await res.json().catch(function () { return {}; });
+              if (res.status === 409) {
+                state.forceSave = true;
+                state.conflictBlocked = true;
+                if (data && data.error === "conflict" && typeof data.server_updated_at === "string") {
+                  state.conflictRevision = data.server_updated_at;
+                  setQuestionError(state, "This answer was not saved because the Review changed. Retry to save your current input.", true);
+                } else {
+                  state.conflictRevision = null;
+                  setQuestionError(state, "This answer was not saved because the Review is locked.", false);
+                }
+              } else if (!res.ok) {
+                state.forceSave = true;
+                setQuestionError(state, "Answer save failed. Retry to keep this input.", true);
+                scheduleQuestionRetry(state);
+              } else {
+                if (data && typeof data.updated_at === "string") lastKnownUpdatedAt = data.updated_at;
+                state.savedValue = data && data.open_question
+                  ? normalizeQuestionAnswer(data.open_question.answer)
+                  : submittedValue;
+                state.forceSave = false;
+                state.conflictBlocked = false;
+                state.conflictRevision = null;
+                state.autoRetryCount = 0;
+                setQuestionError(state, "", false);
+              }
+            } catch (error) {
+              state.forceSave = true;
+              setQuestionError(state, "Answer save failed. Retry to keep this input.", true);
+              scheduleQuestionRetry(state);
+            } finally {
+              state.saving = false;
+              state.desiredValue = normalizeQuestionAnswer(state.input.value);
+              state.dirty = state.forceSave || state.desiredValue !== state.savedValue;
+              if (state.dirty && !state.conflictBlocked && !state.retryTimer) enqueueQuestionSave(state);
+            }
+          }
+        })().then(function () {
+          questionDrainPromise = null;
+          if (questionQueue.length > 0) startQuestionDrain();
+        }, function () {
+          questionDrainPromise = null;
+          if (questionQueue.length > 0) startQuestionDrain();
+        });
+        return questionDrainPromise;
+      }
+
+      function waitForQuestionQueueIdle() {
+        var pending = questionDrainPromise;
+        if (!pending) return Promise.resolve();
+        return pending.then(waitForQuestionQueueIdle);
+      }
+
+      function waitForAllMutationActivity() {
+        return waitForQuestionQueueIdle().then(waitForNonQuestionIdle).then(function () {
+          if (questionDrainPromise || activeNonQuestionMutations > 0) return waitForAllMutationActivity();
+        });
+      }
+
+      function flushQuestionAnswers(options) {
+        options = options || {};
+        var hadQuestionActivity = Boolean(questionDrainPromise);
+        questionStates.forEach(function (state) {
+          cancelQuestionTimers(state);
+          state.desiredValue = normalizeQuestionAnswer(state.input.value);
+          state.dirty = state.forceSave || state.desiredValue !== state.savedValue;
+          if (state.dirty && !state.conflictBlocked) {
+            hadQuestionActivity = true;
+            enqueueQuestionSave(state, { keepalive: Boolean(options.keepalive) });
+          }
+        });
+        var wait = options.waitForNonQuestion === false
+          ? (hadQuestionActivity ? waitForQuestionQueueIdle() : Promise.resolve())
+          : waitForAllMutationActivity();
+        return wait.then(function () {
+          if (!options.requireSuccess) return true;
+          return !questionStates.some(function (state) {
+            return state.dirty || state.saving || state.queued || Boolean(state.error);
+          });
+        });
+      }
+
+      function hasUnsavedQuestionAnswers() {
+        return questionStates.some(function (state) {
+          return state.dirty || state.saving || state.queued || Boolean(state.debounceTimer) || Boolean(state.error);
+        });
+      }
+
+      function setQuestionInputsFrozen(frozen) {
+        questionInputsFrozen = frozen;
+        questionStates.forEach(function (state) {
+          state.input.disabled = frozen;
+          state.retryBtn.disabled = frozen;
+        });
+      }
+
       function applyRowStatus(row, status) {
         row.className = row.className.replace(/\\bstatus-\\S+/g, "").trim();
         row.classList.add("tp-row", "status-" + status);
@@ -740,6 +1099,11 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
             actionCell.outerHTML = '<button type="button" class="delete-btn" data-action="delete">Delete</button>';
           }
           wireActionButton(row.querySelector(".delete-btn, .restore-btn"));
+        }
+
+        var prioritySelect = row.querySelector(".priority-select");
+        if (prioritySelect) {
+          prioritySelect.disabled = status === "deleted" || row.getAttribute("data-locked") === "true";
         }
 
         applyFilterToRow(row);
@@ -789,12 +1153,13 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         var body = {};
         body[field] = fieldValue(el, field);
         setSaveHint("Saving…");
-        fetch(withUpdatedAt("/api/test-points/" + encodeURIComponent(id) + "?token=" + encodeURIComponent(token)), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
+        runNonQuestionMutation(function () {
+          return fetch(withUpdatedAt("/api/test-points/" + encodeURIComponent(id) + "?token=" + encodeURIComponent(token)), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }).then(handleApiResponse);
         })
-          .then(handleApiResponse)
           .then(function () {
             applyRowStatus(row, "edited");
             setSaveHint("Saved");
@@ -810,12 +1175,13 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         var id = row.getAttribute("data-id");
         var suffix = deleted ? "/delete" : "/restore";
         setSaveHint(deleted ? "Deleting…" : "Restoring…");
-        fetch(withUpdatedAt("/api/test-points/" + encodeURIComponent(id) + suffix + "?token=" + encodeURIComponent(token)), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: "{}",
+        runNonQuestionMutation(function () {
+          return fetch(withUpdatedAt("/api/test-points/" + encodeURIComponent(id) + suffix + "?token=" + encodeURIComponent(token)), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+          }).then(handleApiResponse);
         })
-          .then(handleApiResponse)
           .then(function (data) {
             applyRowStatus(row, data.test_point.status);
             setSaveHint("Saved");
@@ -875,11 +1241,12 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           var li = btn.closest(".comment-item");
           var commentId = li.getAttribute("data-comment-id");
           setSaveHint("Deleting…");
-          fetch(
-            withUpdatedAt("/api/test-points/" + encodeURIComponent(id) + "/comments/" + encodeURIComponent(commentId) + "?token=" + encodeURIComponent(token)),
-            { method: "DELETE" },
-          )
-            .then(handleApiResponse)
+          runNonQuestionMutation(function () {
+            return fetch(
+              withUpdatedAt("/api/test-points/" + encodeURIComponent(id) + "/comments/" + encodeURIComponent(commentId) + "?token=" + encodeURIComponent(token)),
+              { method: "DELETE" },
+            ).then(handleApiResponse);
+          })
             .then(function () {
               li.parentNode.removeChild(li);
               updateCommentCount(id, list);
@@ -907,12 +1274,13 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           var text = input.value.trim();
           if (!text) return;
           setSaveHint("Saving…");
-          fetch(withUpdatedAt("/api/test-points/" + encodeURIComponent(id) + "/comments?token=" + encodeURIComponent(token)), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ text: text }),
+          runNonQuestionMutation(function () {
+            return fetch(withUpdatedAt("/api/test-points/" + encodeURIComponent(id) + "/comments?token=" + encodeURIComponent(token)), {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ text: text }),
+            }).then(handleApiResponse);
           })
-            .then(handleApiResponse)
             .then(function (data) {
               var comments = data.test_point.comments;
               var newComment = comments[comments.length - 1];
@@ -951,11 +1319,12 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           var li = btn.closest(".comment-item");
           var commentId = li.getAttribute("data-comment-id");
           setSaveHint("Deleting…");
-          fetch(
-            withUpdatedAt("/api/global-comments/" + encodeURIComponent(commentId) + "?token=" + encodeURIComponent(token)),
-            { method: "DELETE" },
-          )
-            .then(handleApiResponse)
+          runNonQuestionMutation(function () {
+            return fetch(
+              withUpdatedAt("/api/global-comments/" + encodeURIComponent(commentId) + "?token=" + encodeURIComponent(token)),
+              { method: "DELETE" },
+            ).then(handleApiResponse);
+          })
             .then(function () {
               li.parentNode.removeChild(li);
               setSaveHint("Saved");
@@ -983,12 +1352,13 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           var text = input.value.trim();
           if (!text) return;
           setSaveHint("Saving…");
-          fetch(withUpdatedAt("/api/global-comments?token=" + encodeURIComponent(token)), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ text: text }),
+          runNonQuestionMutation(function () {
+            return fetch(withUpdatedAt("/api/global-comments?token=" + encodeURIComponent(token)), {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ text: text }),
+            }).then(handleApiResponse);
           })
-            .then(handleApiResponse)
             .then(function (data) {
               var comments = data.global_comments;
               var newComment = comments[comments.length - 1];
@@ -1020,6 +1390,78 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         });
       }
 
+      function wireQuestionAnswers() {
+        document.querySelectorAll(".question-item").forEach(function (item) {
+          var questionId = item.getAttribute("data-question-id");
+          var input = item.querySelector(".question-answer-input");
+          var errorEl = item.querySelector(".question-save-error");
+          var errorText = item.querySelector(".question-save-error-text");
+          var retryBtn = item.querySelector(".question-save-retry");
+          if (!questionId || !input || !errorEl || !errorText || !retryBtn) return;
+          var initialValue = normalizeQuestionAnswer(input.value);
+          var state = {
+            id: questionId,
+            input: input,
+            errorEl: errorEl,
+            errorText: errorText,
+            retryBtn: retryBtn,
+            savedValue: initialValue,
+            desiredValue: initialValue,
+            dirty: false,
+            saving: false,
+            queued: false,
+            debounceTimer: null,
+            retryTimer: null,
+            autoRetryCount: 0,
+            forceSave: false,
+            conflictBlocked: false,
+            conflictRevision: null,
+            retryRevision: null,
+            keepalive: false,
+            error: "",
+          };
+          questionStates.push(state);
+
+          input.addEventListener("input", function () {
+            state.desiredValue = normalizeQuestionAnswer(input.value);
+            state.dirty = state.forceSave || state.desiredValue !== state.savedValue;
+            state.autoRetryCount = 0;
+            if (state.debounceTimer) clearTimeout(state.debounceTimer);
+            if (state.retryTimer) clearTimeout(state.retryTimer);
+            state.retryTimer = null;
+            if (!state.dirty) {
+              state.conflictBlocked = false;
+              state.conflictRevision = null;
+              state.retryRevision = null;
+              setQuestionError(state, "", false);
+              return;
+            }
+            if (state.conflictBlocked || questionInputsFrozen) return;
+            state.debounceTimer = setTimeout(function () {
+              state.debounceTimer = null;
+              enqueueQuestionSave(state);
+            }, 650);
+          });
+
+          input.addEventListener("blur", function () {
+            if (state.debounceTimer) clearTimeout(state.debounceTimer);
+            state.debounceTimer = null;
+            if (!questionInputsFrozen) enqueueQuestionSave(state);
+          });
+
+          retryBtn.addEventListener("click", function () {
+            if (questionInputsFrozen) return;
+            cancelQuestionTimers(state);
+            state.conflictBlocked = false;
+            state.retryRevision = state.conflictRevision;
+            state.conflictRevision = null;
+            state.autoRetryCount = 0;
+            setQuestionError(state, "", false);
+            enqueueQuestionSave(state);
+          });
+        });
+      }
+
       function wireAddTestPointPanel() {
         var toggleBtn = document.getElementById("add-tp-toggle");
         var form = document.getElementById("add-tp-form");
@@ -1045,12 +1487,13 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
             priority: priorityInput.value.trim(),
           };
           setSaveHint("Saving…");
-          fetch(withUpdatedAt("/api/test-points?token=" + encodeURIComponent(token)), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
+          runNonQuestionMutation(function () {
+            return fetch(withUpdatedAt("/api/test-points?token=" + encodeURIComponent(token)), {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            }).then(handleApiResponse);
           })
-            .then(handleApiResponse)
             .then(function () {
               location.reload();
             })
@@ -1095,12 +1538,24 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         });
       }
 
+      function wirePrioritySelect(el) {
+        var row = el.closest(".tp-row");
+        el.addEventListener("change", function () {
+          if (row.classList.contains("status-deleted") || row.getAttribute("data-locked") === "true") return;
+          saveField(row, "priority", el);
+        });
+      }
+
       function lockRow(row) {
         row.classList.add("locked");
         row.setAttribute("data-locked", "true");
 
         row.querySelectorAll(".field[data-editable=\\"true\\"]").forEach(function (field) {
           field.setAttribute("data-editable", "false");
+        });
+        row.querySelectorAll(".priority-select").forEach(function (select) {
+          select.setAttribute("data-editable", "false");
+          select.disabled = true;
         });
 
         var titleCell = row.querySelector(".tp-title-cell");
@@ -1136,6 +1591,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         document.querySelectorAll("#global-comment-list .comment-delete-btn").forEach(function (el) {
           el.disabled = true;
         });
+        setQuestionInputsFrozen(true);
 
         var addToggle = document.getElementById("add-tp-toggle");
         if (addToggle) addToggle.disabled = true;
@@ -1154,12 +1610,17 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
 
         btn.addEventListener("click", function () {
           btn.disabled = true;
+          setQuestionInputsFrozen(true);
           if (hint) hint.textContent = "Requesting optimization…";
-          fetch("/api/optimize?token=" + encodeURIComponent(token), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: "{}",
-          })
+          flushQuestionAnswers({ requireSuccess: true })
+            .then(function (flushed) {
+              if (!flushed) throw new Error("question answers were not saved");
+              return fetch("/api/optimize?token=" + encodeURIComponent(token), {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: "{}",
+              });
+            })
             .then(function (res) {
               if (!res.ok) throw new Error("optimize request failed");
               return res.json();
@@ -1167,6 +1628,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
             .then(function (data) {
               if (data && data.outcome === "NO_CHANGES") {
                 btn.disabled = false;
+                setQuestionInputsFrozen(false);
                 if (hint) hint.textContent = "No changes to optimize. Make a change first.";
                 return;
               }
@@ -1177,7 +1639,10 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
             })
             .catch(function () {
               btn.disabled = false;
-              if (hint) hint.textContent = "Request failed, please retry";
+              setQuestionInputsFrozen(false);
+              if (hint) hint.textContent = hasUnsavedQuestionAnswers()
+                ? "Save the question answers successfully before optimizing."
+                : "Request failed, please retry";
             });
         });
       }
@@ -1189,15 +1654,20 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
 
         function submit() {
           btn.disabled = true;
+          setQuestionInputsFrozen(true);
           if (hint) {
             hint.className = "action-notice save-cawplan-hint";
             hint.textContent = "Saving to CawPlan…";
           }
-          fetch("/api/save-to-cawplan?token=" + encodeURIComponent(token), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: "{}",
-          })
+          flushQuestionAnswers({ requireSuccess: true })
+            .then(function (flushed) {
+              if (!flushed) throw new Error("Save the question answers successfully before saving to CawPlan.");
+              return fetch("/api/save-to-cawplan?token=" + encodeURIComponent(token), {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: "{}",
+              });
+            })
             .then(function (res) {
               return res.json().then(function (data) { return { res: res, data: data }; });
             })
@@ -1206,9 +1676,10 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
               var data = result.data;
               if (res.status === 409 && data && data.error === "unresolved_feedback") {
                 btn.disabled = false;
+                setQuestionInputsFrozen(false);
                 if (hint) {
                   hint.className = "action-notice save-cawplan-hint save-cawplan-hint-error";
-                  hint.textContent = "Comments or Overall Feedback must be processed by Ask AI before saving.";
+                  hint.textContent = "Comments, Overall Feedback, or answered Questions must be processed by Ask AI before saving.";
                 }
                 return;
               }
@@ -1218,6 +1689,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
               if (data.outcome === "NOOP") {
                 if (hint) hint.textContent = "Nothing new to save — every visible test point is already archived.";
                 btn.disabled = false;
+                setQuestionInputsFrozen(false);
                 return;
               }
               lockPage();
@@ -1228,6 +1700,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
             })
             .catch(function (err) {
               btn.disabled = false;
+              setQuestionInputsFrozen(false);
               if (hint) {
                 hint.className = "action-notice save-cawplan-hint save-cawplan-hint-error";
                 hint.textContent = (err && err.message) || "Save failed, please retry";
@@ -1238,12 +1711,31 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         btn.addEventListener("click", submit);
       }
 
+      function wireQuestionLifecycleFlush() {
+        document.addEventListener("visibilitychange", function () {
+          if (document.visibilityState === "hidden") {
+            flushQuestionAnswers({ requireSuccess: false, keepalive: true });
+          }
+        });
+        window.addEventListener("pagehide", function () {
+          flushQuestionAnswers({ requireSuccess: false, keepalive: true });
+        });
+        window.addEventListener("beforeunload", function (event) {
+          if (!hasUnsavedQuestionAnswers()) return;
+          event.preventDefault();
+          event.returnValue = "";
+        });
+      }
+
       document.querySelectorAll(".field[data-editable=\\"true\\"]").forEach(wireField);
+      document.querySelectorAll(".priority-select[data-editable=\\"true\\"]").forEach(wirePrioritySelect);
       document.querySelectorAll(".delete-btn, .restore-btn").forEach(wireActionButton);
       document.querySelectorAll(".comment-toggle-btn").forEach(wireCommentToggle);
       document.querySelectorAll(".ai-status-label").forEach(wireOriginalCompareToggle);
       document.querySelectorAll("tr.comment-row").forEach(wireCommentForm);
       wireGlobalFeedbackForm();
+      wireQuestionAnswers();
+      wireQuestionLifecycleFlush();
       wireAddTestPointPanel();
       wireFilterBar();
       wireOptimizeButton();

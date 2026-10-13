@@ -9,6 +9,10 @@ export type AiModifiedEntry = {
 export type AiRoundOutput = {
   modified: AiModifiedEntry[];
   added: TestPointFields[];
+  questions?: {
+    retainedIds: string[];
+    added: string[];
+  };
 };
 
 export function advanceReviewRound(reviewState: ReviewState, aiOutput: AiRoundOutput): ReviewState {
@@ -55,6 +59,26 @@ export function advanceReviewRound(reviewState: ReviewState, aiOutput: AiRoundOu
       comments: [],
     };
   });
+
+  if (reviewState.open_questions !== undefined && aiOutput.questions) {
+    const byId = new Map(reviewState.open_questions.map((question) => [question.id, question]));
+    const retained = aiOutput.questions.retainedIds.map((id) => {
+      const question = byId.get(id)!;
+      return {...question, round_answer_baseline: question.answer};
+    });
+    let nextQuestionSeq = reviewState.next_question_seq ?? reviewState.open_questions.reduce((next, question) => {
+      const match = /^oq_(\d+)$/.exec(question.id);
+      return match ? Math.max(next, Number(match[1]) + 1) : next;
+    }, 1);
+    const addedQuestions = aiOutput.questions.added.map((text) => ({
+      id: `oq_${String(nextQuestionSeq++).padStart(3, "0")}`,
+      text,
+      answer: null,
+      round_answer_baseline: null,
+    }));
+    reviewState.open_questions = [...retained, ...addedQuestions];
+    reviewState.next_question_seq = nextQuestionSeq;
+  }
 
   reviewState.round += 1;
   reviewState.test_points = [...survivors, ...added, ...archived];

@@ -66,6 +66,23 @@ describe("dispatchTestPointReviewRequest edit route", () => {
         expect(updated.status).toBe("edited");
     });
 
+    test("edits priority, marks the row edited, and persists the selected value", async () => {
+        const result = await dispatchTestPointReviewRequest(
+            req("POST", "/api/test-points/tp_001"),
+            JSON.stringify({priority: "LOW"}),
+            TOKEN,
+            {reviewState: state},
+        );
+
+        expect(result.status).toBe(200);
+        const updated = state.test_points.find((tp) => tp.id === "tp_001")!;
+        expect(updated.current.priority).toBe("LOW");
+        expect(updated.status).toBe("edited");
+
+        const persisted = JSON.parse(readFileSync(reviewFilePath(state.review_id), "utf8")) as ReviewState;
+        expect(persisted.test_points.find((tp) => tp.id === "tp_001")!.current.priority).toBe("LOW");
+    });
+
     test("editing an AI-added point marks it as edited while retaining its AI provenance", async () => {
         const point = state.test_points[0];
         point.status = "added";

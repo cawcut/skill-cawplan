@@ -7,9 +7,16 @@ import {
 import {createFixtureReviewState} from "../src/lib/testpoint-review/fixtures.js";
 import type {RawAiOptimizeOutput} from "../src/lib/testpoint-review/optimize-apply.js";
 
+function legacyFixture() {
+    const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+    delete state.open_questions;
+    delete state.next_question_seq;
+    return state;
+}
+
 describe("validateAiOptimizeOutput (design §8.5, plan step 18)", () => {
     test("accepts a modified entry that references an existing, active test point", () => {
-        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+        const state = legacyFixture();
         const raw: RawAiOptimizeOutput = {
             modified: [{id: "tp_002", fields: {title: "revised", group: "g", tags: [], priority: "HIGH"}}],
             added: [],
@@ -22,7 +29,7 @@ describe("validateAiOptimizeOutput (design §8.5, plan step 18)", () => {
     });
 
     test("drops a modified entry whose id does not exist in the current round", () => {
-        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+        const state = legacyFixture();
         const raw: RawAiOptimizeOutput = {
             modified: [{id: "tp_999", fields: {title: "ghost", group: "g", tags: [], priority: "LOW"}}],
             added: [],
@@ -35,7 +42,7 @@ describe("validateAiOptimizeOutput (design §8.5, plan step 18)", () => {
     });
 
     test("drops a modified entry that targets a test point the QA already deleted (design §8.7)", () => {
-        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+        const state = legacyFixture();
         state.test_points[0].status = "deleted";
         const raw: RawAiOptimizeOutput = {
             modified: [{id: state.test_points[0].id, fields: {title: "resurrected", group: "g", tags: [], priority: "LOW"}}],
@@ -49,7 +56,7 @@ describe("validateAiOptimizeOutput (design §8.5, plan step 18)", () => {
     });
 
     test("drops a modified entry that targets an already-archived test point", () => {
-        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+        const state = legacyFixture();
         state.test_points[0].archived = true;
         const raw: RawAiOptimizeOutput = {
             modified: [{id: state.test_points[0].id, fields: {title: "should not apply", group: "g", tags: [], priority: "LOW"}}],
@@ -63,7 +70,7 @@ describe("validateAiOptimizeOutput (design §8.5, plan step 18)", () => {
     });
 
     test("drops a modified entry with a missing or blank title", () => {
-        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+        const state = legacyFixture();
         const raw: RawAiOptimizeOutput = {
             modified: [{id: "tp_001", fields: {title: "  ", group: "g", tags: [], priority: "LOW"}}],
             added: [],
@@ -76,7 +83,7 @@ describe("validateAiOptimizeOutput (design §8.5, plan step 18)", () => {
     });
 
     test("drops a modified entry with malformed tags (not a string array)", () => {
-        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+        const state = legacyFixture();
         const raw = {
             modified: [{id: "tp_001", fields: {title: "ok", group: "g", tags: "not-an-array", priority: "LOW"}}],
             added: [],
@@ -89,7 +96,7 @@ describe("validateAiOptimizeOutput (design §8.5, plan step 18)", () => {
     });
 
     test("accepts a well-formed added entry", () => {
-        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+        const state = legacyFixture();
         const raw: RawAiOptimizeOutput = {
             modified: [],
             added: [{title: "new one", group: "g", tags: ["x"], priority: "LOW"}],
@@ -102,7 +109,7 @@ describe("validateAiOptimizeOutput (design §8.5, plan step 18)", () => {
     });
 
     test("drops an added entry with an empty title", () => {
-        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+        const state = legacyFixture();
         const raw: RawAiOptimizeOutput = {
             modified: [],
             added: [{title: "", group: "g", tags: [], priority: "LOW"}],
@@ -115,7 +122,7 @@ describe("validateAiOptimizeOutput (design §8.5, plan step 18)", () => {
     });
 
     test("reports concrete errors for invalid entries while retaining the valid projection for inspection", () => {
-        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+        const state = legacyFixture();
         const raw: RawAiOptimizeOutput = {
             modified: [
                 {id: "tp_001", fields: {title: "good edit", group: "g", tags: [], priority: "HIGH"}},
@@ -141,7 +148,7 @@ describe("validateAiOptimizeOutput (design §8.5, plan step 18)", () => {
 
 describe("applyAiOptimization (design §3.4/§3.7, plan step 18)", () => {
     test("advances the round, unlocks the review, and clears optimize_requested_at", () => {
-        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+        const state = legacyFixture();
         state.review_status = "pending_optimize";
         state.optimize_requested_at = new Date().toISOString();
         const roundBefore = state.round;
@@ -159,7 +166,7 @@ describe("applyAiOptimization (design §3.4/§3.7, plan step 18)", () => {
     });
 
     test("rejects a malformed batch atomically, preserving the pending round and all QA feedback", () => {
-        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+        const state = legacyFixture();
         state.review_status = "pending_optimize";
         state.optimize_requested_at = "2026-09-17T13:20:00.000Z";
         state.test_points[0].status = "edited";
@@ -180,7 +187,7 @@ describe("applyAiOptimization (design §3.4/§3.7, plan step 18)", () => {
     });
 
     test("applies a corrected mixed batch once after a rejected attempt", () => {
-        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
+        const state = legacyFixture();
         state.review_status = "pending_optimize";
         const malformedOutput = {
             modified: [{id: "tp_001", title: "wrong wrapper", group: "g", tags: [], priority: "LOW"}],
