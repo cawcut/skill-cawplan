@@ -14,7 +14,7 @@
 #   document is created under the module of its directory (files at the repo root go in the repo
 #   module). Missing modules are created, existing ones (same name under the same parent) are
 #   reused. The module tree is at most 5 levels deep, so directories nested deeper than the repo
-#   module + 4 levels are folded into their level-5 ancestor.
+#   module + 4 levels are joined with "-" into one module on level 5 (a/b/c/d/e -> .../c/d-e).
 # - Without a product the dataset is synced flat (no modules), as before.
 # - With no product given and no dataset recorded yet, a numbered product menu is shown first
 #   (when run from a terminal, or with -i / --interactive; type text to filter, Enter = flat sync).
@@ -292,20 +292,25 @@ if [[ "$DATASET_ID" != "<dry-run-dataset-id>" ]]; then
 fi
 
 # module_path_for REL_DIR -> the "/"-joined module path for a directory ("." = repo root): the
-# repo module plus one segment per directory, folded at MAX_MODULE_DEPTH levels.
+# repo module plus one segment per directory. The tree is at most MAX_MODULE_DEPTH levels deep, so
+# the directories from that level on are joined with "-" into ONE module on the last level:
+# a/b/c/d/e/f with a 5-level limit -> root/a/b/c/d-e-f ... (root counts as level 1).
 module_path_for() {
-  local rel_dir="$1" path="$MODULE_NAME" depth=1 seg
+  local rel_dir="$1" path="$MODULE_NAME" depth=1 seg tail=""
   local segs
   if [[ "$rel_dir" != "." && -n "$rel_dir" ]]; then
     IFS='/' read -r -a segs <<<"$rel_dir"
     for seg in "${segs[@]}"; do
       [[ -z "$seg" ]] && continue
       if [[ "$depth" -ge "$MAX_MODULE_DEPTH" ]]; then
-        break
+        tail="$tail-$seg"
+      else
+        path="$path/$seg"
+        depth=$((depth + 1))
       fi
-      path="$path/$seg"
-      depth=$((depth + 1))
     done
+    # tail is the directories past the last level; they extend that level's own name.
+    path="$path$tail"
   fi
   printf '%s' "$path"
 }
@@ -466,7 +471,7 @@ while IFS= read -r -d '' file; do
   if [[ -n "$PRODUCT_ID" && "$(dirname "$rel_path")" != "." ]]; then
     dir_depth="$(awk -F/ '{print NF}' <<<"$(dirname "$rel_path")")"
     if [[ "$dir_depth" -gt $((MAX_MODULE_DEPTH - 1)) ]]; then
-      echo "NOTE   $rel_path is nested deeper than the module tree allows ($MAX_MODULE_DEPTH levels); filed under \"$desired_module_path\""
+      echo "NOTE   $rel_path is nested deeper than the module tree allows ($MAX_MODULE_DEPTH levels); its directories are joined into one module: \"$desired_module_path\""
     fi
   fi
 
