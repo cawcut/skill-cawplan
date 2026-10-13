@@ -185,7 +185,7 @@ function dateFromCodexTimestamp(value: string | number | null | undefined): Date
   return null;
 }
 
-function extractTextContent(content: unknown): string {
+export function extractTextContent(content: unknown): string {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
   return content
@@ -206,11 +206,11 @@ function extractTextContent(content: unknown): string {
 // message wrapped in <skill><name>…</name><path>…</path>…</skill>. It is not human input.
 const CODEX_SKILL_BLOCK_RE = /<skill>\s*<name>[\s\S]*?<\/skill>/g;
 
-function stripCodexSkillBlocks(text: string): string {
+export function stripCodexSkillBlocks(text: string): string {
   return text.replace(CODEX_SKILL_BLOCK_RE, "").trim();
 }
 
-function isHumanInputText(text: string): boolean {
+export function isHumanInputText(text: string): boolean {
   if (text.includes("<environment_context>")) return false;
   if (text.includes("<INSTRUCTIONS>")) return false;
   if (/^# AGENTS\.md instructions/.test(text)) return false;
@@ -267,7 +267,7 @@ function rolloutPathCandidates(
   return [...paths];
 }
 
-function rolloutFilesForDate(fallbackSessionsDir: string, filterDate: string): string[] {
+export function rolloutFilesForDate(fallbackSessionsDir: string, filterDate: string): string[] {
   const [year, month, day] = filterDate.split("-");
   if (!year || !month || !day) return [];
   const dir = join(fallbackSessionsDir, year, month, day);
