@@ -8,6 +8,7 @@ import type { ReviewState, TestPointFields } from "./types.js";
 export type RawAiOptimizeOutput = {
   modified?: Array<{ id?: unknown; fields?: Partial<TestPointFields> }>;
   added?: Array<Partial<TestPointFields>>;
+  questions?: unknown;
 };
 
 export type OptimizeValidationResult = {
@@ -112,7 +113,48 @@ export function validateAiOptimizeOutput(
     added.push(fields);
   }
 
-  return { output: { modified, added }, skippedCount: errors.length, errors };
+  let questions: AiRoundOutput["questions"];
+  if (reviewState.open_questions !== undefined) {
+    if (!isRecord(raw.questions)) {
+      errors.push("questions is required");
+    } else {
+      const rawRetainedIds = raw.questions.retained_ids;
+      const rawQuestionAdds = raw.questions.added;
+      if (!Array.isArray(rawRetainedIds)) errors.push("questions.retained_ids must be an array");
+      if (!Array.isArray(rawQuestionAdds)) errors.push("questions.added must be an array");
+
+      const activeIds = new Set(reviewState.open_questions.map((question) => question.id));
+      const retainedIds: string[] = [];
+      const seenIds = new Set<string>();
+      for (const [index, value] of (Array.isArray(rawRetainedIds) ? rawRetainedIds : []).entries()) {
+        const path = `questions.retained_ids[${index}]`;
+        if (!isNonEmptyString(value)) {
+          errors.push(`${path} must be a non-empty string`);
+        } else if (!activeIds.has(value)) {
+          errors.push(`${path} ${JSON.stringify(value)} does not reference an active question`);
+        } else if (seenIds.has(value)) {
+          errors.push(`${path} duplicates ${JSON.stringify(value)}`);
+        } else {
+          seenIds.add(value);
+          retainedIds.push(value);
+        }
+      }
+
+      const questionAdds: string[] = [];
+      for (const [index, value] of (Array.isArray(rawQuestionAdds) ? rawQuestionAdds : []).entries()) {
+        if (!isNonEmptyString(value)) {
+          errors.push(`questions.added[${index}] must be a non-empty string`);
+        } else {
+          questionAdds.push(value.trim());
+        }
+      }
+      if (Array.isArray(rawRetainedIds) && Array.isArray(rawQuestionAdds)) {
+        questions = {retainedIds, added: questionAdds};
+      }
+    }
+  }
+
+  return { output: { modified, added, ...(questions ? {questions} : {}) }, skippedCount: errors.length, errors };
 }
 
 export type ApplyAiOptimizationResult = {

@@ -152,7 +152,7 @@ export interface QaStdoutTrace {
  * events with wording similar to real receipts. Only structured JSON is parsed;
  * never match on free-text Chinese phrases.
  */
-function parseQaStdoutTrace(stdout: string): QaStdoutTrace | undefined {
+function parseQaStdoutTrace(stdout: string, onReceipt?: (receipt: Record<string, unknown>) => void): QaStdoutTrace | undefined {
     // A page-backed save shares stdout with the long-lived local web server:
     // URL/waiting text precedes the receipt and close text follows it. Extract
     // complete JSON objects rather than assuming the receipt occupies stdout.
@@ -190,7 +190,7 @@ function parseQaStdoutTrace(stdout: string): QaStdoutTrace | undefined {
                 // terminal transcript lives in its string `output` field.
                 const nestedOutput = parsed["output"];
                 if (typeof nestedOutput === "string") {
-                    const nestedTrace = parseQaStdoutTrace(nestedOutput);
+                    const nestedTrace = parseQaStdoutTrace(nestedOutput, onReceipt);
                     if (nestedTrace) return nestedTrace;
                 }
                 break;
@@ -205,6 +205,7 @@ function parseQaStdoutTrace(stdout: string): QaStdoutTrace | undefined {
                 ? api.data.id
                 : undefined;
 
+            onReceipt?.(parsed);
             return {
                 command,
                 outcome,
@@ -229,14 +230,64 @@ function parseQaStdoutTrace(stdout: string): QaStdoutTrace | undefined {
 export function tracesFromToolResultStdout(jsonlPath: string, date?: string): QaStdoutTrace[] {
     const events = parseEvents(jsonlPath, date);
     const traces: QaStdoutTrace[] = [];
+    const seenReceipts = new Set<string>();
+    const reviewToolIds = new Set<string>();
+    const reviewTasks = new Set<string>();
+
+    // Only follow completed tasks launched by this session's Review command.
+    // Read all events for task binding: a server may have started the day before.
+    for (const event of parseEvents(jsonlPath)) {
+        const content = (event["message"] as {content?: unknown} | undefined)?.content;
+        if (event["type"] === "assistant" && Array.isArray(content)) {
+            for (const block of content) {
+                if (block.type === "tool_use" && block.name === "Bash"
+                    && block.input?.run_in_background === true
+                    && typeof block.input.command === "string"
+                    && /\bqa-insights\s+testpoint-review\s+open\b/.test(block.input.command)) {
+                    reviewToolIds.add(block.id);
+                }
+            }
+        }
+        if (event["type"] === "user" && Array.isArray(content)) {
+            const taskId = (event["toolUseResult"] as {backgroundTaskId?: unknown} | undefined)?.backgroundTaskId;
+            if (typeof taskId === "string"
+                && content.some((block) => block.type === "tool_result" && reviewToolIds.has(block.tool_use_id))) {
+                reviewTasks.add(taskId);
+            }
+        }
+    }
 
     for (const event of events) {
         if (event["type"] !== "user") continue;
         const stdout = (event["toolUseResult"] as {stdout?: unknown} | undefined)?.stdout;
         if (typeof stdout !== "string") continue;
 
-        const trace = parseQaStdoutTrace(stdout);
+        const trace = parseQaStdoutTrace(stdout, (receipt) => seenReceipts.add(JSON.stringify(receipt)));
         if (trace) traces.push(trace);
+    }
+
+    for (const event of events) {
+        if (event["type"] !== "user") continue;
+        const content = (event["message"] as {content?: unknown} | undefined)?.content;
+        if (typeof content !== "string" || !content.startsWith("<task-notification>")) continue;
+        const taskId = /<task-id>([^<]+)<\/task-id>/.exec(content)?.[1];
+        const outputFile = /<output-file>([^<]+)<\/output-file>/.exec(content)?.[1];
+        const sessionId = (event["sessionId"] as string | undefined);
+        if (!taskId || !reviewTasks.has(taskId) || !outputFile
+            || !content.includes("<status>completed</status>")
+            || !sessionId || !outputFile.endsWith(`/${sessionId}/tasks/${taskId}.output`)) continue;
+        try {
+            let receiptKey: string | undefined;
+            const trace = parseQaStdoutTrace(readFileSync(outputFile, "utf8"), (receipt) => {
+                receiptKey = JSON.stringify(receipt);
+            });
+            if (trace && receiptKey && !seenReceipts.has(receiptKey)) {
+                seenReceipts.add(receiptKey);
+                traces.push(trace);
+            }
+        } catch {
+            console.error(`Warning: QA collect could not read Claude Review task output: ${outputFile}`);
+        }
     }
 
     return traces;

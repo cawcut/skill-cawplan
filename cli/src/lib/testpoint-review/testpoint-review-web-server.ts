@@ -126,6 +126,8 @@ const COMMENTS_PATH_SUFFIX = "/comments";
 const COMMENTS_PATH_INFIX = "/comments/";
 const GLOBAL_COMMENTS_PATH = "/api/global-comments";
 const GLOBAL_COMMENTS_PATH_PREFIX = "/api/global-comments/";
+const OPEN_QUESTIONS_PATH_PREFIX = "/api/open-questions/";
+const ANSWER_PATH_SUFFIX = "/answer";
 const OPTIMIZE_PATH = "/api/optimize";
 const SAVE_TO_CAWPLAN_PATH = "/api/save-to-cawplan";
 
@@ -393,6 +395,45 @@ function deleteGlobalComment(
   return { status: 200, body: { global_comments: reviewState.global_comments, updated_at: reviewState.updated_at } };
 }
 
+function answerOpenQuestion(
+  reviewState: ReviewState,
+  questionId: string,
+  input: unknown,
+  clientUpdatedAt: string | undefined,
+): TestPointReviewDispatchResult {
+  const question = reviewState.open_questions?.find((entry) => entry.id === questionId);
+  if (!question) {
+    return {status: 404, body: {error: "open question not found"}};
+  }
+  if (isReviewLocked(reviewState)) {
+    return {status: 409, body: {error: "review is locked for AI optimization"}};
+  }
+  if (hasConflict(reviewState, clientUpdatedAt)) {
+    return conflictResult(reviewState);
+  }
+
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    return {status: 400, body: {error: "answer must be a string or null"}};
+  }
+  const rawAnswer = (input as {answer?: unknown}).answer;
+  if (rawAnswer !== null && typeof rawAnswer !== "string") {
+    return {status: 400, body: {error: "answer must be a string or null"}};
+  }
+  const trimmedAnswer = typeof rawAnswer === "string" ? rawAnswer.trim() : "";
+  const answer = trimmedAnswer || null;
+
+  // Auto-save can legitimately resend the last value after blur/page lifecycle
+  // events. Treat it as an idempotent write so it does not create a new revision.
+  if (question.answer === answer) {
+    return {status: 200, body: {open_question: question, updated_at: reviewState.updated_at}};
+  }
+
+  question.answer = answer;
+  reviewState.updated_at = new Date().toISOString();
+  saveReviewState(reviewState);
+  return {status: 200, body: {open_question: question, updated_at: reviewState.updated_at}};
+}
+
 function allTestPointIds(reviewState: ReviewState): string[] {
   return reviewState.test_points.map((tp) => tp.id);
 }
@@ -438,6 +479,26 @@ function recordHumanInputBestEffort(
   }
 }
 
+/**
+ * Records the persisted HTML operations for this round and then locks that exact
+ * in-memory Review snapshot for optimization. Both the HTML and Chat entry
+ * points use this boundary so a successful first lock cannot bypass the Human
+ * Input collection attempt. Locked retries intentionally skip recording;
+ * concurrent first attempts still produce deterministic event/unit ids and are
+ * de-duplicated by the existing outbox reader.
+ */
+export function requestOptimizeWithHumanInput(
+  reviewState: ReviewState,
+  recorder: NonNullable<TestPointReviewServerDeps["recordHumanInput"]> = tryRecordTestPointReviewHumanInput,
+): RequestOptimizeResult {
+  if (isReviewLocked(reviewState)) {
+    return requestOptimize(reviewState);
+  }
+
+  recordHumanInputBestEffort(reviewState, "optimize", recorder);
+  return requestOptimize(reviewState);
+}
+
 function optimizeReview(
   reviewState: ReviewState,
   recordHumanInput: NonNullable<TestPointReviewServerDeps["recordHumanInput"]>,
@@ -449,23 +510,14 @@ function optimizeReview(
         tp.status === "edited" ||
         tp.status === "deleted" ||
         (tp.status === "added" && tp.source === "qa")),
-  ) || reviewState.global_comments.length > 0;
+  ) || reviewState.global_comments.length > 0 || (reviewState.open_questions ?? []).some(
+    (question) => question.answer !== question.round_answer_baseline,
+  );
   if (!hasPageChanges) {
     return { status: 200, body: { outcome: "NO_CHANGES" } };
   }
 
-  if (isReviewLocked(reviewState)) {
-    const {lockedIds} = requestOptimize(reviewState);
-    return {
-      status: 200,
-      body: {review_status: reviewState.review_status, locked_ids: lockedIds},
-      closeServer: false,
-    };
-  }
-
-  recordHumanInputBestEffort(reviewState, "optimize", recordHumanInput);
-
-  const { alreadyLocked, lockedIds } = requestOptimize(reviewState);
+  const { alreadyLocked, lockedIds } = requestOptimizeWithHumanInput(reviewState, recordHumanInput);
   return {
     status: 200,
     body: { review_status: reviewState.review_status, locked_ids: lockedIds },
@@ -508,6 +560,7 @@ async function saveToCawPlan(
         error: "unresolved_feedback",
         commented_test_point_count: feedback.commentedTestPointCount,
         global_comment_count: feedback.globalCommentCount,
+        answered_question_count: feedback.answeredQuestionCount,
       },
     };
   }
@@ -634,6 +687,26 @@ export async function dispatchTestPointReviewRequest(
       return { status: 400, body: { error: "invalid JSON body" } };
     }
     return addGlobalComment(deps.reviewState, commentInput, clientUpdatedAt);
+  }
+
+  if (
+    req.method === "POST" &&
+    url.pathname.startsWith(OPEN_QUESTIONS_PATH_PREFIX) &&
+    url.pathname.endsWith(ANSWER_PATH_SUFFIX)
+  ) {
+    if (!deps.reviewState) {
+      return {status: 404, body: {error: "no review state loaded"}};
+    }
+    const questionId = decodeURIComponent(
+      url.pathname.slice(OPEN_QUESTIONS_PATH_PREFIX.length, -ANSWER_PATH_SUFFIX.length),
+    );
+    let answerInput: {answer?: unknown};
+    try {
+      answerInput = rawBody ? (JSON.parse(rawBody) as {answer?: unknown}) : {};
+    } catch {
+      return {status: 400, body: {error: "invalid JSON body"}};
+    }
+    return answerOpenQuestion(deps.reviewState, questionId, answerInput, clientUpdatedAt);
   }
 
   if (req.method === "POST" && url.pathname === TEST_POINTS_PATH) {

@@ -17,7 +17,7 @@ import {
 import { loadReviewState, saveReviewState } from "../lib/testpoint-review/store.js";
 import {
   defaultReconcileTestPoints,
-  requestOptimize,
+  requestOptimizeWithHumanInput,
   startTestPointReviewWebServer,
 } from "../lib/testpoint-review/testpoint-review-web-server.js";
 import type { QAInsightsWriteEnvelope } from "../lib/qa-insights/types.js";
@@ -47,6 +47,8 @@ export function registerTestPointReviewCommand(program: Command): void {
     .option("--test-points <json>", "Same shape as --test-points-file, inline as a JSON string")
     .option("--requirement-file <path>", "JSON file with the five-field requirement snapshot")
     .option("--requirement <json>", "Same shape as --requirement-file, inline as a JSON string")
+    .option("--open-questions-file <path>", "JSON array of open-question strings")
+    .option("--open-questions <json>", "Same shape as --open-questions-file, inline as a JSON string")
     .action(
       async (opts: {
         productId: string;
@@ -56,6 +58,8 @@ export function registerTestPointReviewCommand(program: Command): void {
         testPoints?: string;
         requirementFile?: string;
         requirement?: string;
+        openQuestionsFile?: string;
+        openQuestions?: string;
       }) => {
         if (opts.testPointsFile && opts.testPoints) {
           throw new Error("pass either --test-points-file or --test-points, not both");
@@ -63,17 +67,33 @@ export function registerTestPointReviewCommand(program: Command): void {
         if (opts.requirementFile && opts.requirement) {
           throw new Error("pass either --requirement-file or --requirement, not both");
         }
+        if (opts.openQuestionsFile && opts.openQuestions) {
+          throw new Error("pass either --open-questions-file or --open-questions, not both");
+        }
 
         const language = opts.lang === "en" ? "en" : "zh";
         const rawTestPoints = opts.testPointsFile
           ? await readFile(opts.testPointsFile, "utf8")
           : opts.testPoints;
 
+        const rawOpenQuestions = opts.openQuestionsFile
+          ? await readFile(opts.openQuestionsFile, "utf8")
+          : opts.openQuestions;
+        let openQuestions: string[] = [];
+        if (rawOpenQuestions) {
+          try {
+            openQuestions = JSON.parse(rawOpenQuestions) as string[];
+          } catch (err) {
+            throw new Error(`--open-questions/--open-questions-file is not valid JSON — ${(err as Error).message}`);
+          }
+        }
+
         if (!rawTestPoints) {
           const state = createFixtureReviewState({
             productId: opts.productId,
             requirementId: opts.requirementId,
             language,
+            openQuestions,
           });
           const filePath = saveReviewState(state);
           console.log(
@@ -106,6 +126,7 @@ export function registerTestPointReviewCommand(program: Command): void {
           requirementId: opts.requirementId,
           language,
           testPoints,
+          openQuestions,
           requirement,
         });
         const filePath = saveReviewState(state);
@@ -137,13 +158,14 @@ export function registerTestPointReviewCommand(program: Command): void {
     .description(
       "Lock the whole review for AI optimization (design §3.1/§8.2), same effect as clicking " +
         "\"Ask AI to Optimize\" on the page. For Chat-only revision flows (SQA replies to open questions " +
-        "or gives natural-language edits in Chat, no page open) — saves state, sets `pending_optimize`, " +
-        "and lets the host Agent proceed straight to reasoning + `apply-optimization` without a browser.",
+        "or gives natural-language edits in Chat, no page open) — records the current round's persisted " +
+        "HTML actions, saves state, sets `pending_optimize`, and lets the host Agent proceed straight to " +
+        "reasoning + `apply-optimization` without a browser.",
     )
     .requiredOption("--review-id <id>", "Review id")
     .action((opts: { reviewId: string }) => {
       const state = loadReviewState(opts.reviewId);
-      const { alreadyLocked, lockedIds } = requestOptimize(state);
+      const { alreadyLocked, lockedIds } = requestOptimizeWithHumanInput(state);
       console.log(
         JSON.stringify(
           { review_id: state.review_id, review_status: state.review_status, already_locked: alreadyLocked, locked_ids: lockedIds },
@@ -161,11 +183,11 @@ export function registerTestPointReviewCommand(program: Command): void {
         "The operation is atomic: invalid output leaves the pending review unchanged.",
     )
     .requiredOption("--review-id <id>", "Review id")
-    .option("--output-file <path>", "JSON file with the AI's { modified, added } output")
-    .option("--output <json>", "JSON string with the AI's { modified, added } output")
+    .option("--output-file <path>", "JSON file with the AI's { modified, added, questions } output")
+    .option("--output <json>", "JSON string with the AI's { modified, added, questions } output")
     .addHelpText(
       "after",
-      `\nOutput shape:\n  {"modified":[{"id":"tp_001","fields":{"title":"...","group":"...","tags":["..."],"priority":"HIGH"}}],"added":[{"title":"...","group":"...","tags":["..."],"priority":"HIGH"}]}\n\n` +
+      `\nOutput shape:\n  {"modified":[{"id":"tp_001","fields":{"title":"...","group":"...","tags":["..."],"priority":"HIGH"}}],"added":[{"title":"...","group":"...","tags":["..."],"priority":"HIGH"}],"questions":{"retained_ids":["oq_001"],"added":["..."]}}\n\n` +
         "Every item needs title, group, tags, and priority. `current` is Review State data, not an apply-output field.",
     )
     .action(async (opts: { reviewId: string; outputFile?: string; output?: string }) => {

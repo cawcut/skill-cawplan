@@ -55,7 +55,7 @@ function isValidEvent(value: unknown): value is TestPointReviewHumanInputEvent {
     isPlainObject(unit) &&
     typeof unit.unit_id === "string" && unit.unit_id.startsWith("hiu_") &&
     (unit.kind === "edit" || unit.kind === "delete" || unit.kind === "add" ||
-      unit.kind === "comment" || unit.kind === "overall_feedback") &&
+      unit.kind === "comment" || unit.kind === "overall_feedback" || unit.kind === "answer_question") &&
     typeof unit.content === "string" && unit.content.length > 0
   );
 }

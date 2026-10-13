@@ -58,12 +58,14 @@ describe("testpoint-review start incremental contract", () => {
       archived_count: number;
       group_count: number;
       count_before: number;
+      open_question_count: number;
     };
     expect(receipt).toMatchObject({
       draft_count: 3,
       archived_count: 2,
       group_count: 2,
       count_before: 2,
+      open_question_count: 0,
     });
 
     const persisted = JSON.parse(readFileSync(receipt.file, "utf8")) as ReviewState;
@@ -71,5 +73,24 @@ describe("testpoint-review start incremental contract", () => {
     expect(persisted.count_before).toBe(2);
     expect(persisted.test_points.filter((testPoint) => testPoint.archived === true)).toHaveLength(2);
     expect(persisted.test_points.filter((testPoint) => testPoint.archived !== true)).toHaveLength(3);
+  });
+
+  test("accepts open questions and returns their count", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const program = new Command();
+    program.exitOverride();
+    registerTestPointReviewCommand(program);
+
+    await program.parseAsync([
+      "node", "cawplan", "qa-insights", "testpoint-review", "start",
+      "--product-id", "prod_1", "--requirement-id", "req_1",
+      "--test-points", JSON.stringify([{title: "draft"}]),
+      "--open-questions", JSON.stringify(["Question A", "Question B"]),
+    ]);
+
+    const receipt = JSON.parse(String(log.mock.calls[0][0])) as {file: string; open_question_count: number};
+    expect(receipt.open_question_count).toBe(2);
+    const persisted = JSON.parse(readFileSync(receipt.file, "utf8")) as ReviewState;
+    expect(persisted.open_questions?.map((question) => question.text)).toEqual(["Question A", "Question B"]);
   });
 });

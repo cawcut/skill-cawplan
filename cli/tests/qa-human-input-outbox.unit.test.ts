@@ -122,6 +122,20 @@ describe("QA Human Input outbox reader, merge, and retention", () => {
     expect(readQaHumanInputOutbox("2026-09-24", {dir})).toEqual([]);
   });
 
+  test("accepts Answer Question units through the existing reader and merge path", () => {
+    writeFileSync(join(dir, "2026-09-24.jsonl"), JSON.stringify(event({
+      units: [{
+        unit_id: "hiu_answer",
+        kind: "answer_question",
+        content: "[Answer Question]\nQuestion: Which policy?\nAnswer: First request wins",
+      }],
+    })));
+    const sessions = [session("codex", "s1")];
+    mergeQaHumanInputOutbox(sessions, "2026-09-24", {dir, warn: vi.fn()});
+    expect(sessions[0].human_inputs?.[0].content).toContain("[Answer Question]");
+    expect(sessions[0].human_inputs?.[0].content).toContain("Answer: First request wins");
+  });
+
   test("merged events pass QA filtering while outbox metadata stays out of serialized upload inputs", () => {
     writeFileSync(join(dir, "2026-09-24.jsonl"), JSON.stringify(event()));
     const sessions = [session("codex", "s1")];

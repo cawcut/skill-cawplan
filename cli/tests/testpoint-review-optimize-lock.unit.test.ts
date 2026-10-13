@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, test, vi} from "vitest";
-import {mkdtempSync, readFileSync, rmSync} from "node:fs";
+import {mkdtempSync, readFileSync, readdirSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {dispatchTestPointReviewRequest} from "../src/lib/testpoint-review/testpoint-review-web-server.js";
@@ -16,12 +16,18 @@ function req(method: string, path: string) {
 describe("dispatchTestPointReviewRequest optimize (whole-page lock, no real AI call)", () => {
     let dir: string;
     let originalEnv: string | undefined;
+    let originalOutbox: string | undefined;
+    let originalCodexSession: string | undefined;
     let state: ReviewState;
 
     beforeEach(() => {
         dir = mkdtempSync(join(tmpdir(), "testpoint-review-optimize-test-"));
         originalEnv = process.env.CAWPLAN_TESTPOINT_REVIEW_PATH;
+        originalOutbox = process.env.CAWPLAN_QA_HUMAN_INPUT_OUTBOX_DIR;
+        originalCodexSession = process.env.CODEX_SESSION_ID;
         process.env.CAWPLAN_TESTPOINT_REVIEW_PATH = dir;
+        process.env.CAWPLAN_QA_HUMAN_INPUT_OUTBOX_DIR = join(dir, "outbox");
+        process.env.CODEX_SESSION_ID = "html-session-1";
         state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
         saveReviewState(state);
     });
@@ -29,6 +35,10 @@ describe("dispatchTestPointReviewRequest optimize (whole-page lock, no real AI c
     afterEach(() => {
         if (originalEnv === undefined) delete process.env.CAWPLAN_TESTPOINT_REVIEW_PATH;
         else process.env.CAWPLAN_TESTPOINT_REVIEW_PATH = originalEnv;
+        if (originalOutbox === undefined) delete process.env.CAWPLAN_QA_HUMAN_INPUT_OUTBOX_DIR;
+        else process.env.CAWPLAN_QA_HUMAN_INPUT_OUTBOX_DIR = originalOutbox;
+        if (originalCodexSession === undefined) delete process.env.CODEX_SESSION_ID;
+        else process.env.CODEX_SESSION_ID = originalCodexSession;
         rmSync(dir, {recursive: true, force: true});
     });
 
@@ -62,6 +72,46 @@ describe("dispatchTestPointReviewRequest optimize (whole-page lock, no real AI c
         expect(recordHumanInput).toHaveBeenCalledWith(state, "optimize");
         expect(error).toHaveBeenCalledWith("Warning: QA Human Input event was not recorded; Review action continues.");
         error.mockRestore();
+    });
+
+    test("HTML optimize writes all saved page operation kinds through the real Human Input outbox", async () => {
+        state.test_points[0].current.title = "Edited in HTML";
+        state.test_points[0].status = "edited";
+        state.test_points[0].comments.push({id: "comment-1", text: "HTML comment", author: "qa", resolved: false});
+        state.test_points[1].status = "deleted";
+        state.test_points.push({
+            id: "tp_999",
+            original: {title: "Added in HTML", group: "Extra", tags: ["边界"], priority: "LOW"},
+            current: {title: "Added in HTML", group: "Extra", tags: ["边界"], priority: "LOW"},
+            round_baseline: null,
+            status: "added",
+            source: "qa",
+            ai_status: "none",
+            comments: [],
+        });
+        state.global_comments.push({id: "overall-1", text: "HTML overall feedback", author: "qa", resolved: false});
+        state.open_questions = [{id: "oq_001", text: "Question", answer: "HTML final answer", round_answer_baseline: null}];
+
+        const result = await dispatchTestPointReviewRequest(
+            req("POST", "/api/optimize"), "{}", TOKEN, {reviewState: state},
+        );
+
+        expect(result.closeServer).toBe(true);
+        const outboxDir = process.env.CAWPLAN_QA_HUMAN_INPUT_OUTBOX_DIR!;
+        const files = readdirSync(outboxDir);
+        expect(files).toHaveLength(1);
+        const rows = readFileSync(join(outboxDir, files[0]), "utf8").split(/\r?\n/).filter(Boolean);
+        expect(rows).toHaveLength(1);
+        const event = JSON.parse(rows[0]) as {action: string; units: Array<{kind: string}>};
+        expect(event.action).toBe("optimize");
+        expect(event.units.map((unit) => unit.kind)).toEqual([
+            "edit",
+            "comment",
+            "delete",
+            "add",
+            "overall_feedback",
+            "answer_question",
+        ]);
     });
 
     test("locks every test point, including ones without comments", async () => {

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { formatTestPointId } from "./test-point-id.js";
-import type { ReviewState, TestPoint, TestPointFields } from "./types.js";
+import type { OpenQuestion, ReviewState, TestPoint, TestPointFields } from "./types.js";
 
 export type CreateReviewInputTestPoint = {
   /** CawPlan test-point id. Required only for an already-archived item. */
@@ -18,8 +18,25 @@ export type CreateReviewInput = {
   requirementId: string;
   language?: "zh" | "en";
   testPoints: CreateReviewInputTestPoint[];
+  openQuestions?: string[];
   requirement?: Record<string, unknown>;
 };
+
+export function createOpenQuestions(input: string[] | undefined): OpenQuestion[] {
+  if (input === undefined) return [];
+  if (!Array.isArray(input)) throw new Error("open questions must be an array");
+  return input.map((value, index) => {
+    if (typeof value !== "string" || value.trim() === "") {
+      throw new Error(`open_questions[${index}] must be a non-empty string`);
+    }
+    return {
+      id: `oq_${String(index + 1).padStart(3, "0")}`,
+      text: value.trim(),
+      answer: null,
+      round_answer_baseline: null,
+    };
+  });
+}
 
 function toFields(input: CreateReviewInputTestPoint): TestPointFields {
   if (typeof input.title !== "string") {
@@ -69,6 +86,7 @@ export type ReviewStartCounts = {
   archived_count: number;
   group_count: number;
   count_before: number;
+  open_question_count: number;
 };
 
 /** Counts returned by `testpoint-review start`; group_count covers draft rows only. */
@@ -79,6 +97,7 @@ export function reviewStartCounts(reviewState: ReviewState): ReviewStartCounts {
     archived_count: reviewState.test_points.length - drafts.length,
     group_count: new Set(drafts.map((testPoint) => testPoint.current.group)).size,
     count_before: reviewState.count_before,
+    open_question_count: reviewState.open_questions?.length ?? 0,
   };
 }
 
@@ -96,6 +115,7 @@ export function createReviewStateFromInput(input: CreateReviewInput): ReviewStat
   }
 
   const now = new Date().toISOString();
+  const openQuestions = createOpenQuestions(input.openQuestions);
   const existingIdsByIndex = input.testPoints.map(archivedId);
   const archivedIds = existingIdsByIndex.filter((id): id is string => id !== undefined);
   if (new Set(archivedIds).size !== archivedIds.length) {
@@ -135,6 +155,8 @@ export function createReviewStateFromInput(input: CreateReviewInput): ReviewStat
     updated_at: now,
     test_points: testPoints,
     global_comments: [],
+    open_questions: openQuestions,
+    next_question_seq: openQuestions.length + 1,
     deleted_tombstones: [],
   };
 }
