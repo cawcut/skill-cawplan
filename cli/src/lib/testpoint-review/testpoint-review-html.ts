@@ -1,4 +1,5 @@
 import { TESTPOINT_PRIORITIES } from "../qa-insights/types.js";
+import { reviewPhase } from "./review-phase.js";
 import type { ReviewState, TestPoint } from "./types.js";
 
 function escapeHtml(value: string): string {
@@ -114,23 +115,31 @@ function renderRow(seq: string, tp: TestPoint, pageLocked: boolean): string {
         </tr>`;
 }
 
-function renderGlobalFeedbackPanel(globalComments: TestPoint["comments"], pageLocked: boolean): string {
-  const commentsHtml = globalComments.map((c) => renderComment(c, pageLocked)).join("");
-  const disabledAttr = pageLocked ? " disabled" : "";
-  return `
-    <section class="global-feedback">
-      <h2 title="Feedback not tied to a specific test point; the AI uses it when optimizing.">Overall Feedback</h2>
-      <ul class="comment-list" id="global-comment-list">${commentsHtml}</ul>
-      <div class="comment-form" id="global-comment-form">
-        <input type="text" class="comment-input" placeholder="Write overall feedback…"${disabledAttr} />
-        <button type="button" class="comment-submit-btn"${disabledAttr}>Submit</button>
-      </div>
-    </section>`;
-}
+// Single source for the Ignore answer: Ignore writes this text through the normal answer endpoint.
+const IGNORE_ANSWER: Record<"zh" | "en", string> = { zh: "忽略", en: "Ignore" };
+const DONE_CLOSE_HINT: Record<"zh" | "en", string> = {
+  zh: "已完成，可关闭此页",
+  en: "Done — you can close this tab",
+};
 
-function renderQuestionsPanel(state: ReviewState, pageLocked: boolean): string {
+const QUESTIONS_PAGE_TEXT: Record<"zh" | "en", { title: string; intro: string; ignore: string; cont: string }> = {
+  zh: {
+    title: "待确认问题",
+    intro: "请回答每个问题，或点击「忽略」跳过。全部处理后点击「继续」，AI 将据此进入下一轮。",
+    ignore: "忽略",
+    cont: "继续",
+  },
+  en: {
+    title: "Questions to Confirm",
+    intro: "Answer each question or click Ignore to skip it. When every question is handled, click Continue so the AI can start the next round.",
+    ignore: "Ignore",
+    cont: "Continue",
+  },
+};
+
+function renderQuestionsPage(state: ReviewState, language: "zh" | "en", pageLocked: boolean): string {
   const questions = state.open_questions ?? [];
-  if (questions.length === 0) return "";
+  const text = QUESTIONS_PAGE_TEXT[language];
   const disabledAttr = pageLocked ? " disabled" : "";
   const items = questions.map((question, index) => {
     return `
@@ -138,6 +147,7 @@ function renderQuestionsPanel(state: ReviewState, pageLocked: boolean): string {
           <div class="question-heading">
             <span class="question-number">${index + 1}.</span>
             <span class="question-text">${escapeHtml(question.text)}</span>
+            <button type="button" class="question-ignore-btn"${disabledAttr}>${escapeHtml(text.ignore)}</button>
           </div>
           <div class="question-answer-form">
             <textarea class="question-answer-input" rows="2" placeholder="Write your answer…"${disabledAttr}>${escapeHtml(question.answer ?? "")}</textarea>
@@ -149,16 +159,16 @@ function renderQuestionsPanel(state: ReviewState, pageLocked: boolean): string {
         </li>`;
   }).join("");
   return `
-    <details class="questions-panel" id="questions-panel">
-      <summary>
+    <section class="questions-page" id="questions-page">
+      <div class="questions-heading">
         <span class="questions-icon" aria-hidden="true">?</span>
-        <span class="questions-title">Questions to Confirm</span>
+        <span class="questions-title">${escapeHtml(text.title)}</span>
         <span class="questions-counts">${questions.length} ${questions.length === 1 ? "question" : "questions"}</span>
-        <span class="questions-expand-label"><span class="when-closed">Expand</span><span class="when-open">Collapse</span></span>
-      </summary>
+      </div>
+      <p class="questions-intro">${escapeHtml(text.intro)}</p>
       <ol class="questions-list">${items}
       </ol>
-    </details>`;
+    </section>`;
 }
 
 function renderAddTestPointPanel(pageLocked: boolean): string {
@@ -178,23 +188,6 @@ function renderAddTestPointPanel(pageLocked: boolean): string {
     </div>`;
 }
 
-const FILTERS: Array<{ key: string; label: string }> = [
-  { key: "all", label: "All" },
-  { key: "edited", label: "Edited" },
-  { key: "deleted", label: "Deleted" },
-  { key: "added", label: "Added" },
-  { key: "commented", label: "Commented" },
-];
-
-function renderFilterBar(): string {
-  const buttons = FILTERS.map(
-    (f, i) =>
-      `<button type="button" class="filter-btn${i === 0 ? " active" : ""}" data-filter="${f.key}">${escapeHtml(f.label)}</button>`,
-  ).join("");
-  return `
-    <div class="filter-bar">${buttons}</div>`;
-}
-
 const OPTIMIZE_STALE_MS = 10 * 60 * 1000;
 
 function isOptimizeStale(reviewStatus: ReviewState["review_status"], optimizeRequestedAt: string | undefined): boolean {
@@ -205,11 +198,11 @@ function isOptimizeStale(reviewStatus: ReviewState["review_status"], optimizeReq
   return Date.now() - requestedAt > OPTIMIZE_STALE_MS;
 }
 
-function renderOptimizeBar(reviewStatus: ReviewState["review_status"]): string {
+function renderOptimizeBar(reviewStatus: ReviewState["review_status"], label = "Ask AI to Optimize", forceDisabled = false): string {
   const isLocked = reviewStatus === "pending_optimize" || reviewStatus === "optimizing";
   return `
     <div class="optimize-bar">
-      <button type="button" class="optimize-btn" id="optimize-btn"${isLocked ? " disabled" : ""}>Ask AI to Optimize</button>
+      <button type="button" class="optimize-btn" id="optimize-btn"${isLocked || forceDisabled ? " disabled" : ""}>${escapeHtml(label)}</button>
     </div>`;
 }
 
@@ -268,6 +261,8 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
   }
 
   const language: "zh" | "en" = state.language === "en" ? "en" : "zh";
+  const isQuestionsPhase = reviewPhase(state) === "questions";
+  const allAnswered = (state.open_questions ?? []).every((question) => (question.answer ?? "").trim() !== "");
   const pageLocked = state.review_status === "pending_optimize" || state.review_status === "optimizing";
   // Archived test points (design §4.1) are gone from the page entirely — not shown, not locked.
   const visibleTestPoints = state.test_points.filter((tp) => tp.archived !== true);
@@ -365,46 +360,21 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     .meta-line .sep { color: var(--ink-300); }
     .save-hint { font-size: 12px; color: var(--accent); font-weight: 500; }
 
-    .global-feedback {
-      margin: 16px 0;
-      padding: 10px 14px;
-      background: var(--surface-tint);
-      border-radius: var(--radius-md);
-    }
-    .global-feedback h2 {
-      margin: 0 0 6px 0;
-      font-size: 12px;
-      font-weight: 650;
-      letter-spacing: 0.05em;
-      color: var(--ink-500);
-    }
-    .global-feedback .comment-list { margin: 0 0 6px 0; }
-    .global-feedback .comment-item {
-      padding: 4px 2px;
-      border-bottom: 1px solid var(--line-soft);
-    }
-    .global-feedback .comment-form { border-top: none; }
-    .global-feedback .comment-input { background: var(--surface); height: 28px; }
-    .global-feedback .comment-submit-btn { height: 28px; }
-
-    .questions-panel {
+    .questions-page {
       margin: 16px 0;
       border: 1px solid #dce4fb;
       border-radius: var(--radius-md);
       background: #f8faff;
       overflow: hidden;
     }
-    .questions-panel summary {
+    .questions-heading {
       min-height: 38px;
       padding: 8px 12px;
       display: flex;
       align-items: center;
       gap: 9px;
-      cursor: pointer;
-      list-style: none;
       color: var(--ink-700);
     }
-    .questions-panel summary::-webkit-details-marker { display: none; }
     .questions-icon {
       width: 18px;
       height: 18px;
@@ -419,16 +389,24 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     }
     .questions-title { color: var(--ink-900); font-weight: 650; }
     .questions-counts { color: var(--ink-500); font-size: 12px; }
-    .questions-expand-label { margin-left: auto; color: var(--accent); font-size: 12px; }
-    .questions-expand-label .when-open { display: none; }
-    .questions-panel[open] .questions-expand-label .when-closed { display: none; }
-    .questions-panel[open] .questions-expand-label .when-open { display: inline; }
+    .questions-intro { margin: 0; padding: 0 12px 10px; color: var(--ink-500); font-size: 12.5px; }
+    .question-ignore-btn {
+      flex-shrink: 0;
+      height: 24px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--ink-700);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .question-ignore-btn:hover:not(:disabled) { background: var(--surface-tint); border-color: var(--ink-300); }
+    .question-ignore-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .questions-list {
       margin: 0;
       padding: 0 12px 10px;
       list-style: none;
-      max-height: 420px;
-      overflow-y: auto;
       border-top: 1px solid #e5eafb;
     }
     .question-item { padding: 11px 2px; border-bottom: 1px solid var(--line-soft); }
@@ -534,22 +512,6 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       padding: 1px 8px;
       letter-spacing: 0.01em;
     }
-
-    .filter-bar { display: flex; gap: 2px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line-soft); }
-    .filter-btn {
-      font-size: 12px;
-      font-weight: 500;
-      height: 26px;
-      padding: 0 12px;
-      border-radius: 999px;
-      border: 1px solid transparent;
-      background: transparent;
-      cursor: pointer;
-      color: var(--ink-500);
-      transition: background 0.12s ease, color 0.12s ease;
-    }
-    .filter-btn:hover { background: var(--surface-tint); color: var(--ink-700); }
-    .filter-btn.active { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
 
     .group { margin-bottom: 26px; }
     .group h2 {
@@ -719,8 +681,6 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     }
     .comment-input:focus { outline: none; border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
 
-    tr.tp-row.filtered-out, tr.comment-row.filtered-out { display: none; }
-    .group.filtered-out { display: none; }
 
     tr.tp-row.locked { background: var(--surface-sunken); }
     tr.tp-row.locked .field[data-editable="false"] { cursor: default; color: var(--ink-500); }
@@ -811,24 +771,31 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
   <div class="page-shell">
     <div class="page-header">
       <h1>Test Point Review<span class="round-badge">Round ${state.round}</span></h1>
-      <p class="meta-line"><span class="review-id">${escapeHtml(state.review_id)}</span><span class="sep">·</span>${visibleTestPoints.length} total${archivedCount > 0 ? `<span class="sep">·</span>Already saved to CawPlan: ${archivedCount}` : ""}<span class="save-hint" id="save-hint"></span></p>
+      <p class="meta-line"><span class="review-id">${escapeHtml(state.review_id)}</span>${isQuestionsPhase ? "" : `<span class="sep">·</span>${visibleTestPoints.length} total`}${!isQuestionsPhase && archivedCount > 0 ? `<span class="sep">·</span>Already saved to CawPlan: ${archivedCount}` : ""}<span class="save-hint" id="save-hint"></span></p>
     </div>
-    ${renderGlobalFeedbackPanel(state.global_comments, pageLocked)}
-    ${renderQuestionsPanel(state, pageLocked)}
+    ${isQuestionsPhase
+      ? `${renderQuestionsPage(state, language, pageLocked)}
     <section class="review-actions" aria-label="Review actions">
+      ${renderOptimizeBar(state.review_status, QUESTIONS_PAGE_TEXT[language].cont, !allAnswered)}
+    </section>
+    ${renderActionNotices(optimizeHint, optimizeHintIsStale)}`
+      : `<section class="review-actions" aria-label="Review actions">
       ${renderAddTestPointPanel(pageLocked)}
       ${renderOptimizeBar(state.review_status)}
       ${renderSaveToCawPlanBar(pageLocked, visibleTestPoints.length)}
     </section>
     ${renderActionNotices(optimizeHint, optimizeHintIsStale)}
-    ${renderFilterBar()}
-    ${groupsHtml}
+    ${groupsHtml}`}
   </div>
   <script>
     (function () {
       var token = ${JSON.stringify(token)};
       var reviewId = ${JSON.stringify(state.review_id)};
       var lastKnownUpdatedAt = ${JSON.stringify(state.updated_at)};
+      var isQuestionsPhase = ${JSON.stringify(isQuestionsPhase)};
+      var pageLockedAtLoad = ${JSON.stringify(pageLocked)};
+      var IGNORE_ANSWER = ${JSON.stringify(IGNORE_ANSWER[language])};
+      var DONE_CLOSE_HINT = ${JSON.stringify(DONE_CLOSE_HINT[language])};
 
       function fieldValue(el, fieldName) {
         if (fieldName === "priority") return el.value.trim();
@@ -1070,6 +1037,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         questionStates.forEach(function (state) {
           state.input.disabled = frozen;
           state.retryBtn.disabled = frozen;
+          if (state.ignoreBtn) state.ignoreBtn.disabled = frozen;
         });
       }
 
@@ -1106,46 +1074,6 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           prioritySelect.disabled = status === "deleted" || row.getAttribute("data-locked") === "true";
         }
 
-        applyFilterToRow(row);
-      }
-
-      var activeFilter = "all";
-
-      function rowMatchesFilter(row, filter) {
-        if (filter === "all") return true;
-        if (filter === "commented") return Number(row.getAttribute("data-comment-count")) > 0;
-        return row.getAttribute("data-status") === filter;
-      }
-
-      function applyFilterToRow(row) {
-        var matches = rowMatchesFilter(row, activeFilter);
-        row.classList.toggle("filtered-out", !matches);
-        var id = row.getAttribute("data-id");
-        var commentRow = document.querySelector('tr.comment-row[data-id="' + id + '"]');
-        if (commentRow && !matches) commentRow.classList.add("filtered-out");
-        else if (commentRow) commentRow.classList.remove("filtered-out");
-
-        var section = row.closest(".group");
-        if (section) {
-          var visibleRow = section.querySelector("tr.tp-row:not(.filtered-out)");
-          section.classList.toggle("filtered-out", !visibleRow);
-        }
-      }
-
-      function applyFilter(filter) {
-        activeFilter = filter;
-        document.querySelectorAll("tr.tp-row").forEach(applyFilterToRow);
-      }
-
-      function wireFilterBar() {
-        var buttons = document.querySelectorAll(".filter-btn");
-        buttons.forEach(function (btn) {
-          btn.addEventListener("click", function () {
-            buttons.forEach(function (b) { b.classList.remove("active"); });
-            btn.classList.add("active");
-            applyFilter(btn.getAttribute("data-filter"));
-          });
-        });
       }
 
       function saveField(row, field, el) {
@@ -1233,7 +1161,6 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         if (countEl) {
           countEl.textContent = count > 0 ? " (" + count + ")" : "";
         }
-        applyFilterToRow(row);
       }
 
       function wireCommentDeleteButton(btn, id, list) {
@@ -1314,79 +1241,13 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         });
       }
 
-      function wireGlobalCommentDeleteButton(btn, list) {
-        btn.addEventListener("click", function () {
-          var li = btn.closest(".comment-item");
-          var commentId = li.getAttribute("data-comment-id");
-          setSaveHint("Deleting…");
-          runNonQuestionMutation(function () {
-            return fetch(
-              withUpdatedAt("/api/global-comments/" + encodeURIComponent(commentId) + "?token=" + encodeURIComponent(token)),
-              { method: "DELETE" },
-            ).then(handleApiResponse);
-          })
-            .then(function () {
-              li.parentNode.removeChild(li);
-              setSaveHint("Saved");
-              setTimeout(function () { setSaveHint(""); }, 1500);
-            })
-            .catch(function (err) {
-              if (err && err.message === "conflict") return;
-              setSaveHint("Delete failed, please retry");
-            });
-        });
-      }
-
-      function wireGlobalFeedbackForm() {
-        var form = document.getElementById("global-comment-form");
-        if (!form) return;
-        var input = form.querySelector(".comment-input");
-        var submitBtn = form.querySelector(".comment-submit-btn");
-        var list = document.getElementById("global-comment-list");
-
-        list.querySelectorAll(".comment-delete-btn").forEach(function (btn) {
-          wireGlobalCommentDeleteButton(btn, list);
-        });
-
-        function submit() {
-          var text = input.value.trim();
-          if (!text) return;
-          setSaveHint("Saving…");
-          runNonQuestionMutation(function () {
-            return fetch(withUpdatedAt("/api/global-comments?token=" + encodeURIComponent(token)), {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ text: text }),
-            }).then(handleApiResponse);
-          })
-            .then(function (data) {
-              var comments = data.global_comments;
-              var newComment = comments[comments.length - 1];
-              var li = document.createElement("li");
-              li.className = "comment-item";
-              li.setAttribute("data-comment-id", newComment.id);
-              li.innerHTML =
-                '<span class="comment-text">' + escapeHtmlClient(text) + '</span>' +
-                '<button type="button" class="comment-delete-btn" data-action="delete-comment" title="Delete comment">×</button>';
-              list.appendChild(li);
-              wireGlobalCommentDeleteButton(li.querySelector(".comment-delete-btn"), list);
-              input.value = "";
-
-              setSaveHint("Saved");
-              setTimeout(function () { setSaveHint(""); }, 1500);
-            })
-            .catch(function (err) {
-              if (err && err.message === "conflict") return;
-              setSaveHint("Save failed, please retry");
-            });
-        }
-
-        submitBtn.addEventListener("click", submit);
-        input.addEventListener("keydown", function (event) {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            submit();
-          }
+      // Continue (the #optimize-btn on the Questions page) is enabled only when every question has an answer.
+      function updateContinueState() {
+        if (!isQuestionsPhase || pageLockedAtLoad || questionInputsFrozen) return;
+        var btn = document.getElementById("optimize-btn");
+        if (!btn) return;
+        btn.disabled = questionStates.some(function (state) {
+          return normalizeQuestionAnswer(state.input.value) === null;
         });
       }
 
@@ -1397,6 +1258,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           var errorEl = item.querySelector(".question-save-error");
           var errorText = item.querySelector(".question-save-error-text");
           var retryBtn = item.querySelector(".question-save-retry");
+          var ignoreBtn = item.querySelector(".question-ignore-btn");
           if (!questionId || !input || !errorEl || !errorText || !retryBtn) return;
           var initialValue = normalizeQuestionAnswer(input.value);
           var state = {
@@ -1405,6 +1267,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
             errorEl: errorEl,
             errorText: errorText,
             retryBtn: retryBtn,
+            ignoreBtn: ignoreBtn,
             savedValue: initialValue,
             desiredValue: initialValue,
             dirty: false,
@@ -1423,6 +1286,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           questionStates.push(state);
 
           input.addEventListener("input", function () {
+            updateContinueState();
             state.desiredValue = normalizeQuestionAnswer(input.value);
             state.dirty = state.forceSave || state.desiredValue !== state.savedValue;
             state.autoRetryCount = 0;
@@ -1448,6 +1312,18 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
             state.debounceTimer = null;
             if (!questionInputsFrozen) enqueueQuestionSave(state);
           });
+
+          if (ignoreBtn) {
+            // Ignore is just a canned answer: same input, same answer endpoint, same flush path.
+            ignoreBtn.addEventListener("click", function () {
+              if (questionInputsFrozen) return;
+              input.value = IGNORE_ANSWER;
+              input.dispatchEvent(new Event("input"));
+              if (state.debounceTimer) clearTimeout(state.debounceTimer);
+              state.debounceTimer = null;
+              enqueueQuestionSave(state);
+            });
+          }
 
           retryBtn.addEventListener("click", function () {
             if (questionInputsFrozen) return;
@@ -1582,15 +1458,6 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       function lockPage() {
         document.querySelectorAll("tr.tp-row").forEach(lockRow);
 
-        var globalForm = document.getElementById("global-comment-form");
-        if (globalForm) {
-          globalForm.querySelectorAll(".comment-input, .comment-submit-btn").forEach(function (el) {
-            el.disabled = true;
-          });
-        }
-        document.querySelectorAll("#global-comment-list .comment-delete-btn").forEach(function (el) {
-          el.disabled = true;
-        });
         setQuestionInputsFrozen(true);
 
         var addToggle = document.getElementById("add-tp-toggle");
@@ -1601,6 +1468,11 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
             el.disabled = true;
           });
         }
+      }
+
+      function tryCloseTab(hint, extra) {
+        try { window.close(); } catch (e) { /* browsers may refuse */ }
+        if (hint) hint.textContent = DONE_CLOSE_HINT + (extra ? " " + extra : "");
       }
 
       function wireOptimizeButton() {
@@ -1633,9 +1505,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
                 return;
               }
               lockPage();
-              if (hint) {
-                hint.textContent = "Optimization requested. This review is locked while AI is working. If Chat does not respond, send “Continue optimization” in Chat.";
-              }
+              tryCloseTab(hint, "If Chat does not respond, send “Continue optimization” in Chat.");
             })
             .catch(function () {
               btn.disabled = false;
@@ -1679,7 +1549,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
                 setQuestionInputsFrozen(false);
                 if (hint) {
                   hint.className = "action-notice save-cawplan-hint save-cawplan-hint-error";
-                  hint.textContent = "Comments, Overall Feedback, or answered Questions must be processed by Ask AI before saving.";
+                  hint.textContent = "Comments or answered Questions must be processed by Ask AI before saving.";
                 }
                 return;
               }
@@ -1693,10 +1563,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
                 return;
               }
               lockPage();
-              if (hint) {
-                hint.textContent =
-                  "Saved " + data.archived_count + " test point(s) to CawPlan. This review session has ended.";
-              }
+              tryCloseTab(hint);
             })
             .catch(function (err) {
               btn.disabled = false;
@@ -1733,11 +1600,9 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       document.querySelectorAll(".comment-toggle-btn").forEach(wireCommentToggle);
       document.querySelectorAll(".ai-status-label").forEach(wireOriginalCompareToggle);
       document.querySelectorAll("tr.comment-row").forEach(wireCommentForm);
-      wireGlobalFeedbackForm();
       wireQuestionAnswers();
       wireQuestionLifecycleFlush();
       wireAddTestPointPanel();
-      wireFilterBar();
       wireOptimizeButton();
       wireSaveToCawPlanButton();
     })();

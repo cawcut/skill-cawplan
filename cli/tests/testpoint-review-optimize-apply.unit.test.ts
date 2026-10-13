@@ -173,7 +173,6 @@ describe("applyAiOptimization (design §3.4/§3.7, plan step 18)", () => {
         state.test_points[0].current.title = "QA edit stays put";
         state.test_points[1].status = "deleted";
         state.test_points[2].comments = [{id: "c_1", text: "Point feedback", author: "qa", resolved: false}];
-        state.global_comments = [{id: "c_g", text: "Overall feedback", author: "qa", resolved: false}];
         const before = structuredClone(state);
         const malformedOutput = {
             modified: [{id: "tp_001", current: {title: "wrong wrapper", group: "g", tags: [], priority: "LOW"}}],

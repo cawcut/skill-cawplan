@@ -72,18 +72,16 @@ describe("advanceReviewRound (design §3.2/§3.3/§3.6, plan step 16.5)", () => 
         expect(state.next_seq).toBe(nextSeqBefore + 1);
     });
 
-    test("all test-point comments and global_comments are cleared", () => {
+    test("all test-point comments are cleared", () => {
         const state = withTestPoints([
             {comments: [{id: "c_1", text: "hi", author: "qa", resolved: false}]},
             {},
             {},
         ]);
-        state.global_comments = [{id: "c_g", text: "overall", author: "qa", resolved: false}];
 
         advanceReviewRound(state, {modified: [], added: []});
 
         expect(state.test_points.every((tp) => tp.comments.length === 0)).toBe(true);
-        expect(state.global_comments).toHaveLength(0);
     });
 
     test("original is preserved byte-for-byte and never replaced by current, even when AI modifies current again", () => {
@@ -153,5 +151,73 @@ describe("advanceReviewRound (design §3.2/§3.3/§3.6, plan step 16.5)", () => 
 
         expect(state.deleted_tombstones).toHaveLength(2);
         expect(state.deleted_tombstones[0]).toEqual({title: "old deleted thing", deleted_in_round: 1});
+    });
+});
+
+describe("advanceReviewRound change-tag accumulation (two-phase)", () => {
+    const aiModifies = (state: ReturnType<typeof withTestPoints>, id: string) => ({
+        modified: [{id, fields: {...state.test_points.find((tp) => tp.id === id)!.current, title: "AI edit"}}],
+        added: [],
+    });
+    const statusOf = (state: ReturnType<typeof withTestPoints>, id: string) =>
+        state.test_points.find((tp) => tp.id === id)!.ai_status;
+
+    test("round the user viewed: tags are cleared (regression)", () => {
+        const state = withTestPoints([{ai_status: "added"}, {ai_status: "modified"}, {}]);
+        state.last_viewed_review_round = state.round;
+
+        advanceReviewRound(state, {modified: [], added: []});
+
+        expect(statusOf(state, "tp_001")).toBe("none");
+        expect(statusOf(state, "tp_002")).toBe("none");
+    });
+
+    test("never-viewed Review (field absent): no accumulation", () => {
+        const state = withTestPoints([{ai_status: "added"}, {}, {}]);
+
+        advanceReviewRound(state, aiModifies(state, "tp_002"));
+
+        expect(statusOf(state, "tp_001")).toBe("none");
+        expect(statusOf(state, "tp_002")).toBe("modified");
+    });
+
+    test("unviewed round after an earlier viewed one: tags accumulate", () => {
+        const state = withTestPoints([{ai_status: "added"}, {ai_status: "modified"}, {ai_status: "none"}]);
+        state.last_viewed_review_round = state.round - 1;
+        const out = {
+            modified: ["tp_001", "tp_002", "tp_003"].map((id) => ({
+                id, fields: {...state.test_points.find((tp) => tp.id === id)!.current, title: `AI ${id}`},
+            })),
+            added: [],
+        };
+
+        advanceReviewRound(state, out);
+
+        expect(statusOf(state, "tp_001")).toBe("added");    // added + modified
+        expect(statusOf(state, "tp_002")).toBe("modified"); // modified + modified
+        expect(statusOf(state, "tp_003")).toBe("modified"); // none + modified
+    });
+
+    test("accumulation keeps added + untouched as added, none + untouched as none", () => {
+        const state = withTestPoints([{ai_status: "added"}, {ai_status: "modified"}, {ai_status: "none"}]);
+        state.last_viewed_review_round = state.round - 1;
+
+        advanceReviewRound(state, {modified: [], added: []});
+
+        expect(statusOf(state, "tp_001")).toBe("added");
+        expect(statusOf(state, "tp_002")).toBe("modified");
+        expect(statusOf(state, "tp_003")).toBe("none");
+    });
+
+    test("status still resets, AI-added rows are 'added', round_baseline follows current", () => {
+        const state = withTestPoints([{status: "edited", ai_status: "none"}, {}, {}]);
+        state.last_viewed_review_round = state.round - 1;
+
+        advanceReviewRound(state, {...aiModifies(state, "tp_002"), added: [{...state.test_points[0].current, title: "New"}]});
+
+        expect(state.test_points.find((tp) => tp.id === "tp_001")!.status).toBe("unchanged");
+        const modified = state.test_points.find((tp) => tp.id === "tp_002")!;
+        expect(modified.round_baseline).toEqual(modified.current);
+        expect(state.test_points.find((tp) => tp.current.title === "New")!.ai_status).toBe("added");
     });
 });

@@ -26,13 +26,15 @@ describe("test point review layout", () => {
         expect(html).toContain("align-items: flex-end");
     });
 
-    test("uses a compact overall-feedback panel with its guidance in a tooltip", () => {
+    test("renders no filter bar and no filter script hooks", () => {
         const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
 
         const html = testPointReviewHtml(state, "tok");
 
-        expect(html).toContain('title="Feedback not tied to a specific test point; the AI uses it when optimizing."');
-        expect(html).not.toContain("General feedback not tied to a specific test point");
+        expect(html).not.toContain("filter-bar");
+        expect(html).not.toContain("filter-btn");
+        expect(html).not.toContain("applyFilterToRow");
+        expect(html).not.toContain("filtered-out");
     });
 
     test("uses a MEDIUM-priority selector when adding a test point", () => {
@@ -74,7 +76,7 @@ describe("test point review layout", () => {
         const html = testPointReviewHtml(state, "tok");
 
         expect(html).toContain(
-            "Optimization requested. This review is locked while AI is working. If Chat does not respond, send “Continue optimization” in Chat.",
+            "If Chat does not respond, send “Continue optimization” in Chat.",
         );
         expect(html).toContain("No changes to optimize. Make a change first.");
     });
@@ -84,7 +86,7 @@ describe("test point review layout", () => {
 
         const html = testPointReviewHtml(state, "tok");
 
-        expect(html).toContain("Comments, Overall Feedback, or answered Questions must be processed by Ask AI before saving.");
+        expect(html).toContain("Comments or answered Questions must be processed by Ask AI before saving.");
         expect(html).not.toContain("Save anyway");
     });
 });

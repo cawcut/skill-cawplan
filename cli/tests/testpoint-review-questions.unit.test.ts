@@ -43,23 +43,52 @@ describe("Questions to Confirm", () => {
 
   test("hides the entire region when the list is empty", () => {
     const html = testPointReviewHtml(review([]), TOKEN);
-    expect(html).not.toContain('id="questions-panel"');
+    expect(html).not.toContain('id="questions-page"');
     expect(html).not.toContain("Questions to Confirm");
   });
 
-  test("renders a collapsed, scroll-limited region with only the total count below Overall Feedback", () => {
-    const state = review(["Q1", "Q2", "Q3", "Q4", "Q5"]);
-    state.open_questions![1].answer = "A2";
-    const html = testPointReviewHtml(state, TOKEN);
+  test("Questions page: Ignore + Continue, no test point table, Add or Save", () => {
+    const html = testPointReviewHtml(review(["Q1", "Q2"]), TOKEN);
+    expect(html).toContain('id="questions-page"');
+    expect(html).toContain('<span class="questions-counts">2 questions</span>');
+    expect(html.match(/class="question-ignore-btn"/g)).toHaveLength(2);
+    expect(html).toContain(">忽略</button>");
+    expect(html).toMatch(/id="optimize-btn" disabled>继续<\/button>/);
+    expect(html).not.toContain('class="group"');
+    expect(html).not.toContain('id="add-tp-toggle"');
+    expect(html).not.toContain('id="save-cawplan-btn"');
+  });
 
-    expect(html).toMatch(/<section class="global-feedback">[\s\S]*<details class="questions-panel" id="questions-panel">[\s\S]*<section class="review-actions"/);
-    expect(html).not.toContain('<details class="questions-panel" id="questions-panel" open>');
-    expect(html).toContain('<span class="questions-counts">5 questions</span>');
-    expect(html).not.toContain("unanswered");
-    expect(html).not.toContain("Answered");
-    expect(html).not.toContain("question-answer-submit");
-    expect(html).not.toContain("Update answer");
-    expect(html).toMatch(/\.questions-list \{[\s\S]*max-height: 420px;[\s\S]*overflow-y: auto;/);
+  test("Questions page follows state.language and enables Continue only when all are answered", () => {
+    const state = review(["Q1", "Q2"]);
+    state.language = "en";
+    expect(testPointReviewHtml(state, TOKEN)).toMatch(/id="optimize-btn" disabled>Continue<\/button>/);
+    expect(testPointReviewHtml(state, TOKEN)).toContain(">Ignore</button>");
+    state.open_questions![0].answer = "A1";
+    expect(testPointReviewHtml(state, TOKEN)).toMatch(/id="optimize-btn" disabled>/);
+    state.open_questions![1].answer = "Ignore";
+    expect(testPointReviewHtml(state, TOKEN)).toMatch(/id="optimize-btn">Continue<\/button>/);
+    state.review_status = "pending_optimize";
+    expect(testPointReviewHtml(state, TOKEN)).toMatch(/id="optimize-btn" disabled>Continue<\/button>/);
+  });
+
+  test("Review page (all questions baselined) shows no Questions region and keeps the table", () => {
+    const state = review(["Q1"]);
+    state.open_questions![0].answer = "A1";
+    state.open_questions![0].round_answer_baseline = "A1";
+    const html = testPointReviewHtml(state, TOKEN);
+    expect(html).not.toContain('id="questions-page"');
+    expect(html).not.toContain(`class="question-ignore-btn"`);
+    expect(html).toContain('id="add-tp-toggle"');
+    expect(html).toContain('id="save-cawplan-btn"');
+    expect(html).toContain("Ask AI to Optimize");
+  });
+
+  test("Ignore writes the localized constant through the shared answer input", () => {
+    const html = testPointReviewHtml(review(), TOKEN);
+    expect(html).toContain('var IGNORE_ANSWER = "忽略";');
+    expect(html).toContain("input.value = IGNORE_ANSWER;");
+    expect(html).toContain("enqueueQuestionSave(state);");
   });
 
   test("disables answer inputs while the whole Review is locked", () => {
@@ -248,5 +277,19 @@ describe("Questions to Confirm", () => {
     delete state.open_questions;
     delete state.next_question_seq;
     expect(() => applyAiOptimization(state, {modified: [], added: []})).not.toThrow();
+  });
+});
+
+describe("close-tab hint", () => {
+  test("page script tries to close the tab and shows a localized completion hint", () => {
+    const zh = testPointReviewHtml(review(), TOKEN);
+    expect(zh).toContain("function tryCloseTab(");
+    expect(zh).toContain("window.close()");
+    expect(zh).toContain(`var DONE_CLOSE_HINT = "已完成，可关闭此页";`);
+    const en = createReviewStateFromInput({
+      productId: "prod_1", requirementId: "req_1", language: "en",
+      testPoints: [{title: "Draft", group: "Group", tags: [], priority: "HIGH"}],
+    });
+    expect(testPointReviewHtml(en, TOKEN)).toContain(`var DONE_CLOSE_HINT = "Done — you can close this tab";`);
   });
 });

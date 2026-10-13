@@ -148,7 +148,7 @@ describe("dispatchTestPointReviewRequest concurrent/multi-tab conflict detection
         expect(state.test_points.find((tp) => tp.id === "tp_001")!.comments).toHaveLength(1);
     });
 
-    test("global comment add/delete and add-test-point all honor the conflict check", async () => {
+    test("add-test-point honors the conflict check", async () => {
         const staleTimestamp = state.updated_at;
         await dispatchTestPointReviewRequest(
             req("POST", "/api/test-points/tp_001"),
@@ -156,14 +156,6 @@ describe("dispatchTestPointReviewRequest concurrent/multi-tab conflict detection
             TOKEN,
             {reviewState: state},
         );
-
-        const addGlobal = await dispatchTestPointReviewRequest(
-            req("POST", "/api/global-comments", staleTimestamp),
-            JSON.stringify({text: "should be rejected"}),
-            TOKEN,
-            {reviewState: state},
-        );
-        expect(addGlobal.status).toBe(409);
 
         const addTestPoint = await dispatchTestPointReviewRequest(
             req("POST", "/api/test-points", staleTimestamp),

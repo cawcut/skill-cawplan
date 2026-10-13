@@ -29,7 +29,6 @@ describe("testpoint-review show", () => {
     state.review_status = "pending_optimize";
     state.test_points[0].current.title = "Saved page edit";
     state.test_points[0].status = "edited";
-    state.global_comments.push({ id: "c_global", text: "Use the page edit", author: "qa", resolved: false });
     state.open_questions = [{id: "oq_001", text: "Which policy?", answer: "HTML answer", round_answer_baseline: null}];
     saveReviewState(state);
 
@@ -56,7 +55,6 @@ describe("testpoint-review show", () => {
       status: "edited",
       current: { title: "Saved page edit" },
     });
-    expect(result.global_comments).toMatchObject([{ text: "Use the page edit" }]);
     expect(result.open_questions).toEqual(state.open_questions);
   });
 });

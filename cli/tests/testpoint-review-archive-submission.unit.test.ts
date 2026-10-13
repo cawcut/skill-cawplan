@@ -108,16 +108,6 @@ describe("checkUnresolvedFeedback (design §4.2, plan step 19)", () => {
         expect(result.commentedTestPointCount).toBe(1);
     });
 
-    test("flags unresolved overall feedback", () => {
-        const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
-        state.global_comments = [{id: "c_g", text: "overall", author: "qa", resolved: false}];
-
-        const result = checkUnresolvedFeedback(state);
-
-        expect(result.hasUnresolvedFeedback).toBe(true);
-        expect(result.globalCommentCount).toBe(1);
-    });
-
     test("flags a non-empty question answer that has not been consumed by AI", () => {
         const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
         state.open_questions = [{id: "oq_001", text: "Which policy?", answer: "Use strict mode", round_answer_baseline: null}];
@@ -131,7 +121,6 @@ describe("checkUnresolvedFeedback (design §4.2, plan step 19)", () => {
     test("does not flag unanswered, cleared, or already-consumed question answers", () => {
         const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
         state.open_questions = [
-            {id: "oq_001", text: "Unanswered", answer: null, round_answer_baseline: null},
             {id: "oq_002", text: "Cleared", answer: null, round_answer_baseline: "old answer"},
             {id: "oq_003", text: "Consumed", answer: "same answer", round_answer_baseline: "same answer"},
         ];
