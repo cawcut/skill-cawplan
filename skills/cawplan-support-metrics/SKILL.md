@@ -17,7 +17,7 @@ Use this skill for the controlled Support Ops -> CawPlan key-metrics workflow. I
 cawplan skill check
 ```
 
-If authentication is missing, stop and ask the user to run `cawplan auth login`. Do not request or embed an API key in Apps Script.
+If authentication is missing, run `cawplan auth login`, show the printed URL to the user, and after they confirm approval run `cawplan auth login --device-auth --complete`. Do not request or embed an API key in Apps Script.
 
 ## Bundled exporter
 
