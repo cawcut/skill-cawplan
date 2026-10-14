@@ -114,3 +114,6 @@ npx skills add <marketplace>/<repo> --skill <name>
 ```
 
 Add a skill's directory name to the `skills` array here to keep it out of the default install.
+Role-based installs (`cawplan skill update`, `./setup --role`) use `cli/config/skill-roles.json`
+instead; `validate-skills.sh` checks that every default skill there is either assigned to a role
+or listed in its `optional` (internal, never installed by role).

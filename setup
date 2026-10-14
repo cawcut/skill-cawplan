@@ -30,6 +30,7 @@ SKIP_CLI=0
 SKIP_AUTH=0
 INSTALL_ALL=0
 INSTALL_OPTIONAL_QA=0
+ROLES=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -47,6 +48,16 @@ while [ $# -gt 0 ]; do
     --skip-auth) SKIP_AUTH=1; shift ;;
     --all) INSTALL_ALL=1; shift ;;
     --optional-qa) INSTALL_OPTIONAL_QA=1; shift ;;
+    --role)
+      shift
+      [ $# -eq 0 ] && { err "--role requires a value: owner,pm,rd,qa,ux,support,viewer"; exit 1; }
+      ROLES="$1"
+      shift
+      ;;
+    --role=*)
+      ROLES="${1#--role=}"
+      shift
+      ;;
     --help|-h)
       cat <<'EOF'
 Usage: ./setup [options]
@@ -54,6 +65,9 @@ Usage: ./setup [options]
   --agent <name>  Force install path for: claude, cursor, codex
                   (auto-detected if omitted)
   --all           Install into all existing agent skill directories
+  --role <roles>  Only install skills for these comma-separated roles:
+                  owner, pm, rd, qa, ux, support, viewer
+                  (see cli/config/skill-roles.json)
   --optional-qa   Also symlink human-input classify QA skills (off by default)
   --skip-cli      Skip 'npm install -g cawplan' (assumes CLI on PATH)
   --skip-auth     Skip 'cawplan auth status' check
@@ -129,6 +143,45 @@ OPTIONAL_QA_SKILLS=(
   cawplan-internal-qa-coding-humaninputs-test
   cawplan-internal-qa-coding-humaninputs-sample
 )
+
+if [ -n "${ROLES}" ]; then
+  if ! command -v python3 &>/dev/null; then
+    err "--role needs python3 to read cli/config/skill-roles.json"
+    exit 1
+  fi
+  ROLE_SKILLS="$(python3 - "${ROOT}/cli/config/skill-roles.json" "${ROLES}" <<'PY'
+import json
+import sys
+
+config = json.load(open(sys.argv[1]))
+roles = [r.strip().lower() for r in sys.argv[2].split(",") if r.strip()]
+unknown = [r for r in roles if r not in config["roles"]]
+if not roles or unknown:
+    sys.stderr.write(
+        f"Unknown role(s): {', '.join(unknown) or '(none)'}. Valid roles: {', '.join(config['roles'])}\n"
+    )
+    sys.exit(1)
+
+skills = set()
+for name in roles:
+    role = config["roles"][name]
+    if role.get("all"):
+        skills = set(config["common"])
+        for other in config["roles"].values():
+            skills.update(other.get("skills", []))
+        break
+    if role.get("include_common", True):
+        skills.update(config["common"])
+    skills.update(role.get("skills", []))
+print("\n".join(sorted(skills)))
+PY
+)" || exit 1
+  SKILLS=()
+  while IFS= read -r role_skill; do
+    [ -n "${role_skill}" ] && SKILLS+=("${role_skill}")
+  done <<< "${ROLE_SKILLS}"
+  ok "Roles ${ROLES}: ${#SKILLS[@]} skills"
+fi
 
 LEGACY_SKILLS=(
   cawplan-query

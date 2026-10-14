@@ -6,10 +6,12 @@ AI agent skills and CLI tooling for CawPlan product release management workflows
 
 ```bash
 npm install -g cawplan
-npx skills add cawcut/skill-cawplan --all -g -y
+cawplan auth login
+cawplan skill update
 ```
 
-See `INSTALL.md` for all install options.
+`cawplan skill update` installs only the skills for your product roles (Owner / PM / R&D / QA / UX / Support / viewer).
+See `INSTALL.md` for the role mapping and all install options.
 
 ## Quick Start
 
