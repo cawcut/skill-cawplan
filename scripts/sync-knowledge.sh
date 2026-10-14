@@ -13,8 +13,9 @@
 #   after the repo (override with KNOWLEDGE_MODULE_NAME), one sub-module per directory, and every
 #   document is created under the module of its directory (files at the repo root go in the repo
 #   module). Missing modules are created, existing ones (same name under the same parent) are
-#   reused. The module tree is at most 5 levels deep, so directories nested deeper than the repo
-#   module + 4 levels are joined with "-" into one module on level 5 (a/b/c/d/e -> .../c/d-e).
+#   reused. The module tree is at most 7 levels deep (MAX_MODULE_DEPTH, the server's limit), so
+#   directories nested deeper than the repo module + 6 levels are joined with "-" into one module
+#   on level 7 (a/b/c/d/e/f/g/h -> root/a/b/c/d/e/f/g-h).
 # - Without a product the dataset is synced flat (no modules), as before.
 # - With no product given and no dataset recorded yet, a numbered product menu is shown first
 #   (when run from a terminal, or with -i / --interactive; type text to filter, Enter = flat sync).
@@ -62,7 +63,7 @@ REPO_NAME="$(basename "$REPO_ROOT")"
 DATASET_NAME="${KNOWLEDGE_DATASET_NAME:-$REPO_NAME}"
 MODULE_NAME="${KNOWLEDGE_MODULE_NAME:-$REPO_NAME}"
 STATE_FILE="$REPO_ROOT/.knowledge-sync-state.json"
-MAX_MODULE_DEPTH=5
+MAX_MODULE_DEPTH=7
 PAGE_SIZE=100
 MAX_PAGES=1000
 
@@ -294,7 +295,7 @@ fi
 # module_path_for REL_DIR -> the "/"-joined module path for a directory ("." = repo root): the
 # repo module plus one segment per directory. The tree is at most MAX_MODULE_DEPTH levels deep, so
 # the directories from that level on are joined with "-" into ONE module on the last level:
-# a/b/c/d/e/f with a 5-level limit -> root/a/b/c/d-e-f ... (root counts as level 1).
+# a/b/c/d/e/f/g/h with a 7-level limit -> root/a/b/c/d/e/f/g-h (root counts as level 1).
 module_path_for() {
   local rel_dir="$1" path="$MODULE_NAME" depth=1 seg tail=""
   local segs
