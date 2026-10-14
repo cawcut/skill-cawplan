@@ -1,4 +1,4 @@
-export type AiSessionAgent = "claude-code" | "cursor" | "codex";
+export type AiSessionAgent = "claude-code" | "cursor" | "codex" | "vscode";
 
 export interface ProductChoice {
     product_id: string;

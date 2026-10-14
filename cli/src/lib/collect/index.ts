@@ -11,6 +11,7 @@ import {
 import {collectGuiSessions} from "./agents/cursor-gui.js";
 import {collectCursorCliSessions} from "./agents/cursor-cli.js";
 import {collectCodexSessions} from "./agents/codex.js";
+import {collectVscodeSessions} from "./agents/vscode.js";
 import {
     buildSessionCookie,
     fetchUsageEvents,
@@ -199,7 +200,7 @@ export async function scanSessions(
     const date = opts.date;
     const sessions: SessionData[] = [];
 
-    const defaultAgents: CollectOptions["agents"] = ["claude-code", "cursor", "codex"];
+    const defaultAgents: CollectOptions["agents"] = ["claude-code", "cursor", "codex", "vscode"];
     const targetAgents = opts.agents ?? defaultAgents;
     logger.log(`Target agents: ${targetAgents.join(", ")}`);
 
@@ -326,6 +327,19 @@ export async function scanSessions(
             sessions.push(...codexSessions);
         } catch (e) {
             console.warn(`Warning: codex: ${(e as Error).message}`);
+        }
+    }
+
+    // Collect VS Code (GitHub Copilot agent) sessions
+    if (targetAgents.includes("vscode")) {
+        try {
+            const vscodeSessions = logger.step("Collect VS Code sessions", () => collectVscodeSessions(date, {
+                log: logger.log,
+            }));
+            logger.log(`Collected ${vscodeSessions.length} VS Code session(s).`);
+            sessions.push(...vscodeSessions);
+        } catch (e) {
+            console.warn(`Warning: vscode: ${(e as Error).message}`);
         }
     }
 

@@ -178,7 +178,7 @@ export interface HumanInput {
 
 export interface CollectOptions {
     date: string; // YYYY-MM-DD
-    agents?: Array<"claude-code" | "cursor" | "codex">;
+    agents?: Array<"claude-code" | "cursor" | "codex" | "vscode">;
     outputPath?: string;
     verbose?: boolean;
     /** Collection target: "coding" (default) or "qa". */

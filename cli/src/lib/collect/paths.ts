@@ -37,6 +37,18 @@ export function codexSessionsDir(): string {
   return join(codexHome(), "sessions");
 }
 
+/**
+ * GitHub Copilot agent state. VS Code's agent host runs the Copilot CLI engine, which keeps one
+ * directory per session under ~/.copilot/session-state/<id>/ (workspace.yaml + events.jsonl).
+ */
+export function copilotHome(): string {
+  return process.env.COPILOT_HOME ?? join(homedir(), ".copilot");
+}
+
+export function copilotSessionStateDir(): string {
+  return join(copilotHome(), "session-state");
+}
+
 export function cursorStateDbCandidates(): string[] {
   return [
     join(homedir(), "Library/Application Support/Cursor/User/globalStorage/state.vscdb"),

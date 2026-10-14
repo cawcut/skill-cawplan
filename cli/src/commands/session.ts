@@ -77,7 +77,7 @@ function registerSessionSubcommands(session: Command): void {
         .option("--date <YYYY-MM-DD>", "Date to collect (default: today)")
         .option(
             "--agent <name>",
-            "Agent(s) to collect from: claude-code, cursor, codex (repeatable)",
+            "Agent(s) to collect from: claude-code, cursor, codex, vscode (repeatable)",
             (val: string, prev: string[]) => [...prev, val],
             [] as string[]
         )
