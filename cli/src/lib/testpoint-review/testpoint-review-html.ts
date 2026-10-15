@@ -529,6 +529,32 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       overscroll-behavior: contain;
     }
     .tp-modal-backdrop.hidden { display: none; }
+    .stale-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 10px 0 0;
+      padding: 10px 14px;
+      border: 1px solid var(--red-bar);
+      border-radius: var(--radius-sm);
+      background: var(--red-soft);
+      color: var(--red);
+      font-size: 13px;
+      font-weight: 550;
+    }
+    .stale-banner.hidden { display: none; }
+    .stale-banner button {
+      flex: none;
+      height: 28px;
+      padding: 0 12px;
+      border: 1px solid var(--red-bar);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--red);
+      font-weight: 600;
+      cursor: pointer;
+    }
     .tp-modal {
       width: 100%; max-width: 520px; max-height: 100%;
       display: flex; flex-direction: column;
@@ -882,6 +908,10 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
   <div class="page-shell">
     <div class="page-header">
       <h1>Test Point Review<span class="round-badge">Round ${state.round}</span></h1>
+      <div class="stale-banner hidden" id="stale-banner" role="alert">
+        <span id="stale-banner-text"></span>
+        <button type="button" id="stale-reload-btn">Open latest</button>
+      </div>
       <p class="meta-line">${isQuestionsPhase ? "" : `${visibleTestPoints.length} total`}${!isQuestionsPhase && archivedCount > 0 ? `<span class="sep">·</span>Already saved to CawPlan: ${archivedCount}` : ""}<span class="save-hint" id="save-hint"></span></p>
     </div>
     ${isQuestionsPhase
@@ -932,13 +962,45 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         return url + (url.indexOf("?") === -1 ? "?" : "&") + "updated_at=" + encodeURIComponent(lastKnownUpdatedAt);
       }
 
+      var STALE_NOTE = " Anything typed but not submitted is not included.";
+      var STALE_MESSAGES = {
+        conflict: "This page is out of date: the review changed (a newer round or another tab). Your last change was not saved." + STALE_NOTE,
+        locked: "This review is locked while AI optimizes. Your last change was not saved." + STALE_NOTE,
+      };
+
+      // A 409 on a stale or locked page freezes the whole page, so a later edit can never look
+      // saved when it was not. Returns true when the 409 was one of these and has been surfaced.
+      function showStaleFor409(data) {
+        var error = data && data.error;
+        var reason = error === "conflict" ? "conflict"
+          : typeof error === "string" && error.indexOf("review is locked") === 0 ? "locked"
+          : null;
+        if (reason) {
+          lockPage();
+          ["optimize-btn", "save-cawplan-btn"].forEach(function (id) {
+            var button = document.getElementById(id);
+            if (button) button.disabled = true;
+          });
+          var banner = document.getElementById("stale-banner");
+          var text = document.getElementById("stale-banner-text");
+          if (banner && text) {
+            text.textContent = STALE_MESSAGES[reason];
+            banner.classList.remove("hidden");
+          }
+          return true;
+        }
+        if (error === "save_in_progress") {
+          setSaveHint("A save to CawPlan is in progress. Your last change was not saved.");
+          return true;
+        }
+        return false;
+      }
+
+      // Callers swallow Error("conflict"): the 409 has already been shown to the user.
       function handleApiResponse(res) {
         if (res.status === 409) {
           return res.json().then(function (data) {
-            if (data && data.error === "conflict") {
-              setSaveHint("This data was updated elsewhere. Please refresh before saving again.");
-              throw new Error("conflict");
-            }
+            if (showStaleFor409(data)) throw new Error("conflict");
             throw new Error("request failed");
           });
         }
@@ -1761,13 +1823,19 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           flushQuestionAnswers({ requireSuccess: true })
             .then(function (flushed) {
               if (!flushed) throw new Error("question answers were not saved");
-              return fetch("/api/optimize?token=" + encodeURIComponent(token), {
+              return fetch(withUpdatedAt("/api/optimize?token=" + encodeURIComponent(token)), {
                 method: "POST",
                 headers: { "content-type": "application/json" },
                 body: "{}",
               });
             })
             .then(function (res) {
+              if (res.status === 409) {
+                return res.json().then(function (data) {
+                  if (showStaleFor409(data)) throw new Error("conflict");
+                  throw new Error("optimize request failed");
+                });
+              }
               if (!res.ok) throw new Error("optimize request failed");
               return res.json();
             })
@@ -1781,7 +1849,8 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
               lockPage();
               tryCloseTab(hint, "If Chat does not respond, send “Continue optimization” in Chat.");
             })
-            .catch(function () {
+            .catch(function (err) {
+              if (err && err.message === "conflict") return;
               btn.disabled = false;
               setQuestionInputsFrozen(false);
               if (hint) hint.textContent = hasUnsavedQuestionAnswers()
@@ -1806,7 +1875,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           flushQuestionAnswers({ requireSuccess: true })
             .then(function (flushed) {
               if (!flushed) throw new Error("Save the question answers successfully before saving to CawPlan.");
-              return fetch("/api/save-to-cawplan?token=" + encodeURIComponent(token), {
+              return fetch(withUpdatedAt("/api/save-to-cawplan?token=" + encodeURIComponent(token)), {
                 method: "POST",
                 headers: { "content-type": "application/json" },
                 body: "{}",
@@ -1818,6 +1887,9 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
             .then(function (result) {
               var res = result.res;
               var data = result.data;
+              if (res.status === 409 && showStaleFor409(data)) {
+                throw new Error("conflict");
+              }
               if (res.status === 409 && data && data.error === "unresolved_feedback") {
                 btn.disabled = false;
                 setQuestionInputsFrozen(false);
@@ -1840,6 +1912,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
               tryCloseTab(hint);
             })
             .catch(function (err) {
+              if (err && err.message === "conflict") return;
               btn.disabled = false;
               setQuestionInputsFrozen(false);
               if (hint) {
@@ -1879,6 +1952,8 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       wireQuestionLifecycleFlush();
       wireAddTestPointPanel();
       focusNewlyAddedRow();
+      var staleReloadBtn = document.getElementById("stale-reload-btn");
+      if (staleReloadBtn) staleReloadBtn.addEventListener("click", function () { location.reload(); });
       wireOptimizeButton();
       wireSaveToCawPlanButton();
     })();

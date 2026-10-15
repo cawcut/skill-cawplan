@@ -148,6 +148,11 @@ function isReviewLocked(reviewState: ReviewState): boolean {
   return reviewState.review_status === "pending_optimize" || reviewState.review_status === "optimizing";
 }
 
+// Review ids whose Save to CawPlan is awaiting the archive API. The handler holds the state it
+// loaded before that await and writes it back afterwards, so any edit accepted in between would
+// be answered 200 and then overwritten. Rejecting writes meanwhile keeps "Saved" truthful.
+const savesInFlight = new Set<string>();
+
 function conflictResult(reviewState: ReviewState): TestPointReviewDispatchResult {
   return {
     status: 409,
@@ -447,7 +452,11 @@ export function requestOptimizeWithHumanInput(
 function optimizeReview(
   reviewState: ReviewState,
   recordHumanInput: NonNullable<TestPointReviewServerDeps["recordHumanInput"]>,
+  clientUpdatedAt: string | undefined,
 ): TestPointReviewDispatchResult {
+  if (hasConflict(reviewState, clientUpdatedAt)) {
+    return conflictResult(reviewState);
+  }
   const hasPageChanges = reviewState.test_points.some(
     (tp) =>
       tp.archived !== true &&
@@ -492,9 +501,14 @@ async function saveToCawPlan(
   archiveTestPoints: ArchiveTestPointsFn,
   reconcileTestPoints: ReconcileTestPointsFn,
   recordHumanInput: NonNullable<TestPointReviewServerDeps["recordHumanInput"]>,
+  clientUpdatedAt: string | undefined,
 ): Promise<TestPointReviewDispatchResult> {
   if (isReviewLocked(reviewState)) {
     return { status: 409, body: { error: "review is locked for AI optimization" } };
+  }
+  // A page showing an older revision must not save content it never displayed.
+  if (hasConflict(reviewState, clientUpdatedAt)) {
+    return conflictResult(reviewState);
   }
 
   const feedback = checkUnresolvedFeedback(reviewState);
@@ -591,6 +605,10 @@ export async function dispatchTestPointReviewRequest(
   const renderHtml = deps.renderHtml ?? testPointReviewHtml;
   const clientUpdatedAt = url.searchParams.get("updated_at") ?? undefined;
 
+  if (req.method !== "GET" && deps.reviewState && savesInFlight.has(deps.reviewState.review_id)) {
+    return { status: 409, body: { error: "save_in_progress" } };
+  }
+
   if (req.method === "GET" && url.pathname === "/") {
     const viewed = deps.reviewState;
     if (
@@ -660,7 +678,7 @@ export async function dispatchTestPointReviewRequest(
       return { status: 404, body: { error: "no review state loaded" } };
     }
 
-    return optimizeReview(deps.reviewState, deps.recordHumanInput ?? tryRecordTestPointReviewHumanInput);
+    return optimizeReview(deps.reviewState, deps.recordHumanInput ?? tryRecordTestPointReviewHumanInput, clientUpdatedAt);
   }
 
   if (req.method === "POST" && url.pathname === SAVE_TO_CAWPLAN_PATH) {
@@ -668,12 +686,19 @@ export async function dispatchTestPointReviewRequest(
       return { status: 404, body: { error: "no review state loaded" } };
     }
 
-    return saveToCawPlan(
-      deps.reviewState,
-      deps.archiveTestPoints ?? defaultArchiveTestPoints,
-      deps.reconcileTestPoints ?? defaultReconcileTestPoints,
-      deps.recordHumanInput ?? tryRecordTestPointReviewHumanInput,
-    );
+    const savingReviewId = deps.reviewState.review_id;
+    savesInFlight.add(savingReviewId);
+    try {
+      return await saveToCawPlan(
+        deps.reviewState,
+        deps.archiveTestPoints ?? defaultArchiveTestPoints,
+        deps.reconcileTestPoints ?? defaultReconcileTestPoints,
+        deps.recordHumanInput ?? tryRecordTestPointReviewHumanInput,
+        clientUpdatedAt,
+      );
+    } finally {
+      savesInFlight.delete(savingReviewId);
+    }
   }
 
   if (req.method === "POST" && url.pathname.startsWith(EDIT_PATH_PREFIX)) {
