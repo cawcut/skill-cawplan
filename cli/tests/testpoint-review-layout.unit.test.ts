@@ -9,17 +9,17 @@ describe("test point review layout", () => {
         const html = testPointReviewHtml(state, "tok");
 
         expect(html).toMatch(
-            /<section class="review-actions"[\s\S]*id="add-tp-toggle"[\s\S]*id="optimize-btn"[\s\S]*id="save-cawplan-btn"[\s\S]*<\/section>/,
+            /<section class="review-actions questions-footer tp-footer"[\s\S]*id="add-tp-toggle"[\s\S]*id="optimize-btn"[\s\S]*id="save-cawplan-btn"[\s\S]*<\/section>/,
         );
     });
 
-    test("puts Ask AI and Save feedback below the action bar", () => {
+    test("puts Submit to AI and Save feedback inside the footer", () => {
         const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
 
         const html = testPointReviewHtml(state, "tok");
 
         expect(html).toMatch(
-            /<\/section>\s*<div class="action-notices"[\s\S]*id="optimize-hint"[\s\S]*id="save-cawplan-hint"[\s\S]*<\/div>/,
+            /class="review-actions questions-footer tp-footer"[\s\S]*<div class="action-notices"[\s\S]*id="optimize-hint"[\s\S]*id="save-cawplan-hint"[\s\S]*<\/div>\s*<\/section>/,
         );
         expect(html).toContain("background: var(--amber-soft)");
         expect(html).toContain("width: fit-content");

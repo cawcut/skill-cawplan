@@ -24,7 +24,7 @@ function review(openQuestions: string[] = ["Question one", "Question two"]): Rev
   });
 }
 
-describe("Questions to Confirm", () => {
+describe("Questions to confirm", () => {
   let dir: string;
   let originalPath: string | undefined;
 
@@ -44,32 +44,32 @@ describe("Questions to Confirm", () => {
   test("hides the entire region when the list is empty", () => {
     const html = testPointReviewHtml(review([]), TOKEN);
     expect(html).not.toContain('id="questions-page"');
-    expect(html).not.toContain("Questions to Confirm");
+    expect(html).not.toContain("Questions to confirm");
   });
 
   test("Questions page: Ignore + Continue, no test point table, Add or Save", () => {
     const html = testPointReviewHtml(review(["Q1", "Q2"]), TOKEN);
     expect(html).toContain('id="questions-page"');
-    expect(html).toContain('<span class="questions-counts">2 questions</span>');
+    expect(html).toContain('<span class="questions-counts">2 Questions</span>');
     expect(html.match(/class="question-ignore-btn"/g)).toHaveLength(2);
-    expect(html).toContain(">忽略</button>");
-    expect(html).toMatch(/id="optimize-btn" disabled>继续<\/button>/);
+    expect(html).toContain(">Ignore</button>");
+    expect(html).toMatch(/id="optimize-btn" disabled>Submit to AI<\/button>/);
     expect(html).not.toContain('class="group"');
     expect(html).not.toContain('id="add-tp-toggle"');
     expect(html).not.toContain('id="save-cawplan-btn"');
   });
 
-  test("Questions page follows state.language and enables Continue only when all are answered", () => {
+  test("Questions page enables Submit to AI only when all are answered", () => {
     const state = review(["Q1", "Q2"]);
     state.language = "en";
-    expect(testPointReviewHtml(state, TOKEN)).toMatch(/id="optimize-btn" disabled>Continue<\/button>/);
+    expect(testPointReviewHtml(state, TOKEN)).toMatch(/id="optimize-btn" disabled>Submit to AI<\/button>/);
     expect(testPointReviewHtml(state, TOKEN)).toContain(">Ignore</button>");
     state.open_questions![0].answer = "A1";
     expect(testPointReviewHtml(state, TOKEN)).toMatch(/id="optimize-btn" disabled>/);
     state.open_questions![1].answer = "Ignore";
-    expect(testPointReviewHtml(state, TOKEN)).toMatch(/id="optimize-btn">Continue<\/button>/);
+    expect(testPointReviewHtml(state, TOKEN)).toMatch(/id="optimize-btn">Submit to AI<\/button>/);
     state.review_status = "pending_optimize";
-    expect(testPointReviewHtml(state, TOKEN)).toMatch(/id="optimize-btn" disabled>Continue<\/button>/);
+    expect(testPointReviewHtml(state, TOKEN)).toMatch(/id="optimize-btn" disabled>Submit to AI<\/button>/);
   });
 
   test("Review page (all questions baselined) shows no Questions region and keeps the table", () => {
@@ -81,13 +81,13 @@ describe("Questions to Confirm", () => {
     expect(html).not.toContain(`class="question-ignore-btn"`);
     expect(html).toContain('id="add-tp-toggle"');
     expect(html).toContain('id="save-cawplan-btn"');
-    expect(html).toContain("Ask AI to Optimize");
+    expect(html).toContain("Submit to AI");
   });
 
-  test("Ignore writes the localized constant through the shared answer input", () => {
+  test("Ignore writes the constant through the shared answer input", () => {
     const html = testPointReviewHtml(review(), TOKEN);
-    expect(html).toContain('var IGNORE_ANSWER = "忽略";');
-    expect(html).toContain("input.value = IGNORE_ANSWER;");
+    expect(html).toContain('var IGNORE_ANSWER = "Ignore";');
+    expect(html).toContain('input.value = undoing ? "" : IGNORE_ANSWER;');
     expect(html).toContain("enqueueQuestionSave(state);");
   });
 
@@ -95,7 +95,7 @@ describe("Questions to Confirm", () => {
     const state = review();
     state.review_status = "pending_optimize";
     const html = testPointReviewHtml(state, TOKEN);
-    expect(html).toContain('class="question-answer-input" rows="2" placeholder="Write your answer…" disabled');
+    expect(html).toContain('class="question-answer-input" rows="1" placeholder="Type your answer..." disabled');
     expect(html).toContain("setQuestionInputsFrozen(true)");
   });
 
