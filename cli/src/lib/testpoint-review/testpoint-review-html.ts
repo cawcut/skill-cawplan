@@ -117,9 +117,21 @@ function renderRow(seq: string, tp: TestPoint, pageLocked: boolean): string {
 
 // Single source for the Ignore answer: Ignore writes this text through the normal answer endpoint.
 const IGNORE_ANSWER = "Ignore";
-const DONE_CLOSE_HINT: Record<"zh" | "en", string> = {
-  zh: "已完成，可关闭此页",
-  en: "Done — you can close this tab",
+const DONE_CLOSE_HINT = "Done — you can close this tab";
+
+// Page messages for the final Submit to AI / Save to CawPlan request. "{n}" is the countdown.
+const SUBMIT_TEXT: {
+  countdown: string;
+  unknown: string;
+  unconfirmed: string;
+  saveBusy: string;
+  invalid: string;
+} = {
+    countdown: "Done — closing in {n} seconds",
+    unknown: "No response received (if the local server has closed, it was likely submitted). Check in Chat; this page is locked, do not resubmit.",
+    unconfirmed: "Could not confirm the save to CawPlan. Verify in Chat; this page is locked.",
+    saveBusy: "Another save is in progress; this page is locked. Check the result in Chat.",
+    invalid: "This page is no longer valid. Reopen the Review.",
 };
 
 const QUESTIONS_PAGE_TEXT = {
@@ -306,9 +318,9 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
   const groups = groupByGroup(visibleTestPoints);
   const optimizeHintIsStale = isOptimizeStale(state.review_status, state.optimize_requested_at);
   const optimizeHint = optimizeHintIsStale
-    ? "Last optimization request may not have completed — please tell the Agent in Chat to “continue optimizing”."
+    ? "Optimization may be stalled. Send “continue optimizing” in Chat."
     : pageLocked
-      ? "Optimization requested — this review is locked until the AI responds."
+      ? "Waiting for AI. Editing is temporarily locked."
       : "";
   const groupsHtml = Array.from(groups.entries())
     .map(([groupName, testPoints], index) => renderGroup(groupName, index + 1, testPoints, language, pageLocked))
@@ -916,11 +928,11 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     </div>
     ${isQuestionsPhase
       ? `${renderQuestionsPage(state, pageLocked)}
-    <section class="review-actions questions-footer" aria-label="Review actions">
+    <section class="review-actions questions-footer tp-footer" aria-label="Review actions">
       <span class="questions-progress" id="questions-progress">${answeredCount} / ${(state.open_questions ?? []).length} completed</span>
       ${renderOptimizeBar(state.review_status, QUESTIONS_PAGE_TEXT.submit, !allAnswered)}
-    </section>
-    ${renderActionNotices(optimizeHint, optimizeHintIsStale)}`
+      ${renderActionNotices(optimizeHint, optimizeHintIsStale)}
+    </section>`
       : `${renderAddTestPointForm(pageLocked, Array.from(groups.keys()).filter((g) => g !== "Ungrouped"))}
     ${groupsHtml}
     <section class="review-actions questions-footer tp-footer" aria-label="Review actions">
@@ -940,7 +952,8 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       var isQuestionsPhase = ${JSON.stringify(isQuestionsPhase)};
       var pageLockedAtLoad = ${JSON.stringify(pageLocked)};
       var IGNORE_ANSWER = ${JSON.stringify(IGNORE_ANSWER)};
-      var DONE_CLOSE_HINT = ${JSON.stringify(DONE_CLOSE_HINT[language])};
+      var DONE_CLOSE_HINT = ${JSON.stringify(DONE_CLOSE_HINT)};
+      var SUBMIT_TEXT = ${JSON.stringify(SUBMIT_TEXT)};
 
       function fieldValue(el, fieldName) {
         if (fieldName === "priority") return el.value.trim();
@@ -962,10 +975,9 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         return url + (url.indexOf("?") === -1 ? "?" : "&") + "updated_at=" + encodeURIComponent(lastKnownUpdatedAt);
       }
 
-      var STALE_NOTE = " Anything typed but not submitted is not included.";
       var STALE_MESSAGES = {
-        conflict: "This page is out of date: the review changed (a newer round or another tab). Your last change was not saved." + STALE_NOTE,
-        locked: "This review is locked while AI optimizes. Your last change was not saved." + STALE_NOTE,
+        conflict: "Review updated. Please refresh. Your change wasn’t saved.",
+        locked: "AI is optimizing. Editing is temporarily locked. Your change wasn’t saved.",
       };
 
       // A 409 on a stale or locked page freezes the whole page, so a later edit can never look
@@ -990,7 +1002,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           return true;
         }
         if (error === "save_in_progress") {
-          setSaveHint("A save to CawPlan is in progress. Your last change was not saved.");
+          setSaveHint("Saving to CawPlan. Your change wasn’t saved.");
           return true;
         }
         return false;
@@ -1127,10 +1139,10 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
                 state.conflictBlocked = true;
                 if (data && data.error === "conflict" && typeof data.server_updated_at === "string") {
                   state.conflictRevision = data.server_updated_at;
-                  setQuestionError(state, "This answer was not saved because the Review changed. Retry to save your current input.", true);
+                  setQuestionError(state, "Review updated. Your answer wasn’t saved. Please retry.", true);
                 } else {
                   state.conflictRevision = null;
-                  setQuestionError(state, "This answer was not saved because the Review is locked.", false);
+                  setQuestionError(state, "Review locked. Your answer wasn’t saved.", false);
                 }
               } else if (!res.ok) {
                 state.forceSave = true;
@@ -1811,6 +1823,60 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         if (hint) hint.textContent = DONE_CLOSE_HINT + (extra ? " " + extra : "");
       }
 
+      // Closing is best-effort: browsers usually refuse window.close() for tabs a script did not
+      // open, so tryCloseTab leaves the "you can close this tab" hint when it is refused.
+      function startCloseCountdown(hint, extra) {
+        var remaining = 5;
+        function render() {
+          if (hint) hint.textContent = SUBMIT_TEXT.countdown.replace("{n}", String(remaining)) + (extra ? " " + extra : "");
+        }
+        render();
+        var timer = setInterval(function () {
+          remaining -= 1;
+          if (remaining > 0) { render(); return; }
+          clearInterval(timer);
+          tryCloseTab(hint, extra);
+        }, 1000);
+      }
+
+      // The final request was sent but its result is not known (response lost, unreadable, or the
+      // server could not confirm the archive). Never re-enable submit or resend from here.
+      var submitHeld = false;
+      function holdLocked(hint, text, isError) {
+        submitHeld = true;
+        lockPage();
+        ["optimize-btn", "save-cawplan-btn"].forEach(function (id) {
+          var button = document.getElementById(id);
+          if (button) button.disabled = true;
+        });
+        if (hint) {
+          if (isError) hint.className = "action-notice save-cawplan-hint save-cawplan-hint-error";
+          hint.textContent = text;
+        }
+      }
+
+      // Recovery must not override a stronger read-only state (stale/locked banner or a hold).
+      function canRecover() {
+        var banner = document.getElementById("stale-banner");
+        return !submitHeld && !(banner && !banner.classList.contains("hidden"));
+      }
+
+      // a failed fetch or an unreadable body after the request was sent means "result unknown".
+      function unknownResult() {
+        var error = new Error("unknown result");
+        error.unknownResult = true;
+        return error;
+      }
+      function sendFinalRequest(url) {
+        return fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })
+          .catch(function () { throw unknownResult(); })
+          .then(function (res) {
+            return res.json().catch(function () { throw unknownResult(); }).then(function (data) {
+              return { res: res, data: data };
+            });
+          });
+      }
+
       function wireOptimizeButton() {
         var btn = document.getElementById("optimize-btn");
         var hint = document.getElementById("optimize-hint");
@@ -1823,38 +1889,47 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           flushQuestionAnswers({ requireSuccess: true })
             .then(function (flushed) {
               if (!flushed) throw new Error("question answers were not saved");
-              return fetch(withUpdatedAt("/api/optimize?token=" + encodeURIComponent(token)), {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: "{}",
-              });
+              return sendFinalRequest(withUpdatedAt("/api/optimize?token=" + encodeURIComponent(token)));
             })
-            .then(function (res) {
+            .then(function (result) {
+              var res = result.res;
+              var data = result.data;
               if (res.status === 409) {
-                return res.json().then(function (data) {
-                  if (showStaleFor409(data)) throw new Error("conflict");
-                  throw new Error("optimize request failed");
-                });
+                if (data && data.error === "save_in_progress") {
+                  holdLocked(hint, SUBMIT_TEXT.saveBusy, false);
+                  throw new Error("conflict");
+                }
+                if (showStaleFor409(data)) throw new Error("conflict");
+                throw new Error("optimize request failed");
+              }
+              if (res.status === 403 && data && data.error === "invalid token") {
+                holdLocked(hint, SUBMIT_TEXT.invalid, false);
+                throw new Error("conflict");
               }
               if (!res.ok) throw new Error("optimize request failed");
-              return res.json();
-            })
-            .then(function (data) {
               if (data && data.outcome === "NO_CHANGES") {
                 btn.disabled = false;
                 setQuestionInputsFrozen(false);
                 if (hint) hint.textContent = "No changes to optimize. Make a change first.";
                 return;
               }
+              if (!data || (data.review_status !== "pending_optimize" && data.review_status !== "optimizing")) {
+                throw unknownResult();
+              }
               lockPage();
-              tryCloseTab(hint, "If Chat does not respond, send “Continue optimization” in Chat.");
+              startCloseCountdown(hint, "If Chat does not respond, send “Continue optimization” in Chat.");
             })
             .catch(function (err) {
               if (err && err.message === "conflict") return;
+              if (err && err.unknownResult) {
+                holdLocked(hint, SUBMIT_TEXT.unknown, false);
+                return;
+              }
+              if (!canRecover()) return;
               btn.disabled = false;
               setQuestionInputsFrozen(false);
               if (hint) hint.textContent = hasUnsavedQuestionAnswers()
-                ? "Save the question answers successfully before optimizing."
+                ? "Retry saving your answers before submitting to AI."
                 : "Request failed, please retry";
             });
         });
@@ -1874,19 +1949,16 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           }
           flushQuestionAnswers({ requireSuccess: true })
             .then(function (flushed) {
-              if (!flushed) throw new Error("Save the question answers successfully before saving to CawPlan.");
-              return fetch(withUpdatedAt("/api/save-to-cawplan?token=" + encodeURIComponent(token)), {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: "{}",
-              });
-            })
-            .then(function (res) {
-              return res.json().then(function (data) { return { res: res, data: data }; });
+              if (!flushed) throw new Error("Retry saving your answers before saving to CawPlan.");
+              return sendFinalRequest(withUpdatedAt("/api/save-to-cawplan?token=" + encodeURIComponent(token)));
             })
             .then(function (result) {
               var res = result.res;
               var data = result.data;
+              if (res.status === 409 && data && data.error === "save_in_progress") {
+                holdLocked(hint, SUBMIT_TEXT.saveBusy, true);
+                throw new Error("conflict");
+              }
               if (res.status === 409 && showStaleFor409(data)) {
                 throw new Error("conflict");
               }
@@ -1895,24 +1967,53 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
                 setQuestionInputsFrozen(false);
                 if (hint) {
                   hint.className = "action-notice save-cawplan-hint save-cawplan-hint-error";
-                  hint.textContent = "Comments or answered Questions must be processed by Ask AI before saving.";
+                  hint.textContent = "Click “Submit to AI” to process comments before saving.";
                 }
                 return;
               }
+              if (res.status === 403 && data && data.error === "invalid token") {
+                holdLocked(hint, SUBMIT_TEXT.invalid, true);
+                throw new Error("conflict");
+              }
               if (!res.ok) {
+                var failure = data && data.error;
+                if (failure === "archive request failed") {
+                  throw unknownResult();
+                }
+                if (failure === "archive did not succeed" || failure === "archive did not succeed and reconcile failed") {
+                  // Only a definite failure (nothing written) may be retried. Anything else,
+                  // e.g. a count mismatch or a failed reconcile, cannot be confirmed from here.
+                  var envelope = data.envelope;
+                  var definite = failure === "archive did not succeed" && !data.reconcile && envelope &&
+                    envelope.outcome === "FAILURE" && envelope.error &&
+                    ["validation", "auth", "not_found", "feature_disabled"].indexOf(envelope.error.type) !== -1;
+                  if (!definite) {
+                    holdLocked(hint, SUBMIT_TEXT.unconfirmed, true);
+                    throw new Error("conflict");
+                  }
+                  throw new Error(envelope.error.message || "save request failed");
+                }
                 throw new Error((data && data.message) || "save request failed");
               }
-              if (data.outcome === "NOOP") {
-                if (hint) hint.textContent = "Nothing new to save — every visible test point is already archived.";
+              if (data && data.outcome === "NOOP") {
+                if (hint) hint.textContent = "All test points are already saved to CawPlan.";
                 btn.disabled = false;
                 setQuestionInputsFrozen(false);
                 return;
               }
+              if (!data || (data.outcome !== "SUCCESS" && data.outcome !== "RECONCILED")) {
+                throw unknownResult();
+              }
               lockPage();
-              tryCloseTab(hint);
+              startCloseCountdown(hint);
             })
             .catch(function (err) {
               if (err && err.message === "conflict") return;
+              if (err && err.unknownResult) {
+                holdLocked(hint, SUBMIT_TEXT.unknown, true);
+                return;
+              }
+              if (!canRecover()) return;
               btn.disabled = false;
               setQuestionInputsFrozen(false);
               if (hint) {

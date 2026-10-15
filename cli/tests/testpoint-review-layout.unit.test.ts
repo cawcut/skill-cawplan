@@ -86,7 +86,7 @@ describe("test point review layout", () => {
 
         const html = testPointReviewHtml(state, "tok");
 
-        expect(html).toContain("Comments or answered Questions must be processed by Ask AI before saving.");
+        expect(html).toContain("Click “Submit to AI” to process comments before saving.");
         expect(html).not.toContain("Save anyway");
     });
 });

@@ -281,11 +281,11 @@ describe("Questions to confirm", () => {
 });
 
 describe("close-tab hint", () => {
-  test("page script tries to close the tab and shows a localized completion hint", () => {
+  test("page script tries to close the tab and shows an English completion hint", () => {
     const zh = testPointReviewHtml(review(), TOKEN);
     expect(zh).toContain("function tryCloseTab(");
     expect(zh).toContain("window.close()");
-    expect(zh).toContain(`var DONE_CLOSE_HINT = "已完成，可关闭此页";`);
+    expect(zh).toContain(`var DONE_CLOSE_HINT = "Done — you can close this tab";`);
     const en = createReviewStateFromInput({
       productId: "prod_1", requirementId: "req_1", language: "en",
       testPoints: [{title: "Draft", group: "Group", tags: [], priority: "HIGH"}],

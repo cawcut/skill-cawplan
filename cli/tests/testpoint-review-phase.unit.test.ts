@@ -178,6 +178,35 @@ describe("last_viewed_review_round (GET /)", () => {
     expect(state.last_viewed_review_round).toBeUndefined();
   });
 
+  test("an empty or archived-only list does not count as the first visible list", async () => {
+    const state = stateWith([]);
+    state.test_points.forEach((tp) => { tp.archived = true; });
+    await get(state);
+    expect(state.last_viewed_review_round).toBeUndefined();
+    state.test_points = [];
+    await get(state);
+    expect(state.last_viewed_review_round).toBeUndefined();
+  });
+
+  test("first view resets AI labels while preserving QA edits, archived points and content baselines", async () => {
+    const state = stateWith([]);
+    state.test_points[0].ai_status = "modified";
+    state.test_points[0].status = "edited";
+    state.test_points[1].source = "qa";
+    state.test_points[1].status = "added";
+    state.test_points[2].archived = true;
+    state.test_points[2].ai_status = "added";
+    const before = structuredClone(state.test_points);
+
+    await get(state);
+
+    expect(state.test_points).toEqual([
+      {...before[0], ai_status: "none"},
+      before[1],
+      before[2],
+    ]);
+  });
+
   test("locked Review GET does not record", async () => {
     const state = stateWith([]);
     state.review_status = "pending_optimize";

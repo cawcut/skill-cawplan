@@ -615,8 +615,21 @@ export async function dispatchTestPointReviewRequest(
       viewed &&
       reviewPhase(viewed) === "review" &&
       !isReviewLocked(viewed) &&
+      viewed.test_points.some((testPoint) => !testPoint.archived) &&
       viewed.last_viewed_review_round !== viewed.round
     ) {
+      // Changes made before the first visible list are the user's initial baseline,
+      // regardless of how many Questions rounds preceded it. Persist the reset so
+      // reloading this round cannot expose those pre-review changes again.
+      if (viewed.last_viewed_review_round === undefined) {
+        for (const testPoint of viewed.test_points) {
+          if (testPoint.archived) continue;
+          testPoint.ai_status = "none";
+          if (testPoint.source === "ai" && testPoint.status === "added") {
+            testPoint.status = "unchanged";
+          }
+        }
+      }
       viewed.last_viewed_review_round = viewed.round;
       saveReviewState(viewed);
     }

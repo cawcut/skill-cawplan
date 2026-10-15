@@ -16,7 +16,7 @@ describe("testPointReviewHtml stale-optimize banner (design §8.1)", () => {
         const html = testPointReviewHtml(state, "tok");
 
         expect(hintSpan(html)).not.toContain("optimize-hint-stale");
-        expect(hintSpan(html)).not.toContain("may not have completed");
+        expect(hintSpan(html)).not.toContain("may be stalled");
     });
 
     test("shows the normal locked hint (not stale) when just requested", () => {
@@ -26,7 +26,7 @@ describe("testPointReviewHtml stale-optimize banner (design §8.1)", () => {
 
         const html = testPointReviewHtml(state, "tok");
 
-        expect(hintSpan(html)).toContain("this review is locked until the AI responds");
+        expect(hintSpan(html)).toContain("Waiting for AI. Editing is temporarily locked.");
         expect(hintSpan(html)).not.toContain("optimize-hint-stale");
     });
 
@@ -38,7 +38,7 @@ describe("testPointReviewHtml stale-optimize banner (design §8.1)", () => {
         const html = testPointReviewHtml(state, "tok");
 
         expect(hintSpan(html)).toContain("optimize-hint-stale");
-        expect(hintSpan(html)).toContain("may not have completed");
+        expect(hintSpan(html)).toContain("may be stalled");
         expect(hintSpan(html)).toContain("continue optimizing");
     });
 

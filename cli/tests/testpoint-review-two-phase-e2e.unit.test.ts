@@ -69,6 +69,51 @@ describe("two-phase Review → Questions → Questions → Review (e2e, in-proce
 
   const tag = (id: string) => state.test_points.find((tp) => tp.id === id)!.ai_status;
 
+  test.each([1, 3])("first list after %i Questions rounds has no AI labels, then normal changes resume", async (questionRounds) => {
+    const tpId = state.test_points[0].id;
+    state.open_questions = [{id: "oq_001", text: "Initial question", answer: null, round_answer_baseline: null}];
+    saveReviewState(state);
+
+    for (let i = 0; i < questionRounds; i++) {
+      await call("GET", "/");
+      expect(state.last_viewed_review_round).toBeUndefined();
+      const question = state.open_questions![0];
+      expect((await call("POST", `/api/open-questions/${question.id}/answer`, {answer: "Use strict mode"})).status).toBe(200);
+      expect((await call("POST", "/api/optimize")).status).toBe(200);
+      aiRound({
+        modified: [{id: tpId, fields: fieldsOf(`Initial revision ${i}`)}],
+        added: [fieldsOf(`Initial addition ${i}`)],
+        questions: {retained_ids: [], added: i + 1 < questionRounds ? ["Follow-up question"] : []},
+      });
+    }
+
+    const firstList = await call("GET", "/");
+    expect(firstList.body).toContain("Initial revision");
+    expect(firstList.body).toContain("Initial addition");
+    expect(firstList.body).not.toContain("AI Modified");
+    expect(firstList.body).not.toContain("AI Added");
+    expect(firstList.body).not.toContain('<span class="status-label">Added</span>');
+    expect(state.last_viewed_review_round).toBe(questionRounds + 1);
+    state = loadReviewState(state.review_id);
+    expect(state.test_points.every((tp) => tp.ai_status === "none" && tp.status === "unchanged")).toBe(true);
+    expect((await call("GET", "/")).body).not.toContain("AI Added");
+
+    expect((await call("POST", `/api/test-points/${tpId}/comments`, {text: "Refine this point"})).status).toBe(200);
+    expect((await call("POST", "/api/optimize")).status).toBe(200);
+    aiRound({
+      modified: [{id: tpId, fields: fieldsOf("Visible revision")}],
+      added: [fieldsOf("Visible addition")],
+      questions: {retained_ids: [], added: []},
+    });
+    const nextList = await call("GET", "/");
+    expect(nextList.body).toContain("AI Modified");
+    expect(nextList.body).toContain("AI Added");
+    expect(tag(tpId)).toBe("modified");
+    expect(state.test_points.find((tp) => tp.current.title === "Initial addition 0")!.ai_status).toBe("none");
+    state = loadReviewState(state.review_id);
+    expect((await call("GET", "/")).body).toContain("AI Added");
+  });
+
   /** Drives R1 (Review) → R2 (Questions) → R3 (Questions) → R4 (Review). Returns the AI-added row id. */
   async function runToRound4(): Promise<string> {
     const [tp1, tp2, tp3] = state.test_points.map((tp) => tp.id);

@@ -403,7 +403,7 @@ SQA 发送「恢复 Review 页面」（或对应英文）时：使用当前 bind
 
 Review 页面分两阶段（详见 `references/round-flow.md`）：有未处理的存疑时先显示 **Questions 阶段**——只有问题卡片（回答或 Ignore，自动保存）与 Continue，不展示测试点、没有 Save；全部处理并经 AI 消费后进入 **Review 阶段**——测试点表格与 Ask AI / Save。问题与答案的唯一事实源是 Review State。
 
-**尾巴**（存疑清单之后，**仅首次呈现且页面处于 Review 阶段时**逐字输出；Questions 阶段不提 Save，改为一句引导“回答或 Ignore 后点 Continue，或直接在这里说”；修订轮改走 §8 的精简输出契约；**不做弹框**；**跟随会话语言**二选一，不同时输出）：
+**尾巴**（存疑清单之后，**仅首次呈现且页面处于 Review 阶段时**逐字输出；Questions 阶段不提 Save，改为一句引导“请在 Review 页面确认，也可以直接在这里回复。”；修订轮改走 §8 的精简输出契约；**不做弹框**；**跟随会话语言**二选一，不同时输出）：
 > 有修改意见可以直接在这里说，或者去 Review 页面编辑；确认没问题后，请在 Review 页面点击 Save to CawPlan 完成提交。
 > Tell me your changes here, or edit them directly on the Review page; once it looks good, click Save to CawPlan on the Review page to submit.
 
