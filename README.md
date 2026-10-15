@@ -6,10 +6,12 @@ AI agent skills and CLI tooling for CawPlan product release management workflows
 
 ```bash
 npm install -g cawplan
-npx skills add cawcut/skill-cawplan --all -g -y
+cawplan auth login
+cawplan skill update
 ```
 
-See `INSTALL.md` for all install options.
+`cawplan skill update` installs only the skills for your product roles (Owner / PM / R&D / QA / UX / Support / viewer).
+See `INSTALL.md` for the role mapping and all install options.
 
 ## Quick Start
 
@@ -67,3 +69,4 @@ Use `/cawplan-ticket-context` before or during ticket work so the next `/cawplan
 - `Not authenticated` → run `cawplan auth login`
 - `Session expired` → run `cawplan auth login`
 - Browser did not open → copy the printed URL and open it manually
+- No browser on this machine (SSH, sandbox, agent) → `cawplan auth login --device-auth`, approve the printed URL on any device, then `cawplan auth login --device-auth --complete`

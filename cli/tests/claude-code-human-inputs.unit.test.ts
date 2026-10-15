@@ -82,4 +82,29 @@ describe("collectClaudeCodeSession human_inputs", () => {
       "push and open a PR",
     ]);
   });
+  test("strips task notifications and system reminders that are not at the start of the turn", () => {
+    const dir = makeDir();
+    const path = join(dir, "session.jsonl");
+    const note = (id: string) =>
+      `<task-notification>\n<task-id>${id}</task-id>\n<status>completed</status>\n<summary>Background command "Start test point review page server in background" completed (exit code 0)</summary>\n</task-notification>`;
+    const user = (ts: string, content: unknown) => ({
+      type: "user",
+      timestamp: ts,
+      cwd: "/repo",
+      message: { role: "user", content },
+    });
+    writeJsonl(path, [
+      user("2026-09-22T01:00:00.000Z", `<system-reminder>Plan mode is active.</system-reminder>\n${note("a1")}`),
+      user("2026-09-22T01:05:00.000Z", [
+        { type: "text", text: "<system-reminder>Todo list is empty.</system-reminder>" },
+        { type: "text", text: note("a2") },
+      ]),
+      user("2026-09-22T01:10:00.000Z", `${note("a3")}\n${note("a4")}`),
+      user("2026-09-22T01:15:00.000Z", `review the test points\n${note("a5")}`),
+      user("2026-09-22T01:20:00.000Z", [{ type: "text", text: "<system-reminder>Worktree notice.</system-reminder>" }]),
+    ]);
+
+    const result = collectClaudeCodeSession(path, "cawcut", "s1", "2026-09-22");
+    expect(result.human_inputs?.map((h) => h.content)).toEqual(["review the test points"]);
+  });
 });

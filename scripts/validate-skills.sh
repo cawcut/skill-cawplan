@@ -136,6 +136,42 @@ if expected != listed:
 print(f"✓ optional-skills.json matches marketplace ({len(expected)} skills)")
 PY
 
+echo "→ Validating cli/config/skill-roles.json covers the default skills..."
+python3 - <<'PY' || fail=1
+import json
+import pathlib
+
+roles_config = json.loads(pathlib.Path("cli/config/skill-roles.json").read_text())
+market = json.load(open(".claude-plugin/marketplace.json"))["plugins"][0]
+default_skills = {pathlib.Path(s["path"]).name for s in market.get("skills", [])}
+skill_folders = {p.name for p in pathlib.Path("skills").glob("cawplan-*") if p.is_dir()}
+# "optional" = skills deliberately left out of every role (internal tooling).
+optional = set(roles_config.get("optional", []))
+
+mapped = set(roles_config.get("common", []))
+for role in roles_config.get("roles", {}).values():
+    mapped.update(role.get("skills", []))
+
+errors = []
+missing = default_skills - mapped - optional
+if missing:
+    errors.append(f"default skills neither assigned to a role nor listed as optional: {sorted(missing)}")
+unknown = mapped - default_skills
+if unknown:
+    errors.append(f"roles reference skills that are not default marketplace skills: {sorted(unknown)}")
+overlap = mapped & optional
+if overlap:
+    errors.append(f"skills both assigned to a role and listed as optional: {sorted(overlap)}")
+stale = optional - skill_folders
+if stale:
+    errors.append(f"optional lists skills with no skills/ folder: {sorted(stale)}")
+for err in errors:
+    print(f"::error file=cli/config/skill-roles.json::{err}")
+if errors:
+    raise SystemExit(1)
+print(f"✓ skill-roles.json maps {len(mapped)} skills to roles, {len(optional)} optional")
+PY
+
 echo "→ Validating references..."
 for skill_dir in skills/cawplan-*/; do
   for src_file in "${skill_dir}SKILL.md" "${skill_dir}"references/*.md; do

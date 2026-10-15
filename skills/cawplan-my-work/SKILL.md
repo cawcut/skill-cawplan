@@ -22,7 +22,7 @@ cawplan skill check
    ```bash
    cawplan auth status
    ```
-   Read the `User ID:` line from the output. If it's missing, re-authenticate (`cawplan auth login`) rather than falling back to `cawplan users query --email` — that would spend a network call resolving something `auth status` should already have.
+   Read the `User ID:` line from the output. If it's missing, re-authenticate (`cawplan auth login`, show the printed URL to the user, then `cawplan auth login --device-auth --complete` once they approve) rather than falling back to `cawplan users query --email` — that would spend a network call resolving something `auth status` should already have.
 
 2. Fetch your todos:
    ```bash

@@ -1,8 +1,10 @@
 import {execFile} from "node:child_process";
+import {chmod, mkdir, readFile, unlink, writeFile} from "node:fs/promises";
+import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {getBaseUrl} from "./config.js";
 import {getPortalBase} from "./products.js";
-import type {Credentials} from "./credentials.js";
+import {getCredentialsPath, type Credentials} from "./credentials.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -11,6 +13,10 @@ export const OAUTH_POLL_INTERVAL_MS = 2000;
 export const OAUTH_TIMEOUT_ERROR = "oauth_timeout";
 export const OAUTH_DENIED_ERROR = "access_denied";
 export const OAUTH_PENDING_CODE = "PENDING";
+export const OAUTH_INVALID_OR_EXPIRED_CODE = "INVALID_OR_EXPIRED";
+
+/** The server no longer knows the polling token (expired or already exchanged). */
+export class OAuthTokenInvalidError extends Error {}
 
 export interface OAuthLoginOptions {
     openBrowser?: (url: string) => Promise<void>;
@@ -148,6 +154,9 @@ async function postExchange(body: Record<string, string>): Promise<Credentials |
     if (responseBody.code === OAUTH_PENDING_CODE) {
         return OAUTH_PENDING_CODE;
     }
+    if (responseBody.code === OAUTH_INVALID_OR_EXPIRED_CODE) {
+        throw new OAuthTokenInvalidError(`Exchange failed: ${responseMessage(responseBody)}`);
+    }
 
     try {
         return credentialsFromExchangeResponse(responseBody);
@@ -170,20 +179,31 @@ export function formatOAuthValidity(seconds: number): string {
     return `${roundedSeconds} second${roundedSeconds === 1 ? "" : "s"}`;
 }
 
-export async function pollOAuthExchange(
+async function pollExchangeUntil(
     token: string,
-    timeoutMs = OAUTH_TIMEOUT_MS,
-    intervalMs = OAUTH_POLL_INTERVAL_MS,
-): Promise<Credentials> {
-    const deadline = Date.now() + timeoutMs;
+    deadline: number,
+    intervalMs: number,
+): Promise<Credentials | typeof OAUTH_PENDING_CODE> {
     while (Date.now() < deadline) {
         const result = await postExchange({token});
         if (result !== OAUTH_PENDING_CODE) {
             return result;
         }
-        await sleep(intervalMs);
+        await sleep(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
     }
-    throw new Error("Authentication timed out (5 minutes). Run: cawplan auth login");
+    return OAUTH_PENDING_CODE;
+}
+
+export async function pollOAuthExchange(
+    token: string,
+    timeoutMs = OAUTH_TIMEOUT_MS,
+    intervalMs = OAUTH_POLL_INTERVAL_MS,
+): Promise<Credentials> {
+    const result = await pollExchangeUntil(token, Date.now() + timeoutMs, intervalMs);
+    if (result === OAUTH_PENDING_CODE) {
+        throw new Error("Authentication timed out (5 minutes). Run: cawplan auth login");
+    }
+    return result;
 }
 
 // ─── Full login flow ──────────────────────────────────────────────────────────
@@ -210,4 +230,192 @@ export async function runOAuthLogin(options?: OAuthLoginOptions): Promise<Creden
         options?.pollingTimeoutMs ?? login.expiresIn * 1000,
         options?.pollIntervalMs ?? login.interval * 1000,
     );
+}
+
+// ─── Device-auth login (non-blocking, two-step) ──────────────────────────────
+//
+// For agents, SSH sessions, and sandboxes: the browser cannot be opened locally
+// and a blocking poll gets killed by tool timeouts, losing the private token.
+// Step 1 starts the login, prints the verification URL, persists the private
+// polling token, and exits. Step 2 resumes polling with the persisted token;
+// it can be re-run until the user approves or the login expires.
+
+export const DEVICE_LOGIN_DEFAULT_WAIT_MS = 90 * 1000;
+
+const PENDING_LOGIN_MODE = 0o600;
+
+export interface PendingDeviceLogin {
+    /** Private polling token; never print or share it. */
+    token: string;
+    code: string;
+    verificationUrl: string;
+    /** Unix timestamp (seconds) when the login request expires. */
+    expiresAt: number;
+    /** Poll interval in seconds. */
+    interval: number;
+    /** API base the login was started against; the token is only valid there. */
+    apiBase: string;
+}
+
+export type DeviceLoginCompletion =
+    | { status: "success"; credentials: Credentials }
+    | { status: "pending"; pending: PendingDeviceLogin };
+
+export function getPendingLoginPath(): string {
+    return join(dirname(getCredentialsPath()), "pending-login.json");
+}
+
+export async function readPendingLogin(): Promise<PendingDeviceLogin | null> {
+    let raw: string;
+    try {
+        raw = await readFile(getPendingLoginPath(), "utf8");
+    } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+            return null;
+        }
+        throw err;
+    }
+    try {
+        const parsed = JSON.parse(raw) as Partial<PendingDeviceLogin>;
+        if (
+            typeof parsed.token !== "string" ||
+            typeof parsed.code !== "string" ||
+            typeof parsed.verificationUrl !== "string" ||
+            typeof parsed.expiresAt !== "number" ||
+            typeof parsed.interval !== "number" ||
+            typeof parsed.apiBase !== "string"
+        ) {
+            return null;
+        }
+        return parsed as PendingDeviceLogin;
+    } catch {
+        return null;
+    }
+}
+
+async function writePendingLogin(pending: PendingDeviceLogin): Promise<void> {
+    const path = getPendingLoginPath();
+    await mkdir(dirname(path), {recursive: true});
+    await writeFile(path, `${JSON.stringify(pending, null, 2)}\n`, {encoding: "utf8", mode: PENDING_LOGIN_MODE});
+    await chmod(path, PENDING_LOGIN_MODE);
+}
+
+export async function deletePendingLogin(): Promise<void> {
+    try {
+        await unlink(getPendingLoginPath());
+    } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw err;
+        }
+    }
+}
+
+function currentApiBase(): string {
+    return getBaseUrl().replace(/\/$/, "");
+}
+
+export async function startDeviceLogin(nowMs = Date.now()): Promise<PendingDeviceLogin> {
+    const login = await startOAuthLogin();
+    const pending: PendingDeviceLogin = {
+        token: login.token,
+        code: login.code,
+        verificationUrl: buildConsentUrl(login.code),
+        expiresAt: Math.floor(nowMs / 1000) + login.expiresIn,
+        interval: login.interval,
+        apiBase: currentApiBase(),
+    };
+    await writePendingLogin(pending);
+    return pending;
+}
+
+export async function completeDeviceLogin(options?: {
+    waitMs?: number;
+    pollIntervalMs?: number;
+}): Promise<DeviceLoginCompletion> {
+    const pending = await readPendingLogin();
+    if (!pending) {
+        throw new Error("No pending device login. Run: cawplan auth login --device-auth");
+    }
+
+    const expiresAtMs = pending.expiresAt * 1000;
+    if (Date.now() >= expiresAtMs) {
+        await deletePendingLogin();
+        throw new Error("Device login expired. Run: cawplan auth login --device-auth");
+    }
+    if (pending.apiBase !== currentApiBase()) {
+        throw new Error(
+            `Pending device login was started against ${pending.apiBase}, ` +
+            `but the current environment is ${currentApiBase()}. ` +
+            "Switch back with `cawplan config env`, or run: cawplan auth login --device-auth",
+        );
+    }
+
+    const waitMs = options?.waitMs ?? DEVICE_LOGIN_DEFAULT_WAIT_MS;
+    const deadline = Math.min(Date.now() + waitMs, expiresAtMs);
+    let result: Credentials | typeof OAUTH_PENDING_CODE;
+    try {
+        // Always poll at least once, even with --wait 0.
+        result = await postExchange({token: pending.token});
+        if (result === OAUTH_PENDING_CODE) {
+            result = await pollExchangeUntil(
+                pending.token,
+                deadline,
+                options?.pollIntervalMs ?? pending.interval * 1000,
+            );
+        }
+    } catch (err) {
+        // Server-side state is gone (expired or already exchanged); keeping the
+        // token would only fail again. Transient errors keep it for a retry.
+        if (err instanceof OAuthTokenInvalidError) {
+            await deletePendingLogin();
+            throw new Error(`${err.message}. Run: cawplan auth login --device-auth`);
+        }
+        throw err;
+    }
+
+    if (result === OAUTH_PENDING_CODE) {
+        if (Date.now() >= expiresAtMs) {
+            await deletePendingLogin();
+            throw new Error("Device login expired. Run: cawplan auth login --device-auth");
+        }
+        return {status: "pending", pending};
+    }
+
+    await deletePendingLogin();
+    return {status: "success", credentials: result};
+}
+
+// ─── Login mode detection ────────────────────────────────────────────────────
+//
+// Agents run commands without a terminal and follow CLI error hints
+// ("Run: cawplan auth login") rather than skill text, so the plain command must
+// pick the non-blocking device-auth flow on its own in those environments.
+
+/** Env vars set by coding agents in the commands they run. */
+export const AGENT_ENV_MARKERS = ["CLAUDECODE", "CODEX_THREAD_ID"] as const;
+
+export interface LoginEnvironment {
+    env: NodeJS.ProcessEnv;
+    stdinIsTTY: boolean;
+    stdoutIsTTY: boolean;
+}
+
+export function currentLoginEnvironment(): LoginEnvironment {
+    return {
+        env: process.env,
+        stdinIsTTY: Boolean(process.stdin.isTTY),
+        stdoutIsTTY: Boolean(process.stdout.isTTY),
+    };
+}
+
+/** Returns why device-auth should be used instead of a browser, or null for an interactive terminal. */
+export function detectDeviceAuthReason(environment: LoginEnvironment): string | null {
+    const marker = AGENT_ENV_MARKERS.find((name) => environment.env[name]);
+    if (marker) {
+        return `coding agent detected (${marker})`;
+    }
+    if (!environment.stdinIsTTY || !environment.stdoutIsTTY) {
+        return "no interactive terminal";
+    }
+    return null;
 }

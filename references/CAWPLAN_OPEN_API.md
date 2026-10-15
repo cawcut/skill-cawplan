@@ -130,6 +130,23 @@
     3. A ticket only counts as "completed in window [A, B]" if that timestamp falls inside `[A, B]` — regardless of what its current `updated_at` says.
     - This adds one `tickets history` call per *candidate* ticket (ones whose current `status_display.category` is `COMPLETE`/`CANCELED`), not per ticket in the whole result set — bound the candidate set with `status`/`product_ids`/`assignees` filters on the search call first.
 
+### List / Download Ticket Attachments
+- Endpoints:
+    - `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/attachments`
+    - `GET /api/v1/public/openapi/product/{product_id}/tickets/{ticket_id}/attachments` (backlog ticket)
+- Query: `expires_in?` — presigned URL lifetime in seconds (default 900, clamped to 60–3600).
+- Response: `data = { ticket_id, display_id, attachments[] }`, each attachment `{ key, filename, type, size?, source_field, signed_url, expires_at }`.
+    - Attachments are not a separate relation: they are the files the rich-text editor embedded in `description` / `remarks` / `comment` / `progress_comment` / `root_cause` / `solution` (inline images, PDF / video / generic file blocks). External links and video poster frames are not returned. `source_field` is the first field that references the file; duplicates are collapsed by `key`.
+    - `type`: `image` / `video` / `pdf` / `zip` / `file` (`file` covers docs, logs, `.har`, `.md`, …).
+    - `filename` is the editor display name (`data-filename` or image `alt`, often `image.png` for pasted screenshots) and is user-controlled — never use it as a path without sanitizing.
+    - `signed_url` is an S3 presigned GET with `Content-Disposition: attachment`. Fetch it **without** an `Authorization` header (S3 rejects a second auth mechanism and the CawPlan token must not leak to S3).
+    - Authorization is per ticket (same RBAC as Get Version Ticket); only keys referenced by that ticket are signed. The generic `/api/v1/attachments/*` signing endpoints reject CLI tokens — use this endpoint instead.
+- Maps to cawplan CLI:
+    - `cawplan tickets attachments list <product_id> <version_id> <ticket_id> [--expires_in N]` — raw envelope with signed URLs.
+    - `cawplan tickets attachments download <product_id> <version_id> <ticket_id> [--key K]... [--type pdf,image] [--out DIR]` — streams files to `DIR` (default `./cawplan-attachments/<display_id>/`), de-duplicates local names (`image (1).png`), progress on stderr, JSON summary on stdout: `{ ticket_id, display_id, out_dir, downloaded[{key, filename, type, source_field, path, bytes, sha256}], failed[{…, error}] }`; exits 1 if any download failed.
+    - `cawplan backlog attachments list|download <product_id> <ticket_id> …` for backlog tickets.
+    - `<ticket_id>` accepts a display ID (e.g. `CAWP-123`), resolved via `tickets search` like the other ticket commands.
+
 ### Poll Tickets (daemon-friendly, no time window)
 - Endpoint: `POST /api/v1/public/openapi/tickets/poll`
 - Body: `status[]` (**required**), `product_ids[]?`, `product_line_ids[]?`, `since_updated_at?` (epoch seconds — only return tickets with `updated_at >` this), `page_num?`, `page_size?` (max 200)

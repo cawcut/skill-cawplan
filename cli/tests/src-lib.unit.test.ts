@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Command } from "commander";
 import { cawplanRequest, ApiError } from "../src/lib/http";
 import { registerConfigCommand } from "../src/commands/config";
+import { registerAuthCommand } from "../src/commands/auth";
 import { registerTicketsCommand } from "../src/commands/tickets";
 import { applyTicketRefsToSessions } from "../src/lib/ai-session/ticket-context";
 import {
@@ -21,9 +22,14 @@ import {
 import {
   browserOpenCommand,
   buildConsentUrl,
+  completeDeviceLogin,
+  detectDeviceAuthReason,
   formatOAuthValidity,
+  getPendingLoginPath,
   pollOAuthExchange,
+  readPendingLogin,
   runOAuthLogin,
+  startDeviceLogin,
   startOAuthLogin,
 } from "../src/lib/oauth";
 import { getAuthState } from "../src/lib/auth-state";
@@ -1022,6 +1028,191 @@ describe("src lib oauth", () => {
       JSON.stringify({ token: "private-token" }),
       JSON.stringify({ token: "private-token" }),
     ]);
+  });
+});
+
+describe("src lib oauth device-auth", () => {
+  function jsonResponse(body: unknown): Response {
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  const startBody = {
+    code: "SUCCESS",
+    data: { code: "browser-code", token: "private-token", expires_in: 300, interval: 1 },
+  };
+  const tokensBody = {
+    code: "SUCCESS",
+    data: { access_token: "access", refresh_token: "refresh", expire: 1770000000 },
+  };
+
+  test("start persists the private token with owner-only permissions and returns the URL", async () => {
+    await writeUserConfig({ env: "proto" });
+    const urls: string[] = [];
+    globalThis.fetch = async (url) => {
+      urls.push(String(url));
+      return jsonResponse(startBody);
+    };
+
+    const pending = await startDeviceLogin(1_000_000_000_000);
+
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toMatch(/\/api\/v1\/cli\/oauth\/start$/);
+    expect(pending.verificationUrl).toBe(buildConsentUrl("browser-code"));
+    expect(pending.expiresAt).toBe(1_000_000_000 + 300);
+    expect(getPendingLoginPath()).toBe(join(tmpDir, "pending-login.json"));
+    await expect(readPendingLogin()).resolves.toEqual(pending);
+    expect((await stat(getPendingLoginPath())).mode & 0o777).toBe(0o600);
+  });
+
+  test("complete returns pending while approval is outstanding and keeps the token", async () => {
+    await writeUserConfig({ env: "proto" });
+    globalThis.fetch = async () => jsonResponse(startBody);
+    await startDeviceLogin();
+
+    const bodies: string[] = [];
+    globalThis.fetch = async (_url, init) => {
+      bodies.push(String(init?.body));
+      return jsonResponse({ code: "PENDING", message: "authorization pending" });
+    };
+
+    const result = await completeDeviceLogin({ waitMs: 0 });
+
+    expect(result.status).toBe("pending");
+    expect(bodies).toEqual([JSON.stringify({ token: "private-token" })]);
+    await expect(readPendingLogin()).resolves.not.toBeNull();
+  });
+
+  test("complete exchanges tokens after approval and removes the pending login", async () => {
+    await writeUserConfig({ env: "proto" });
+    globalThis.fetch = async () => jsonResponse(startBody);
+    await startDeviceLogin();
+
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      return calls === 1
+        ? jsonResponse({ code: "PENDING", message: "authorization pending" })
+        : jsonResponse(tokensBody);
+    };
+
+    await expect(completeDeviceLogin({ waitMs: 1000, pollIntervalMs: 1 })).resolves.toEqual({
+      status: "success",
+      credentials: { accessToken: "access", refreshToken: "refresh", expire: 1770000000 },
+    });
+    await expect(readPendingLogin()).resolves.toBeNull();
+  });
+
+  test("complete drops the pending login when the server rejects the token", async () => {
+    await writeUserConfig({ env: "proto" });
+    globalThis.fetch = async () => jsonResponse(startBody);
+    await startDeviceLogin();
+
+    globalThis.fetch = async () =>
+      jsonResponse({ code: "INVALID_OR_EXPIRED", message: "invalid or expired token" });
+
+    await expect(completeDeviceLogin({ waitMs: 0 })).rejects.toThrow(
+      "invalid or expired token. Run: cawplan auth login --device-auth",
+    );
+    await expect(readPendingLogin()).resolves.toBeNull();
+  });
+
+  test("complete keeps the pending login on transient network errors", async () => {
+    await writeUserConfig({ env: "proto" });
+    globalThis.fetch = async () => jsonResponse(startBody);
+    await startDeviceLogin();
+
+    globalThis.fetch = async () => {
+      throw new TypeError("fetch failed");
+    };
+
+    await expect(completeDeviceLogin({ waitMs: 0 })).rejects.toThrow("fetch failed");
+    await expect(readPendingLogin()).resolves.not.toBeNull();
+  });
+
+  test("complete rejects an expired pending login without calling the server", async () => {
+    await writeUserConfig({ env: "proto" });
+    globalThis.fetch = async () => jsonResponse(startBody);
+    await startDeviceLogin(Date.now() - 301 * 1000);
+
+    let called = false;
+    globalThis.fetch = async () => {
+      called = true;
+      return jsonResponse(tokensBody);
+    };
+
+    await expect(completeDeviceLogin({ waitMs: 0 })).rejects.toThrow("Device login expired");
+    expect(called).toBe(false);
+    await expect(readPendingLogin()).resolves.toBeNull();
+  });
+
+  test("complete refuses a pending login started against another environment", async () => {
+    await writeUserConfig({ env: "proto" });
+    globalThis.fetch = async () => jsonResponse(startBody);
+    await startDeviceLogin();
+    await writeUserConfig({ env: "prd" });
+
+    await expect(completeDeviceLogin({ waitMs: 0 })).rejects.toThrow("Pending device login was started against");
+    await expect(readPendingLogin()).resolves.not.toBeNull();
+  });
+
+  test("detects coding agents and non-interactive shells for device-auth", () => {
+    const tty = { stdinIsTTY: true, stdoutIsTTY: true };
+    expect(detectDeviceAuthReason({ env: {}, ...tty })).toBeNull();
+    expect(detectDeviceAuthReason({ env: { CLAUDECODE: "1" }, ...tty })).toBe(
+      "coding agent detected (CLAUDECODE)",
+    );
+    expect(detectDeviceAuthReason({ env: { CODEX_THREAD_ID: "thread-1" }, ...tty })).toBe(
+      "coding agent detected (CODEX_THREAD_ID)",
+    );
+    expect(detectDeviceAuthReason({ env: {}, stdinIsTTY: false, stdoutIsTTY: true })).toBe(
+      "no interactive terminal",
+    );
+    expect(detectDeviceAuthReason({ env: {}, stdinIsTTY: true, stdoutIsTTY: false })).toBe(
+      "no interactive terminal",
+    );
+    expect(detectDeviceAuthReason({ env: { CLAUDECODE: "" }, ...tty })).toBeNull();
+  });
+
+  test("plain auth login under a coding agent starts device-auth and prints agent guidance", async () => {
+    await writeUserConfig({ env: "proto" });
+    const original = process.env.CLAUDECODE;
+    process.env.CLAUDECODE = "1";
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const urls: string[] = [];
+    globalThis.fetch = async (url) => {
+      urls.push(String(url));
+      return jsonResponse(startBody);
+    };
+    try {
+      const program = new Command();
+      program.exitOverride();
+      registerAuthCommand(program);
+
+      await program.parseAsync(["node", "cawplan", "auth", "login"], { from: "node" });
+
+      expect(urls).toHaveLength(1);
+      expect(urls[0]).toMatch(/\/api\/v1\/cli\/oauth\/start$/);
+      await expect(readPendingLogin()).resolves.not.toBeNull();
+      const output = consoleLog.mock.calls.map((call) => String(call[0])).join("\n");
+      expect(output).toContain("Using device-auth login: coding agent detected (CLAUDECODE)");
+      expect(output).toContain("If you are an AI agent: show the URL below to the user");
+      expect(output).toContain(buildConsentUrl("browser-code"));
+      expect(output).toContain("After approving, run: cawplan auth login --device-auth --complete");
+    } finally {
+      consoleLog.mockRestore();
+      if (original === undefined) delete process.env.CLAUDECODE;
+      else process.env.CLAUDECODE = original;
+    }
+  });
+
+  test("complete without a pending login tells the user how to start one", async () => {
+    await expect(completeDeviceLogin({ waitMs: 0 })).rejects.toThrow(
+      "No pending device login. Run: cawplan auth login --device-auth",
+    );
+    await expect(readFile(getPendingLoginPath(), "utf8")).rejects.toThrow();
   });
 });
 

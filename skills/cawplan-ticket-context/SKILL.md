@@ -53,6 +53,19 @@ If the user provided CawPlan issue URLs, extract their display IDs before search
 
 After showing the ticket details, stop. Do not write local ticket-context files or continue into another workflow unless the user explicitly asks for that follow-up.
 
+### Attachments
+
+Ticket HTML fields (`remarks`, `comment`, `progress_comment`, …) can embed files: `<img src=…>` screenshots and `<span|div data-type="…-attachment" data-src=… data-filename=…>` blocks. Their CDN URLs are private — do not fetch them directly. When the search result contains such references, mention how many attachments the ticket has (with `data-filename` / `alt` names when present) in the response, but do not download them by default.
+
+Download only when the user asks to see, open, or analyze an attachment (screenshot, log, HAR, PDF, video, …), using the ticket's `product_id`, `version_id`, and `unique_id` from the search result (for a backlog ticket, `is_backlog: true`, use `cawplan backlog attachments …` with `product_id` and `unique_id`):
+
+```bash
+cawplan tickets attachments list <product_id> <version_id> <unique_id>
+cawplan tickets attachments download <product_id> <version_id> <unique_id> --type image,pdf
+```
+
+`download` prints a JSON summary with each local `path`; open images/PDFs/text files with the Read tool to inspect them. Use `--key <key>` (repeatable) to fetch specific files from `list`, and `--out <dir>` to choose the directory (default `./cawplan-attachments/<display_id>/` in the current directory — tell the user where files were written). Skip large videos unless the user asked for them. If the command reports `failed[]` entries or exits non-zero, report the errors as-is rather than claiming the files were retrieved.
+
 ## Response
 
 After the search succeeds, summarize:

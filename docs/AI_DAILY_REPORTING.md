@@ -38,6 +38,11 @@ cawplan auth status
 
 `cawplan auth login` opens a browser-based verification flow.
 
+Without a local browser (SSH, sandbox, or an agent running the command), use the
+two-step device-auth flow: `cawplan auth login --device-auth` prints a URL to
+approve on any device, then `cawplan auth login --device-auth --complete`
+finishes the login.
+
 ### 4. Preconfigure Repository Mapping
 
 This step is optional. From the GitHub repository root, run:

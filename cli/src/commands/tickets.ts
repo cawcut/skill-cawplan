@@ -5,6 +5,16 @@ import { resolveApiPath } from "../lib/products.js";
 import { resolveProductId, resolveVersionId, resolveUserIds } from "../lib/resolve.js";
 import { resolveTicketIdArg } from "../lib/resolve-ticket-id.js";
 import { normalizeTicketDetailFieldsCsv } from "../lib/ticket-detail-fields.js";
+import {
+  TICKET_ATTACHMENT_TYPES,
+  defaultAttachmentOutDir,
+  downloadTicketAttachments,
+  filterTicketAttachments,
+  parseAttachmentTypesCsv,
+  requestTicketAttachments,
+  unwrapTicketAttachmentList,
+  type TicketAttachmentScope,
+} from "../lib/ticket-attachments.js";
 
 export interface GetVersionTicketOptions {
   /** CSV sparse fieldset; omit for full enrich (labels, children, relations, …). */
@@ -30,6 +40,91 @@ export async function getVersionTicket(
     path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${uniqueTicketId}`,
     query,
   });
+}
+
+function collectRepeated(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+/**
+ * `<parent> attachments list|download` for files embedded in a ticket's rich-text
+ * fields. Version tickets take `<product_id> <version_id> <ticket_id>`; backlog
+ * tickets take `<product_id> <ticket_id>`.
+ */
+function registerAttachmentsCommands(parent: Command, opts: { backlog: boolean }): void {
+  const args = opts.backlog ? "<product_id> <ticket_id>" : "<product_id> <version_id> <ticket_id>";
+  const scopeFrom = (positional: string[], expiresIn?: string): TicketAttachmentScope =>
+    opts.backlog
+      ? { productId: positional[0]!, ticketId: positional[1]!, expiresIn }
+      : { productId: positional[0]!, versionId: positional[1]!, ticketId: positional[2]!, expiresIn };
+  const positionalCount = opts.backlog ? 2 : 3;
+
+  const attachments = parent
+    .command("attachments")
+    .description("List or download files attached to a ticket (description, remarks, comment, ...)");
+
+  attachments
+    .command(`list ${args}`)
+    .description("List ticket attachments with short-lived presigned download URLs")
+    .option("--expires_in <seconds>", "Presigned URL lifetime in seconds (default 900, max 3600)")
+    .action(async (...actionArgs: unknown[]) => {
+      const positional = actionArgs.slice(0, positionalCount) as string[];
+      const cmdOpts = actionArgs[positionalCount] as { expires_in?: string };
+      const result = await requestTicketAttachments(scopeFrom(positional, cmdOpts.expires_in));
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  attachments
+    .command(`download ${args}`)
+    .description(
+      "Download ticket attachments to a local directory and print a JSON summary (path, bytes, sha256). " +
+        "Default directory: ./cawplan-attachments/<display_id>/",
+    )
+    .option("--key <key>", "Only download this attachment key (repeatable; see 'attachments list')", collectRepeated, [])
+    .option("--type <csv>", `Only download these types: ${TICKET_ATTACHMENT_TYPES.join(",")}`)
+    .option("--out <dir>", "Output directory")
+    .option("--expires_in <seconds>", "Presigned URL lifetime in seconds (default 900, max 3600)")
+    .action(async (...actionArgs: unknown[]) => {
+      const positional = actionArgs.slice(0, positionalCount) as string[];
+      const cmdOpts = actionArgs[positionalCount] as {
+        key: string[];
+        type?: string;
+        out?: string;
+        expires_in?: string;
+      };
+
+      let types: string[] | undefined;
+      try {
+        types = cmdOpts.type !== undefined ? parseAttachmentTypesCsv(cmdOpts.type) : undefined;
+      } catch (err) {
+        console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
+      }
+
+      const list = unwrapTicketAttachmentList(
+        await requestTicketAttachments(scopeFrom(positional, cmdOpts.expires_in)),
+      );
+      const selected = filterTicketAttachments(list.attachments, { keys: cmdOpts.key, types });
+      const unknownKeys = cmdOpts.key.filter((k) => !list.attachments.some((a) => a.key === k));
+      if (unknownKeys.length > 0) {
+        console.error(`Error: attachment key not found on this ticket: ${unknownKeys.join(", ")}`);
+        process.exit(1);
+      }
+
+      const outDir = cmdOpts.out ?? defaultAttachmentOutDir(list);
+      if (selected.length === 0) {
+        console.error(
+          list.attachments.length === 0
+            ? "No attachments on this ticket."
+            : "No attachments match the given --key/--type filters.",
+        );
+      }
+      const summary = await downloadTicketAttachments(list, selected, outDir, {
+        onProgress: (msg) => console.error(msg),
+      });
+      console.log(JSON.stringify(summary, null, 2));
+      if (summary.failed.length > 0) process.exit(1);
+    });
 }
 
 export function registerTicketsCommand(program: Command): void {
@@ -495,6 +590,8 @@ export function registerTicketsCommand(program: Command): void {
       console.log(JSON.stringify(result, null, 2));
     });
 
+  registerAttachmentsCommands(tickets, { backlog: false });
+
   // Backlog commands
   const backlog = program.command("backlog").description("Manage product backlog");
 
@@ -527,6 +624,8 @@ export function registerTicketsCommand(program: Command): void {
       });
       console.log(JSON.stringify(result, null, 2));
     });
+
+  registerAttachmentsCommands(backlog, { backlog: true });
 
   // Labels
   const labels = program.command("labels").description("Manage labels");

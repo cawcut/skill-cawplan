@@ -279,7 +279,10 @@ export function buildDailyApiJson(
 
     sessions = sessions.filter((session) => {
         const hasHumanInput = (session.human_inputs ?? []).length > 0;
-        return hasHumanInput && sessionHasRecordedTokens(session) && !isCodingCommitOnlySession(session);
+        // VS Code (Copilot) records no token usage at all, so a zero-token session is normal there
+        // rather than a sign of an imported conversation.
+        const hasUsageSignal = sessionHasRecordedTokens(session) || session.agent === "vscode";
+        return hasHumanInput && hasUsageSignal && !isCodingCommitOnlySession(session);
     });
 
     // 1. Merge all session usage_breakdown buckets
