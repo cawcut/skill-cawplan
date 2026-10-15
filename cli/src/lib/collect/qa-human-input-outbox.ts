@@ -2,7 +2,7 @@ import {readFileSync, readdirSync, unlinkSync} from "node:fs";
 import {join} from "node:path";
 import {qaHumanInputOutboxDir, type TestPointReviewHumanInputEvent} from "../testpoint-review/human-input-event.js";
 import {parseEvents} from "./agents/claude-code.js";
-import {extractTextContent, isHumanInputText, rolloutFilesForDate, stripCodexSkillBlocks} from "./agents/codex.js";
+import {cleanCodexUserText, extractTextContent, isHumanInputText, rolloutFilesForDate} from "./agents/codex.js";
 import {codexSessionsDir} from "./paths.js";
 import {appendAssistantMessage, extractAssistantTextFromBlocks} from "./aggregators/human-assistant.js";
 import {findClaudeCodeJsonlPathBySessionId} from "./qa-trace-extract.js";
@@ -209,7 +209,7 @@ function codexTrace(events: TraceEvent[]): ReplyTrace {
     isHumanTurn(event) {
       const p = message(event, "user");
       if (!p) return false;
-      const text = stripCodexSkillBlocks(extractTextContent(p["content"]));
+      const text = cleanCodexUserText(extractTextContent(p["content"]));
       return !!text && isHumanInputText(text);
     },
     assistantText(event) {

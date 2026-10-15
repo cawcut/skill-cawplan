@@ -29,6 +29,7 @@ import { ChunkMessage } from "../aggregators/chunks.js";
 import {isTimestampOnLocalDate, localDateString, formatLocalTime, getLocalTimezone} from "../date-utils.js";
 import {appendAssistantMessage, extractAssistantTextFromBlocks} from "../aggregators/human-assistant.js";
 import {classifyHumanInput} from "../aggregators/human-category.js";
+import {isInjectedHumanInput, stripHarnessBlocks} from "../human-input-filter.js";
 import {countLines, extractPathFromInput, appendFileDelta, mergeFileDeltas, type FileDelta} from "../aggregators/tool-utils.js";
 
 interface ClaudeCollectOptions {
@@ -57,16 +58,6 @@ function isHarnessInjectedUserEvent(event: Record<string, unknown>): boolean {
   if (event["isMeta"] === true) return true;
   const kind = (event["origin"] as Record<string, unknown> | undefined)?.["kind"];
   return typeof kind === "string" && kind !== "human";
-}
-
-// Harness-written blocks that Claude Code embeds inside a user turn. They can sit anywhere in the
-// text (a <system-reminder> is often prepended, a queued notification can follow typed text), so
-// they are stripped rather than matched at the start of the message.
-const HARNESS_BLOCK_RE =
-  /<task-notification>[\s\S]*?<\/task-notification>|<system-reminder>[\s\S]*?<\/system-reminder>/g;
-
-export function stripHarnessBlocks(text: string): string {
-  return text.replace(HARNESS_BLOCK_RE, "").trim();
 }
 
 function formatDuration(ms: number): string {
@@ -630,10 +621,7 @@ export function collectClaudeCodeSession(
     if (text) text = stripHarnessBlocks(text);
     if (!text || text.length < 0) continue;
     if (/\[Request interrupted/.test(text)) continue;
-    if (/^Continue from where you left off\.?$/i.test(text)) continue;
-    if (/^Base directory for this skill:/.test(text)) continue;
-    if (/^This session is being continued/.test(text)) continue;
-    if (/<command-message>/.test(text)) continue;
+    if (isInjectedHumanInput(text)) continue;
     if (/^(git |npm |npx |cawplan |cd |ls |cat |echo )/.test(text)) continue;
     if (/^@"/.test(text) || /^file:\//.test(text)) continue;
     if (text.length > (opts?.maxTurnLength ?? 1500)) continue;

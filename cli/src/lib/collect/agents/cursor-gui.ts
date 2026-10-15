@@ -25,6 +25,7 @@ import {cursorProjectsDir, cursorStateDbCandidates} from "../paths.js";
 import {FileChange, HumanInput, RepoTouched} from "../types.js";
 import {gitRemoteRepo, gitFileNumstat, inferGitRootFromPath} from "../git.js";
 import {classifyHumanInput} from "../aggregators/human-category.js";
+import {isInjectedHumanInput, stripHarnessBlocks} from "../human-input-filter.js";
 import {extractAssistantTextFromBlocks, joinAssistantMessages} from "../aggregators/human-assistant.js";
 import {parsePatchDeltas, extractPathFromInput, estimateToolDeltas, appendFileDelta, mergeFileDeltas, type FileDelta} from "../aggregators/tool-utils.js";
 
@@ -194,14 +195,16 @@ function cwdFromWorkspaceIdentifier(data: Record<string, unknown>): string {
 }
 
 
+/** Typed text of a user turn, or "" when the turn is injected (callers treat "" as no input). */
 function extractHumanInputText(raw: string): string {
     const query = raw.match(USER_QUERY_RE)?.[1]?.trim();
-    if (query) return query;
     // Strip metadata-ish tags if present
-    return raw
-        .replace(TS_TAG_RE, "")
-        .replace(/<\/?user_query>/gi, "")
-        .trim();
+    const text = stripHarnessBlocks(
+        query || raw
+            .replace(TS_TAG_RE, "")
+            .replace(/<\/?user_query>/gi, "")
+    );
+    return isInjectedHumanInput(text) ? "" : text;
 }
 
 function formatIsoTime(ts: Date | null): string | undefined {

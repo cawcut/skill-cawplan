@@ -24,6 +24,7 @@ import { codexStateDb, codexSessionsDir } from "../paths.js";
 import { SessionData, ModelUsageEntry, UsageBucket, RepoTouched, HumanInput } from "../types.js";
 import { calculateCost, COST_CURRENCY } from "../pricing.js";
 import { classifyHumanInput } from "../aggregators/human-category.js";
+import { isInjectedHumanInput, stripHarnessBlocks } from "../human-input-filter.js";
 import { appendAssistantMessage } from "../aggregators/human-assistant.js";
 import { formatLocalTime, getLocalTimezone, localDateString } from "../date-utils.js";
 import {
@@ -210,13 +211,13 @@ export function stripCodexSkillBlocks(text: string): string {
   return text.replace(CODEX_SKILL_BLOCK_RE, "").trim();
 }
 
+/** Skill files and harness blocks removed from a Codex user message; "" when nothing human is left. */
+export function cleanCodexUserText(text: string): string {
+  return stripHarnessBlocks(stripCodexSkillBlocks(text));
+}
+
 export function isHumanInputText(text: string): boolean {
-  if (text.includes("<environment_context>")) return false;
-  if (text.includes("<INSTRUCTIONS>")) return false;
-  if (/^# AGENTS\.md instructions/.test(text)) return false;
-  if (/^Base directory for this skill:/.test(text)) return false;
-  if (/^This session is being continued/.test(text)) return false;
-  if (/^Continue from where you left off\.?$/i.test(text)) return false;
+  if (isInjectedHumanInput(text)) return false;
   if (/^(git |npm |npx |cawplan |cd |ls |cat |echo )/.test(text)) return false;
   return true;
 }
@@ -443,7 +444,7 @@ function parseRollout(
       if (role === "user") {
         result.userCount++;
         if (!result.isSubagent && eventType === "response_item" && payloadType === "message") {
-          const text = stripCodexSkillBlocks(extractTextContent(payload?.["content"]));
+          const text = cleanCodexUserText(extractTextContent(payload?.["content"]));
           if (text && isHumanInputText(text)) {
             const key = stableHumanInputKey(text, ts);
             if (!seenHumanInputs.has(key)) {

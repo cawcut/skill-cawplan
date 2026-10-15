@@ -24,6 +24,7 @@ import { copilotSessionStateDir } from "../paths.js";
 import { SessionData, ModelUsageEntry, UsageBucket, RepoTouched, HumanInput } from "../types.js";
 import { COST_CURRENCY } from "../pricing.js";
 import { classifyHumanInput } from "../aggregators/human-category.js";
+import { isInjectedHumanInput, stripHarnessBlocks } from "../human-input-filter.js";
 import { appendAssistantMessage } from "../aggregators/human-assistant.js";
 import { formatLocalTime, getLocalTimezone, isTimestampOnLocalDate, localDateString } from "../date-utils.js";
 
@@ -154,8 +155,10 @@ export function parseSessionEvents(eventsPath: string, filterDate: string): Pars
 
       if (type === "user.message") {
         result.userCount++;
-        const text = stringField(data, "content");
-        if (text) {
+        const text = stripHarnessBlocks(stringField(data, "content"));
+        // An injected turn starts its own exchange; its reply must not land on the previous input.
+        currentInput = null;
+        if (text && !isInjectedHumanInput(text)) {
           currentInput = {
             category: classifyHumanInput(text),
             content: text,

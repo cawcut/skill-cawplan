@@ -124,6 +124,29 @@ describe("vscode (Copilot agent host) collector", () => {
     expect(sessions.map((s) => s.session_id)).toEqual(["sess-bad"]);
   });
 
+  test("keeps harness blocks out of user.message human inputs", () => {
+    const reminder = "<system-reminder>\nYou are operating in a git worktree.\n</system-reminder>";
+    const notification = "<task-notification>\n<task-id>b1</task-id>\n</task-notification>";
+    writeSession("sess-injected", {
+      events: [
+        event("user.message", 5, { content: `${reminder}\nfix the login bug` }),
+        event("assistant.message", 10, { model: "m", content: "On it." }),
+        event("user.message", 15, { content: `run the tests\n${notification}\nthen push` }),
+        event("assistant.message", 20, { model: "m", content: "Pushed." }),
+        event("user.message", 25, { content: `${reminder}\n${notification}` }),
+        event("assistant.message", 30, { model: "m", content: "Noted the reminder." }),
+      ],
+    });
+
+    const [s] = collectVscodeSessions(DAY);
+
+    expect(s!.human_inputs!.map((h) => [h.content, h.assistant_message])).toEqual([
+      ["fix the login bug", "On it."],
+      // The reply to the dropped turn does not land on this input.
+      ["run the tests\n\nthen push", "Pushed."],
+    ]);
+  });
+
   test("returns nothing when Copilot has no session-state directory", () => {
     expect(collectVscodeSessions(DAY)).toEqual([]);
   });

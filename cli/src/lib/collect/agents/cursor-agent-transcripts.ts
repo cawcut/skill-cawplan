@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { cursorProjectsDir } from "../paths.js";
 import { joinAssistantMessages } from "../aggregators/human-assistant.js";
 import { HumanInput, SessionData } from "../types.js";
+import { isInjectedHumanInput, stripHarnessBlocks } from "../human-input-filter.js";
 import {
   formatLocalTime,
   getLocalTimezone,
@@ -115,11 +116,12 @@ function deriveSessionTitle(projectPath: string, sessionId: string): string {
 }
 
 function normalizeUserText(text: string): string {
-  return text
-    .replace(/<timestamp>[\s\S]*?<\/timestamp>/gi, "")
-    .replace(/<user_query>\s*/gi, "")
-    .replace(/<\/user_query>/gi, "")
-    .trim();
+  return stripHarnessBlocks(
+    text
+      .replace(/<timestamp>[\s\S]*?<\/timestamp>/gi, "")
+      .replace(/<user_query>\s*/gi, "")
+      .replace(/<\/user_query>/gi, "")
+  );
 }
 
 function extractHumanInputs(turns: ParsedTurn[], sessionTitle: string): HumanInput[] {
@@ -133,6 +135,7 @@ function extractHumanInputs(turns: ParsedTurn[], sessionTitle: string): HumanInp
     if (turn.role !== "user") continue;
     const text = normalizeUserText(turn.text);
     if (!text || text.length < 10) continue;
+    if (isInjectedHumanInput(text)) continue;
 
     const key = text.slice(0, 120);
     if (seen.has(key)) continue;

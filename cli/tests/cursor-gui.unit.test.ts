@@ -503,6 +503,50 @@ describe("cursor-gui mtime fallback", () => {
     db.close();
   });
 
+  test("parseGuiSessionTranscript keeps injected blocks and prompts out of transcript-only human inputs", () => {
+    // No bubble rows: the transcript is the only source, so isSimulatedMsg cannot help.
+    const db = new DatabaseSync(":memory:");
+    db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");
+
+    const sessionId = "transcript-only-injected";
+    const user = (ts: string, text: string) =>
+      JSON.stringify({
+        role: "user",
+        message: { content: [{ type: "text", text: `<timestamp>${ts}</timestamp>\n${text}` }] },
+      });
+    const assistant = '{"role":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}';
+    const reminder = "<system-reminder>Plan mode is active.</system-reminder>";
+    const notification = "<task-notification><task-id>b1</task-id></task-notification>";
+
+    writeTranscript(
+      "proj-a",
+      sessionId,
+      [
+        user("Monday, Sep 7, 2026, 3:19 PM (UTC+8)", `<user_query>\n${reminder}\ncompare the two release branches\n</user_query>`),
+        assistant,
+        user("Monday, Sep 7, 2026, 3:30 PM (UTC+8)", `<user_query>\nrerun the build\n${notification}\nthen tag it\n</user_query>`),
+        assistant,
+        user("Monday, Sep 7, 2026, 3:40 PM (UTC+8)", `<user_query>\n${reminder}\n</user_query>`),
+        assistant,
+        user(
+          "Monday, Sep 7, 2026, 3:47 PM (UTC+8)",
+          "<user_query>Briefly inform the user about the task result and perform any follow-up actions (if needed).</user_query>"
+        ),
+        assistant,
+      ],
+      new Date("2026-09-07T17:30:00")
+    );
+
+    const parsed = parseGuiSessionTranscript(sessionId, "2026-09-07", { db });
+
+    expect(parsed.humanInputs.map((h) => h.content)).toEqual([
+      "compare the two release branches",
+      "rerun the build\n\nthen tag it",
+    ]);
+
+    db.close();
+  });
+
   test("parseGuiSessionTranscript prefers bubble createdAt over transcript timestamp tags", () => {
     const db = new DatabaseSync(":memory:");
     db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)");

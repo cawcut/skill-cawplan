@@ -160,6 +160,66 @@ describe("collectCursorCliSessions cwd fallback", () => {
     expect(localDateString(targetDate)).toBe(filterDate);
   });
 
+  test("keeps harness blocks and injected prompts out of human inputs", () => {
+    const workspace = "/tmp/cawplan/injectedworkspace";
+    mkdirSync(workspace, { recursive: true });
+    cursorHome = mkdtempSync(join(tmpdir(), "cawplan-cursor-cli-home-"));
+    cursorHomes.push(cursorHome);
+
+    const projectsRoot = join(cursorHome, "projects");
+    const chatsRoot = join(cursorHome, "chats");
+    const projectHash = createHash("md5").update(workspace).digest("hex");
+    const convId = "0c4f6a52-1f0e-4b7e-9d55-7a4b9c1e2f30";
+    const filterDate = "2026-07-10";
+
+    const convPath = join(chatsRoot, projectHash, convId);
+    mkdirSync(convPath, { recursive: true });
+    const storeDbPath = join(convPath, "store.db");
+    const db = new DatabaseSync(storeDbPath);
+    db.exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB);");
+    db.exec("CREATE TABLE blobs (key TEXT PRIMARY KEY, value BLOB);");
+    const meta = { agentId: convId, name: "Injected", createdAt: Date.UTC(2026, 6, 10, 2, 0, 0), lastUsedModel: "composer-2.5" };
+    db.prepare("INSERT INTO meta (key, value) VALUES ('0', ?)").run(
+      Buffer.from(JSON.stringify(meta), "utf-8").toString("hex")
+    );
+    db.close();
+    const targetDate = new Date(`${filterDate}T12:00:00`);
+    utimesSync(storeDbPath, targetDate, targetDate);
+
+    const reminder = "<system-reminder>\nYou are operating in a git worktree.\n</system-reminder>";
+    const notification = "<task-notification>\n<task-id>b1</task-id>\n</task-notification>";
+    const user = (time: string, text: string) =>
+      JSON.stringify({
+        role: "user",
+        message: { content: [{ type: "text", text: `<timestamp>Friday, Jul 10, 2026, ${time} (UTC+8)</timestamp>\n${text}` }] },
+      });
+    const assistant = JSON.stringify({ role: "assistant", message: { content: [{ type: "text", text: "ok" }] } });
+    const transcriptPath = join(projectsRoot, encodeCursorProjectDir(workspace), "agent-transcripts", convId, `${convId}.jsonl`);
+    mkdirSync(join(transcriptPath, ".."), { recursive: true });
+    writeFileSync(
+      transcriptPath,
+      [
+        user("10:00 AM", `<user_query>\n${reminder}\nfix the login bug\n</user_query>`),
+        assistant,
+        user("10:10 AM", `<user_query>\nrun the tests\n${notification}\nthen push\n</user_query>`),
+        assistant,
+        // No <user_query>: the whole turn is harness output.
+        user("10:20 AM", `${reminder}\n${notification}`),
+        assistant,
+        user("10:30 AM", "<user_query>Briefly inform the user about the task result and perform any follow-up actions.</user_query>"),
+        assistant,
+      ].join("\n") + "\n"
+    );
+
+    vi.spyOn(paths, "cursorHome").mockReturnValue(cursorHome);
+    vi.spyOn(paths, "cursorProjectsDir").mockReturnValue(projectsRoot);
+    vi.spyOn(paths, "cursorChatsDir").mockReturnValue(chatsRoot);
+
+    const [session] = collectCursorCliSessions(filterDate);
+
+    expect(session?.human_inputs?.map((h) => h.content)).toEqual(["fix the login bug", "run the tests\n\nthen push"]);
+  });
+
   test("does not use mtimes when transcript has parseable off-date timestamps", () => {
     const workspace = "/tmp/cawplan/offdateworkspace";
     mkdirSync(workspace, { recursive: true });

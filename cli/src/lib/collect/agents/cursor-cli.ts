@@ -9,6 +9,7 @@ import {
 import * as paths from "../paths.js";
 import { appendAssistantMessage } from "../aggregators/human-assistant.js";
 import { classifyHumanInput } from "../aggregators/human-category.js";
+import { isInjectedHumanInput, stripHarnessBlocks } from "../human-input-filter.js";
 import {
   formatLocalTime,
   getLocalTimezone,
@@ -343,27 +344,17 @@ const TS_TAG_RE = /<timestamp>[\s\S]*?<\/timestamp>/gi;
 function extractHumanInputText(content: unknown): string {
   const raw = extractTextContent(content);
   const query = raw.match(USER_QUERY_RE)?.[1]?.trim();
-  if (query) return query;
-  return raw
-    .replace(TS_TAG_RE, "")
-    .replace(/<\/?user_query>/gi, "")
-    .trim();
+  if (query) return stripHarnessBlocks(query);
+  return stripHarnessBlocks(
+    raw
+      .replace(TS_TAG_RE, "")
+      .replace(/<\/?user_query>/gi, "")
+  );
 }
 
 function isHumanInputText(text: string): boolean {
   if (!text) return false;
-  if (text.includes("<user_info>")) return false;
-  if (text.includes("<git_status>")) return false;
-  if (text.includes("<agent_transcripts>")) return false;
-  if (text.includes("<rules>")) return false;
-  if (text.includes("<agent_skills>")) return false;
-  if (text.includes("<environment_context>")) return false;
-  if (text.includes("<INSTRUCTIONS>")) return false;
-  if (/^# AGENTS\.md instructions/.test(text)) return false;
-  if (/^Base directory for this skill:/.test(text)) return false;
-  if (/^This session is being continued/.test(text)) return false;
-  if (/^Continue from where you left off\.?$/i.test(text)) return false;
-  if (/<command-message>/.test(text)) return false;
+  if (isInjectedHumanInput(text)) return false;
   if (/^(git |npm |npx |cawplan |cd |ls |cat |echo )/.test(text)) return false;
   return true;
 }

@@ -1725,6 +1725,54 @@ describe("src lib collect codex", () => {
     expect(session?.human_inputs?.map((input) => input.content)).toEqual([invocation, "补充边界场景"]);
   });
 
+  test("strips harness blocks and drops tool prompts from Codex human inputs", async () => {
+    const codexHome = join(tmpDir, "codex");
+    const sessionsDir = join(codexHome, "sessions", "codex-harness-blocks");
+    await mkdir(sessionsDir, { recursive: true });
+    process.env.CODEX_HOME = codexHome;
+
+    const reminder = "<system-reminder>\nYou are operating in a git worktree.\n</system-reminder>";
+    const notification = "<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>";
+    const userTurn = (ts: string, text: string) => ({
+      type: "response_item",
+      timestamp: ts,
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text }] },
+    });
+    const events = [
+      // Leading reminder in front of typed text.
+      userTurn("2026-10-12T02:00:00.000Z", `${reminder}\n\n切 wt 修复 CWP-23398`),
+      // Notification between two pieces of typed text.
+      userTurn("2026-10-12T02:05:00.000Z", `先看日志\n${notification}\n再跑测试`),
+      // Nothing but harness blocks.
+      userTurn("2026-10-12T02:10:00.000Z", `${reminder}\n${notification}`),
+      // Shape of the CWP-24374 leak: a memory plugin's prompt sent as a user turn.
+      userTurn(
+        "2026-10-12T02:15:00.000Z",
+        `You are a memory relevance compressor utility.\nDo not use any tools.\n\nUser query:\n${reminder}\n\n切 wt 修复`
+      ),
+    ];
+    const rolloutPath = join(sessionsDir, "rollout.jsonl");
+    await writeFile(rolloutPath, events.map((event) => JSON.stringify(event)).join("\n"), "utf-8");
+
+    const db = createCodexStateDb(codexHome);
+    try {
+      insertCodexThread(db, {
+        id: "codex-harness-blocks",
+        rolloutPath,
+        createdAt: Math.floor(new Date("2026-10-12T01:59:00.000Z").getTime() / 1000),
+      });
+    } finally {
+      db.close();
+    }
+
+    const [session] = collectCodexSessions("2026-10-12");
+
+    expect(session?.human_inputs?.map((input) => input.content)).toEqual([
+      "切 wt 修复 CWP-23398",
+      "先看日志\n\n再跑测试",
+    ]);
+  });
+
   // Shape mirrors a real Codex Desktop "Import from Claude Code" rollout: every replayed
   // turn starts with an `external-import-turn-<n>` task_started, all stamped with the
   // import time, plus a seeded token_count carrying only total_tokens.
