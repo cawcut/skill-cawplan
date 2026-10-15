@@ -1773,6 +1773,57 @@ describe("src lib collect codex", () => {
     ]);
   });
 
+  // Shapes copied from a real Codex Desktop rollout (2026-10-12): the app emits an
+  // <external_codex_apps_*> event as its own user message, and the IDE extension prepends
+  // "# Context from my IDE setup:" with only the "## My request:" section typed by the human.
+  test("keeps only the typed request from Codex IDE-context and app-event user messages", async () => {
+    const codexHome = join(tmpDir, "codex");
+    const sessionsDir = join(codexHome, "sessions", "codex-ide-wrappers");
+    await mkdir(sessionsDir, { recursive: true });
+    process.env.CODEX_HOME = codexHome;
+
+    const ideContext = (request: string, heading = "## My request:") =>
+      "# Context from my IDE setup:\n\n## Active file: services/ud/envs.json\n\n## Open tabs:\n" +
+      `- envs.json: services/ud/envs.json\n\n${heading}\n${request}`;
+    const userTurn = (ts: string, text: string) => ({
+      type: "response_item",
+      timestamp: ts,
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text }] },
+    });
+    const events = [
+      // App event sent as a user message on its own.
+      userTurn("2026-10-12T02:10:16.459Z", '<external_codex_apps_open_page>{"page_id":null}</external_codex_apps_open_page>'),
+      userTurn("2026-10-12T02:10:16.462Z", `${ideContext("提交变更，然后 pr 到 release-df")}\n`),
+      // Older extension builds label the section "My request for Codex".
+      userTurn("2026-10-12T02:11:37.165Z", ideContext("直接从 develop pr", "## My request for Codex:")),
+      // IDE context with an empty request section is not human input.
+      userTurn("2026-10-12T02:12:00.000Z", ideContext("")),
+      // A user quoting the header mid-message keeps the whole text.
+      userTurn("2026-10-12T02:13:00.000Z", "为什么会有 # Context from my IDE setup: 这一段?"),
+    ];
+    const rolloutPath = join(sessionsDir, "rollout.jsonl");
+    await writeFile(rolloutPath, events.map((event) => JSON.stringify(event)).join("\n"), "utf-8");
+
+    const db = createCodexStateDb(codexHome);
+    try {
+      insertCodexThread(db, {
+        id: "codex-ide-wrappers",
+        rolloutPath,
+        createdAt: Math.floor(new Date("2026-10-12T02:08:37.000Z").getTime() / 1000),
+      });
+    } finally {
+      db.close();
+    }
+
+    const [session] = collectCodexSessions("2026-10-12");
+
+    expect(session?.human_inputs?.map((input) => input.content)).toEqual([
+      "提交变更，然后 pr 到 release-df",
+      "直接从 develop pr",
+      "为什么会有 # Context from my IDE setup: 这一段?",
+    ]);
+  });
+
   // Shape mirrors a real Codex Desktop "Import from Claude Code" rollout: every replayed
   // turn starts with an `external-import-turn-<n>` task_started, all stamped with the
   // import time, plus a seeded token_count carrying only total_tokens.

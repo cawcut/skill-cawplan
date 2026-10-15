@@ -211,9 +211,27 @@ export function stripCodexSkillBlocks(text: string): string {
   return text.replace(CODEX_SKILL_BLOCK_RE, "").trim();
 }
 
-/** Skill files and harness blocks removed from a Codex user message; "" when nothing human is left. */
+// Codex Desktop sends app UI events (e.g. <external_codex_apps_open_page>{"page_id":null}</…>)
+// as user messages. They carry no typed text.
+const CODEX_APP_EVENT_BLOCK_RE = /<(external_codex_apps_[a-z_]+)>[\s\S]*?<\/\1>/g;
+
+// The Codex IDE extension prepends editor state ("## Active file", "## Open tabs", …) under this
+// header; only the "## My request:" (older builds: "## My request for Codex:") section was typed.
+const CODEX_IDE_CONTEXT_HEADER = "# Context from my IDE setup:";
+const CODEX_IDE_REQUEST_HEADING_RE = /^## My request(?: for Codex)?:[ \t]*$/m;
+
+/** The typed request inside an IDE-context message; "" when the request section is missing or empty. */
+export function extractCodexIdeRequest(text: string): string {
+  if (!text.startsWith(CODEX_IDE_CONTEXT_HEADER)) return text;
+  const heading = CODEX_IDE_REQUEST_HEADING_RE.exec(text);
+  if (!heading) return "";
+  return text.slice(heading.index + heading[0].length).trim();
+}
+
+/** Skill files, app events, IDE context and harness blocks removed from a Codex user message; "" when nothing human is left. */
 export function cleanCodexUserText(text: string): string {
-  return stripHarnessBlocks(stripCodexSkillBlocks(text));
+  const stripped = stripHarnessBlocks(stripCodexSkillBlocks(text).replace(CODEX_APP_EVENT_BLOCK_RE, ""));
+  return extractCodexIdeRequest(stripped);
 }
 
 export function isHumanInputText(text: string): boolean {
