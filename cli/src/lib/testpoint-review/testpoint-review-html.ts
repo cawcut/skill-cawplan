@@ -1,4 +1,5 @@
 import { TESTPOINT_PRIORITIES } from "../qa-insights/types.js";
+import { reviewPhase } from "./review-phase.js";
 import type { ReviewState, TestPoint } from "./types.js";
 
 function escapeHtml(value: string): string {
@@ -85,7 +86,6 @@ function renderRow(seq: string, tp: TestPoint, pageLocked: boolean): string {
           <td>${escapeHtml(seq)}</td>
           <td>
             <div class="tp-title-cell">
-              <span class="status-bar" aria-hidden="true"></span>
               <span class="field" data-field="title" data-editable="${editable}">${escapeHtml(f.title)}</span>
               ${statusLabel ? `<span class="status-label">${escapeHtml(statusLabel)}</span>` : ""}
               ${aiStatusLabel ? `<button type="button" class="status-label ai-status-label" data-action="toggle-original-compare">${escapeHtml(aiStatusLabel)}</button>` : ""}
@@ -94,10 +94,11 @@ function renderRow(seq: string, tp: TestPoint, pageLocked: boolean): string {
             ${aiStatusLabel ? renderOriginalCompare(tp) : ""}
           </td>
           <td><span class="field" data-field="tags" data-editable="${editable}">${f.tags.map((t) => escapeHtml(t)).join(", ")}</span></td>
-          <td><select class="add-tp-input priority-select" data-field="priority" data-editable="${editable}" aria-label="Priority"${isLocked || isDeleted ? " disabled" : ""}>${renderPriorityOptions(f.priority)}</select></td>
+          <td><span class="priority-cell" data-priority="${escapeHtml(f.priority)}"><span class="priority-dot" aria-hidden="true"></span><select class="add-tp-input priority-select" data-field="priority" data-editable="${editable}" aria-label="Priority"${isLocked || isDeleted ? " disabled" : ""}>${renderPriorityOptions(f.priority)}</select></span></td>
           <td>
-            ${actionButton}
+            <button type="button" class="edit-btn" data-action="edit"${isLocked || isDeleted ? " disabled" : ""}>Edit</button>
             <button type="button" class="comment-toggle-btn" data-action="toggle-comments">Comment<span class="comment-count">${commentCount > 0 ? `(${commentCount})` : ""}</span></button>
+            ${actionButton}
           </td>
         </tr>
         <tr class="comment-row hidden" data-id="${escapeHtml(tp.id)}">
@@ -114,33 +115,60 @@ function renderRow(seq: string, tp: TestPoint, pageLocked: boolean): string {
         </tr>`;
 }
 
-function renderGlobalFeedbackPanel(globalComments: TestPoint["comments"], pageLocked: boolean): string {
-  const commentsHtml = globalComments.map((c) => renderComment(c, pageLocked)).join("");
-  const disabledAttr = pageLocked ? " disabled" : "";
-  return `
-    <section class="global-feedback">
-      <h2 title="Feedback not tied to a specific test point; the AI uses it when optimizing.">Overall Feedback</h2>
-      <ul class="comment-list" id="global-comment-list">${commentsHtml}</ul>
-      <div class="comment-form" id="global-comment-form">
-        <input type="text" class="comment-input" placeholder="Write overall feedback…"${disabledAttr} />
-        <button type="button" class="comment-submit-btn"${disabledAttr}>Submit</button>
-      </div>
-    </section>`;
+// Single source for the Ignore answer: Ignore writes this text through the normal answer endpoint.
+const IGNORE_ANSWER = "Ignore";
+const DONE_CLOSE_HINT = "Done — you can close this tab";
+
+// Page messages for the final Submit to AI / Save to CawPlan request. "{n}" is the countdown.
+const SUBMIT_TEXT: {
+  countdown: string;
+  unknown: string;
+  unconfirmed: string;
+  saveBusy: string;
+  invalid: string;
+} = {
+    countdown: "Done — closing in {n} seconds",
+    unknown: "No response received (if the local server has closed, it was likely submitted). Check in Chat; this page is locked, do not resubmit.",
+    unconfirmed: "Could not confirm the save to CawPlan. Verify in Chat; this page is locked.",
+    saveBusy: "Another save is in progress; this page is locked. Check the result in Chat.",
+    invalid: "This page is no longer valid. Reopen the Review.",
+};
+
+const QUESTIONS_PAGE_TEXT = {
+  title: "Questions to confirm",
+  ignore: "Ignore",
+  undo: "Undo",
+  ignored: "Ignored",
+  hint: "Answer AI's questions, or ignore them. Test points are regenerated from your answers.",
+  placeholder: "Type your answer...",
+  submit: "Submit to AI",
+};
+
+function questionCountLabel(count: number): string {
+  return `${count} ${count === 1 ? "Question" : "Questions"}`;
 }
 
-function renderQuestionsPanel(state: ReviewState, pageLocked: boolean): string {
+function renderQuestionsPage(state: ReviewState, pageLocked: boolean): string {
   const questions = state.open_questions ?? [];
-  if (questions.length === 0) return "";
+  const text = QUESTIONS_PAGE_TEXT;
   const disabledAttr = pageLocked ? " disabled" : "";
   const items = questions.map((question, index) => {
+    const answer = (question.answer ?? "").trim();
+    const isIgnored = answer === IGNORE_ANSWER;
+    const stateClass = isIgnored ? " is-ignored" : answer ? " is-answered" : "";
     return `
-        <li class="question-item" data-question-id="${escapeHtml(question.id)}">
+        <li class="question-item${stateClass}" data-question-id="${escapeHtml(question.id)}">
           <div class="question-heading">
-            <span class="question-number">${index + 1}.</span>
+            <span class="question-dot" aria-hidden="true"></span>
+            <span class="question-number">${String(index + 1).padStart(2, "0")}</span>
             <span class="question-text">${escapeHtml(question.text)}</span>
           </div>
           <div class="question-answer-form">
-            <textarea class="question-answer-input" rows="2" placeholder="Write your answer…"${disabledAttr}>${escapeHtml(question.answer ?? "")}</textarea>
+            <div class="question-input-wrap">
+              <textarea class="question-answer-input" rows="1" placeholder="${escapeHtml(text.placeholder)}"${disabledAttr}${isIgnored ? " readonly" : ""}>${escapeHtml(question.answer ?? "")}</textarea>
+              <span class="question-ignored-label">${escapeHtml(text.ignored)}</span>
+            </div>
+            <button type="button" class="question-ignore-btn" data-ignore-label="${escapeHtml(text.ignore)}" data-undo-label="${escapeHtml(text.undo)}"${disabledAttr}>${escapeHtml(isIgnored ? text.undo : text.ignore)}</button>
             <div class="question-save-error" role="alert" aria-live="polite">
               <span class="question-save-error-text"></span>
               <button type="button" class="question-save-retry">Retry</button>
@@ -149,50 +177,62 @@ function renderQuestionsPanel(state: ReviewState, pageLocked: boolean): string {
         </li>`;
   }).join("");
   return `
-    <details class="questions-panel" id="questions-panel">
-      <summary>
-        <span class="questions-icon" aria-hidden="true">?</span>
-        <span class="questions-title">Questions to Confirm</span>
-        <span class="questions-counts">${questions.length} ${questions.length === 1 ? "question" : "questions"}</span>
-        <span class="questions-expand-label"><span class="when-closed">Expand</span><span class="when-open">Collapse</span></span>
-      </summary>
+    <section class="questions-page" id="questions-page">
+      <div class="questions-heading">
+        <span class="questions-title">${escapeHtml(text.title)}</span>
+        <span class="questions-counts">${questionCountLabel(questions.length)}</span>
+      </div>
+      <p class="questions-hint">${escapeHtml(text.hint)}</p>
       <ol class="questions-list">${items}
       </ol>
-    </details>`;
+    </section>`;
 }
 
-function renderAddTestPointPanel(pageLocked: boolean): string {
-  const disabledAttr = pageLocked ? " disabled" : "";
+function renderAddTestPointToggle(pageLocked: boolean): string {
   return `
     <div class="add-tp">
-      <button type="button" class="add-tp-toggle-btn" id="add-tp-toggle"${disabledAttr}>+ Add Test Point</button>
-    </div>
-    <div class="add-tp-form hidden" id="add-tp-form">
-      <input type="text" class="add-tp-input" id="add-tp-title" placeholder="Title (required)"${disabledAttr} />
-      <input type="text" class="add-tp-input" id="add-tp-group" placeholder="Group"${disabledAttr} />
-      <input type="text" class="add-tp-input" id="add-tp-tags" placeholder="Tags (comma-separated)"${disabledAttr} />
-      <select class="add-tp-input" id="add-tp-priority"${disabledAttr}>
-        ${renderPriorityOptions("MEDIUM")}
-      </select>
-      <button type="button" class="comment-submit-btn" id="add-tp-submit"${disabledAttr}>Submit</button>
+      <button type="button" class="add-tp-toggle-btn" id="add-tp-toggle"${pageLocked ? " disabled" : ""}>+ Add Test Point</button>
     </div>`;
 }
 
-const FILTERS: Array<{ key: string; label: string }> = [
-  { key: "all", label: "All" },
-  { key: "edited", label: "Edited" },
-  { key: "deleted", label: "Deleted" },
-  { key: "added", label: "Added" },
-  { key: "commented", label: "Commented" },
-];
-
-function renderFilterBar(): string {
-  const buttons = FILTERS.map(
-    (f, i) =>
-      `<button type="button" class="filter-btn${i === 0 ? " active" : ""}" data-filter="${f.key}">${escapeHtml(f.label)}</button>`,
-  ).join("");
+function renderAddTestPointForm(pageLocked: boolean, existingGroups: string[]): string {
+  const disabledAttr = pageLocked ? " disabled" : "";
+  const groupOptions = existingGroups
+    .map((g) => `<li class="tp-combo-option" role="option" data-value="${escapeHtml(g)}">${escapeHtml(g)}</li>`)
+    .join("");
   return `
-    <div class="filter-bar">${buttons}</div>`;
+    <div class="tp-modal-backdrop hidden" id="add-tp-form">
+      <div class="tp-modal" role="dialog" aria-modal="true" aria-labelledby="add-tp-heading">
+        <div class="tp-modal-header">
+          <h3 id="add-tp-heading">Add Test Point</h3>
+          <button type="button" class="tp-modal-close" id="add-tp-close" aria-label="Close">×</button>
+        </div>
+        <div class="tp-modal-body">
+          <label class="tp-modal-field"><span>Title <em>*</em></span>
+            <textarea class="add-tp-input" id="add-tp-title" rows="2" placeholder="Title (required)"${disabledAttr}></textarea>
+            <span class="tp-modal-error hidden" id="add-tp-error">Title is required</span>
+          </label>
+          <label class="tp-modal-field"><span>Group</span>
+            <span class="tp-combo" id="add-tp-combo">
+              <input type="text" class="add-tp-input" id="add-tp-group" role="combobox" aria-expanded="false" aria-controls="add-tp-group-list" placeholder="Select an existing group or type a new one" autocomplete="off"${disabledAttr} />
+              <ul class="tp-combo-list hidden" id="add-tp-group-list" role="listbox">${groupOptions}</ul>
+            </span>
+          </label>
+          <label class="tp-modal-field"><span>Tags</span>
+            <input type="text" class="add-tp-input" id="add-tp-tags" placeholder="Enter tags"${disabledAttr} />
+          </label>
+          <label class="tp-modal-field"><span>Priority</span>
+            <select class="add-tp-input" id="add-tp-priority"${disabledAttr}>
+        ${renderPriorityOptions("MEDIUM")}
+      </select>
+          </label>
+        </div>
+        <div class="tp-modal-footer">
+          <button type="button" class="tp-modal-cancel" id="add-tp-cancel">Cancel</button>
+          <button type="button" class="tp-modal-submit" id="add-tp-submit"${disabledAttr}>Add Test Point</button>
+        </div>
+      </div>
+    </div>`;
 }
 
 const OPTIMIZE_STALE_MS = 10 * 60 * 1000;
@@ -205,11 +245,11 @@ function isOptimizeStale(reviewStatus: ReviewState["review_status"], optimizeReq
   return Date.now() - requestedAt > OPTIMIZE_STALE_MS;
 }
 
-function renderOptimizeBar(reviewStatus: ReviewState["review_status"]): string {
+function renderOptimizeBar(reviewStatus: ReviewState["review_status"], label = "Submit to AI", forceDisabled = false): string {
   const isLocked = reviewStatus === "pending_optimize" || reviewStatus === "optimizing";
   return `
     <div class="optimize-bar">
-      <button type="button" class="optimize-btn" id="optimize-btn"${isLocked ? " disabled" : ""}>Ask AI to Optimize</button>
+      <button type="button" class="optimize-btn" id="optimize-btn"${isLocked || forceDisabled ? " disabled" : ""}>${escapeHtml(label)}</button>
     </div>`;
 }
 
@@ -268,6 +308,9 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
   }
 
   const language: "zh" | "en" = state.language === "en" ? "en" : "zh";
+  const isQuestionsPhase = reviewPhase(state) === "questions";
+  const allAnswered = (state.open_questions ?? []).every((question) => (question.answer ?? "").trim() !== "");
+  const answeredCount = (state.open_questions ?? []).filter((question) => (question.answer ?? "").trim() !== "").length;
   const pageLocked = state.review_status === "pending_optimize" || state.review_status === "optimizing";
   // Archived test points (design §4.1) are gone from the page entirely — not shown, not locked.
   const visibleTestPoints = state.test_points.filter((tp) => tp.archived !== true);
@@ -275,9 +318,9 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
   const groups = groupByGroup(visibleTestPoints);
   const optimizeHintIsStale = isOptimizeStale(state.review_status, state.optimize_requested_at);
   const optimizeHint = optimizeHintIsStale
-    ? "Last optimization request may not have completed — please tell the Agent in Chat to “continue optimizing”."
+    ? "Optimization may be stalled. Send “continue optimizing” in Chat."
     : pageLocked
-      ? "Optimization requested — this review is locked until the AI responds."
+      ? "Waiting for AI. Editing is temporarily locked."
       : "";
   const groupsHtml = Array.from(groups.entries())
     .map(([groupName, testPoints], index) => renderGroup(groupName, index + 1, testPoints, language, pageLocked))
@@ -310,6 +353,9 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       --red: #ad3a34;
       --red-soft: #fbecea;
       --red-bar: #d15c53;
+      --teal: #0b7d6e;
+      --teal-soft: #e0f5f1;
+      --teal-bar: #14b8a6;
       --radius-sm: 5px;
       --radius-md: 7px;
       --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
@@ -365,85 +411,76 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     .meta-line .sep { color: var(--ink-300); }
     .save-hint { font-size: 12px; color: var(--accent); font-weight: 500; }
 
-    .global-feedback {
-      margin: 16px 0;
-      padding: 10px 14px;
-      background: var(--surface-tint);
-      border-radius: var(--radius-md);
-    }
-    .global-feedback h2 {
-      margin: 0 0 6px 0;
-      font-size: 12px;
-      font-weight: 650;
-      letter-spacing: 0.05em;
-      color: var(--ink-500);
-    }
-    .global-feedback .comment-list { margin: 0 0 6px 0; }
-    .global-feedback .comment-item {
-      padding: 4px 2px;
-      border-bottom: 1px solid var(--line-soft);
-    }
-    .global-feedback .comment-form { border-top: none; }
-    .global-feedback .comment-input { background: var(--surface); height: 28px; }
-    .global-feedback .comment-submit-btn { height: 28px; }
-
-    .questions-panel {
+    .questions-page {
       margin: 16px 0;
       border: 1px solid #dce4fb;
       border-radius: var(--radius-md);
-      background: #f8faff;
+      background: var(--surface);
       overflow: hidden;
     }
-    .questions-panel summary {
+    .questions-heading {
+      background: #f1f5ff;
       min-height: 38px;
       padding: 8px 12px;
       display: flex;
       align-items: center;
       gap: 9px;
-      cursor: pointer;
-      list-style: none;
       color: var(--ink-700);
-    }
-    .questions-panel summary::-webkit-details-marker { display: none; }
-    .questions-icon {
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      background: #ef8b32;
-      color: #fff;
-      font-weight: 700;
-      flex: 0 0 18px;
     }
     .questions-title { color: var(--ink-900); font-weight: 650; }
     .questions-counts { color: var(--ink-500); font-size: 12px; }
-    .questions-expand-label { margin-left: auto; color: var(--accent); font-size: 12px; }
-    .questions-expand-label .when-open { display: none; }
-    .questions-panel[open] .questions-expand-label .when-closed { display: none; }
-    .questions-panel[open] .questions-expand-label .when-open { display: inline; }
+    .question-ignore-btn {
+      flex-shrink: 0;
+      height: 32px;
+      min-width: 60px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--ink-700);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .question-ignore-btn:hover:not(:disabled) { background: var(--surface-tint); border-color: var(--ink-300); }
+    .question-ignore-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .questions-list {
       margin: 0;
-      padding: 0 12px 10px;
+      padding: 0 12px;
       list-style: none;
-      max-height: 420px;
-      overflow-y: auto;
+      background: var(--surface);
       border-top: 1px solid #e5eafb;
     }
-    .question-item { padding: 11px 2px; border-bottom: 1px solid var(--line-soft); }
+    .questions-hint { margin: 0; padding: 8px 12px; color: var(--ink-500); font-size: 12px; border-top: 1px solid #e5eafb; }
+    .question-item { display: flex; align-items: center; gap: 16px; padding: 10px 2px; border-bottom: 1px solid var(--line-soft); }
+    .question-dot { flex: 0 0 8px; width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; background: #f59e0b; }
+    .question-item.is-answered .question-dot { background: #2fb457; }
+    .question-item.is-ignored .question-dot { background: #cfd5e3; }
+    .question-item.is-ignored .question-text { color: #7B8494; font-weight: 400; }
     .question-item:last-child { border-bottom: 0; }
-    .question-heading { display: flex; align-items: flex-start; gap: 7px; }
-    .question-number { color: var(--ink-400); font-family: var(--font-mono); }
-    .question-text { flex: 1; color: var(--ink-900); }
-    .question-answer-form { margin: 8px 0 0 23px; }
+    .question-heading { display: flex; align-items: flex-start; gap: 10px; flex: 1 1 0; min-width: 0; }
+    .question-number { padding-top: 0; line-height: 1.5; }
+    .question-number { color: #9CA3AF; font-weight: 400; font-family: inherit; letter-spacing: normal; }
+    .question-text { flex: 1; color: #374151; font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
+    .question-answer-form { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; flex: 0 0 46%; min-width: 0; margin: 0; }
+    .question-input-wrap { position: relative; flex: 1 1 0; min-width: 0; }
+    .question-ignored-label { display: none; position: absolute; left: 10px; top: 0; line-height: 32px; color: var(--ink-400); pointer-events: none; }
+    .question-item.is-ignored .question-ignored-label { display: block; }
+    .question-item.is-ignored .question-answer-input { background: var(--surface-tint); color: transparent; cursor: default; }
+    .question-item.is-ignored .question-ignore-btn { color: var(--accent-strong); font-weight: 600; }
+    @media (max-width: 720px) {
+      .question-item { flex-wrap: wrap; }
+      .question-answer-form { flex-basis: 100%; margin-left: 28px; }
+    }
+    .question-answer-form .question-answer-input { width: 100%; }
+    .question-answer-form .question-save-error { flex-basis: 100%; margin-top: 0; }
     .question-answer-input {
       display: block;
       width: 100%;
       box-sizing: border-box;
-      resize: vertical;
-      min-height: 52px;
-      padding: 7px 9px;
+      resize: none;
+      overflow: hidden;
+      min-height: 32px;
+      padding: 6px 9px;
       border: 1px solid var(--line);
       border-radius: var(--radius-sm);
       font-family: inherit;
@@ -496,20 +533,81 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
     }
     .add-tp-toggle-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
-    .add-tp-form {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 8px;
-      margin: -6px 0 16px;
-      flex-basis: 100%;
-      order: 4;
-      padding: 12px;
-      border: 1px solid var(--line-soft);
-      border-radius: var(--radius-md);
-      background: var(--surface-sunken);
+    .tp-modal-backdrop {
+      position: fixed; inset: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px 16px;
+      background: rgba(17, 24, 39, 0.45);
+      overscroll-behavior: contain;
     }
-    .add-tp-form.hidden { display: none; }
+    .tp-modal-backdrop.hidden { display: none; }
+    .stale-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 10px 0 0;
+      padding: 10px 14px;
+      border: 1px solid var(--red-bar);
+      border-radius: var(--radius-sm);
+      background: var(--red-soft);
+      color: var(--red);
+      font-size: 13px;
+      font-weight: 550;
+    }
+    .stale-banner.hidden { display: none; }
+    .stale-banner button {
+      flex: none;
+      height: 28px;
+      padding: 0 12px;
+      border: 1px solid var(--red-bar);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--red);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .tp-modal {
+      width: 100%; max-width: 520px; max-height: 100%;
+      display: flex; flex-direction: column;
+      background: var(--surface); border-radius: 10px;
+      box-shadow: 0 20px 50px rgba(17, 24, 39, 0.25);
+    }
+    .tp-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 8px; }
+    .tp-modal-header h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--ink-900); }
+    .tp-modal-close {
+      width: 28px; height: 28px; border: none; border-radius: var(--radius-sm);
+      background: transparent; color: var(--ink-500); font-size: 20px; line-height: 1; cursor: pointer;
+    }
+    .tp-modal-close:hover { background: var(--surface-tint); color: var(--ink-900); }
+    .tp-modal-body { padding: 8px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+    .tp-modal-field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 550; color: var(--ink-700); }
+    .tp-modal-field em { color: var(--red); font-style: normal; }
+    .tp-modal-field .add-tp-input { width: 100%; font-weight: 400; }
+    .tp-modal-error { color: var(--red); font-size: 12px; font-weight: 400; }
+    .tp-modal-error.hidden { display: none; }
+    .tp-combo { position: relative; display: block; }
+    .tp-combo-list {
+      position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5;
+      margin: 0; padding: 4px; list-style: none;
+      max-height: 168px; overflow-y: auto;
+      background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
+      box-shadow: 0 8px 20px rgba(17, 24, 39, 0.12);
+    }
+    .tp-combo-list.hidden { display: none; }
+    .tp-combo-option { height: 32px; line-height: 32px; padding: 0 8px; border-radius: 4px; font-size: 12.5px; font-weight: 400; color: var(--ink-700); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tp-combo-option:hover, .tp-combo-option.active { background: var(--accent-soft); color: var(--accent-strong); }
+    .tp-modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 20px; border-top: 1px solid var(--line-soft); }
+    .tp-modal-cancel, .tp-modal-submit {
+      box-sizing: border-box; height: 32px; padding: 0 14px; border-radius: var(--radius-sm); font-size: 12.5px; font-weight: 550; line-height: 1; cursor: pointer;
+      border: 1px solid var(--line); background: var(--surface); color: var(--ink-700);
+    }
+    .tp-modal-cancel:hover { background: var(--surface-tint); }
+    .tp-modal-submit { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .tp-modal-submit:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+    .tp-modal-submit:disabled { opacity: 0.55; cursor: not-allowed; }
+    tr.tp-row.tp-flash td { animation: tp-flash 2.2s ease-out; }
+    @keyframes tp-flash { 0%, 55% { background: #fff4c2; } 100% { background: transparent; } }
     .add-tp-input {
       height: 30px;
       padding: 0 10px;
@@ -520,8 +618,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       color: var(--ink-900);
     }
     .add-tp-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-    #add-tp-title { flex: 2; min-width: 200px; }
-    #add-tp-group, #add-tp-tags, #add-tp-priority { flex: 1; min-width: 100px; }
+    textarea.add-tp-input { height: auto; min-height: 56px; max-height: 40vh; padding: 6px 10px; line-height: 1.5; resize: none; font-family: inherit; }
 
     .round-badge {
       display: inline-flex;
@@ -534,22 +631,6 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       padding: 1px 8px;
       letter-spacing: 0.01em;
     }
-
-    .filter-bar { display: flex; gap: 2px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line-soft); }
-    .filter-btn {
-      font-size: 12px;
-      font-weight: 500;
-      height: 26px;
-      padding: 0 12px;
-      border-radius: 999px;
-      border: 1px solid transparent;
-      background: transparent;
-      cursor: pointer;
-      color: var(--ink-500);
-      transition: background 0.12s ease, color 0.12s ease;
-    }
-    .filter-btn:hover { background: var(--surface-tint); color: var(--ink-700); }
-    .filter-btn.active { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
 
     .group { margin-bottom: 26px; }
     .group h2 {
@@ -579,7 +660,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     th:nth-child(1) { width: 52px; }
     th:nth-child(3) { width: 160px; }
     th:nth-child(4) { width: 120px; }
-    th:nth-child(5) { width: 172px; }
+    th:nth-child(5) { width: 230px; }
     tr.tp-row { transition: background 0.1s ease; background: var(--surface); }
     tr.tp-row:hover { background: var(--surface-tint); }
     td:first-child, th:first-child {
@@ -589,34 +670,37 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       white-space: nowrap;
     }
     .tp-title-cell { display: flex; align-items: center; gap: 9px; position: relative; min-height: 22px; }
-    .status-bar { width: 2.5px; align-self: stretch; border-radius: 2px; background: transparent; margin-left: -10px; }
-    tr.status-edited .status-bar { background: var(--amber-bar); opacity: 0.75; }
-    tr.status-deleted .status-bar { background: var(--red-bar); opacity: 0.75; }
-    tr.status-added .status-bar { background: var(--accent); opacity: 0.75; }
+    /* Full-height status bar on the row's left edge; AI provenance first, human status overrides it. */
+    tr.tp-row[data-ai-status="modified"] td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+    tr.tp-row[data-ai-status="added"] td:first-child { box-shadow: inset 3px 0 0 var(--teal-bar); }
+    tr.tp-row.status-added td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+    tr.tp-row.status-edited td:first-child { box-shadow: inset 3px 0 0 var(--amber-bar); }
+    tr.tp-row.status-deleted td:first-child { box-shadow: inset 3px 0 0 var(--red-bar); }
+    td:first-child { padding-left: 14px; }
     tr.status-deleted .field { color: var(--ink-500); text-decoration: line-through; text-decoration-color: var(--ink-300); }
     tr.status-deleted td { color: var(--ink-500); }
     .status-label {
-      font-size: 10.5px;
-      font-weight: 600;
-      padding: 1px 6px;
-      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 550;
+      line-height: 16px;
+      padding: 1px 8px;
+      border-radius: 999px;
       background: var(--surface-tint);
       color: var(--ink-500);
-      letter-spacing: 0.02em;
       flex-shrink: 0;
     }
     tr.status-edited .status-label { background: var(--amber-soft); color: var(--amber); }
     tr.status-deleted .status-label { background: var(--red-soft); color: var(--red); }
     tr.status-added .status-label { background: var(--accent-soft); color: var(--accent-strong); }
     .ai-status-label {
-      background: var(--accent-soft);
-      color: var(--accent-strong);
       border: none;
       cursor: pointer;
       /* Keep the .status-label font size and weight; only normalize the button family. */
       font-family: inherit;
     }
-    .ai-status-label:hover { background: var(--accent); color: #fff; }
+    tr.tp-row .ai-status-label { background: var(--accent-soft); color: var(--accent-strong); }
+    tr.tp-row[data-ai-status="added"] .ai-status-label { background: var(--teal-soft); color: var(--teal); }
+    tr.tp-row .ai-status-label:hover { filter: brightness(0.96); }
     .original-compare {
       margin: 6px 0 2px 18px;
       padding: 8px 10px;
@@ -660,7 +744,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       outline: none;
     }
 
-    .delete-btn, .restore-btn, .comment-toggle-btn, .comment-submit-btn {
+    .edit-btn, .delete-btn, .restore-btn, .comment-toggle-btn, .comment-submit-btn {
       font-size: 12px;
       font-weight: 550;
       height: 26px;
@@ -679,10 +763,19 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     .delete-btn:hover { background: var(--red-soft); border-color: var(--red-bar); color: var(--red); }
     .restore-btn { border-color: var(--amber-bar); color: var(--amber); background: var(--amber-soft); }
     .restore-btn:hover { background: #f7e6bd; }
-    .comment-toggle-btn { margin-left: 6px; color: var(--ink-500); }
+    .edit-btn:hover { background: var(--surface-tint); border-color: var(--ink-300); color: var(--ink-900); }
+    .edit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .comment-toggle-btn, .delete-btn, .restore-btn { margin-left: 6px; }
+    .priority-cell { display: inline-flex; align-items: center; position: relative; }
+    .priority-dot { position: absolute; left: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-300); pointer-events: none; }
+    .priority-cell[data-priority="CRITICAL"] .priority-dot { background: #b91c1c; }
+    .priority-cell[data-priority="HIGH"] .priority-dot { background: #ef4444; }
+    .priority-cell[data-priority="MEDIUM"] .priority-dot { background: #f59e0b; }
+    .priority-cell[data-priority="LOW"] .priority-dot { background: #22c55e; }
+    .priority-cell .priority-select { padding-left: 18px; }
     tr.tp-row td:nth-child(5) { white-space: nowrap; }
-    .comment-toggle-btn:hover { background: var(--surface-tint); border-color: var(--ink-300); color: var(--ink-700); }
-    .comment-count { margin-left: 4px; color: var(--ink-400); font-weight: 500; }
+    .comment-toggle-btn:hover { background: var(--surface-tint); border-color: var(--ink-300); color: var(--ink-900); }
+    .comment-count { margin-left: 4px; color: inherit; font-weight: 550; }
     .comment-submit-btn { background: var(--surface); border-color: var(--line); color: var(--ink-700); font-weight: 550; }
     .comment-submit-btn:hover { background: var(--surface-tint); border-color: var(--ink-300); color: var(--ink-900); }
 
@@ -719,8 +812,6 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     }
     .comment-input:focus { outline: none; border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
 
-    tr.tp-row.filtered-out, tr.comment-row.filtered-out { display: none; }
-    .group.filtered-out { display: none; }
 
     tr.tp-row.locked { background: var(--surface-sunken); }
     tr.tp-row.locked .field[data-editable="false"] { cursor: default; color: var(--ink-500); }
@@ -750,6 +841,24 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
     }
     .optimize-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
     .optimize-btn:disabled { background: var(--ink-300); border-color: var(--ink-300); color: var(--surface); cursor: not-allowed; }
+    .review-actions.questions-footer {
+      position: sticky;
+      bottom: 0;
+      z-index: 10;
+      margin: 16px -44px -72px;
+      border-radius: 0 0 var(--radius-md) var(--radius-md);
+      flex-wrap: nowrap;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 16px 48px;
+      background: var(--surface);
+      border-top: 1px solid var(--line-soft);
+    }
+    .review-actions.tp-footer { flex-wrap: wrap; }
+    .tp-footer-right { display: flex; align-items: center; gap: 8px; }
+    .tp-footer .action-notices { flex-basis: 100%; margin-top: 0; }
+    .tp-footer .action-notices:not(:has(.action-notice:not(:empty))) { display: none; }
+    .questions-progress { display: inline-block; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); font-size: 12.5px; font-weight: 550; }
     .save-cawplan-bar {
       display: flex;
       align-items: center;
@@ -811,24 +920,40 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
   <div class="page-shell">
     <div class="page-header">
       <h1>Test Point Review<span class="round-badge">Round ${state.round}</span></h1>
-      <p class="meta-line"><span class="review-id">${escapeHtml(state.review_id)}</span><span class="sep">·</span>${visibleTestPoints.length} total${archivedCount > 0 ? `<span class="sep">·</span>Already saved to CawPlan: ${archivedCount}` : ""}<span class="save-hint" id="save-hint"></span></p>
+      <div class="stale-banner hidden" id="stale-banner" role="alert">
+        <span id="stale-banner-text"></span>
+        <button type="button" id="stale-reload-btn">Open latest</button>
+      </div>
+      <p class="meta-line">${isQuestionsPhase ? "" : `${visibleTestPoints.length} total`}${!isQuestionsPhase && archivedCount > 0 ? `<span class="sep">·</span>Already saved to CawPlan: ${archivedCount}` : ""}<span class="save-hint" id="save-hint"></span></p>
     </div>
-    ${renderGlobalFeedbackPanel(state.global_comments, pageLocked)}
-    ${renderQuestionsPanel(state, pageLocked)}
-    <section class="review-actions" aria-label="Review actions">
-      ${renderAddTestPointPanel(pageLocked)}
-      ${renderOptimizeBar(state.review_status)}
-      ${renderSaveToCawPlanBar(pageLocked, visibleTestPoints.length)}
-    </section>
-    ${renderActionNotices(optimizeHint, optimizeHintIsStale)}
-    ${renderFilterBar()}
+    ${isQuestionsPhase
+      ? `${renderQuestionsPage(state, pageLocked)}
+    <section class="review-actions questions-footer tp-footer" aria-label="Review actions">
+      <span class="questions-progress" id="questions-progress">${answeredCount} / ${(state.open_questions ?? []).length} completed</span>
+      ${renderOptimizeBar(state.review_status, QUESTIONS_PAGE_TEXT.submit, !allAnswered)}
+      ${renderActionNotices(optimizeHint, optimizeHintIsStale)}
+    </section>`
+      : `${renderAddTestPointForm(pageLocked, Array.from(groups.keys()).filter((g) => g !== "Ungrouped"))}
     ${groupsHtml}
+    <section class="review-actions questions-footer tp-footer" aria-label="Review actions">
+      ${renderAddTestPointToggle(pageLocked)}
+      <div class="tp-footer-right">
+        ${renderOptimizeBar(state.review_status)}
+        ${renderSaveToCawPlanBar(pageLocked, visibleTestPoints.length)}
+      </div>
+      ${renderActionNotices(optimizeHint, optimizeHintIsStale)}
+    </section>`}
   </div>
   <script>
     (function () {
       var token = ${JSON.stringify(token)};
       var reviewId = ${JSON.stringify(state.review_id)};
       var lastKnownUpdatedAt = ${JSON.stringify(state.updated_at)};
+      var isQuestionsPhase = ${JSON.stringify(isQuestionsPhase)};
+      var pageLockedAtLoad = ${JSON.stringify(pageLocked)};
+      var IGNORE_ANSWER = ${JSON.stringify(IGNORE_ANSWER)};
+      var DONE_CLOSE_HINT = ${JSON.stringify(DONE_CLOSE_HINT)};
+      var SUBMIT_TEXT = ${JSON.stringify(SUBMIT_TEXT)};
 
       function fieldValue(el, fieldName) {
         if (fieldName === "priority") return el.value.trim();
@@ -850,13 +975,44 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         return url + (url.indexOf("?") === -1 ? "?" : "&") + "updated_at=" + encodeURIComponent(lastKnownUpdatedAt);
       }
 
+      var STALE_MESSAGES = {
+        conflict: "Review updated. Please refresh. Your change wasn’t saved.",
+        locked: "AI is optimizing. Editing is temporarily locked. Your change wasn’t saved.",
+      };
+
+      // A 409 on a stale or locked page freezes the whole page, so a later edit can never look
+      // saved when it was not. Returns true when the 409 was one of these and has been surfaced.
+      function showStaleFor409(data) {
+        var error = data && data.error;
+        var reason = error === "conflict" ? "conflict"
+          : typeof error === "string" && error.indexOf("review is locked") === 0 ? "locked"
+          : null;
+        if (reason) {
+          lockPage();
+          ["optimize-btn", "save-cawplan-btn"].forEach(function (id) {
+            var button = document.getElementById(id);
+            if (button) button.disabled = true;
+          });
+          var banner = document.getElementById("stale-banner");
+          var text = document.getElementById("stale-banner-text");
+          if (banner && text) {
+            text.textContent = STALE_MESSAGES[reason];
+            banner.classList.remove("hidden");
+          }
+          return true;
+        }
+        if (error === "save_in_progress") {
+          setSaveHint("Saving to CawPlan. Your change wasn’t saved.");
+          return true;
+        }
+        return false;
+      }
+
+      // Callers swallow Error("conflict"): the 409 has already been shown to the user.
       function handleApiResponse(res) {
         if (res.status === 409) {
           return res.json().then(function (data) {
-            if (data && data.error === "conflict") {
-              setSaveHint("This data was updated elsewhere. Please refresh before saving again.");
-              throw new Error("conflict");
-            }
+            if (showStaleFor409(data)) throw new Error("conflict");
             throw new Error("request failed");
           });
         }
@@ -983,10 +1139,10 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
                 state.conflictBlocked = true;
                 if (data && data.error === "conflict" && typeof data.server_updated_at === "string") {
                   state.conflictRevision = data.server_updated_at;
-                  setQuestionError(state, "This answer was not saved because the Review changed. Retry to save your current input.", true);
+                  setQuestionError(state, "Review updated. Your answer wasn’t saved. Please retry.", true);
                 } else {
                   state.conflictRevision = null;
-                  setQuestionError(state, "This answer was not saved because the Review is locked.", false);
+                  setQuestionError(state, "Review locked. Your answer wasn’t saved.", false);
                 }
               } else if (!res.ok) {
                 state.forceSave = true;
@@ -1070,6 +1226,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         questionStates.forEach(function (state) {
           state.input.disabled = frozen;
           state.retryBtn.disabled = frozen;
+          if (state.ignoreBtn) state.ignoreBtn.disabled = frozen;
         });
       }
 
@@ -1091,6 +1248,9 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           titleCell.appendChild(label);
         }
 
+        var editBtn = row.querySelector(".edit-btn");
+        if (editBtn) editBtn.disabled = status === "deleted" || row.getAttribute("data-locked") === "true";
+
         var actionCell = row.querySelector(".delete-btn, .restore-btn");
         if (actionCell) {
           if (status === "deleted") {
@@ -1106,46 +1266,6 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           prioritySelect.disabled = status === "deleted" || row.getAttribute("data-locked") === "true";
         }
 
-        applyFilterToRow(row);
-      }
-
-      var activeFilter = "all";
-
-      function rowMatchesFilter(row, filter) {
-        if (filter === "all") return true;
-        if (filter === "commented") return Number(row.getAttribute("data-comment-count")) > 0;
-        return row.getAttribute("data-status") === filter;
-      }
-
-      function applyFilterToRow(row) {
-        var matches = rowMatchesFilter(row, activeFilter);
-        row.classList.toggle("filtered-out", !matches);
-        var id = row.getAttribute("data-id");
-        var commentRow = document.querySelector('tr.comment-row[data-id="' + id + '"]');
-        if (commentRow && !matches) commentRow.classList.add("filtered-out");
-        else if (commentRow) commentRow.classList.remove("filtered-out");
-
-        var section = row.closest(".group");
-        if (section) {
-          var visibleRow = section.querySelector("tr.tp-row:not(.filtered-out)");
-          section.classList.toggle("filtered-out", !visibleRow);
-        }
-      }
-
-      function applyFilter(filter) {
-        activeFilter = filter;
-        document.querySelectorAll("tr.tp-row").forEach(applyFilterToRow);
-      }
-
-      function wireFilterBar() {
-        var buttons = document.querySelectorAll(".filter-btn");
-        buttons.forEach(function (btn) {
-          btn.addEventListener("click", function () {
-            buttons.forEach(function (b) { b.classList.remove("active"); });
-            btn.classList.add("active");
-            applyFilter(btn.getAttribute("data-filter"));
-          });
-        });
       }
 
       function saveField(row, field, el) {
@@ -1233,7 +1353,6 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         if (countEl) {
           countEl.textContent = count > 0 ? " (" + count + ")" : "";
         }
-        applyFilterToRow(row);
       }
 
       function wireCommentDeleteButton(btn, id, list) {
@@ -1314,80 +1433,22 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         });
       }
 
-      function wireGlobalCommentDeleteButton(btn, list) {
-        btn.addEventListener("click", function () {
-          var li = btn.closest(".comment-item");
-          var commentId = li.getAttribute("data-comment-id");
-          setSaveHint("Deleting…");
-          runNonQuestionMutation(function () {
-            return fetch(
-              withUpdatedAt("/api/global-comments/" + encodeURIComponent(commentId) + "?token=" + encodeURIComponent(token)),
-              { method: "DELETE" },
-            ).then(handleApiResponse);
-          })
-            .then(function () {
-              li.parentNode.removeChild(li);
-              setSaveHint("Saved");
-              setTimeout(function () { setSaveHint(""); }, 1500);
-            })
-            .catch(function (err) {
-              if (err && err.message === "conflict") return;
-              setSaveHint("Delete failed, please retry");
-            });
-        });
+      // Continue (the #optimize-btn on the Questions page) is enabled only when every question has an answer.
+      function updateContinueState() {
+        if (!isQuestionsPhase || pageLockedAtLoad || questionInputsFrozen) return;
+        var btn = document.getElementById("optimize-btn");
+        if (!btn) return;
+        var answered = questionStates.filter(function (state) {
+          return normalizeQuestionAnswer(state.input.value) !== null;
+        }).length;
+        btn.disabled = answered < questionStates.length;
+        var progress = document.getElementById("questions-progress");
+        if (progress) progress.textContent = answered + " / " + questionStates.length + " completed";
       }
 
-      function wireGlobalFeedbackForm() {
-        var form = document.getElementById("global-comment-form");
-        if (!form) return;
-        var input = form.querySelector(".comment-input");
-        var submitBtn = form.querySelector(".comment-submit-btn");
-        var list = document.getElementById("global-comment-list");
-
-        list.querySelectorAll(".comment-delete-btn").forEach(function (btn) {
-          wireGlobalCommentDeleteButton(btn, list);
-        });
-
-        function submit() {
-          var text = input.value.trim();
-          if (!text) return;
-          setSaveHint("Saving…");
-          runNonQuestionMutation(function () {
-            return fetch(withUpdatedAt("/api/global-comments?token=" + encodeURIComponent(token)), {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ text: text }),
-            }).then(handleApiResponse);
-          })
-            .then(function (data) {
-              var comments = data.global_comments;
-              var newComment = comments[comments.length - 1];
-              var li = document.createElement("li");
-              li.className = "comment-item";
-              li.setAttribute("data-comment-id", newComment.id);
-              li.innerHTML =
-                '<span class="comment-text">' + escapeHtmlClient(text) + '</span>' +
-                '<button type="button" class="comment-delete-btn" data-action="delete-comment" title="Delete comment">×</button>';
-              list.appendChild(li);
-              wireGlobalCommentDeleteButton(li.querySelector(".comment-delete-btn"), list);
-              input.value = "";
-
-              setSaveHint("Saved");
-              setTimeout(function () { setSaveHint(""); }, 1500);
-            })
-            .catch(function (err) {
-              if (err && err.message === "conflict") return;
-              setSaveHint("Save failed, please retry");
-            });
-        }
-
-        submitBtn.addEventListener("click", submit);
-        input.addEventListener("keydown", function (event) {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            submit();
-          }
-        });
+      function autoGrow(el) {
+        el.style.height = "auto";
+        el.style.height = el.scrollHeight + "px";
       }
 
       function wireQuestionAnswers() {
@@ -1397,6 +1458,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           var errorEl = item.querySelector(".question-save-error");
           var errorText = item.querySelector(".question-save-error-text");
           var retryBtn = item.querySelector(".question-save-retry");
+          var ignoreBtn = item.querySelector(".question-ignore-btn");
           if (!questionId || !input || !errorEl || !errorText || !retryBtn) return;
           var initialValue = normalizeQuestionAnswer(input.value);
           var state = {
@@ -1405,6 +1467,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
             errorEl: errorEl,
             errorText: errorText,
             retryBtn: retryBtn,
+            ignoreBtn: ignoreBtn,
             savedValue: initialValue,
             desiredValue: initialValue,
             dirty: false,
@@ -1422,7 +1485,20 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           };
           questionStates.push(state);
 
+          function syncRowState() {
+            var value = input.value.trim();
+            var ignored = value === IGNORE_ANSWER;
+            item.classList.toggle("is-ignored", ignored);
+            item.classList.toggle("is-answered", !ignored && value !== "");
+            input.readOnly = ignored;
+            if (ignoreBtn) ignoreBtn.textContent = ignored ? ignoreBtn.getAttribute("data-undo-label") : ignoreBtn.getAttribute("data-ignore-label");
+          }
+          syncRowState();
+          autoGrow(input);
           input.addEventListener("input", function () {
+            autoGrow(input);
+            syncRowState();
+            updateContinueState();
             state.desiredValue = normalizeQuestionAnswer(input.value);
             state.dirty = state.forceSave || state.desiredValue !== state.savedValue;
             state.autoRetryCount = 0;
@@ -1449,6 +1525,20 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
             if (!questionInputsFrozen) enqueueQuestionSave(state);
           });
 
+          if (ignoreBtn) {
+            // Ignore is just a canned answer: same input, same answer endpoint, same flush path.
+            ignoreBtn.addEventListener("click", function () {
+              if (questionInputsFrozen) return;
+              var undoing = input.value.trim() === IGNORE_ANSWER;
+              input.value = undoing ? "" : IGNORE_ANSWER;
+              input.dispatchEvent(new Event("input"));
+              if (state.debounceTimer) clearTimeout(state.debounceTimer);
+              state.debounceTimer = null;
+              enqueueQuestionSave(state);
+              if (undoing) input.focus();
+            });
+          }
+
           retryBtn.addEventListener("click", function () {
             if (questionInputsFrozen) return;
             cancelQuestionTimers(state);
@@ -1467,25 +1557,125 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         var form = document.getElementById("add-tp-form");
         if (!toggleBtn || !form) return;
 
-        toggleBtn.addEventListener("click", function () {
-          form.classList.toggle("hidden");
-        });
-
         var titleInput = document.getElementById("add-tp-title");
         var groupInput = document.getElementById("add-tp-group");
         var tagsInput = document.getElementById("add-tp-tags");
         var priorityInput = document.getElementById("add-tp-priority");
         var submitBtn = document.getElementById("add-tp-submit");
+        var cancelBtn = document.getElementById("add-tp-cancel");
+        var closeBtn = document.getElementById("add-tp-close");
+        var errorEl = document.getElementById("add-tp-error");
+        var defaultPriority = priorityInput.value;
+        var submitting = false;
+
+        function isOpen() { return !form.classList.contains("hidden"); }
+        function autoGrow() {
+          titleInput.style.height = "auto";
+          titleInput.style.height = titleInput.scrollHeight + "px";
+        }
+        function resetForm() {
+          titleInput.value = "";
+          groupInput.value = "";
+          tagsInput.value = "";
+          priorityInput.value = defaultPriority;
+          errorEl.classList.add("hidden");
+          titleInput.style.height = "";
+        }
+        var groupList = document.getElementById("add-tp-group-list");
+        var comboOptions = Array.prototype.slice.call(groupList.querySelectorAll(".tp-combo-option"));
+        var activeIndex = -1;
+        function hideGroupList() {
+          groupList.classList.add("hidden");
+          groupInput.setAttribute("aria-expanded", "false");
+          activeIndex = -1;
+        }
+        function visibleOptions() {
+          return comboOptions.filter(function (o) { return !o.hidden; });
+        }
+        function setActive(index) {
+          var visible = visibleOptions();
+          comboOptions.forEach(function (o) { o.classList.remove("active"); });
+          if (!visible.length) { activeIndex = -1; return; }
+          activeIndex = (index + visible.length) % visible.length;
+          visible[activeIndex].classList.add("active");
+          visible[activeIndex].scrollIntoView({ block: "nearest" });
+        }
+        function showGroupList() {
+          var q = groupInput.value.trim().toLowerCase();
+          comboOptions.forEach(function (o) {
+            o.hidden = q !== "" && o.getAttribute("data-value").toLowerCase().indexOf(q) === -1;
+          });
+          activeIndex = -1;
+          if (!visibleOptions().length) { hideGroupList(); return; }
+          groupList.classList.remove("hidden");
+          groupInput.setAttribute("aria-expanded", "true");
+        }
+        function pickGroup(option) {
+          groupInput.value = option.getAttribute("data-value");
+          hideGroupList();
+        }
+        groupInput.addEventListener("focus", showGroupList);
+        groupInput.addEventListener("input", showGroupList);
+        groupInput.addEventListener("keydown", function (event) {
+          var open = !groupList.classList.contains("hidden");
+          if (event.key === "ArrowDown") { event.preventDefault(); if (!open) showGroupList(); setActive(activeIndex + 1); }
+          else if (event.key === "ArrowUp" && open) { event.preventDefault(); setActive(activeIndex - 1); }
+          else if (event.key === "Enter" && open && activeIndex >= 0) { event.preventDefault(); pickGroup(visibleOptions()[activeIndex]); }
+        });
+        // mousedown (not click) so the input keeps focus and selection wins over blur.
+        groupList.addEventListener("mousedown", function (event) {
+          var option = event.target.closest(".tp-combo-option");
+          if (!option) return;
+          event.preventDefault();
+          pickGroup(option);
+        });
+        document.addEventListener("mousedown", function (event) {
+          if (!event.target.closest("#add-tp-combo")) hideGroupList();
+        });
+
+        function openModal() {
+          if (toggleBtn.disabled) return;
+          form.classList.remove("hidden");
+          titleInput.focus({ preventScroll: true });
+        }
+        function closeModal() {
+          if (submitting) return;
+          hideGroupList();
+          form.classList.add("hidden");
+          resetForm();
+          toggleBtn.focus({ preventScroll: true });
+        }
+
+        toggleBtn.addEventListener("click", openModal);
+        cancelBtn.addEventListener("click", function () { closeModal(); });
+        closeBtn.addEventListener("click", function () { closeModal(); });
+        document.addEventListener("keydown", function (event) {
+          if (event.key === "Escape" && isOpen()) {
+            event.preventDefault();
+            if (!groupList.classList.contains("hidden")) { hideGroupList(); return; }
+            closeModal();
+          }
+        });
+        titleInput.addEventListener("input", function () {
+          autoGrow();
+          if (titleInput.value.trim()) errorEl.classList.add("hidden");
+        });
 
         function submit() {
           var title = titleInput.value.trim();
-          if (!title) return;
+          if (!title) {
+            errorEl.classList.remove("hidden");
+            titleInput.focus({ preventScroll: true });
+            return;
+          }
           var body = {
             title: title,
             group: groupInput.value.trim(),
             tags: tagsInput.value.split(",").map(function (t) { return t.trim(); }).filter(Boolean),
             priority: priorityInput.value.trim(),
           };
+          submitting = true;
+          submitBtn.disabled = true;
           setSaveHint("Saving…");
           runNonQuestionMutation(function () {
             return fetch(withUpdatedAt("/api/test-points?token=" + encodeURIComponent(token)), {
@@ -1494,16 +1684,38 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
               body: JSON.stringify(body),
             }).then(handleApiResponse);
           })
-            .then(function () {
+            .then(function (data) {
+              try {
+                if (data && data.test_point && data.test_point.id) {
+                  sessionStorage.setItem("tp-review-focus-id", data.test_point.id);
+                }
+              } catch (e) { /* storage unavailable: skip auto-locate */ }
               location.reload();
             })
             .catch(function (err) {
+              submitting = false;
+              submitBtn.disabled = false;
               if (err && err.message === "conflict") return;
               setSaveHint("Save failed, please retry");
             });
         }
 
         submitBtn.addEventListener("click", submit);
+      }
+
+      // After an add, the page reloads; scroll the new row into view and flash it briefly.
+      function focusNewlyAddedRow() {
+        var id = null;
+        try {
+          id = sessionStorage.getItem("tp-review-focus-id");
+          sessionStorage.removeItem("tp-review-focus-id");
+        } catch (e) { return; }
+        if (!id) return;
+        var row = document.querySelector('tr.tp-row[data-id="' + id + '"]');
+        if (!row) return;
+        row.scrollIntoView({ block: "center" });
+        row.classList.add("tp-flash");
+        setTimeout(function () { row.classList.remove("tp-flash"); }, 2400);
       }
 
       function wireField(el) {
@@ -1542,7 +1754,19 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         var row = el.closest(".tp-row");
         el.addEventListener("change", function () {
           if (row.classList.contains("status-deleted") || row.getAttribute("data-locked") === "true") return;
+          var cell = el.closest(".priority-cell");
+          if (cell) cell.setAttribute("data-priority", el.value);
           saveField(row, "priority", el);
+        });
+      }
+
+      function wireEditButton(btn) {
+        btn.addEventListener("click", function () {
+          var row = btn.closest(".tp-row");
+          if (row.classList.contains("status-deleted") || row.getAttribute("data-locked") === "true") return;
+          // Reuse the inline title editor: a click on the title field starts editing.
+          var title = row.querySelector('.field[data-field="title"][data-editable="true"]');
+          if (title) title.click();
         });
       }
 
@@ -1566,7 +1790,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           titleCell.appendChild(label);
         }
 
-        row.querySelectorAll(".delete-btn, .restore-btn").forEach(function (btn) {
+        row.querySelectorAll(".edit-btn, .delete-btn, .restore-btn").forEach(function (btn) {
           btn.disabled = true;
         });
 
@@ -1582,25 +1806,75 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       function lockPage() {
         document.querySelectorAll("tr.tp-row").forEach(lockRow);
 
-        var globalForm = document.getElementById("global-comment-form");
-        if (globalForm) {
-          globalForm.querySelectorAll(".comment-input, .comment-submit-btn").forEach(function (el) {
-            el.disabled = true;
-          });
-        }
-        document.querySelectorAll("#global-comment-list .comment-delete-btn").forEach(function (el) {
-          el.disabled = true;
-        });
         setQuestionInputsFrozen(true);
 
         var addToggle = document.getElementById("add-tp-toggle");
         if (addToggle) addToggle.disabled = true;
         var addForm = document.getElementById("add-tp-form");
         if (addForm) {
-          addForm.querySelectorAll("input, button").forEach(function (el) {
+          addForm.querySelectorAll("input, textarea, select, button").forEach(function (el) {
             el.disabled = true;
           });
         }
+      }
+
+      function tryCloseTab(hint, extra) {
+        try { window.close(); } catch (e) { /* browsers may refuse */ }
+        if (hint) hint.textContent = DONE_CLOSE_HINT + (extra ? " " + extra : "");
+      }
+
+      // Closing is best-effort: browsers usually refuse window.close() for tabs a script did not
+      // open, so tryCloseTab leaves the "you can close this tab" hint when it is refused.
+      function startCloseCountdown(hint, extra) {
+        var remaining = 5;
+        function render() {
+          if (hint) hint.textContent = SUBMIT_TEXT.countdown.replace("{n}", String(remaining)) + (extra ? " " + extra : "");
+        }
+        render();
+        var timer = setInterval(function () {
+          remaining -= 1;
+          if (remaining > 0) { render(); return; }
+          clearInterval(timer);
+          tryCloseTab(hint, extra);
+        }, 1000);
+      }
+
+      // The final request was sent but its result is not known (response lost, unreadable, or the
+      // server could not confirm the archive). Never re-enable submit or resend from here.
+      var submitHeld = false;
+      function holdLocked(hint, text, isError) {
+        submitHeld = true;
+        lockPage();
+        ["optimize-btn", "save-cawplan-btn"].forEach(function (id) {
+          var button = document.getElementById(id);
+          if (button) button.disabled = true;
+        });
+        if (hint) {
+          if (isError) hint.className = "action-notice save-cawplan-hint save-cawplan-hint-error";
+          hint.textContent = text;
+        }
+      }
+
+      // Recovery must not override a stronger read-only state (stale/locked banner or a hold).
+      function canRecover() {
+        var banner = document.getElementById("stale-banner");
+        return !submitHeld && !(banner && !banner.classList.contains("hidden"));
+      }
+
+      // a failed fetch or an unreadable body after the request was sent means "result unknown".
+      function unknownResult() {
+        var error = new Error("unknown result");
+        error.unknownResult = true;
+        return error;
+      }
+      function sendFinalRequest(url) {
+        return fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })
+          .catch(function () { throw unknownResult(); })
+          .then(function (res) {
+            return res.json().catch(function () { throw unknownResult(); }).then(function (data) {
+              return { res: res, data: data };
+            });
+          });
       }
 
       function wireOptimizeButton() {
@@ -1615,33 +1889,47 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           flushQuestionAnswers({ requireSuccess: true })
             .then(function (flushed) {
               if (!flushed) throw new Error("question answers were not saved");
-              return fetch("/api/optimize?token=" + encodeURIComponent(token), {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: "{}",
-              });
+              return sendFinalRequest(withUpdatedAt("/api/optimize?token=" + encodeURIComponent(token)));
             })
-            .then(function (res) {
+            .then(function (result) {
+              var res = result.res;
+              var data = result.data;
+              if (res.status === 409) {
+                if (data && data.error === "save_in_progress") {
+                  holdLocked(hint, SUBMIT_TEXT.saveBusy, false);
+                  throw new Error("conflict");
+                }
+                if (showStaleFor409(data)) throw new Error("conflict");
+                throw new Error("optimize request failed");
+              }
+              if (res.status === 403 && data && data.error === "invalid token") {
+                holdLocked(hint, SUBMIT_TEXT.invalid, false);
+                throw new Error("conflict");
+              }
               if (!res.ok) throw new Error("optimize request failed");
-              return res.json();
-            })
-            .then(function (data) {
               if (data && data.outcome === "NO_CHANGES") {
                 btn.disabled = false;
                 setQuestionInputsFrozen(false);
                 if (hint) hint.textContent = "No changes to optimize. Make a change first.";
                 return;
               }
-              lockPage();
-              if (hint) {
-                hint.textContent = "Optimization requested. This review is locked while AI is working. If Chat does not respond, send “Continue optimization” in Chat.";
+              if (!data || (data.review_status !== "pending_optimize" && data.review_status !== "optimizing")) {
+                throw unknownResult();
               }
+              lockPage();
+              startCloseCountdown(hint, "If Chat does not respond, send “Continue optimization” in Chat.");
             })
-            .catch(function () {
+            .catch(function (err) {
+              if (err && err.message === "conflict") return;
+              if (err && err.unknownResult) {
+                holdLocked(hint, SUBMIT_TEXT.unknown, false);
+                return;
+              }
+              if (!canRecover()) return;
               btn.disabled = false;
               setQuestionInputsFrozen(false);
               if (hint) hint.textContent = hasUnsavedQuestionAnswers()
-                ? "Save the question answers successfully before optimizing."
+                ? "Retry saving your answers before submitting to AI."
                 : "Request failed, please retry";
             });
         });
@@ -1661,44 +1949,71 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
           }
           flushQuestionAnswers({ requireSuccess: true })
             .then(function (flushed) {
-              if (!flushed) throw new Error("Save the question answers successfully before saving to CawPlan.");
-              return fetch("/api/save-to-cawplan?token=" + encodeURIComponent(token), {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: "{}",
-              });
-            })
-            .then(function (res) {
-              return res.json().then(function (data) { return { res: res, data: data }; });
+              if (!flushed) throw new Error("Retry saving your answers before saving to CawPlan.");
+              return sendFinalRequest(withUpdatedAt("/api/save-to-cawplan?token=" + encodeURIComponent(token)));
             })
             .then(function (result) {
               var res = result.res;
               var data = result.data;
+              if (res.status === 409 && data && data.error === "save_in_progress") {
+                holdLocked(hint, SUBMIT_TEXT.saveBusy, true);
+                throw new Error("conflict");
+              }
+              if (res.status === 409 && showStaleFor409(data)) {
+                throw new Error("conflict");
+              }
               if (res.status === 409 && data && data.error === "unresolved_feedback") {
                 btn.disabled = false;
                 setQuestionInputsFrozen(false);
                 if (hint) {
                   hint.className = "action-notice save-cawplan-hint save-cawplan-hint-error";
-                  hint.textContent = "Comments, Overall Feedback, or answered Questions must be processed by Ask AI before saving.";
+                  hint.textContent = "Click “Submit to AI” to process comments before saving.";
                 }
                 return;
               }
+              if (res.status === 403 && data && data.error === "invalid token") {
+                holdLocked(hint, SUBMIT_TEXT.invalid, true);
+                throw new Error("conflict");
+              }
               if (!res.ok) {
+                var failure = data && data.error;
+                if (failure === "archive request failed") {
+                  throw unknownResult();
+                }
+                if (failure === "archive did not succeed" || failure === "archive did not succeed and reconcile failed") {
+                  // Only a definite failure (nothing written) may be retried. Anything else,
+                  // e.g. a count mismatch or a failed reconcile, cannot be confirmed from here.
+                  var envelope = data.envelope;
+                  var definite = failure === "archive did not succeed" && !data.reconcile && envelope &&
+                    envelope.outcome === "FAILURE" && envelope.error &&
+                    ["validation", "auth", "not_found", "feature_disabled"].indexOf(envelope.error.type) !== -1;
+                  if (!definite) {
+                    holdLocked(hint, SUBMIT_TEXT.unconfirmed, true);
+                    throw new Error("conflict");
+                  }
+                  throw new Error(envelope.error.message || "save request failed");
+                }
                 throw new Error((data && data.message) || "save request failed");
               }
-              if (data.outcome === "NOOP") {
-                if (hint) hint.textContent = "Nothing new to save — every visible test point is already archived.";
+              if (data && data.outcome === "NOOP") {
+                if (hint) hint.textContent = "All test points are already saved to CawPlan.";
                 btn.disabled = false;
                 setQuestionInputsFrozen(false);
                 return;
               }
-              lockPage();
-              if (hint) {
-                hint.textContent =
-                  "Saved " + data.archived_count + " test point(s) to CawPlan. This review session has ended.";
+              if (!data || (data.outcome !== "SUCCESS" && data.outcome !== "RECONCILED")) {
+                throw unknownResult();
               }
+              lockPage();
+              startCloseCountdown(hint);
             })
             .catch(function (err) {
+              if (err && err.message === "conflict") return;
+              if (err && err.unknownResult) {
+                holdLocked(hint, SUBMIT_TEXT.unknown, true);
+                return;
+              }
+              if (!canRecover()) return;
               btn.disabled = false;
               setQuestionInputsFrozen(false);
               if (hint) {
@@ -1729,15 +2044,17 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
 
       document.querySelectorAll(".field[data-editable=\\"true\\"]").forEach(wireField);
       document.querySelectorAll(".priority-select[data-editable=\\"true\\"]").forEach(wirePrioritySelect);
+      document.querySelectorAll(".edit-btn").forEach(wireEditButton);
       document.querySelectorAll(".delete-btn, .restore-btn").forEach(wireActionButton);
       document.querySelectorAll(".comment-toggle-btn").forEach(wireCommentToggle);
       document.querySelectorAll(".ai-status-label").forEach(wireOriginalCompareToggle);
       document.querySelectorAll("tr.comment-row").forEach(wireCommentForm);
-      wireGlobalFeedbackForm();
       wireQuestionAnswers();
       wireQuestionLifecycleFlush();
       wireAddTestPointPanel();
-      wireFilterBar();
+      focusNewlyAddedRow();
+      var staleReloadBtn = document.getElementById("stale-reload-btn");
+      if (staleReloadBtn) staleReloadBtn.addEventListener("click", function () { location.reload(); });
       wireOptimizeButton();
       wireSaveToCawPlanButton();
     })();

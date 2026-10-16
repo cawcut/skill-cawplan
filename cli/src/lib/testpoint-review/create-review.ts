@@ -154,7 +154,6 @@ export function createReviewStateFromInput(input: CreateReviewInput): ReviewStat
     language: input.language ?? "zh",
     updated_at: now,
     test_points: testPoints,
-    global_comments: [],
     open_questions: openQuestions,
     next_question_seq: openQuestions.length + 1,
     deleted_tombstones: [],

@@ -15,6 +15,16 @@ export type AiRoundOutput = {
   };
 };
 
+function mergeAiStatus(
+  prev: TestPoint["ai_status"],
+  thisRound: "modified" | "none",
+  accumulate: boolean,
+): TestPoint["ai_status"] {
+  if (!accumulate) return thisRound;
+  if (prev === "added") return "added";
+  return prev === "modified" || thisRound === "modified" ? "modified" : "none";
+}
+
 export function advanceReviewRound(reviewState: ReviewState, aiOutput: AiRoundOutput): ReviewState {
   const archived: TestPoint[] = [];
   const active: TestPoint[] = [];
@@ -23,6 +33,11 @@ export function advanceReviewRound(reviewState: ReviewState, aiOutput: AiRoundOu
   }
 
   const modifiedById = new Map(aiOutput.modified.map((entry) => [entry.id, entry.fields]));
+
+  // Tags are cleared only once the user has seen a Review-phase page for this round;
+  // rounds the user never saw (consecutive Questions rounds) accumulate instead.
+  const lastViewed = reviewState.last_viewed_review_round;
+  const accumulate = lastViewed !== undefined && lastViewed !== reviewState.round;
 
   const newTombstones: DeletedTombstone[] = [];
   const survivors: TestPoint[] = [];
@@ -39,7 +54,7 @@ export function advanceReviewRound(reviewState: ReviewState, aiOutput: AiRoundOu
       current,
       round_baseline: {...current, tags: [...current.tags]},
       status: "unchanged",
-      ai_status: modifiedFields ? "modified" : "none",
+      ai_status: mergeAiStatus(testPoint.ai_status, modifiedFields ? "modified" : "none", accumulate),
       comments: [],
     });
     delete survivors[survivors.length - 1].pre_delete_status;
@@ -82,7 +97,6 @@ export function advanceReviewRound(reviewState: ReviewState, aiOutput: AiRoundOu
 
   reviewState.round += 1;
   reviewState.test_points = [...survivors, ...added, ...archived];
-  reviewState.global_comments = [];
   reviewState.deleted_tombstones = [...reviewState.deleted_tombstones, ...newTombstones];
   reviewState.updated_at = new Date().toISOString();
 

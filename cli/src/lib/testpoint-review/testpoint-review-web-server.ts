@@ -9,6 +9,7 @@ import {
   testPointsPendingArchive,
   toArchiveSubmissionItem,
 } from "./archive-submission.js";
+import { reviewPhase } from "./review-phase.js";
 import { loadReviewState, saveReviewState } from "./store.js";
 import { formatTestPointId } from "./test-point-id.js";
 import type { ReviewState, TestPointFields } from "./types.js";
@@ -124,8 +125,6 @@ const DELETE_PATH_SUFFIX = "/delete";
 const RESTORE_PATH_SUFFIX = "/restore";
 const COMMENTS_PATH_SUFFIX = "/comments";
 const COMMENTS_PATH_INFIX = "/comments/";
-const GLOBAL_COMMENTS_PATH = "/api/global-comments";
-const GLOBAL_COMMENTS_PATH_PREFIX = "/api/global-comments/";
 const OPEN_QUESTIONS_PATH_PREFIX = "/api/open-questions/";
 const ANSWER_PATH_SUFFIX = "/answer";
 const OPTIMIZE_PATH = "/api/optimize";
@@ -148,6 +147,11 @@ function fieldsEqual(a: TestPointFields, b: TestPointFields): boolean {
 function isReviewLocked(reviewState: ReviewState): boolean {
   return reviewState.review_status === "pending_optimize" || reviewState.review_status === "optimizing";
 }
+
+// Review ids whose Save to CawPlan is awaiting the archive API. The handler holds the state it
+// loaded before that await and writes it back afterwards, so any edit accepted in between would
+// be answered 200 and then overwritten. Rejecting writes meanwhile keeps "Saved" truthful.
+const savesInFlight = new Set<string>();
 
 function conflictResult(reviewState: ReviewState): TestPointReviewDispatchResult {
   return {
@@ -297,36 +301,6 @@ function deleteTestPointComment(
   return { status: 200, body: { test_point: testPoint, updated_at: reviewState.updated_at } };
 }
 
-function addGlobalComment(
-  reviewState: ReviewState,
-  input: { text?: unknown },
-  clientUpdatedAt: string | undefined,
-): TestPointReviewDispatchResult {
-  if (isReviewLocked(reviewState)) {
-    return { status: 409, body: { error: "review is locked for AI optimization" } };
-  }
-  if (hasConflict(reviewState, clientUpdatedAt)) {
-    return conflictResult(reviewState);
-  }
-
-  const text = typeof input.text === "string" ? input.text.trim() : "";
-  if (!text) {
-    return { status: 400, body: { error: "comment text is required" } };
-  }
-
-  const comment = {
-    id: `c_${randomUUID()}`,
-    text,
-    author: "qa" as const,
-    resolved: false,
-  };
-  reviewState.global_comments.push(comment);
-  reviewState.updated_at = new Date().toISOString();
-  saveReviewState(reviewState);
-
-  return { status: 200, body: { global_comments: reviewState.global_comments, updated_at: reviewState.updated_at } };
-}
-
 function addTestPoint(
   reviewState: ReviewState,
   input: Partial<TestPointFields>,
@@ -369,30 +343,6 @@ function addTestPoint(
   saveReviewState(reviewState);
 
   return { status: 200, body: { test_point: testPoint, updated_at: reviewState.updated_at } };
-}
-
-function deleteGlobalComment(
-  reviewState: ReviewState,
-  commentId: string,
-  clientUpdatedAt: string | undefined,
-): TestPointReviewDispatchResult {
-  if (isReviewLocked(reviewState)) {
-    return { status: 409, body: { error: "review is locked for AI optimization" } };
-  }
-  if (hasConflict(reviewState, clientUpdatedAt)) {
-    return conflictResult(reviewState);
-  }
-
-  const index = reviewState.global_comments.findIndex((c) => c.id === commentId);
-  if (index === -1) {
-    return { status: 404, body: { error: "comment not found" } };
-  }
-
-  reviewState.global_comments.splice(index, 1);
-  reviewState.updated_at = new Date().toISOString();
-  saveReviewState(reviewState);
-
-  return { status: 200, body: { global_comments: reviewState.global_comments, updated_at: reviewState.updated_at } };
 }
 
 function answerOpenQuestion(
@@ -502,7 +452,11 @@ export function requestOptimizeWithHumanInput(
 function optimizeReview(
   reviewState: ReviewState,
   recordHumanInput: NonNullable<TestPointReviewServerDeps["recordHumanInput"]>,
+  clientUpdatedAt: string | undefined,
 ): TestPointReviewDispatchResult {
+  if (hasConflict(reviewState, clientUpdatedAt)) {
+    return conflictResult(reviewState);
+  }
   const hasPageChanges = reviewState.test_points.some(
     (tp) =>
       tp.archived !== true &&
@@ -510,7 +464,7 @@ function optimizeReview(
         tp.status === "edited" ||
         tp.status === "deleted" ||
         (tp.status === "added" && tp.source === "qa")),
-  ) || reviewState.global_comments.length > 0 || (reviewState.open_questions ?? []).some(
+  ) || (reviewState.open_questions ?? []).some(
     (question) => question.answer !== question.round_answer_baseline,
   );
   if (!hasPageChanges) {
@@ -547,9 +501,14 @@ async function saveToCawPlan(
   archiveTestPoints: ArchiveTestPointsFn,
   reconcileTestPoints: ReconcileTestPointsFn,
   recordHumanInput: NonNullable<TestPointReviewServerDeps["recordHumanInput"]>,
+  clientUpdatedAt: string | undefined,
 ): Promise<TestPointReviewDispatchResult> {
   if (isReviewLocked(reviewState)) {
     return { status: 409, body: { error: "review is locked for AI optimization" } };
+  }
+  // A page showing an older revision must not save content it never displayed.
+  if (hasConflict(reviewState, clientUpdatedAt)) {
+    return conflictResult(reviewState);
   }
 
   const feedback = checkUnresolvedFeedback(reviewState);
@@ -559,8 +518,8 @@ async function saveToCawPlan(
       body: {
         error: "unresolved_feedback",
         commented_test_point_count: feedback.commentedTestPointCount,
-        global_comment_count: feedback.globalCommentCount,
         answered_question_count: feedback.answeredQuestionCount,
+        questions_pending: feedback.questionsPending,
       },
     };
   }
@@ -646,17 +605,35 @@ export async function dispatchTestPointReviewRequest(
   const renderHtml = deps.renderHtml ?? testPointReviewHtml;
   const clientUpdatedAt = url.searchParams.get("updated_at") ?? undefined;
 
-  if (req.method === "GET" && url.pathname === "/") {
-    return { status: 200, body: renderHtml(deps.reviewState, token), contentType: "text/html; charset=utf-8" };
+  if (req.method !== "GET" && deps.reviewState && savesInFlight.has(deps.reviewState.review_id)) {
+    return { status: 409, body: { error: "save_in_progress" } };
   }
 
-  if (req.method === "DELETE" && url.pathname.startsWith(GLOBAL_COMMENTS_PATH_PREFIX)) {
-    if (!deps.reviewState) {
-      return { status: 404, body: { error: "no review state loaded" } };
+  if (req.method === "GET" && url.pathname === "/") {
+    const viewed = deps.reviewState;
+    if (
+      viewed &&
+      reviewPhase(viewed) === "review" &&
+      !isReviewLocked(viewed) &&
+      viewed.test_points.some((testPoint) => !testPoint.archived) &&
+      viewed.last_viewed_review_round !== viewed.round
+    ) {
+      // Changes made before the first visible list are the user's initial baseline,
+      // regardless of how many Questions rounds preceded it. Persist the reset so
+      // reloading this round cannot expose those pre-review changes again.
+      if (viewed.last_viewed_review_round === undefined) {
+        for (const testPoint of viewed.test_points) {
+          if (testPoint.archived) continue;
+          testPoint.ai_status = "none";
+          if (testPoint.source === "ai" && testPoint.status === "added") {
+            testPoint.status = "unchanged";
+          }
+        }
+      }
+      viewed.last_viewed_review_round = viewed.round;
+      saveReviewState(viewed);
     }
-
-    const commentId = decodeURIComponent(url.pathname.slice(GLOBAL_COMMENTS_PATH_PREFIX.length));
-    return deleteGlobalComment(deps.reviewState, commentId, clientUpdatedAt);
+    return { status: 200, body: renderHtml(deps.reviewState, token), contentType: "text/html; charset=utf-8" };
   }
 
   if (req.method === "DELETE" && url.pathname.startsWith(EDIT_PATH_PREFIX)) {
@@ -673,20 +650,6 @@ export async function dispatchTestPointReviewRequest(
     const testPointId = decodeURIComponent(remainder.slice(0, commentsIndex));
     const commentId = decodeURIComponent(remainder.slice(commentsIndex + COMMENTS_PATH_INFIX.length));
     return deleteTestPointComment(deps.reviewState, testPointId, commentId, clientUpdatedAt);
-  }
-
-  if (req.method === "POST" && url.pathname === GLOBAL_COMMENTS_PATH) {
-    if (!deps.reviewState) {
-      return { status: 404, body: { error: "no review state loaded" } };
-    }
-
-    let commentInput: { text?: unknown };
-    try {
-      commentInput = rawBody ? (JSON.parse(rawBody) as { text?: unknown }) : {};
-    } catch {
-      return { status: 400, body: { error: "invalid JSON body" } };
-    }
-    return addGlobalComment(deps.reviewState, commentInput, clientUpdatedAt);
   }
 
   if (
@@ -728,7 +691,7 @@ export async function dispatchTestPointReviewRequest(
       return { status: 404, body: { error: "no review state loaded" } };
     }
 
-    return optimizeReview(deps.reviewState, deps.recordHumanInput ?? tryRecordTestPointReviewHumanInput);
+    return optimizeReview(deps.reviewState, deps.recordHumanInput ?? tryRecordTestPointReviewHumanInput, clientUpdatedAt);
   }
 
   if (req.method === "POST" && url.pathname === SAVE_TO_CAWPLAN_PATH) {
@@ -736,12 +699,19 @@ export async function dispatchTestPointReviewRequest(
       return { status: 404, body: { error: "no review state loaded" } };
     }
 
-    return saveToCawPlan(
-      deps.reviewState,
-      deps.archiveTestPoints ?? defaultArchiveTestPoints,
-      deps.reconcileTestPoints ?? defaultReconcileTestPoints,
-      deps.recordHumanInput ?? tryRecordTestPointReviewHumanInput,
-    );
+    const savingReviewId = deps.reviewState.review_id;
+    savesInFlight.add(savingReviewId);
+    try {
+      return await saveToCawPlan(
+        deps.reviewState,
+        deps.archiveTestPoints ?? defaultArchiveTestPoints,
+        deps.reconcileTestPoints ?? defaultReconcileTestPoints,
+        deps.recordHumanInput ?? tryRecordTestPointReviewHumanInput,
+        clientUpdatedAt,
+      );
+    } finally {
+      savesInFlight.delete(savingReviewId);
+    }
   }
 
   if (req.method === "POST" && url.pathname.startsWith(EDIT_PATH_PREFIX)) {

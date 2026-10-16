@@ -74,7 +74,6 @@ describe("testpoint-review request-optimize Human Input handoff", () => {
       ai_status: "none",
       comments: [],
     });
-    state.global_comments.push({id: "overall-1", text: "HTML overall feedback", author: "qa", resolved: false});
     state.open_questions = [{id: "oq_001", text: "Question", answer: "HTML final answer", round_answer_baseline: null}];
     saveReviewState(state);
 
@@ -97,7 +96,6 @@ describe("testpoint-review request-optimize Human Input handoff", () => {
       "comment",
       "delete",
       "add",
-      "overall_feedback",
       "answer_question",
     ]);
     expect(event.units.at(-1)?.content).toContain("Answer: HTML final answer");

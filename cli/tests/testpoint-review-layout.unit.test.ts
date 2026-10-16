@@ -9,30 +9,32 @@ describe("test point review layout", () => {
         const html = testPointReviewHtml(state, "tok");
 
         expect(html).toMatch(
-            /<section class="review-actions"[\s\S]*id="add-tp-toggle"[\s\S]*id="optimize-btn"[\s\S]*id="save-cawplan-btn"[\s\S]*<\/section>/,
+            /<section class="review-actions questions-footer tp-footer"[\s\S]*id="add-tp-toggle"[\s\S]*id="optimize-btn"[\s\S]*id="save-cawplan-btn"[\s\S]*<\/section>/,
         );
     });
 
-    test("puts Ask AI and Save feedback below the action bar", () => {
+    test("puts Submit to AI and Save feedback inside the footer", () => {
         const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
 
         const html = testPointReviewHtml(state, "tok");
 
         expect(html).toMatch(
-            /<\/section>\s*<div class="action-notices"[\s\S]*id="optimize-hint"[\s\S]*id="save-cawplan-hint"[\s\S]*<\/div>/,
+            /class="review-actions questions-footer tp-footer"[\s\S]*<div class="action-notices"[\s\S]*id="optimize-hint"[\s\S]*id="save-cawplan-hint"[\s\S]*<\/div>\s*<\/section>/,
         );
         expect(html).toContain("background: var(--amber-soft)");
         expect(html).toContain("width: fit-content");
         expect(html).toContain("align-items: flex-end");
     });
 
-    test("uses a compact overall-feedback panel with its guidance in a tooltip", () => {
+    test("renders no filter bar and no filter script hooks", () => {
         const state = createFixtureReviewState({productId: "prod_1", requirementId: "req_1"});
 
         const html = testPointReviewHtml(state, "tok");
 
-        expect(html).toContain('title="Feedback not tied to a specific test point; the AI uses it when optimizing."');
-        expect(html).not.toContain("General feedback not tied to a specific test point");
+        expect(html).not.toContain("filter-bar");
+        expect(html).not.toContain("filter-btn");
+        expect(html).not.toContain("applyFilterToRow");
+        expect(html).not.toContain("filtered-out");
     });
 
     test("uses a MEDIUM-priority selector when adding a test point", () => {
@@ -74,7 +76,7 @@ describe("test point review layout", () => {
         const html = testPointReviewHtml(state, "tok");
 
         expect(html).toContain(
-            "Optimization requested. This review is locked while AI is working. If Chat does not respond, send “Continue optimization” in Chat.",
+            "If Chat does not respond, send “Continue optimization” in Chat.",
         );
         expect(html).toContain("No changes to optimize. Make a change first.");
     });
@@ -84,7 +86,7 @@ describe("test point review layout", () => {
 
         const html = testPointReviewHtml(state, "tok");
 
-        expect(html).toContain("Comments, Overall Feedback, or answered Questions must be processed by Ask AI before saving.");
+        expect(html).toContain("Click “Submit to AI” to process comments before saving.");
         expect(html).not.toContain("Save anyway");
     });
 });

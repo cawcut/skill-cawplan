@@ -89,7 +89,6 @@ describe("dispatchTestPointReviewRequest optimize (whole-page lock, no real AI c
             ai_status: "none",
             comments: [],
         });
-        state.global_comments.push({id: "overall-1", text: "HTML overall feedback", author: "qa", resolved: false});
         state.open_questions = [{id: "oq_001", text: "Question", answer: "HTML final answer", round_answer_baseline: null}];
 
         const result = await dispatchTestPointReviewRequest(
@@ -109,7 +108,6 @@ describe("dispatchTestPointReviewRequest optimize (whole-page lock, no real AI c
             "comment",
             "delete",
             "add",
-            "overall_feedback",
             "answer_question",
         ]);
     });
@@ -221,33 +219,14 @@ describe("dispatchTestPointReviewRequest optimize (whole-page lock, no real AI c
         expect(state.test_points.find((tp) => tp.id === "tp_001")!.comments).toHaveLength(1);
     });
 
-    test("locked review rejects global comment add/delete and adding new test points with 409", async () => {
+    test("locked review rejects adding new test points with 409", async () => {
         await dispatchTestPointReviewRequest(
-            req("POST", "/api/global-comments"),
-            JSON.stringify({text: "全局反馈"}),
+            req("POST", "/api/test-points/tp_001/comments"),
+            JSON.stringify({text: "需要 AI 处理"}),
             TOKEN,
             {reviewState: state},
         );
         await dispatchTestPointReviewRequest(req("POST", "/api/optimize"), "{}", TOKEN, {reviewState: state});
-
-        const globalCommentId = state.global_comments[0].id;
-
-        const addGlobal = await dispatchTestPointReviewRequest(
-            req("POST", "/api/global-comments"),
-            JSON.stringify({text: "锁定期间不该成功"}),
-            TOKEN,
-            {reviewState: state},
-        );
-        expect(addGlobal.status).toBe(409);
-
-        const deleteGlobal = await dispatchTestPointReviewRequest(
-            req("DELETE", `/api/global-comments/${globalCommentId}`),
-            "",
-            TOKEN,
-            {reviewState: state},
-        );
-        expect(deleteGlobal.status).toBe(409);
-        expect(state.global_comments).toHaveLength(1);
 
         const addTestPoint = await dispatchTestPointReviewRequest(
             req("POST", "/api/test-points"),

@@ -52,19 +52,17 @@ describe("TestPoint Review Human Input projection and writer", () => {
       ai_status: "none",
       comments: [],
     });
-    state.global_comments.push({id: "overall-1", text: "整体反馈", author: "qa", resolved: false});
     state.open_questions = [{
       id: "oq_001", text: "并发时如何处理？", answer: "只允许第一个成功", round_answer_baseline: null,
     }];
 
     const units = projectTestPointReviewHumanInput(state, "optimize");
-    expect(units.map((entry) => entry.kind)).toEqual(["edit", "comment", "delete", "add", "overall_feedback", "answer_question"]);
+    expect(units.map((entry) => entry.kind)).toEqual(["edit", "comment", "delete", "add", "answer_question"]);
     expect(units[0].content).toMatch(/^\[Edit Test Point\]\nOriginal: \{.*\}\nUpdated: \{.*\}$/);
     expect(units[1].content).toMatch(/^\[Comment Test Point\]\nTest Point: \{.*\}\nComment: 补并发$/);
     expect(units[2].content).toMatch(/^\[Delete Test Point\]\nOriginal: \{.*\}$/);
     expect(units[3].content).toMatch(/^\[Add Test Point\]\nContent: \{.*\}$/);
-    expect(units[4].content).toBe("[Overall Feedback]\nContent: 整体反馈");
-    expect(units[5].content).toBe("[Answer Question]\nQuestion: 并发时如何处理？\nAnswer: 只允许第一个成功");
+    expect(units[4].content).toBe("[Answer Question]\nQuestion: 并发时如何处理？\nAnswer: 只允许第一个成功");
     expect(units.map((entry) => entry.content).join("\n")).not.toContain("tp_999");
     expect(units[3].content).toContain('"tags":["b","a"]');
     expect(projectTestPointReviewHumanInput(state, "save").map((entry) => entry.kind)).toEqual(["edit", "delete", "add", "answer_question"]);

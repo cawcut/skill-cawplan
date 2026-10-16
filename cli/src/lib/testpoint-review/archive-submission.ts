@@ -1,3 +1,4 @@
+import { reviewPhase } from "./review-phase.js";
 import type { ReviewState, TestPoint } from "./types.js";
 
 export type ArchiveSubmissionItem = {
@@ -35,28 +36,30 @@ export function toArchiveSubmissionItem(testPoint: TestPoint): ArchiveSubmission
 export type UnresolvedFeedbackCheck = {
   hasUnresolvedFeedback: boolean;
   commentedTestPointCount: number;
-  globalCommentCount: number;
   answeredQuestionCount: number;
+  /** The Review is still on the Questions page, so there are no test points to save yet. */
+  questionsPending: boolean;
 };
 
 /**
- * Design §4.2: submitting while comments/overall feedback/answered questions are still
+ * Design §4.2: submitting while comments/answered questions are still
  * unresolved must be rejected. A human input remains pending until an AI optimization round
  * consumes it; archived rows are no longer part of the Review, but comments on a deleted row
  * still need that AI pass. An unanswered question, a cleared answer, or an answer already used
- * as the current round baseline does not block submission.
+ * as the current round baseline does not block submission. While the Review is in the Questions
+ * phase nothing can be saved at all.
  */
 export function checkUnresolvedFeedback(reviewState: ReviewState): UnresolvedFeedbackCheck {
   const commentedTestPointCount = reviewState.test_points.filter((tp) => tp.archived !== true && tp.comments.length > 0).length;
-  const globalCommentCount = reviewState.global_comments.length;
   const answeredQuestionCount = (reviewState.open_questions ?? []).filter(
     (question) => Boolean(question.answer) && question.answer !== question.round_answer_baseline,
   ).length;
+  const questionsPending = reviewPhase(reviewState) === "questions";
   return {
-    hasUnresolvedFeedback: commentedTestPointCount > 0 || globalCommentCount > 0 || answeredQuestionCount > 0,
+    hasUnresolvedFeedback: commentedTestPointCount > 0 || answeredQuestionCount > 0 || questionsPending,
     commentedTestPointCount,
-    globalCommentCount,
     answeredQuestionCount,
+    questionsPending,
   };
 }
 

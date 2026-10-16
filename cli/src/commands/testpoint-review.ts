@@ -239,10 +239,13 @@ export function registerTestPointReviewCommand(program: Command): void {
         const state = loadReviewState(opts.reviewId);
 
         const feedback = checkUnresolvedFeedback(state);
+        if (feedback.questionsPending) {
+          throw new Error("Questions to Confirm are still open. Answer them and run Ask AI to Optimize before saving.");
+        }
         if (feedback.hasUnresolvedFeedback) {
           throw new Error(
-            `${feedback.commentedTestPointCount} test point(s) have unresolved comments and ` +
-              `${feedback.globalCommentCount} unresolved overall feedback item(s). Process them with Ask AI before saving.`,
+            `${feedback.commentedTestPointCount} test point(s) have unresolved comments. ` +
+              `Process them with Ask AI before saving.`,
           );
         }
 

@@ -182,21 +182,6 @@ describe("dispatchTestPointReviewRequest /api/save-to-cawplan (design §4/§4.1,
         expect(archiveTestPoints).not.toHaveBeenCalled();
     });
 
-    test("rejects with 409 when there is overall feedback not yet processed by AI", async () => {
-        state.global_comments.push({id: "c_g", text: "整体缺个场景", author: "qa", resolved: false});
-        const archiveTestPoints = vi.fn<ArchiveTestPointsFn>();
-
-        const result = await dispatchTestPointReviewRequest(
-            req("POST", "/api/save-to-cawplan"),
-            "{}",
-            TOKEN,
-            {reviewState: state, archiveTestPoints},
-        );
-
-        expect(result.status).toBe(409);
-        expect(archiveTestPoints).not.toHaveBeenCalled();
-    });
-
     test("rejects with 409 when a question answer has not yet been processed by AI", async () => {
         state.open_questions = [{id: "oq_001", text: "Which policy?", answer: "Use strict mode", round_answer_baseline: null}];
         const archiveTestPoints = vi.fn<ArchiveTestPointsFn>();

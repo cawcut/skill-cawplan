@@ -71,9 +71,10 @@ export type ReviewState = {
   next_seq: number;
   language?: "zh" | "en";
   optimize_requested_at?: string;
+  /** Last round whose Review-phase page the server rendered unlocked; drives change-tag accumulation. */
+  last_viewed_review_round?: number;
   updated_at: string;
   test_points: TestPoint[];
-  global_comments: TestPointComment[];
   /** Absent only on legacy Reviews created before Questions to Confirm support. */
   open_questions?: OpenQuestion[];
   next_question_seq?: number;

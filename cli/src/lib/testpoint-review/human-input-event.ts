@@ -5,7 +5,7 @@ import {join} from "node:path";
 import type {ReviewState, TestPointFields} from "./types.js";
 
 export type TestPointReviewHumanInputAction = "optimize" | "save";
-export type HumanInputUnitKind = "edit" | "delete" | "add" | "comment" | "overall_feedback" | "answer_question";
+export type HumanInputUnitKind = "edit" | "delete" | "add" | "comment" | "answer_question";
 
 export interface HumanInputEventUnit {
   unit_id: string;
@@ -152,18 +152,6 @@ export function projectTestPointReviewHumanInput(
     }
   }
 
-  if (action === "optimize") {
-    for (const comment of state.global_comments) {
-      if (comment.author !== "qa" || comment.resolved) continue;
-      units.push(unit(
-        state,
-        "overall_feedback",
-        comment.id,
-        {comment: comment.text},
-        `[Overall Feedback]\n${text.content}${text.separator}${comment.text}`,
-      ));
-    }
-  }
   for (const question of state.open_questions ?? []) {
     if (!question.answer || question.answer === question.round_answer_baseline) continue;
     units.push(unit(

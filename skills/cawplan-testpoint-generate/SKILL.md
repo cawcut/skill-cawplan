@@ -383,6 +383,10 @@ Step 5 产出最终测试点列表后，**在向 Chat 输出任何内容之前**
   > 需求「〔需求名〕」本轮新增 N 条测试点草稿，详情和编辑请打开 Review 页面：
   > Drafted N new test points for requirement "〔需求名〕" this round — open the Review page for details and editing:
 
+- **存在存疑时（页面先进入 Questions 阶段，见 `references/round-flow.md`）**：开场改用下列一句（`K` = `open_question_count`；逐字；**跟随会话语言**二选一，不同时输出），其后的链接与存疑清单不变：
+  > 需求「〔需求名〕」已生成 N 条测试点草稿，另有 K 条存疑需要先确认——请在 Review 页面回答或 Ignore 后点 Continue：
+  > Drafted N test points for requirement "〔需求名〕", with K open questions to settle first — answer or Ignore them on the Review page, then click Continue:
+
 紧接一行可点击链接（逐字，填入完整 `review_url`；**跟随会话语言**二选一，不同时输出）：
 > Review 页面：[点这里打开](<review_url>)
 > Review page: [Open it here](<review_url>)
@@ -397,9 +401,9 @@ SQA 发送「恢复 Review 页面」（或对应英文）时：使用当前 bind
 
 然后是**存疑清单**（§5）：从最新 Review State 的 `open_questions` 逐条读取完整文字并展示〔指向哪〕+〔为什么疑〕+〔建议动作〕；无覆盖勾选矩阵；若没有存疑，明确说明"没有存疑项"/"no open questions"。Chat 必须保留完整展示，HTML 失效时仍可查看；问题的唯一事实源是 Review State，不在 session 另存一份。
 
-Review 页面在 Overall Feedback 下方展示 **Questions to Confirm**：有存疑时默认收起，顶部只显示问题总数；展开后答案输入框始终可编辑，停止输入约 650ms 后无感自动保存，失焦时立即保存，不显示提交按钮或回答状态标签。超过 4 条时区域内部滚动；存疑为空时隐藏整个 Questions 区域。清空输入框会把答案持久化为 `null`；成功不提示，失败时保留输入并显示可重试错误。页面隐藏 / 离开时会尽可能提交最新输入；点击 Ask AI to Optimize 或 Save to CawPlan 前必须先成功 flush 未保存答案，否则阻止对应操作。答案随 Review State 持久化，恢复页面后仍在；未回答问题不阻止 Save。
+Review 页面分两阶段（详见 `references/round-flow.md`）：有未处理的存疑时先显示 **Questions 阶段**——只有问题卡片（回答或 Ignore，自动保存）与 Continue，不展示测试点、没有 Save；全部处理并经 AI 消费后进入 **Review 阶段**——测试点表格与 Ask AI / Save。问题与答案的唯一事实源是 Review State。
 
-**尾巴**（存疑清单之后，**仅首次呈现**逐字输出；修订轮改走 §8 的精简输出契约；**不做弹框**；**跟随会话语言**二选一，不同时输出）：
+**尾巴**（存疑清单之后，**仅首次呈现且页面处于 Review 阶段时**逐字输出；Questions 阶段不提 Save，改为一句引导“请在 Review 页面确认，也可以直接在这里回复。”；修订轮改走 §8 的精简输出契约；**不做弹框**；**跟随会话语言**二选一，不同时输出）：
 > 有修改意见可以直接在这里说，或者去 Review 页面编辑；确认没问题后，请在 Review 页面点击 Save to CawPlan 完成提交。
 > Tell me your changes here, or edit them directly on the Review page; once it looks good, click Save to CawPlan on the Review page to submit.
 
@@ -417,7 +421,7 @@ Review 页面在 Overall Feedback 下方展示 **Questions to Confirm**：有存
 
 **Chat 里任何形式的修订意见，统一走同一条路径**，不区分"回复存疑" / "自然语言整体修订"（如"补充超过上限的边界场景"）/ 看起来机械的单条操作（如"删除第 3 条"）——都视为针对当前 Review 的新一轮 AI 输入，不单独开一条"直连编辑、不占用 Round"的快速通道：
 
-无论由页面还是 Chat 触发 Optimize，共享锁定边界都会把当前 Round 已保存的 Edit / Add / Delete / Comment / Overall Feedback / HTML Answer Question 一起投影到既有 Human Input outbox。HTML 答案以 `[Answer Question]` 记录问题和当前最终非空答案；边界前无论自动保存多少次都只收集最后值，清空为 `null` 的答案不收集。Chat 原文继续只由 transcript 收集，不进入该 projector，也不与 HTML 答案做特殊去重。
+无论由页面还是 Chat 触发 Optimize，共享锁定边界都会把当前 Round 已保存的 Edit / Add / Delete / Comment / HTML Answer Question 一起投影到既有 Human Input outbox。HTML 答案以 `[Answer Question]` 记录问题和当前最终非空答案；边界前无论自动保存多少次都只收集最后值，清空为 `null` 的答案不收集。Chat 原文继续只由 transcript 收集，不进入该 projector，也不与 HTML 答案做特殊去重。
 
 1. 调用 `cawplan qa-insights testpoint-review request-optimize --review-id <id>` 锁定当前 Review（效果等价于页面点击 "Ask AI to Optimize"：整页锁定、`review_status` 变 `pending_optimize`，但不需要页面已打开）。
 2. 读取最新 Review State（页面编辑、删除、新增和评论均以此为准）：
@@ -426,7 +430,7 @@ Review 页面在 Overall Feedback 下方展示 **Questions to Confirm**：有存
    cawplan qa-insights testpoint-review show --review-id <id>
    ```
 
-   用输出的完整 State（尤其是 `test_points[].current`、`status`、`comments`、`global_comments`、`open_questions` 及其 HTML 答案和 `requirement`）作为本轮 AI 推理的唯一页面输入，不得只使用 Chat 里旧的测试点或存疑内容。
+   用输出的完整 State（尤其是 `test_points[].current`、`status`、`comments`、`open_questions` 及其 HTML 答案和 `requirement`）作为本轮 AI 推理的唯一页面输入，不得只使用 Chat 里旧的测试点或存疑内容。
 3. 把「最新 Review State + 本轮 Chat 输入」交给 AI 推理，产出下一 Round 的修改/新增及完整活动存疑集合。Chat 中对存疑的回答只是本轮自然语言输入，不写入或覆盖 Review State 的 HTML 答案；如与 HTML 答案冲突，由 AI 在本轮统一理解，不做 CLI 冲突检测或跨入口去重。写入 `apply-optimization` 前，输出 JSON **必须**是以下形状（每条 `modified` 与 `added` 都须提供完整的 `title` / `group` / `tags` / `priority`）：
 
    ```json
@@ -457,7 +461,7 @@ Review 页面在 Overall Feedback 下方展示 **Questions to Confirm**：有存
    }
    ```
 
-   `Review State` 中的 `current` 只是现状快照，**不是** `modified` 的输出字段；也不能把 `title` / `group` / `tags` / `priority` 平铺在 `modified` 条目上，必须放进 `fields`。`questions` 完整决定下一 Round：`retained_ids` 保留既有问题及 HTML 答案，未列出的移除，`added` 创建无答案的新问题；不再另做“是否真正解决”的判断。
+   `Review State` 中的 `current` 只是现状快照，**不是** `modified` 的输出字段；也不能把 `title` / `group` / `tags` / `priority` 平铺在 `modified` 条目上，必须放进 `fields`。**Questions 阶段点 Continue 触发的是「答案驱动轮」**：`retained_ids` 只留仍未回答的问题，已回答 / Ignore 的不得换措辞重复提出；尽量不改 SQA 已编辑的点、尽量合并提问避免连续多轮 Questions；本轮若不再提新问题，先按 `references/review-checklist.md` 复查整体覆盖（细则见 `references/round-flow.md` §3）。`questions` 完整决定下一 Round：`retained_ids` 保留既有问题及 HTML 答案，未列出的移除，`added` 创建无答案的新问题；不再另做“是否真正解决”的判断。
 4. 调用 `apply-optimization` 落盘，命令必须使用 `--output-file`：
 
    ```bash
@@ -476,7 +480,7 @@ Review 页面在 Overall Feedback 下方展示 **Questions to Confirm**：有存
 
 1. **最新 Review 链接**：每轮必须给一次、且只给一次可点击的 `review_url`。不得只给命令或 `review_id`；无需再写 Round 编号或“Round 已更新”等页面已有信息。
 2. **完整剩余存疑清单**：逐条输出 `open_questions` 的完整内容；不得只说“还剩 N 条”，不得只列主题/轴名。没有存疑时明确说明没有剩余存疑。
-3. **简短引导**：只表达“有修改可继续在 Chat 说或去页面编辑；没问题就在页面 Save to CawPlan”。文案可自然调整，不写死，不再重复链接、Round、测试点数量或存疑数量。
+3. **简短引导**：下一页是 Review 阶段 → 只表达“有修改可继续在 Chat 说或去页面编辑；没问题就在页面 Save to CawPlan”；仍是 Questions 阶段（`open_questions` 有 baseline 为空）→ 改为“在页面回答或 Ignore 后点 Continue”，**不提 Save**。文案可自然调整，不写死，不再重复链接、Round、测试点数量或存疑数量。
 
 **禁止额外成功摘要**：不要复述或改写 `apply-optimization` 的成功输出；不要输出“应用了 N 条”“当前共 N 条”“round N”“0 skipped”，也不要在 Chat 重列本轮新增/修改的测试点——详情由 Review 页面承载。校验失败不会产生新的 Review 结果，须按上方原子操作规则修正同一份 JSON 后重试；成功结果的 `skipped_count` 必为 `0`，保持静默。
 
@@ -513,9 +517,7 @@ Review 页面：[打开最新版本](<review_url>)
 
 这样确保 archived 状态、排除 deleted、未处理反馈拦截、重复提交保护等逻辑始终只有一套（页面侧 `/api/save-to-cawplan`），不产生 Chat / 页面两条归档路径。
 
-**保存前置条件**：若页面仍有任一测试点 Comment、Overall Feedback，或本 Round 新增/修改的非空 Questions to Confirm 答案，且尚未被一次成功的 Ask AI 优化消费，Save to CawPlan 必须拒绝提交并提示先 Ask AI；没有确认弹窗或强制提交入口。仅 Edit / Delete / Add（没有上述未处理人工输入）可以直接按当前页面状态保存。
-
-页面点击 Save 时会先 flush 尚未保存的 Questions 答案，再执行上述前置校验。未回答问题、清空为 `null` 的答案，以及已被上一轮 AI 消费并成为当前 `round_answer_baseline` 的答案不阻塞 Save；非空且不同于 baseline 的答案必须先 Ask AI。被拦截的 Save 不触发 Human Input 收集；成功 Optimize 时，HTML 中本 Round 最终非空且相对 baseline 有变化的答案由既有 Human Input projector/outbox 收集，清空为 `null` 的答案跳过 Human Input。
+**保存前置条件**：Questions 阶段没有 Save 入口（服务端同样拒绝）；Review 阶段若仍有未被 Ask AI 消费的测试点 Comment，Save 同样被拒并提示先 Ask AI，没有强制入口；被拦截的 Save 不触发 Human Input 收集。仅 Edit / Delete / Add 可直接保存。详见 `references/round-flow.md` §5。
 
 **成功回执自动触发，不需要 SQA 回报**：SQA 在页面点击 Save to CawPlan 成功后，页面会关闭本地 Server；Agent 刚才那条挂起的 `open` 调用随之结束。按 §7.1 从任务 output file 确认事件为 `save_completed` 后，读取一次最终 Review State，取得本轮新增的 `archived: true` 条目数，**自动**在 Chat 输出成功回执（§9.5 格式，逐字文案与追加条件均保留不变）；禁止输出“正在优化”、调用 `request-optimize` 或进入 §8，也不需要 SQA 再回 Chat 说一遍"保存好了"。
 
@@ -642,6 +644,7 @@ Authoritative rules live in **Workflow**; this section is navigation only. On co
 | **Review 创建 + Chat 呈现** — 不铺表格，摘要 + 存疑清单 + 每轮可点击页面链接 | §7 |
 | **Draft totals** — N/M 只来自 `testpoint-review start` 返回值，不自行数行 | §7.2 |
 | **修订（Chat 或页面）** — 统一走 Review State，锁定 → AI → 下一 Round；Chat 只出链接 + 完整剩余存疑 + 简短引导 | §8 |
+| **两阶段 Round（Questions / Review）** — 阶段由 Review State 决定；答案驱动轮规则 | `references/round-flow.md`；§7.2 / §8 |
 | **Archive / confirm / receipt** | §9（页面触发、Chat 只报结果）; UNKNOWN reconcile 页面侧处理 → §10 |
 | **Batch-internal dedup** | §5 Step 4（跨 Round 的 `id` 唯一性由 Review State 的 `next_seq` 保证，不在 Chat session state 里维护） |
 | **API** | 生成期读 → `cawplan qa-insights requirements resolve|get` + `testpoints list`（§1–§2）；Review 相关 → `cawplan qa-insights testpoint-review *`（§7.1/§8/§9）；`references/CAWPLAN_OPEN_API.md` §15 |
@@ -659,3 +662,4 @@ Authoritative rules live in **Workflow**; this section is navigation only. On co
 - `references/CAWPLAN_OPEN_API.md`
 - `references/coverage-dimensions.md`
 - `references/review-checklist.md`
+- `references/round-flow.md` — 两阶段页面、答案驱动轮、标签累积、Save 前置条件
