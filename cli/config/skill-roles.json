@@ -2,6 +2,7 @@
   "comment": "Role -> skill mapping for `cawplan skill update`. Roles come from product members (GET /api/v1/public/openapi/products -> members.<members_key>). A user gets the union of every matched role. `common` is added to every role unless include_common is false. `all: true` means every skill listed by any role. `optional` skills are never installed by role and never pruned. Validated by scripts/validate-skills.sh.",
   "common": [
     "cawplan-ticket-context",
+    "cawplan-ticket-attachments",
     "cawplan-my-work",
     "cawplan-ticket-create",
     "cawplan-knowledge"

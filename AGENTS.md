@@ -26,6 +26,7 @@ flow-cawplan-skill/
 │   ├── cawplan-plan-track/
 │   ├── cawplan-coding-commit/
 │   ├── cawplan-ticket-context/
+│   ├── cawplan-ticket-attachments/
 │   ├── cawplan-coding-insights/
 │   ├── cawplan-my-work/
 │   └── cawplan-ux-tracking/

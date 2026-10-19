@@ -147,6 +147,25 @@
     - `cawplan backlog attachments list|download <product_id> <ticket_id> …` for backlog tickets.
     - `<ticket_id>` accepts a display ID (e.g. `CAWP-123`), resolved via `tickets search` like the other ticket commands.
 
+### Upload / Add Ticket Attachments
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/attachments/upload-url`
+- Body: `{ filename, content_length, expires_in? }` — `content_length` (bytes, required) is checked against the workspace plan upload limit; the extension must be on the attachments allowlist (images, video, audio, PDF/office, text/logs/HAR, archives, …; no executables/SVG/JS).
+- Response: `data = { key, upload_url, url, filename, type, expires_at }`.
+    - `upload_url` is an S3 presigned PUT (default 900s, clamped to 60–3600). Send the raw bytes with `Content-Length` and **no** `Authorization` header.
+    - `url` is the permanent CloudFront URL to embed in ticket HTML; `key` is `attachments/<workspace_id>/<YYYY>/<MM>/<uuid><ext>`, same layout as editor uploads. Validation failures come back as HTTP 200 with a non-`SUCCESS` code.
+    - The file only belongs to the ticket once its `url` is saved into a rich-text field (`remarks` / `comment` / `progress_comment` / …) with Update Version Ticket; after that it shows in the web editor and in List Ticket Attachments.
+    - RBAC: ticket **edit** on that ticket (CLI allowlist), and the ticket must exist in `version_id`. Version tickets only.
+- Maps to cawplan CLI:
+    - `cawplan tickets attachments upload <product_id> <version_id> <ticket_id> --file <path> [--file …] [--concurrency 4]` — JSON `{ ticket_id, uploaded[{path, filename, type, bytes, key, url, html}], failed[{path, filename, error}] }`; `html` is the editor-shaped snippet (`<img>`, `div[data-type=video-attachment]`, `span[data-type=pdf-attachment|zip-attachment]`). Exits 1 if any upload failed.
+    - `cawplan tickets attachments add <product_id> <version_id> <ticket_id> (--file <path>... | --dir <path> | --md-file <path> | --html-file <path>) [--note <markdown>] [--field progress_comment|comment|remarks] [--mode append|replace] [--block-id ID] [--base-dir DIR] [--html-out PATH] [--dry-run]` — builds the content from exactly one source, uploads every local file it references (each path once), rewrites the references to editor attachments, reads the ticket for its current field value and `version`, and PUTs the merged field with that `version` (409 → re-read and retry, up to 3 attempts).
+        - `--file` (repeatable): plain files embedded in the given order; a directory is rejected (use `--dir`).
+        - `--dir`: no document needed. Optional `README.md` / `index.md` / `summary.md` at the root is the intro; each subdirectory becomes a section titled by its name with its `*.md` notes (`README.md` / `notes.md` first) followed by its other files (recursive, natural name order) that the notes did not already reference; loose root files are listed at the end, under "Attachments" when there is an intro or sections. Hidden files and `.DS_Store` are skipped; references in a section's notes resolve relative to that section directory.
+        - `--md-file`: Markdown rendered to HTML (`![](shots/a.png)`, `[rec](rec/a.mp4)`, `![](<path with spaces.png>)`, raw HTML allowed).
+        - `--html-file`: `<img src>`, `<a href>`, `<video src>` / `<source src>` and `data-src` references (URLs, `#anchors` and `data:` left alone); only `<body>` is kept, `<script>`/`<style>` dropped.
+        - `--note`: Markdown placed before the content.
+        - `append` (default) wraps the content in `<!-- cawplan-report:ID -->…<!-- /cawplan-report:ID -->` and replaces an existing block with the same ID in place; `replace` overwrites the field. Default ID: the `--dir` / `--md-file` / `--html-file` name (re-running syncs that block), or `attach-YYYYMMDD-HHmmss` for `--file` (each run appends). Missing files or any failed upload abort before the ticket is touched (uploaded objects are left unreferenced). JSON summary: `{ ticket_id, display_id, source, field, mode, block_id, dry_run, version, html_bytes, html_out, files[], uploaded[], failed[], missing[] }`; exits 1 on `missing[]` / `failed[]`.
+    - Skill: `cawplan-ticket-attachments` (list / download / upload / add).
+
 ### Poll Tickets (daemon-friendly, no time window)
 - Endpoint: `POST /api/v1/public/openapi/tickets/poll`
 - Body: `status[]` (**required**), `product_ids[]?`, `product_line_ids[]?`, `since_updated_at?` (epoch seconds — only return tickets with `updated_at >` this), `page_num?`, `page_size?` (max 200)

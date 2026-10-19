@@ -1,3 +1,4 @@
+import path from "node:path";
 import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
 import { getCache, setCache, buildScopedCacheKey, buildQueryFromFlags, csvToArray } from "../lib/cache.js";
@@ -15,6 +16,10 @@ import {
   unwrapTicketAttachmentList,
   type TicketAttachmentScope,
 } from "../lib/ticket-attachments.js";
+import { uploadTicketAttachmentFiles } from "../lib/ticket-attachment-upload.js";
+import { REPORT_FIELDS, REPORT_MODES, type ReportField, type ReportMode } from "../lib/ticket-html-report.js";
+import { addTicketAttachments } from "../lib/ticket-attachment-add.js";
+import type { ContentSource } from "../lib/ticket-attachment-source.js";
 
 export interface GetVersionTicketOptions {
   /** CSV sparse fieldset; omit for full enrich (labels, children, relations, …). */
@@ -61,7 +66,10 @@ function registerAttachmentsCommands(parent: Command, opts: { backlog: boolean }
 
   const attachments = parent
     .command("attachments")
-    .description("List or download files attached to a ticket (description, remarks, comment, ...)");
+    .description(
+      "List, download, upload or add files attached to a ticket (description, remarks, comment, ...). " +
+        "upload/add are version tickets only.",
+    );
 
   attachments
     .command(`list ${args}`)
@@ -125,6 +133,142 @@ function registerAttachmentsCommands(parent: Command, opts: { backlog: boolean }
       console.log(JSON.stringify(summary, null, 2));
       if (summary.failed.length > 0) process.exit(1);
     });
+
+  // Uploads need ticket-edit access and a ticket update to embed the file;
+  // the Open API only offers that for version tickets.
+  if (opts.backlog) return;
+
+  attachments
+    .command(`upload ${args}`)
+    .description(
+      "Upload local files to a ticket's attachment storage and print each file's URL and editor HTML snippet. " +
+        "Nothing is written to the ticket: the files only show there once that HTML is saved into a field " +
+        "(use 'attachments add' to do both in one step).",
+    )
+    .requiredOption("--file <path>", "Local file to upload (repeatable)", collectRepeated, [])
+    .option("--concurrency <n>", "Parallel uploads", "4")
+    .action(async (...actionArgs: unknown[]) => {
+      const positional = actionArgs.slice(0, positionalCount) as string[];
+      const cmdOpts = actionArgs[positionalCount] as { file: string[]; concurrency: string };
+      const [productId, versionId, ticketId] = positional as [string, string, string];
+      const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
+      const result = await uploadTicketAttachmentFiles(
+        { productId, versionId, ticketId: uniqueTicketId },
+        cmdOpts.file.map((f) => ({ path: path.resolve(f) })),
+        { concurrency: parsePositiveInt(cmdOpts.concurrency, "--concurrency"), onProgress: (msg) => console.error(msg) },
+      );
+      console.log(JSON.stringify({ ticket_id: uniqueTicketId, ...result }, null, 2));
+      if (result.failed.length > 0) process.exit(1);
+    });
+
+  attachments
+    .command(`add ${args}`)
+    .description(
+      "Add local files to a ticket in one update: upload them, embed them as editor attachments " +
+        "(image / video / PDF / file) and save the result into --field. Give exactly one content source: " +
+        "--file (repeatable), --dir, --md-file or --html-file; --note adds Markdown text before it. " +
+        "Nothing is written to the ticket if a file is missing or an upload fails.",
+    )
+    .option("--file <path>", "Local file to add (repeatable; embedded in the given order)", collectRepeated, [])
+    .option(
+      "--dir <path>",
+      "Directory: optional README.md/index.md/summary.md intro, one section per subdirectory " +
+        "(its *.md notes, then its other files in name order), loose root files listed at the end",
+    )
+    .option("--md-file <path>", "Markdown document (![](shots/a.png), [rec](rec/a.mp4)); references resolve relative to its directory")
+    .option("--html-file <path>", "HTML document; local <img src>/<a href>/<video src>/data-src references resolve relative to its directory")
+    .option("--note <markdown>", "Markdown text shown before the files (local references resolve against the current directory)")
+    .option("--field <field>", `Ticket field to write: ${REPORT_FIELDS.join("|")}`, "progress_comment")
+    .option(
+      "--mode <mode>",
+      "append: add a block (replacing an earlier block with the same --block-id); replace: overwrite the whole field",
+      "append",
+    )
+    .option(
+      "--block-id <id>",
+      "Block id; re-adding with the same id replaces that block " +
+        "(default: --dir/--md-file/--html-file name, so re-running syncs it; --file: attach-<timestamp>, so each run appends)",
+    )
+    .option("--base-dir <dir>", "Directory to resolve references against for --md-file/--html-file (default: the file's directory)")
+    .option("--concurrency <n>", "Parallel uploads", "4")
+    .option("--html-out <path>", "Also write the final HTML to this local file")
+    .option("--dry-run", "Only list the files and missing references; upload nothing and do not update the ticket")
+    .action(async (...actionArgs: unknown[]) => {
+      const positional = actionArgs.slice(0, positionalCount) as string[];
+      const cmdOpts = actionArgs[positionalCount] as {
+        file: string[];
+        dir?: string;
+        mdFile?: string;
+        htmlFile?: string;
+        note?: string;
+        field: string;
+        mode: string;
+        blockId?: string;
+        baseDir?: string;
+        concurrency: string;
+        htmlOut?: string;
+        dryRun?: boolean;
+      };
+      const [productId, versionId, ticketId] = positional as [string, string, string];
+
+      if (!(REPORT_FIELDS as readonly string[]).includes(cmdOpts.field)) {
+        console.error(`Error: --field must be one of ${REPORT_FIELDS.join(", ")}`);
+        process.exit(1);
+      }
+      if (!(REPORT_MODES as readonly string[]).includes(cmdOpts.mode)) {
+        console.error(`Error: --mode must be one of ${REPORT_MODES.join(", ")}`);
+        process.exit(1);
+      }
+      const sources: ContentSource[] = [
+        ...(cmdOpts.file.length > 0 ? [{ kind: "files" as const, paths: cmdOpts.file }] : []),
+        ...(cmdOpts.dir ? [{ kind: "dir" as const, path: cmdOpts.dir }] : []),
+        ...(cmdOpts.mdFile ? [{ kind: "md" as const, path: cmdOpts.mdFile }] : []),
+        ...(cmdOpts.htmlFile ? [{ kind: "html" as const, path: cmdOpts.htmlFile }] : []),
+      ];
+      if (sources.length !== 1) {
+        console.error("Error: give exactly one of --file, --dir, --md-file or --html-file");
+        process.exit(1);
+      }
+      if (cmdOpts.baseDir && !cmdOpts.mdFile && !cmdOpts.htmlFile) {
+        console.error("Error: --base-dir only applies to --md-file/--html-file");
+        process.exit(1);
+      }
+
+      const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
+      const summary = await addTicketAttachments(
+        { productId, versionId, ticketId: uniqueTicketId },
+        {
+          source: sources[0]!,
+          note: cmdOpts.note,
+          field: cmdOpts.field as ReportField,
+          mode: cmdOpts.mode as ReportMode,
+          blockId: cmdOpts.blockId,
+          baseDir: cmdOpts.baseDir,
+          htmlOut: cmdOpts.htmlOut,
+          dryRun: Boolean(cmdOpts.dryRun),
+          concurrency: parsePositiveInt(cmdOpts.concurrency, "--concurrency"),
+          onProgress: (msg) => console.error(msg),
+        },
+      );
+      console.log(JSON.stringify(summary, null, 2));
+      if (summary.missing.length > 0) {
+        console.error(`Error: ${summary.missing.length} local file(s) not found: ${summary.missing.map((m) => m.ref).join(", ")}`);
+        process.exit(1);
+      }
+      if (summary.failed.length > 0) {
+        console.error(`Error: ${summary.failed.length} upload(s) failed; the ticket was not updated`);
+        process.exit(1);
+      }
+    });
+}
+
+function parsePositiveInt(value: string, flag: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) {
+    console.error(`Error: ${flag} must be a positive integer`);
+    process.exit(1);
+  }
+  return n;
 }
 
 export function registerTicketsCommand(program: Command): void {

@@ -133,3 +133,16 @@ Product-scoped views require product-repo mappings created during the coding rep
 /cawplan-coding-insights show prompts that need review from last week
 /cawplan-coding-insights search for prompts about "door schedule" from the last month
 ```
+
+## 9. cawplan-ticket-attachments
+
+List or download a ticket's attachments, or put local files on a ticket in one update — single files, a whole folder, or a Markdown/HTML write-up that references local files.
+
+```text
+/cawplan-ticket-attachments download the screenshots on CWP-14471
+/cawplan-ticket-attachments add ./crash.log and ./screen.mov to CWP-14471, note: crash on login after upgrade
+/cawplan-ticket-attachments add the test results, screenshots and recordings in ./qa-results to CWP-14471
+```
+
+The agent runs `cawplan tickets attachments add … --dry-run` first (`--file` / `--dir` / `--md-file` / `--html-file`), confirms the file list with you, then adds them: every file is uploaded and embedded as an editor attachment in `progress_comment` (or `--field comment|remarks`). Re-adding the same folder or document replaces its earlier block; `--file` adds a new block each time.
+

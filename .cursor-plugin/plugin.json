@@ -49,6 +49,10 @@
       "path": "skills/cawplan-ticket-context"
     },
     {
+      "name": "cawplan-ticket-attachments",
+      "path": "skills/cawplan-ticket-attachments"
+    },
+    {
       "name": "cawplan-coding-insights",
       "path": "skills/cawplan-coding-insights"
     },

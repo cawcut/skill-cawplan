@@ -129,6 +129,7 @@ SKILLS=(
   cawplan-plan-create
   cawplan-plan-track
   cawplan-ticket-context
+  cawplan-ticket-attachments
   cawplan-coding-commit
   cawplan-coding-insights
   cawplan-requirement-analyze
