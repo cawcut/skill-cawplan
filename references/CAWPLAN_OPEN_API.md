@@ -168,6 +168,7 @@
     - The web page description body is stored as `remarks`; set it with CLI `--remarks "<html>"`.
     - **`priority` and `status` are optional and defaulted server-side**: when omitted (or empty) the backend stores `priority = MEDIUM` and `status =` the product line's configured default status (or its first active status). An adapter that only carries a "todo" intent (Clawcode/Linear `createIssue`) can leave both unset and still get a well-formed ticket — no empty-string fields are persisted. A provided `status` is still validated against the product line.
     - When `parent_id` is set the new ticket becomes a sub-issue. Sub-issues must share the same `product_line` as the parent and the parent chain depth is capped at 5.
+    - CLI `--parent_id` accepts a unique ID or a display ID (e.g. `CWP-14556`); display IDs are resolved via Search Tickets before the create call.
     - Activity is recorded with actor resolved from product owner / PM / first assignee (or `public-api-user` fallback).
 - Maps to cawplan CLI: `cawplan tickets create`.
 

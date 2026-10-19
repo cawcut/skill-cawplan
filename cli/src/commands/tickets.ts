@@ -357,7 +357,7 @@ export function registerTicketsCommand(program: Command): void {
     .option("--status <key>", "Status key")
     .option("--assignees <csv>", "Assignee IDs (CSV)")
     .option("--assignee <csv>", "Assignee emails (CSV) — resolved to IDs automatically")
-    .option("--parent_id <id>", "Parent ticket ID")
+    .option("--parent_id <id>", "Parent ticket unique ID or display ID (e.g. CWP-14556) — creates a sub-ticket")
     .option("--label_ids <csv>", "Label IDs (CSV)")
     .option("--reporter_id <id>", "Reporter user ID")
     .option("--reporter <email>", "Reporter email — resolved to user ID automatically")
@@ -382,13 +382,14 @@ export function registerTicketsCommand(program: Command): void {
         opts.reporter ? resolveUserIds([opts.reporter]).then((ids) => ids[0]) : Promise.resolve(opts.reporter_id as string | undefined),
       ]);
       const versionId = await resolveVersionId(productId, rawVersion);
+      const parentId = opts.parent_id ? await resolveTicketIdArg(opts.parent_id) : undefined;
 
       const body: Record<string, unknown> = { description: opts.description };
       if (opts.remarks !== undefined) body.remarks = opts.remarks;
       if (opts.type) body.type = opts.type;
       if (opts.priority) body.priority = opts.priority;
       if (opts.status) body.status = opts.status;
-      if (opts.parent_id) body.parent_id = opts.parent_id;
+      if (parentId) body.parent_id = parentId;
       if (reporterId) body.reporter_id = reporterId;
       if (opts.due_date) body.due_date = opts.due_date;
       if (opts.comment) body.comment = opts.comment;
@@ -424,7 +425,7 @@ export function registerTicketsCommand(program: Command): void {
     .option("--status <key>", "Status key")
     .option("--assignees <csv>", "Assignee IDs (CSV)")
     .option("--assignee <csv>", "Assignee emails (CSV) — resolved to IDs automatically")
-    .option("--parent_id <id>", "Parent ticket ID")
+    .option("--parent_id <id>", "Parent ticket unique ID or display ID (e.g. CWP-14556) — creates a sub-ticket")
     .option("--label_ids <csv>", "Label IDs (CSV)")
     .option("--reporter_id <id>", "Reporter user ID")
     .option("--reporter <email>", "Reporter email — resolved to user ID automatically")
@@ -441,13 +442,14 @@ export function registerTicketsCommand(program: Command): void {
         resolveProductId(rawProduct),
         opts.reporter ? resolveUserIds([opts.reporter]).then((ids) => ids[0]) : Promise.resolve(opts.reporter_id as string | undefined),
       ]);
+      const parentId = opts.parent_id ? await resolveTicketIdArg(opts.parent_id) : undefined;
 
       const body: Record<string, unknown> = { description: opts.description };
       if (opts.remarks !== undefined) body.remarks = opts.remarks;
       if (opts.type) body.type = opts.type;
       if (opts.priority) body.priority = opts.priority;
       if (opts.status) body.status = opts.status;
-      if (opts.parent_id) body.parent_id = opts.parent_id;
+      if (parentId) body.parent_id = parentId;
       if (reporterId) body.reporter_id = reporterId;
       if (opts.due_date) body.due_date = opts.due_date;
       if (opts.comment) body.comment = opts.comment;

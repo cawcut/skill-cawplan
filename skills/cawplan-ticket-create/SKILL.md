@@ -2,10 +2,10 @@
 version: 0.2.10
 name: cawplan-ticket-create
 description: |
-  Create one or more CawPlan tickets: from an explicit request, or by extracting action items/work items out of pasted long-form text such as a PRD, a Slack discussion, or a meeting transcript (version-scoped by default, or backlog only after user confirmation). Also handles splitting a PRD's platforms (FE/BE/iOS/Android/QA) across different products under one Team, when the destination is a Team rather than a single product.
-  Use when: the user asks to create, file, or add a ticket, issue, bug, or task in CawPlan; or pastes a PRD/requirement doc, Slack conversation, or meeting transcript/notes and asks to turn it into tickets, extract action items, or split work into FE/BE/iOS/Android/QA tickets — including when those platforms belong to different products under the same Team.
+  Create one or more CawPlan tickets: from an explicit request, or by extracting action items/work items out of pasted long-form text such as a PRD, a Slack discussion, or a meeting transcript (version-scoped by default, or backlog only after user confirmation). Also routes a PRD's platforms (FE/BE/iOS/Android/QA) to different products under one Team, and splits work into sub-tickets under a parent ticket.
+  Use when: the user asks to create or file a ticket, issue, bug, or task in CawPlan; asks to split a ticket into sub-tickets; or pastes a PRD/requirement doc, Slack conversation, or meeting transcript/notes and asks to turn it into tickets, extract action items, or split work into FE/BE/iOS/Android/QA tickets — including when those platforms belong to different products under the same Team.
   NOT for: updating existing tickets, searching tickets, critical issues, release planning, or SQA requirement analysis and archiving (use `cawplan-requirement-analyze`).
-argument-hint: "[product, version, ticket title(s), HTML description body, type, priority, assignee — OR pasted PRD/meeting transcript/Slack text to extract tickets from]"
+argument-hint: "[product, version, ticket title(s), HTML description body, type, priority, assignee — OR a parent ticket to split into sub-tickets — OR pasted PRD/meeting transcript/Slack text to extract tickets from]"
 allowed-tools: Bash
 ---
 
@@ -25,8 +25,9 @@ Pick a flow before doing anything else:
 |---|---|
 | An explicit, single ticket ask ("create a ticket for X", "file a bug about Y") | **A — Single ticket** |
 | A pasted PRD, requirement doc, Slack thread, or meeting transcript/notes — with or without an explicit "turn this into tickets" ask | **B — Extract from text** |
+| "Split / break down X into sub-tickets", "拆分 sub-tickets", or any ask to create tickets *under* a parent ticket (an existing CawPlan ticket, or one to create first) | **C — Split into sub-tickets** |
 
-If the message mixes both (an explicit ask plus a wall of pasted context), treat it as **B** and let extraction produce a single ticket if that's all the source supports.
+If the message mixes both (an explicit ask plus a wall of pasted context), treat it as **B** and let extraction produce a single ticket if that's all the source supports. If it also names a parent ticket, or asks for the extracted items as sub-tickets, run **B**'s extraction and then file the items through **C**.
 
 ## Workflow A — Single ticket
 
@@ -112,6 +113,32 @@ For PRDs, Slack threads, and meeting transcripts pasted directly into the conver
    - Team mode: add a **Product** column (and **Version**, if versions differ across the mapped products) so the user can verify the platform→product routing before anything is created — this is exactly the mapping most likely to be silently wrong, so don't collapse it out of the preview.
 5. On confirmation, create each ticket with the same `tickets create-version` / `tickets create-backlog` commands as Workflow A, looped one call per candidate — in Team mode, each call uses that specific candidate's mapped `--product`/`--ver`, not a single shared pair.
 
+## Workflow C — Split into sub-tickets
+
+A sub-ticket is a normal ticket created with `--parent_id <parent>`. `--parent_id` accepts the parent's unique ID or display ID (e.g. `CWP-14556`); the CLI resolves display IDs.
+
+1. **Resolve the parent.**
+   - Existing parent (URL, display ID, or unique ID): look it up and keep its `unique_id`, `display_id`, `product_id`, `version_id`, `description` (title) and `remarks` (body):
+     ```bash
+     cawplan tickets search --display_ids CWP-14556
+     ```
+     If nothing matches, say so and stop; do not guess another prefix.
+   - New parent: resolve product/version and create it exactly like Workflow A (same confirm-before-create gate), then use the returned ticket as the parent.
+2. **Derive the sub-tickets** from what the user gave you — an explicit list, the parent's `remarks`, or pasted text (apply Workflow B's extraction rules). One sub-ticket per independently deliverable piece; don't invent pieces the source doesn't support, and ask one clarifying question if the split isn't clear.
+3. **Scope:** by default every sub-ticket goes into the parent's product and version. Only use a different product/version when the user asks (e.g. Team mode platform routing from Workflow B). The server rejects a sub-ticket whose product is outside the parent's product line, and caps the parent chain at 5 levels.
+4. **Preview before creating** — always, even if the user already said "create them": show the parent (display ID + title) and a table of Title | Type | Priority | Assignee | Product/Version (`-` when it equals the parent's), then wait for confirmation.
+5. **Create** one call per sub-ticket with the parent's IDs:
+   ```bash
+   cawplan tickets create-version \
+     --product <parent product_id> \
+     --ver <parent version_id> \
+     --parent_id <parent unique_id or display_id> \
+     --description "<sub-ticket title>" \
+     --remarks "<html body>" \
+     --reporter <your-email>
+   ```
+   For a backlog parent (`is_backlog: true`), use `tickets create-backlog --product <product_id> --parent_id ...` instead.
+
 ## Rules
 
 - Default type to `FEATURE`; use `BUGFIX` only when the user says bug, defect, or issue.
@@ -138,6 +165,10 @@ After creating, report:
 - Assignees, or `-` if none.
 - Title (from CLI `--description`, stripped/truncated if long).
 - Description/body (from CLI `--remarks`, stripped of HTML and truncated if long), or `-` if none.
+
+- Parent ticket (display ID + title) for sub-tickets, or `-`.
+
+For Workflow C, report the parent first, then one line per created sub-ticket.
 
 For Workflow B, report the full list (one line per created ticket) plus any candidates the user dropped or edited during preview. In Team mode, group the report by product (each ticket's own "Product / version scope" line already carries this, but grouping makes it easy to sanity-check the platform→product routing landed where the user confirmed in the preview).
 
