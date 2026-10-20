@@ -1,5 +1,5 @@
 ---
-version: 0.2.10
+version: 0.2.11
 name: cawplan-plan-track
 description: |
   Track CawPlan release progress for a version: ticket completion, risk level, open items, target release dates, unresolved Critical-priority bugs, features not yet at QA Testing, what's Ready for QA/QA Testing, descope suggestions, what's blocking QA testing, assignee overload, per-QA pending counts, and tickets stale for more than N days.
@@ -19,7 +19,7 @@ cawplan skill check
 
 ## Important ticket-query rules
 
-`cawplan tickets search` **requires** `--time_range` or `--start_date`+`--end_date` unless doing an exact `--unique_ids`/`--display_ids`/`--parent_ids` lookup. Release tracking needs tickets regardless of age, so every version-wide search in this skill uses `--start_date 2000-01-01 --end_date <today>` and pages to `total`.
+`cawplan tickets search` **requires** `--time_range` or `--start_date`+`--end_date` unless doing an exact `--unique_ids`/`--display_ids`/`--parent_ids` lookup. Release tracking needs tickets regardless of age, so every version-wide search in this skill uses `--start_date 2000-01-01 --end_date <today>` and pages to `total`. In the hosted agent each page is its own tool call (no shell loops or `jq`) and a turn has roughly 16 calls; use `--page_size 100`. Reuse product/version IDs resolved earlier in the conversation for follow-ups, never pass a name as an ID, and report partial results honestly — see `references/QUERY_RESILIENCE.md`.
 
 Labels are the classification source of truth. Do not use legacy ticket `type`, the `--type` search option, or returned `.type` to decide whether a ticket is a bug or feature. For category-specific queries, first list the confirmed product's visible labels, select only from that catalog, and filter with `--label_ids`.
 
@@ -32,8 +32,10 @@ The response's `description` is the canonical ticket title. Display it verbatim:
 Before querying **any** product-, version-, release-, or ticket-scoped data, verify that the caller can see the product through `products list`. This applies even when the user supplied a `product_id` directly or it came from an earlier conversation — never treat a known ID as proof of access.
 
 ```bash
-cawplan products list --search "<product name or product_id>"
+cawplan products list --search <product-name-word-or-product_id>
 ```
+
+Pass the search text as one unquoted token (`--search CawPlan`, never `--search "CawPlan"`): the hosted agent rejects quoted values. For a name with spaces, search one distinctive word and match the full name in the results.
 
 Continue only when the response contains one intended product (`product_id` / `unique_id`). Match a supplied product name exactly (case-insensitively, after trimming whitespace), or accept a unique short-form/token-prefix match; a non-unique similarly named result is only a candidate, never an automatic replacement. If no unique accessible product matches, do **not** call `versions`, `tickets`, `product-lines statuses`, or any other product-scoped endpoint. If candidates were returned, list their names and ask the user to confirm which product they mean. If no candidates were returned, state that the named product either does not exist or is not accessible to the caller; do not report ticket counts or imply that its ticket list is empty. Return `NO_PERMISSION` only when the API explicitly reports denied access.
 
@@ -45,7 +47,7 @@ Never convert an unavailable product into an empty result such as `Open Tickets:
 
 1. Resolve product name to `product_id` and complete the required product-access gate:
    ```bash
-   cawplan products list --search "<product name>"
+   cawplan products list --search <product-name-word>
    ```
 If no exact or unique short-form product match exists, list any candidates (name + `product_id`) and ask the user to confirm which product they mean; do not guess. If the lookup returns no candidates, say: `未找到可访问的 product “<name>”：该 product 可能不存在，或你当前没有访问权限，因此无法查询其 tickets。` If more than one match exists, ask the user to pick. Keep the `product_line_id` (or nested `product_line.unique_id` — check the actual field name in the response) from the confirmed record.
 
@@ -123,6 +125,7 @@ If no exact or unique short-form product match exists, list any candidates (name
     For each `relation_type=BLOCKED_BY` relation, resolve the blocking ticket's own status from step 5's dataset when it is in the same version; otherwise look it up with `cawplan tickets get <product_id> <version_id_of_that_ticket> <ticket_id>` — don't assume it is resolved merely because it is outside the target version. Report only blockers whose status category (step 4's map) is not `COMPLETE`/`CANCELED`. This is one `relate list` call per in-testing ticket — if there are many, tell the user you're scoping to in-testing tickets only rather than silently sampling.
 
 11. **Assignee overload** (only when asked — "is anyone overloaded", "who has too many high-priority issues"): from step 5's set, `priority` in `CRITICAL`/`HIGH`, status category not `COMPLETE`/`CANCELED`. A ticket can have multiple `assignees`; count it once per assignee, not once total. If a ticket has no assignees at all, don't drop it — report it separately as "unassigned"; an open high-priority ticket nobody owns is worth surfacing on its own. Group by assignee and sort by count descending. If two or more assignees tie for the highest count, report all of them as joint-top — don't arbitrarily pick one. Don't invent a "this counts as overloaded" cutoff (e.g. "3+ is too many") — team capacity norms aren't something you know; report the actual counts per assignee and let the user judge, calling out the top of the ranking (all tied entries, if any) as the most likely answer to "who."
+    If step 5's set has not been fetched in this conversation and only the counts are needed, get them server-side in one call instead of paging: `cawplan tickets stats --version_ids <version_id> --priority CRITICAL,HIGH --excluded_status_categories COMPLETE,CANCELED --start_date 2000-01-01 --end_date <today> --group_by assignee` (each ticket counts once per assignee; the group whose value is `null` is the unassigned bucket). If that command is unavailable, fall back to step 5 (`references/QUERY_RESILIENCE.md`).
 
 12. **Per-QA pending count** (only when asked — "how many does each QA still have to verify"): reuse step 8's Ready-for-QA/QA-Testing list. Group by `assignees` the same way as step 11 (count once per assignee on multi-assignee tickets) and report a count per person. If a ticket in this list has no assignee, report it separately as unassigned rather than dropping it or attributing it to nobody silently.
 
@@ -151,3 +154,4 @@ If all tickets are complete, say so explicitly.
 ## References
 
 - `references/CAWPLAN_OPEN_API.md`
+- `references/QUERY_RESILIENCE.md`

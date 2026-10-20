@@ -1,5 +1,5 @@
 ---
-version: 0.2.10
+version: 0.2.11
 name: cawplan-testpoint-generate
 description: |
   Generate test-point coverage outlines from an archived CawPlan Requirement (five fields), with an open-questions list, and batch-archive test points after SQA confirmation.

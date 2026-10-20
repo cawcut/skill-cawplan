@@ -1,5 +1,5 @@
 ---
-version: 0.2.10
+version: 0.2.11
 name: cawplan-test-execution-progress
 description: |
   Query and summarize CawPlan QA Insights A3 TestRail execution progress for a Version or Run: execution rate, pass quality, deduplicated failure/blocker queue, and per-Ticket progress tables.

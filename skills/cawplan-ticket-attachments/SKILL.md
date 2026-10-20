@@ -1,5 +1,5 @@
 ---
-version: 0.2.10
+version: 0.2.11
 name: cawplan-ticket-attachments
 description: |
   List, download, upload, or add files on a CawPlan ticket — screenshots, recordings, logs, HAR, PDFs, documents, test results.

@@ -1,5 +1,5 @@
 ---
-version: 0.2.10
+version: 0.2.11
 name: cawplan-testplan-layout
 description: |
   Orchestrate CawPlan QA Insights TestRail test plans from Version/Ticket-scoped imported cases with preview-first workflow.

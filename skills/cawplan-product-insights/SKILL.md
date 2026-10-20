@@ -1,5 +1,5 @@
 ---
-version: 0.2.10
+version: 0.2.11
 name: cawplan-product-insights
 description: |
   Aggregate CawPlan product insights: user feedback and critical issues.

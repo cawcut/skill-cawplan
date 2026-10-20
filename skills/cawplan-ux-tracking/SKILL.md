@@ -1,5 +1,5 @@
 ---
-version: 0.2.10
+version: 0.2.11
 name: cawplan-ux-tracking
 description: |
   Find CawPlan tickets that need UX attention, or summarize a product's UX members' design completion: pending UX for a version, high-priority tickets missing UX design, a Team's UX-pending queue, or tickets that product's Designers marked UX Ready in a date range.
@@ -30,7 +30,11 @@ UX queries need the full window:
 --start_date 2000-01-01 --end_date <today>
 ```
 
-**Pagination**: increment `page_num` while `page_num * page_size < total`; use `total` as the completion signal.
+**Pagination**: increment `page_num` while `page_num * page_size < total`; use `total` as the completion signal. In the hosted agent each page is its own tool call (no shell loops or `jq`) and a turn has roughly 16 calls: use `--page_size 100`, and if the pages do not fit, report a partial result (see `references/QUERY_RESILIENCE.md`).
+
+**Counts only** ("how many tickets still need UX, by priority/version"): use `cawplan tickets stats` with the same filters and `--group_by priority` (or `version`, `assignee`) instead of paging and counting.
+
+**Follow-ups and failures**: follow `references/QUERY_RESILIENCE.md`. In a follow-up such as "now only CRITICAL+HIGH", reuse the product/version IDs already resolved in this conversation instead of resolving them again; never pass a product name as `--product_ids`. If a command is rejected or a page fails, report what was verified as a partial result and do not show commands or error text to the user.
 
 ## Entry Routing
 
@@ -46,9 +50,10 @@ UX queries need the full window:
 
 1. Resolve product + version (same pattern as `cawplan-plan-track` steps 1-2):
    ```bash
-   cawplan products list --search "<product name>"
+   cawplan products list --search <product-name-word>
    cawplan versions list <product_id>
    ```
+   Pass the search text as one unquoted token (`--search CawPlan`, never `--search "CawPlan"`): the hosted agent rejects quoted values. For a name with spaces, search one distinctive word and match the full name in the results.
    The supplied product must be an exact accessible-name match (case-insensitive after trimming whitespace), a unique short-form/token-prefix match, or a candidate the user explicitly confirms. If no unique match exists, show the candidates and ask which product they mean before listing versions or querying tickets; never use the closest product name.
 2. Fetch:
    ```bash
@@ -83,29 +88,38 @@ line. If the product is omitted, ask which product's UX members should be report
 
 1. Resolve the product and complete the product-access gate used by Workflow A:
    ```bash
-   cawplan products list --search "<product name or product_id>"
+   cawplan products list --search <product-name-word-or-product_id>
    ```
    Read the matched product's `members.designers[]` roster and collect its `user_id` values and
    display names. If it has no Designers, report that the product has no configured UX roster and
    stop. Membership is product-scoped; use this returned roster, not a workspace-wide keyword
    search. Default the date window to the current week only when the user does not provide one.
-2. Fetch candidates that currently need or have completed UX. Exclude `NOT_REQUIRED` tickets
-   with `--ux PENDING,READY`; `NOT_REQUIRED` is the default state and does not represent UX work.
-   Do **not** add terminal-status exclusions: a Ticket may have been marked `READY` in the
-   requested window and later edited, closed, or moved back to `PENDING`.
+2. Fetch every UX change made by the roster in the window with one bulk call (window at most 90
+   days; split longer ranges):
+   ```bash
+   cawplan tickets changes --product_ids <product_id> --fields ux --actor_ids <designer_user_ids_csv> --start_date <window_start> --end_date <window_end>
+   ```
+   Keep only events whose `new` is `READY`. Each event's `actor` is the history actor, its `at`
+   the change time, and the response's `tickets` map carries the display ID, title and version for
+   the output. Do not count a Ticket because its current `ux` is `READY`, because it is assigned
+   to a Designer, or because a non-Designer changed its UX field. If the result is `truncated`,
+   continue with `--cursor` or split the window before reporting.
+
+   **Fallback** (only if `tickets changes` is unavailable, see `references/QUERY_RESILIENCE.md`):
+   fetch candidates with
    ```bash
    cawplan tickets search --product_ids <product_id> --ux PENDING,READY --start_date 2000-01-01 --end_date <today> --updated_start_date <window_start> --updated_end_date <today> --page_size 100 --page_num 1
    ```
-   Page through fully (see Pagination above). `updated_at` only produces candidates; it is not UX
-   completion evidence.
-3. For every candidate, fetch `cawplan tickets history <product_id> <version_id> <ticket_id>`.
-   Keep only an `UPDATED` history entry whose `changed_fields.ux` changes to `READY`, whose
-   `created_at` is inside the requested window, and whose history-entry `user_id` is in the
-   product's `members.designers` roster. The field can be the string `READY` or an object with a
-   `new` value; support both. Do not count a Ticket because its current `ux` is `READY`, because
-   it is assigned to a Designer, or because a non-Designer changed its UX field.
-4. Deduplicate by Ticket, retaining its latest in-window UX-Ready event. Group the retained
-   Tickets by that history entry's actor (`user_id` / `user_display_name`): this actor is the
+   paged fully (no terminal-status exclusion: a Ticket may have been marked `READY` and later
+   closed or moved back to `PENDING`; `updated_at` is only a candidate filter). Then, for every
+   candidate, fetch `cawplan tickets history <product_id> <version_id> <ticket_id>` and keep only
+   an `UPDATED` entry whose `changed_fields.ux` changes to `READY` (a `READY` string or an object
+   with `new: READY`), whose `created_at` is in the window, and whose `user_id` is in the roster.
+   Say that the slower path was used, and report a partial result if not every candidate could be
+   checked.
+3. Deduplicate by Ticket, retaining its latest in-window UX-Ready event. Group the retained
+   Tickets by that event's actor (`actor.user_id` / `actor.display_name`, or the history entry's
+   `user_id` / `user_display_name` on the fallback path): this actor is the
    product roster's **Designer who completed the UX work**. Never group, count, or infer the
    Designer from the Ticket's reporter or ordinary assignees.
 
@@ -115,6 +129,8 @@ line. If the product is omitted, ask which product's UX members should be report
 - Workflow B/C: sorted by priority descending, as above.
 - State the search window and that terminal categories are excluded.
 - If nothing matches, say so plainly — don't return an empty table with no comment.
+- If any page, batch or check could not be completed, say what was verified and what was not
+  before the table (see `references/QUERY_RESILIENCE.md`). Never show CLI commands or raw errors.
 - For Workflow D, show each configured Designer's UX-Ready ticket count and the Ticket list
   (display ID, title, product/version, UX-Ready timestamp). State the requested window, the
   product used for the UX roster, and that counts are based on history-verified
@@ -123,3 +139,4 @@ line. If the product is omitted, ask which product's UX members should be report
 ## References
 
 - `references/CAWPLAN_OPEN_API.md`
+- `references/QUERY_RESILIENCE.md`

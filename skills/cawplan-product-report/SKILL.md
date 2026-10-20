@@ -1,5 +1,5 @@
 ---
-version: 0.2.10
+version: 0.2.11
 name: cawplan-product-report
 description: |
   Generate a CawPlan status report over a date range: for a single product (progress, risk analysis, priority recommendations, summaries), for a Team (CawPlan product line), or for a named member — ticket-change-based completion, in the last two cases. Also lists product-wide open tickets by a requested label-backed category and optional title keyword, including backlog tickets and tickets across versions.
@@ -47,8 +47,9 @@ Use this workflow for requests such as “查看 VN Cloud 当前 Version 的 Ope
 
 1. Resolve the requested product with:
    ```bash
-   cawplan products list --search "<product name or product_id>"
+   cawplan products list --search <product-name-word-or-product_id>
    ```
+   Pass the search text as one unquoted token (`--search CawPlan`, never `--search "CawPlan"`): the hosted agent rejects quoted values. For a name with spaces, search one distinctive word and match the full name in the results.
    Continue only with an exact accessible-name match or a unique short-form/token-prefix match. If no candidate matches, report: “No accessible Product matched `<input>`; it may not exist, have a different name, or you may not have permission.” Do not query versions or tickets. If the API explicitly returns an access-denied error, report `NO_PERMISSION`; otherwise do not claim that lack of permission is certain.
 
 2. Resolve the version. For “current Version,” use the matched product's `inprogress_version_id` and `inprogress_version_name`; if either is absent, report that the product has no current in-progress version. For a named version, use `cawplan versions list <product_id>` and require an exact version-name match. Never borrow a version from another product.
@@ -87,7 +88,7 @@ Use this workflow for requests such as “list the remaining Collage bugs for VN
    cawplan tickets search \
      --product_ids <product_id> \
      --label_ids <comma-separated-selected-label-ids> \
-     --search "<optional keyword>" \
+     --search <optional-keyword> \
      --start_date 2000-01-01 \
      --end_date <today> \
      --excluded_status_categories COMPLETE,CANCELED \
@@ -109,14 +110,14 @@ Use this workflow for requests such as “list the remaining Collage bugs for VN
 Before querying **any** product-, version-, or ticket-scoped data, confirm that the requested product appears in the caller's `products list` response. Apply this gate even when the caller supplied a product ID directly or the ID was retained from earlier context.
 
 ```bash
-cawplan products list --search "<product name or product_id>"
+cawplan products list --search <product-name-word-or-product_id>
 ```
 
 Proceed only after identifying one intended product (`product_id` / `unique_id`) through an exact match or unique short-form match. If the user's named product has no unique accessible match, stop and ask them to confirm the intended product from the candidates; do not issue product, version, activity, or ticket queries. Use `NO_PERMISSION` only when the API explicitly reports that access is denied. Never report an inaccessible or unresolved product as a successful empty result (for example, `Open Tickets: 0`).
 
 1. Resolve product name to `product_id` and complete the required product-access gate:
    ```bash
-   cawplan products list --search "<product name>"
+   cawplan products list --search <product-name-word>
    ```
    If no exact or unique short-form product match exists, list the candidates (name + `product_id`) and ask the user to confirm which product they mean; do not guess. All product-scoped workflows in this skill resolve products this way.
 
@@ -169,20 +170,29 @@ There is no team-scoped activity endpoint — `product-activity get` only takes 
    is only a broad candidate filter: it is refreshed by any edit, including recomputing a Parent
    Ticket after one of its Sub-tickets changes. It is never evidence that this Ticket changed
    status.
-   - For **every** candidate, call `cawplan tickets history <product_id> <version_id> <ticket_id>`.
-     Keep the Ticket only when an `UPDATED` history entry has `changed_fields.status` and that
-     entry's `created_at` is inside `[window_start, window_end]`. Do not keep a Ticket solely
-     because its `updated_at` is in the window, and do not treat its `CREATED` entry as a status
-     change.
-   - `changed_fields.status` can be either the new status key string, or an object with `old` and
-     `new`; handle both shapes. Resolve the relevant product line's status definitions when a
-     terminal-completion breakdown is needed, then classify the event's **new** status by category
-     (`COMPLETE` / `CANCELED`), rather than hard-coding `DONE`.
-   - Count each Ticket once in the summary, retaining its latest in-window status-change event as
-     the displayed evidence. A Parent Ticket whose status did not change has no such history entry
-     and must be excluded even if a Sub-ticket change refreshed the Parent's `updated_at`.
-   - This adds one `tickets history` call per candidate. It is deliberate: the search endpoint
-     cannot distinguish a status change from an unrelated record edit.
+   - Fetch the real status changes for the whole Team in one bulk call (window at most 90 days;
+     split longer ranges):
+     ```bash
+     cawplan tickets changes --product_line_ids <product_line_id> --fields status --start_date <window_start> --end_date <window_end>
+     ```
+     Every returned event is a status change inside the window, with `at`, `old` → `new`, and
+     `new_category`. Keep a Ticket only when it has at least one event. Do not keep a Ticket
+     solely because its `updated_at` is in the window. Classify terminal completion by the
+     event's `new_category` (`COMPLETE` / `CANCELED`) rather than hard-coding `DONE`. For counts
+     only, `--group_by new_category` (or `ticket`) returns them server-side.
+   - Count each Ticket once in the summary, retaining its latest in-window event as the displayed
+     evidence. A Parent Ticket whose status did not change has no event and is excluded even if a
+     Sub-ticket change refreshed the Parent's `updated_at`. The response's `tickets` map carries
+     display ID, title, priority, labels and version for the output.
+   - If the result is `truncated`, continue with `--cursor` or split the window before reporting.
+   - **Fallback** (only if `tickets changes` is unavailable, see
+     `references/QUERY_RESILIENCE.md`): for **every** candidate from step 2, call
+     `cawplan tickets history <product_id> <version_id> <ticket_id>` and keep the Ticket only when
+     an `UPDATED` entry has `changed_fields.status` (the new status key string, or an object with
+     `old` and `new`) with `created_at` inside `[window_start, window_end]`; never treat `CREATED`
+     as a status change. Resolve the product line's status definitions to classify the new status
+     by category. Say that the slower path was used, and report a partial result if not every
+     candidate could be checked.
 
 3. Optionally, resolve which products make up the team (for a per-product breakdown only if asked):
    ```bash
@@ -200,7 +210,7 @@ current Assignee, Reporter, or a Ticket's current status as a proxy for QA work.
 
 1. Resolve the product and complete Workflow A's required product-access gate:
    ```bash
-   cawplan products list --search "<product name or product_id>"
+   cawplan products list --search <product-name-word-or-product_id>
    ```
    Read the matched product's `members.qas[]` roster and collect its `user_id` values and display
    names. If it has no QA members, report that the product has no configured QA roster and stop.
@@ -208,35 +218,41 @@ current Assignee, Reporter, or a Ticket's current status as a proxy for QA work.
    keyword search. Default an omitted range to the current week and state the inclusive date range
    used.
 
-2. Build a complete candidate set exactly as in Workflow B step 2, including pagination:
+2. Fetch every status change the QA roster made in the window with one bulk call (window at most
+   90 days; split longer ranges):
+   ```bash
+   cawplan tickets changes --product_ids <product_id> --fields status --actor_ids <qa_user_ids_csv> --start_date <window_start> --end_date <window_end>
+   ```
+   Each returned event is a status change inside the window performed by a roster member. Do not
+   count `CREATED`, `TRANSFERRED`, an arbitrary `updated_at`, a status change performed by a
+   non-QA actor, or a Ticket merely because it is currently assigned to QA. For counts per QA
+   person, `--group_by actor,new_status_category` returns them server-side. If the result is
+   `truncated`, continue with `--cursor` or split the window.
+
+3. **Fallback** (only if `tickets changes` is unavailable, see `references/QUERY_RESILIENCE.md`):
+   build a complete candidate set exactly as in Workflow B step 2, including pagination:
    ```bash
    cawplan tickets search --product_ids <product_id> --start_date 2000-01-01 --end_date <today> --updated_start_date <window_start> --updated_end_date <today> --page_size 100 --page_num 1
    ```
-   `updated_at` only identifies Tickets whose history may be relevant. Its end bound must remain
-   real today, not the report end date, because a later unrelated edit must not hide an earlier QA
-   activity.
-
-3. For **every** candidate, call:
-   ```bash
-   cawplan tickets history <product_id> <version_id> <ticket_id>
-   ```
-   Keep every `UPDATED` entry whose `changed_fields.status` is present, whose `created_at` is
-   inside `[window_start, window_end]`, and whose history-entry `user_id` belongs to the resolved
-   `members.qas` roster. Do not count `CREATED`, `TRANSFERRED`, an arbitrary `updated_at`, a
-   status change performed by a non-QA actor, or a Ticket merely because it is currently assigned
-   to QA. The status field is normally `{old, new}`; tolerate a legacy string value as the new
-   status.
+   (`updated_at` only identifies Tickets whose history may be relevant; its end bound stays real
+   today.) For every candidate, call `cawplan tickets history <product_id> <version_id> <ticket_id>`
+   and keep every `UPDATED` entry whose `changed_fields.status` is present (normally `{old, new}`;
+   tolerate a legacy string as the new status), whose `created_at` is inside
+   `[window_start, window_end]`, and whose `user_id` belongs to the `members.qas` roster. Say that
+   the slower path was used, and report a partial result if not every candidate could be checked.
 
 4. Treat each retained history entry as one QA activity — do **not** deduplicate by Ticket. A
    Ticket can legitimately be moved through QA Testing, Done, Reopen, and Close within one week;
-   each status transition is useful verification evidence. Attribute the activity to the history
-   entry's `user_id` / `user_display_name`, the QA person who performed the change. Do not infer
+   each status transition is useful verification evidence. Attribute the activity to the event's
+   `actor` (or the history entry's `user_id` / `user_display_name` on the fallback path), the QA
+   person who performed the change. Do not infer
    that person from the Ticket's Reporter or Assignee. Exclude an entry with no actor that cannot
    be matched to the product QA roster; identify it separately as an unassigned/integration event
    only if relevant to explaining the exclusion.
 
-5. Resolve the product line's status definitions when a category breakdown is requested. Display
-   the actual transition (`old → new`) and, when available, its new-status category. Do not
+5. For a category breakdown, use each event's `new_category`; resolve the product line's status
+   definitions only on the fallback path. Display the actual transition (`old → new`) and, when
+   available, its new-status category. Do not
    hard-code `DONE`, `REOPEN`, `CLOSE`, or `QA Testing`: custom status keys and categories are
    valid QA activities too.
 
@@ -247,7 +263,7 @@ Same ticket-change approach as Workflow B, scoped to one person instead of a who
 1. Resolve the member to a `user_id`:
    ```bash
    cawplan users query --email <email>       # if the user gave an email
-   cawplan users query --keyword "<name>"    # if the user gave a name
+   cawplan users query --keyword <name-word>    # if the user gave a name
    ```
    If the keyword query returns more than one person, list them (name + email) and ask which one — do not guess.
 
@@ -255,9 +271,12 @@ Same ticket-change approach as Workflow B, scoped to one person instead of a who
    ```bash
    cawplan tickets search --assignees <user_id> --start_date 2000-01-01 --end_date <today> --updated_start_date <window_start> --updated_end_date <today> --page_size 100 --page_num 1
    ```
-   If the user also scoped to a product/version, add `--product_ids <id>` / `--version_ids <id>` (resolve the same way as Workflow A step 1). Apply the same `--updated_start_date`/`--updated_end_date`-over-`--start_date`/`--end_date` rule, widened-end-date, date-computation, and pagination rules as Workflow B step 2 — a ticket assigned to this member long ago but only completed inside the window must not be missed just because it wasn't *created* inside it. Then apply **Workflow B step 2a** (history-verified completion window) to this candidate set before reporting completion counts — the `updated_at`-is-not-"completed at" issue applies identically to a single member's tickets.
+   If the user also scoped to a product/version, add `--product_ids <id>` / `--version_ids <id>` (resolve the same way as Workflow A step 1). Apply the same `--updated_start_date`/`--updated_end_date`-over-`--start_date`/`--end_date` rule, widened-end-date, date-computation, and pagination rules as Workflow B step 2 — a ticket assigned to this member long ago but only completed inside the window must not be missed just because it wasn't *created* inside it. Then apply **Workflow B step 2a** (history-verified completion window) to this candidate set before reporting completion counts — the `updated_at`-is-not-"completed at" issue applies identically to a single member's tickets. Scope the bulk call to this member's candidates with `--unique_ids <candidate_ids_csv>` (at most 50 IDs per call) instead of `--product_line_ids`.
 
 ## Output
+
+If any lookup, page, batch or window could not be completed, say what was verified and what was
+not before the report (`references/QUERY_RESILIENCE.md`). Never show CLI commands or raw errors.
 
 **Workflow A:**
 
@@ -289,3 +308,4 @@ Same ticket-change approach as Workflow B, scoped to one person instead of a who
 ## References
 
 - `references/CAWPLAN_OPEN_API.md`
+- `references/QUERY_RESILIENCE.md`

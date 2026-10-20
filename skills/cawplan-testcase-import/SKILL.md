@@ -1,5 +1,5 @@
 ---
-version: 0.2.10
+version: 0.2.11
 name: cawplan-testcase-import
 description: |
   Import QA test cases from CawPlan (Requirement/TestPoint or INLINE session cases) into TestRail with preview-first workflow.

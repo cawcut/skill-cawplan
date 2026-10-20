@@ -1,5 +1,5 @@
 ---
-version: 0.2.10
+version: 0.2.11
 name: cawplan-my-work
 description: |
   Show the current user's CawPlan work: assigned tickets/critical issues, priority-sorted open tickets, a day/range status-change completion summary, reopened tickets, linked PRs/commits, or tickets with a PR/commit but no status progress — optionally scoped to a product/version.
@@ -46,20 +46,28 @@ cawplan skill check
    ```
    Page through fully using `total`. The `updated_at` window supplies candidates only: a Parent
    Ticket can be refreshed because a Sub-ticket changed, even when the Parent's own status did not.
-   For every candidate, fetch:
+   Then fetch the candidates' status changes in bulk, at most 50 IDs per call:
    ```bash
-   cawplan tickets history <product_id> <version_id> <ticket_id>
+   cawplan tickets changes --unique_ids <candidate_ids_csv> --fields status --start_date <window_start> --end_date <window_end>
    ```
-   Keep a Ticket only if an `UPDATED` history entry contains `changed_fields.status` and its
-   `created_at` is in the requested window. `changed_fields.status` may be a new-status string or
-   an `{old, new}` object; support both. Do not use `updated_at` as final evidence and do not count
-   `CREATED` as a status change. Report each Ticket once, using its latest in-window status-change
-   entry; exclude an unchanged Parent Ticket even if a child transition refreshed its record.
+   Every returned event is a real status change inside the window (`at`, `old` → `new`,
+   `new_category`). Keep a Ticket only if it has at least one event. Do not use `updated_at` as
+   final evidence. Report each Ticket once, using its latest in-window event; an unchanged Parent
+   Ticket has no event and is excluded even if a child transition refreshed its record.
+
+   **Fallback** (only if `tickets changes` is unavailable, see `references/QUERY_RESILIENCE.md`):
+   for every candidate, fetch `cawplan tickets history <product_id> <version_id> <ticket_id>` and
+   keep a Ticket only if an `UPDATED` entry contains `changed_fields.status` (a new-status string
+   or an `{old, new}` object) with `created_at` in the window. `CREATED` is not a status change.
 
 6. **My reopened tickets** (only when the user asks about reopened tickets / why something got reopened): there's no `REOPENED` status *category* (only `UNSTARTED`/`STARTED`/`TESTING`/`COMPLETE`/`CANCELED`) — reopening shows up as a status *key* whose name says so, or as a history transition backward out of a terminal category. History-scanning (bullet 2) is always the ground truth; the status-key check (bullet 1) is only a shortcut for the common case where a ticket is *currently sitting* on the reopen status — it does not replace history-scanning.
-   - Check history for every one of your tickets, regardless of current status: `cawplan tickets history <product_id> <version_id> <ticket_id>`, looking for any transition *from* a `COMPLETE`/`CANCELED`-category status *back to* a non-terminal category — each such transition is a reopen event. A ticket can have more than one; report all of them (oldest to newest), not just the latest — don't assume a ticket is reopened at most once.
+   - Check every one of your tickets, regardless of current status, for any transition *from* a `COMPLETE`/`CANCELED`-category status *back to* a non-terminal category — each such transition is a reopen event. Fetch them in bulk (at most 50 IDs per call; default window is the last 90 days — say so, and add earlier 90-day windows only if the user asks about older reopens):
+     ```bash
+     cawplan tickets changes --unique_ids <ticket_ids_csv> --fields status --start_date <today-89d> --end_date <today>
+     ```
+     Do not filter with `--old_status_categories`: most CawPlan edits record only the new status, so `old`/`old_category` is often `null`. Instead, walk each ticket's events oldest first and treat an event as a reopen when its `new_category` is not `COMPLETE`/`CANCELED` and the previous status was terminal — the previous status is the event's `old_category` when present, otherwise the preceding event's `new_category`. A ticket's first event in the window with no `old` cannot be judged; mention that the window start bounds the result. Fallback (only if `tickets changes` is unavailable): `cawplan tickets history <product_id> <version_id> <ticket_id>` per ticket. A ticket can have more than one reopen; report all of them (oldest to newest), not just the latest — don't assume a ticket is reopened at most once.
    - As a labeling aid only, resolve each distinct product line's statuses (`cawplan product-lines statuses <product_line_id>`) to check whether the ticket's status right after a reopen transition has "reopen" in its `display_name` — if so you can call it out as "reopened" by name in the report; if not (e.g. it went straight back to `in_progress` or `TESTING`), it's still a reopen per the history transition, just report the actual status name instead of assuming there's a dedicated label for it.
-   - For each reopen event, report the timestamp and actor from that history entry if present, and the reason: use the history entry's own comment if the API returns one on status-change events *and it's plausibly about that specific transition* (a general free-text comment field that isn't tied to the transition shouldn't be presented as if it explains the reopen); otherwise fall back to the ticket's `progress_comment` and label it explicitly as "latest progress note, not necessarily the reopen reason" rather than presenting it as if it directly explains the reopen. If neither exists, say the reason wasn't recorded — do not infer a reason from the ticket title or description. If the `tickets history` call itself fails or returns nothing, treat that ticket the same as "no reopen found," not as evidence of a missing reason.
+   - For each reopen event, report the timestamp and actor from that history entry if present, and the reason: use the history entry's own comment if the API returns one on status-change events *and it's plausibly about that specific transition* (a general free-text comment field that isn't tied to the transition shouldn't be presented as if it explains the reopen); otherwise fall back to the ticket's `progress_comment` and label it explicitly as "latest progress note, not necessarily the reopen reason" rather than presenting it as if it directly explains the reopen. If neither exists, say the reason wasn't recorded — do not infer a reason from the ticket title or description. If the change lookup fails for a ticket, list it as "not checked" (a partial result, see `references/QUERY_RESILIENCE.md`), not as "no reopen found" and not as evidence of a missing reason.
 
 7. **My tickets' linked repo PRs/commits** (only when asked — "today's tickets with their PR/commits", "整理我当天任务涉及的tickets和PR/commit"): tickets carry a `links[]` array that can hold GitHub PR/commit URLs (shape documented in `references/CAWPLAN_OPEN_API.md` under "VersionTicket fields of note") — `todos`/`poll` don't return this field, only the full ticket record does, so this step uses `tickets search` instead of steps 1-6's `todos` call.
    ```bash
@@ -81,6 +89,7 @@ cawplan skill check
 - Lead with `summary` if the response includes one **and step 3 didn't narrow the scope** — `summary` describes the full unnarrowed response, so showing it alongside a narrowed list would contradict what's actually listed. When narrowed, state counts for the narrowed slice instead (e.g. "1 ticket, 1 product-wide critical issue for UniFi Access 4.1.10").
 - If step 3 narrowed the scope, say what it was narrowed to before listing results.
 - If there's genuinely nothing assigned, say so plainly rather than returning an empty section with no comment.
+- If any lookup, page or batch could not be completed, say what was verified and what was not before the list (`references/QUERY_RESILIENCE.md`). Never show CLI commands or raw errors.
 - If step 6 ran: one entry per reopened ticket (display ID, title, reopened-at, reopened-by if known, reason or "not recorded"). If none of your tickets were reopened, say so explicitly rather than showing an empty list.
 - If step 7 ran: one entry per ticket in the fetched window, its PRs/commits/other links (or "no repo links"); note the date-field assumption once, not per ticket.
 - If step 8 ran: one entry per qualifying ticket — display ID, title, current status, and the PR/commit link(s) that triggered the flag. If none qualify, say so explicitly.
@@ -91,3 +100,4 @@ cawplan skill check
 ## References
 
 - `references/CAWPLAN_OPEN_API.md`
+- `references/QUERY_RESILIENCE.md`

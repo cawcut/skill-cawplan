@@ -1,5 +1,5 @@
 ---
-version: 0.2.10
+version: 0.2.11
 name: cawplan-defect-ticket
 description: |
   File or link CawPlan defects from failed/blocked TestRail Results via QA Insights A4.
