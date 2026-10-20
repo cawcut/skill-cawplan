@@ -309,5 +309,23 @@ if [ -f "$TERM_A1" ] && [ -f "$TERM_A2" ]; then
 fi
 [ "$fail" -eq 0 ] && echo "✓ terminology-en.md — byte-identical across A1/A2"
 
+echo "→ Validating QUERY_RESILIENCE.md skill copies are byte-identical..."
+# The hosted agent bundles only skills/, so every skill that references
+# references/QUERY_RESILIENCE.md carries its own copy. The root file is canonical.
+QR_CANONICAL="references/QUERY_RESILIENCE.md"
+for skill_dir in skills/cawplan-*/; do
+  if grep -q 'references/QUERY_RESILIENCE.md' "${skill_dir}SKILL.md" 2>/dev/null; then
+    copy="${skill_dir}references/QUERY_RESILIENCE.md"
+    if [ ! -f "$copy" ]; then
+      echo "::error file=${skill_dir}SKILL.md::references QUERY_RESILIENCE.md but ${copy} is missing (hosted bundles only skills/)"
+      fail=1
+    elif ! diff -q "$QR_CANONICAL" "$copy" >/dev/null; then
+      echo "::error file=${copy}::differs from ${QR_CANONICAL} (copies must be byte-identical)"
+      fail=1
+    fi
+  fi
+done
+[ "$fail" -eq 0 ] && echo "✓ QUERY_RESILIENCE.md — skill copies byte-identical"
+
 [ "$fail" -eq 0 ] || exit 1
 echo "All skill validations passed."

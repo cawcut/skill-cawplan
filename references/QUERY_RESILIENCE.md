@@ -1,5 +1,9 @@
 # CawPlan Query Resilience
 
+> Canonical file: `references/QUERY_RESILIENCE.md`. Byte-identical copies live in the
+> `references/` folder of each skill that uses it (the hosted agent bundles only `skills/`).
+> Edit the canonical file, then copy it; `scripts/validate-skills.sh` fails on drift.
+
 Shared rules for skills that read many tickets, page through results, or need per-ticket history.
 They keep a query going after a rejected command, keep results complete when the data is large,
 and keep internal details out of the answer.
