@@ -97,6 +97,21 @@ describe("knowledge commands (document modules)", () => {
     });
   });
 
+  test("documents update --text-file sends text only, never name", async () => {
+    const textPath = join(tmpDir, "new.md");
+    writeFileSync(textPath, "# updated\n", "utf8");
+    request.mockResolvedValue({ code: "SUCCESS", msg: "success", data: {} });
+
+    await run(["documents", "update", "--dataset", DATASET, "--document", DOCUMENT, "--text-file", textPath]);
+
+    expect(request).toHaveBeenCalledTimes(1);
+    const call = request.mock.calls[0][0] as { method: string; path: string; body: Record<string, unknown> };
+    expect(call.method).toBe("POST");
+    expect(call.path).toBe(`/api/v1/public/openapi/knowledge/datasets/${DATASET}/documents/${DOCUMENT}/update-by-text`);
+    expect(call.body).toEqual({ text: "# updated\n" });
+    expect(call.body).not.toHaveProperty("name");
+  });
+
   test("documents upload --file --module appends a module_id form field", async () => {
     const filePath = join(tmpDir, "spec.md");
     writeFileSync(filePath, "# spec", "utf8");

@@ -2,7 +2,7 @@
 version: 0.2.10
 name: cawplan-testpoint-generate
 description: |
-  Generate test-point coverage outlines from an archived CawPlan Requirement (five fields), with an open-questions list, and batch-archive test points after SQA confirmation.
+  Generate test-point coverage outlines from an archived CawPlan Requirement (its requirement Markdown), with an open-questions list, and batch-archive test points after SQA confirmation.
   Use when: an archived Requirement needs test points or a coverage outline; cold handoff (Requirement link, display_id, or id); hot handoff after A1 archive ("generate test points for this requirement"); incremental test-point supplements on an existing Requirement.
   NOT for: structuring or archiving Requirements (use `cawplan-requirement-analyze`); expanding test points into step-by-step cases or Excel (A3); viewing or editing archived test points or review in Test Suites (use the web UI); unarchived five-field drafts only (archive via A1 first).
 argument-hint: "[Requirement link, REQ display_id, or requirement_id, or 'continue the requirement just archived']"
@@ -171,29 +171,35 @@ cawplan qa-insights requirements resolve '<display_id_or_browse_url>'
 
 静默取得本次最新 Requirement 数据，并统一记为 `requirement_data`：
 
-- 本次刚成功执行 `requirements resolve`：直接使用该命令的 `data`；它与 `requirements get` 返回相同的 Requirement 五字段结构。本次不得再调用 `requirements get`。
+- 本次刚成功执行 `requirements resolve`：直接使用该命令的 `data`；它与 `requirements get` 返回相同的 Requirement 结构。本次不得再调用 `requirements get`。
 - 合法 `product_id + requirement_id`、旧 Portal URL、热接力或 A1 归档回归：执行：
 
 ```bash
 cawplan qa-insights requirements get <product_id> <requirement_id>
 ```
 
-以上两条路径取得 `requirement_data` 后，都必须执行：
+以上两条路径取得 `requirement_data` 后，`requirement_data` 只作元数据（`summary`、`knowledge_document`、`redirect_url` 等）；需求正文来自需求 Markdown，必须依次执行：
 
 ```bash
+cawplan knowledge documents get --dataset <dataset_id> --document <document_id> --refresh --no-interactive
 cawplan qa-insights testpoints list <product_id> <requirement_id>
 ```
+
+`<dataset_id>` / `<document_id>` 取自 `requirement_data.knowledge_document` 的 `dataset_id` / `id`。必须带 `--refresh`（本地缓存 12 小时，写入后不会失效）。返回的 `data.content` 即需求 Markdown，记为 `requirement_md`：按语义阅读，**不假定标题或章节**；需求名取 `summary`，不用 `data.name`；**不以 `knowledge_document.status` 做门禁**。
 
 `data.test_points.length` is the already-archived count N used by §3's incremental gate and §6's incremental-scope closure. **This skill no longer tracks it as a reconcile baseline** — `testpoint-review start` (§7.1) records it into the Review State's own `count_before` at creation time, and the page advances it after every successful Save to CawPlan; the count-reconcile flow now runs entirely page-side (§10), so Chat has no `write_outcome`/`count_before` state of its own to maintain.
 
 | Result | Action |
 |--------|--------|
-| Requirement 数据源 `SUCCESS` | Use **latest** five fields from `requirement_data` silently; do not diff against chat cache |
+| Requirement 数据源 `SUCCESS` 且 `requirement_md` 取到 | Use **latest** `requirement_md` silently; do not diff against chat cache |
+| `knowledge_document` 缺失或为空 | 输出**统一提示**并停止：`需求文档暂未就绪。新建需求可能需要稍等片刻；历史需求若长期为空，可能未关联文档。请稍后重试。` / `The requirement document isn't ready yet. A newly created requirement may need a moment; for an older requirement that stays empty, no document may be linked. Please try again later.`（**跟随会话语言**二选一）；不获取 TestPoints、不创建 Review |
+| `documents get` 非 `SUCCESS`，或响应没有 `data.content`（含 `code:"SUCCESS"` 但 `data.status:"not_found"` 的情形） | 同上统一提示，并附命令返回的 `msg`；停止；不使用旧数据，不获取 TestPoints、不创建 Review。不等待重试 |
+| `data.content` 为空或只有空白 | 报“需求文档为空” / "The requirement document is empty"（**跟随会话语言**二选一）并停止 |
 | Requirement missing (`404` or explicit not-found) | Report "这条 Requirement 已不存在" / "This Requirement no longer exists"（**跟随会话语言**二选一）; do not generate from stale context |
 | Requirement 数据异常 / `FAILURE` / `UNKNOWN` | 如实报告并停止；不获取 TestPoints、不创建 Review，也不使用旧数据 |
 | TestPoints `FAILURE` / `UNKNOWN` | 如实报告并停止；不创建 Review |
 
-Use five fields for generation only. Do not track `module_tree_node_id`, `review_status`, or `ticket_id` for A2 logic.
+Use `requirement_md` for generation only. Do not track `module_tree_node_id`, `review_status`, or `ticket_id` for A2 logic.
 
 display-id fast-path 只消除同一次请求里紧邻 resolver 的重复 GET，不建立跨回合缓存。后续新的补充生成回合、热接力或 A1 归档回归仍执行 `requirements get`，再刷新 TestPoints。
 
@@ -224,14 +230,14 @@ Before discovering obligations, use the file-reading tool to **read both files c
 
 #### Step 1 — 发现
 
-1. 将五字段**逐句完整读到末尾**，按对象、操作、关系、约束、变化、不变量拆出彼此独立的验证候选；已发现若干项也不得提前收尾。
+1. 将需求 Markdown **逐句完整读到末尾**（按语义识别需求内容，不假定标题；变更记录、评审意见等与产品行为无关的章节不作为发现来源），按对象、操作、关系、约束、变化、不变量拆出彼此独立的验证候选；已发现若干项也不得提前收尾。
 2. 对每个命中的值、状态、条件、来源、角色、适用层级、前后变化与不受影响对象分别发现候选。若多个分区可能有不同结果，先分别列出，不得先合并——是否属于同一验证目标、是否应合并成一行是 Step 4 的判断，本步骤只管展开不管收敛，不得因为"反正最后会合并"就提前用一句话跨分区、跨对象归纳掉候选。
-   **排除性/口径声明句必须单独展开**：五字段中出现"仅统计 X，不与 Y 合并"「不包含 / 不影响 / 独立于 / 与…无关」这类**没有显式动作、只是在给某个概念划边界或排除歧义**的句子时，不得因为它读起来像背景说明或定义就跳过——必须单独产出一条候选，验证"该口径/边界在实际行为中确实被遵守"（例如"其他类型端口的连接数变化不应影响图片上限判断"）。
+   **排除性/口径声明句必须单独展开**：需求 Markdown 中出现"仅统计 X，不与 Y 合并"「不包含 / 不影响 / 独立于 / 与…无关」这类**没有显式动作、只是在给某个概念划边界或排除歧义**的句子时，不得因为它读起来像背景说明或定义就跳过——必须单独产出一条候选，验证"该口径/边界在实际行为中确实被遵守"（例如"其他类型端口的连接数变化不应影响图片上限判断"）。
 3. 逐项使用 `references/coverage-dimensions.md` 的路径类型和 A→B→C→D→E 变化轴作为**发现提示**（E 组仅在满足其启用条件时逐项读取）。C/D 八轴必须逐项读到，不能因需求无关键词提前停止；是否有正面排除证据在 Step 3 统一判断。
 4. 基本盘方向只要与功能形态相符就进入候选：正常主路径；外部输入的异常；存在范围时的合法边界；存在取消/撤销/回退时的逆向。需求没写失败细节不等于不适用。
-5. 五字段**完全无法形成操作 + 方向性预期**时停止并请 SQA 补充；薄但可测时继续，缺口进入存疑。
+5. 需求 Markdown **完全无法形成操作 + 方向性预期**时停止并请 SQA 补充；薄但可测时继续，缺口进入存疑。
 
-**发现完成标准（进入 Step 2 前）**：五字段明确表示会影响某个最终产物的每个输入、配置或参数，都已分别形成“该因素是否正确作用于该产物”的候选；不得以参数已选择、保存、界面联动或其他中间结果代替最终产物验证。若核心结果或行为由 AI / 模型能力产生，已按 `coverage-dimensions.md` 的 E 组启用条件完成判断并逐轴检查，每个适用 E 轴都已形成候选。仍有明确影响因素或适用 E 轴没有候选时，Step 1 未完成。
+**发现完成标准（进入 Step 2 前）**：需求 Markdown 明确表示会影响某个最终产物的每个输入、配置或参数，都已分别形成“该因素是否正确作用于该产物”的候选；不得以参数已选择、保存、界面联动或其他中间结果代替最终产物验证。若核心结果或行为由 AI / 模型能力产生，已按 `coverage-dimensions.md` 的 E 组启用条件完成判断并逐轴检查，每个适用 E 轴都已形成候选。仍有明确影响因素或适用 E 轴没有候选时，Step 1 未完成。
 
    **停止后话术**（纯文字，逐字；**跟随会话语言**二选一，不同时输出）：
    > 这份需求的信息还不够生成测试点（缺操作或预期方向），麻烦补充一下具体是做什么、期望什么结果，我再继续。
@@ -249,16 +255,16 @@ Before discovering obligations, use the file-reading tool to **read both files c
 
 - **测试点**：方向唯一，能在不编造细节的前提下写出“操作/条件 + 方向性预期”。只是“要不要纳入本轮”未拍板，但功能形态明显适用时，也生成方向性测试点，并在标题末尾加“（范围待确认）”。
 - **存疑**：存在多种合理实现或预期；缺少必要触发条件；或必须补充具体规则后才能断言。格式为：〔指向哪〕+〔为什么疑〕+〔建议动作〕。
-- **排除**：仅限五字段明确列入 out_of_scope、功能形态直接正面证明不可能成立，或类型/状态/业务约束明确不可达；记录简短理由。不得用“需求没提”“感觉不重要”“已有相似点”作为排除理由。
+- **排除**：仅限需求中明确写明不在本次范围或不测的内容、功能形态直接正面证明不可能成立，或类型/状态/业务约束明确不可达；记录简短理由。不得用“需求没提”“感觉不重要”“已有相似点”作为排除理由。
 
 **C/D 不对称硬规则**：对 `幂等 / 并发 / 一致性 / 存量兼容 / 环境兼容 / 性能 / 安全审计 / 可观测` 八轴逐项应用 `coverage-dimensions.md` 的正面形态门槛。只有门槛正面证明不适用时才可排除；否则该轴必须贡献至少一条“测试点”或“存疑”。多轴指向同一缺口时可合并存疑文案，但不得因此遗漏轴名或去向。A/B 轴若功能形态明确不涉及可不产生候选。
 
 **红线 0 — 防臆造（最高优先级）**：
 
-- 标题只能使用五字段已有的具体事实，以及“应成功 / 应失败 / 应拦截 / 应有明确反馈”等方向性预期。
-- 五字段未提供时，禁止编造具体数值、阈值、次数、超时时长、文案、错误码、产品隐藏规则或实现方式。
+- 标题只能使用需求 Markdown 已有的具体事实，以及“应成功 / 应失败 / 应拦截 / 应有明确反馈”等方向性预期。
+- 需求 Markdown 未提供时，禁止编造具体数值、阈值、次数、超时时长、文案、错误码、产品隐藏规则或实现方式。
 - 若候选只有具体部分缺证据，优先拆成“方向性测试点 + 具体细节存疑”；不得因细节未知把可测方向整项丢掉。
-- 五字段已给出的数值、枚举、文案或规则可以直接使用。
+- 需求 Markdown 已给出的数值、枚举、文案或规则可以直接使用。
 - Recall 优先只允许增加**有依据的方向**，不允许增加虚构细节。
 
 **存疑纪律**：
@@ -311,17 +317,17 @@ Bad: 打开配置 → 分别选择各挡位 → 逐档导出并检查（这是 A
 
 ### 6. Step 5 — 覆盖闭合与一次需求特异性反查
 
-Step 4 形成草稿后、首次呈现前执行一次。若 Step 1 判定五字段完全不可测，则跳过。
+Step 4 形成草稿后、首次呈现前执行一次。若 Step 1 判定需求 Markdown 完全不可测，则跳过。
 
 **对照 §4 已完整读取的 `references/review-checklist.md` 从头到尾走一遍**（不得跳过，也不得凭记忆替代）：逐条检查覆盖闭合（来源 / 关系分区 / 行为组合 / 去向）、收敛守恒（合并映射、标题可反查）、红线与输出契约；发现缺口就补候选并回 Step 3 分流，发现错合并就拆回独立标题。以下五项是本轮最容易漏、必须显式确认的重点，不因为已过完清单就跳过：
 
 - **Step 1 发现完成标准仍成立**：最终产物的明确影响因素与已启用 E 组的适用轴都已形成候选；不成立就补候选并回 Step 3 分流。
 - **C/D 八轴每轴都有去向**：幂等/并发/一致性/存量兼容/环境兼容/性能/安全审计/可观测，逐轴确认要么有正面排除证据，要么已归入测试点或存疑，不留空轴。
 - **上限三方向 + 分区值列全**：涉及比较或配置/容量切换的候选，`< / = / >`（或变小/不变/变大）三态是否齐全；已合并标题里的具体分区值（位置、状态、比较结果等）是否逐字保留，没有被"任意/某个/某种"这类抽象词糊掉。
-- **红线 0 不越界**：所有标题只用五字段已有事实和方向性预期，没有编造数值、次数、文案、错误码。
+- **红线 0 不越界**：所有标题只用需求 Markdown 已有事实和方向性预期，没有编造数值、次数、文案、错误码。
 - **输出契约**：每条测试点一个目标、合法主标签、priority 枚举正确、英文会话用术语表词、补充标签至多一个且只在 tags[1]。
 
-完成后**一次需求特异性反查**：丢开清单，把五字段原文与草稿并排重读一遍，只问"这份表最可能漏掉哪项本需求特有的风险"，剩余特异性语句扫到末尾；新发现项走 Step 3 分流，再做一次来源/去向/合并守恒确认即可，不必再次通读整份清单。
+完成后**一次需求特异性反查**：丢开清单，把需求 Markdown 原文与草稿并排重读一遍，只问"这份表最可能漏掉哪项本需求特有的风险"，剩余特异性语句扫到末尾；新发现项走 Step 3 分流，再做一次来源/去向/合并守恒确认即可，不必再次通读整份清单。
 
 **Incremental scope**：闭合时用“已归档 N + 本轮新增 M”整体判断覆盖，已有标题可承接候选；只为缺口生成 M，绝不修改或重发 N。只在本轮首次呈现前执行一次，SQA 修订后不自动重跑，除非明确要求重新生成。
 
@@ -329,13 +335,13 @@ Step 4 形成草稿后、首次呈现前执行一次。若 Step 1 判定五字�
 
 ### 7. Present to SQA
 
-**输出纪律**：呈现时**不铺测试点表格**——测试点内容的呈现、编辑、删除、新增全部交给 Review 页面（§7.1）；Chat 只给「哪条需求 + 摘要 + 存疑清单 + 打开页面的方式」。**禁止**复述内部过程——不得出现「轴遍历 / 自查 / 覆盖维度清单 / 已按…完成 / 五字段已读取 / 核对完毕」等字样。第一句直接进正题。
+**输出纪律**：呈现时**不铺测试点表格**——测试点内容的呈现、编辑、删除、新增全部交给 Review 页面（§7.1）；Chat 只给「哪条需求 + 摘要 + 存疑清单 + 打开页面的方式」。**禁止**复述内部过程——不得出现「轴遍历 / 自查 / 覆盖维度清单 / 已按…完成 / 需求已读取 / 核对完毕」等字样。第一句直接进正题。
 
 #### 7.1 建 Review、拿 `review_id`（Step 5 完成后立即执行，早于任何 Chat 输出）
 
 Step 5 产出最终测试点列表后，**在向 Chat 输出任何内容之前**先建 Review：
 
-1. 把 Review 初始内容写成 JSON，可选带上五字段快照。输入契约如下：
+1. 把 Review 初始内容写成 JSON。`--requirement-file` 不传（它是可选的，页面不渲染需求内容）。输入契约如下：
    - **本轮新增草稿**：`{title, group, tags, priority}`；不得带 `id`，`archived` 省略（或为 `false`）。
    - **CawPlan 已归档测试点**（仅增量场景）：`{id, title, group, tags, priority, archived: true}`；`id` 必须使用 §2 refresh 返回的服务端原值，不得改写或生成。
    - `testpoint-review start` 只把 `archived: true` 的条数作为 Review State 的 `count_before`；输入总数不是 reconcile 基线。页面隐藏这些已归档行，Save to CawPlan 永远只提交未归档草稿。
@@ -344,7 +350,7 @@ Step 5 产出最终测试点列表后，**在向 Chat 输出任何内容之前**
 
    ```bash
    cawplan qa-insights testpoint-review start --product-id <id> --requirement-id <id> \
-     --lang <会话语言 zh|en> --test-points-file <path> [--requirement-file <path>] \
+     --lang <会话语言 zh|en> --test-points-file <path> \
      --open-questions-file <path>
    ```
 
@@ -373,7 +379,7 @@ Step 5 产出最终测试点列表后，**在向 Chat 输出任何内容之前**
 
 #### 7.2 Chat 呈现（摘要 + 存疑清单，不出表格）
 
-**开场**（`〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`，与保存确认等处显示名规则一致；`N` = `testpoint-review start` 返回的 `draft_count`，`M` = 返回的 `group_count`，**只从命令输出读取，不自行数行**）：
+**开场**（`〔需求名〕` = `summary` → `requirement_id`，与保存确认等处显示名规则一致；`N` = `testpoint-review start` 返回的 `draft_count`，`M` = 返回的 `group_count`，**只从命令输出读取，不自行数行**）：
 
 - **首批**（库为空，逐字；**跟随会话语言**二选一，不同时输出）：
   > 需求「〔需求名〕」已生成 N 条测试点草稿，按 M 个分组，详情和编辑请打开 Review 页面：
@@ -523,7 +529,7 @@ Review 页面：[打开最新版本](<review_url>)
 
 **唯一前提（⚠️ 需要同一对话）**：页面服务必须由当前 Agent 对话在后台启动并保留任务句柄，归档时才能等待它结束并自动回执。SQA 不需要、也不应再去终端手动运行 `open`。如果中途换了新对话，新对话没有旧后台任务句柄，应先确认旧服务已停止，再启动一次并返回新链接。
 
-**Success receipt (§9.5)** — **only place SQA sees a count**. **Two lines** when the latest `requirement_data.redirect_url` is present; otherwise line 1 only. Use **`N` = 本轮 Review State 中新增 `archived: true` 的条目数**（从页面 Save 成功后的最终 Review State 读取，不自行数行）。`〔需求名〕` = `summary` → truncate `function_description` → `requirement_id`.
+**Success receipt (§9.5)** — **only place SQA sees a count**. **Two lines** when the latest `requirement_data.redirect_url` is present; otherwise line 1 only. Use **`N` = 本轮 Review State 中新增 `archived: true` 的条目数**（从页面 Save 成功后的最终 Review State 读取，不自行数行）。`〔需求名〕` = `summary` → `requirement_id`.
 
 - **Line 1**（逐字；**跟随会话语言**二选一）：`已保存 N 条测试点到需求「〔需求名〕」下。` / `Saved N test points under requirement "〔需求名〕."`
 - **Line 2**（仅当最新 `requirement_data.redirect_url` 非空；**单独一行**，不接到 line 1 句末；逐字；**跟随会话语言**二选一）：`Requirement 链接:{当前环境 Portal Host + redirect_url}` / `Requirement link: {current environment Portal Host + redirect_url}`
@@ -559,7 +565,7 @@ SQA wants to change/delete a row **with `id`** → direct them to Test Suites UI
 
 ## Session state (in-conversation only)
 
-**Binding**: `product_id`, `requirement_id`, `review_id`, `review_url`, Review 页面后台任务句柄/存活状态, `requirement_data` 中的 five-field snapshot、`summary` 与 `url`。`display_id` 不属于后续流程的必需状态。
+**Binding**: `product_id`, `requirement_id`, `review_id`, `review_url`, Review 页面后台任务句柄/存活状态, `requirement_md`（本次读取）、`requirement_data` 中的 `summary` 与 `url`。`display_id` 不属于后续流程的必需状态。
 
 **Open questions**: 不在 session state 维护第二份清单。活动存疑及 HTML 最终答案都持久化在 Review State；Chat 首次和每轮修订展示都从该 State 读取。Chat 回答只保留为当前轮自然语言输入，不回写问题答案。
 
@@ -571,7 +577,7 @@ Refresh binding 前先确认 `review_id` 仍指向同一份 Review；Rebind（P1
 
 ## Walkthrough example (workflow Duplicate — requirement `019fb63e-d5ad-7cb7-8b5f-761ceeb50c0a`)
 
-**五字段（节选）**：workflow 项目 Duplicate；入口为项目卡片更多菜单；正常预期为生成副本、列表可见、新窗口打开；约束含仅 workflow 类型、他人分享不可复制、命名 `Copy of xxx`、125 字符上限、素材一并复制、Free plan 50 个上限等。
+**需求（节选）**：workflow 项目 Duplicate；入口为项目卡片更多菜单；正常预期为生成副本、列表可见、新窗口打开；约束含仅 workflow 类型、他人分享不可复制、命名 `Copy of xxx`、125 字符上限、素材一并复制、Free plan 50 个上限等。
 
 **obligation 发现（节选）**：本人拥有 / 他人分享、workflow / 其他类型、成功复制、命名与素材保持、50 个数量边界、125 字符长度边界、连续触发幂等、列表写后可见等先分别进入同一清单；50 个配额与并发操作可能改变结果，因此保留组合 obligation。C/D 其余轴若未被形态门槛正面排除，均归入测试点或存疑，不维护独立判轴表。
 
@@ -599,7 +605,7 @@ Refresh binding 前先确认 `review_id` 仍指向同一份 Review；Rebind（P1
 
 ## Walkthrough example (login — baseline vs 红线 0)
 
-**五字段（节选）**：账号 + 密码登录；入口为登录页；正常预期为登录成功并进入首页；约束未写账户锁定策略。
+**需求（节选）**：账号 + 密码登录；入口为登录页；正常预期为登录成功并进入首页；约束未写账户锁定策略。
 
 **生成（草稿）**：
 
@@ -616,7 +622,7 @@ Refresh binding 前先确认 `review_id` 仍指向同一份 Review；Rebind（P1
 
 ## Walkthrough example (video config — granularity / Duration merge)
 
-**五字段（节选）**：导出前可在视频配置面板设置 Duration 挡位 5s / 10s / 15s（默认 15s）与 Resolution；正常预期为导出视频时长与所选 Duration 一致；约束未写 4K 是否需要付费套餐。
+**需求（节选）**：导出前可在视频配置面板设置 Duration 挡位 5s / 10s / 15s（默认 15s）与 Resolution；正常预期为导出视频时长与所选 Duration 一致；约束未写 4K 是否需要付费套餐。
 
 **颗粒度**：Duration 三挡 → 一条列全值、不拆三条、不塞步骤 — 见 §5 Step 4 与 Good/Bad 示例。若五字段写明「4K 仅付费套餐可用」→ `4K` 与普通分辨率是**不同前置/预期** → 单独成条或进存疑。
 

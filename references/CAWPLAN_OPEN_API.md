@@ -528,7 +528,7 @@ is the only reliable way to slice this metric today.
 - Endpoint: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/{document_id}/content`
 - `dataset_id` and `document_id` must come from the datasets-list and documents-list endpoints above; an inaccessible or unknown id returns `NOT_FOUND`.
 - Reads the original source file directly (e.g. from S3 via the document's stored file reference) and returns it verbatim — not reassembled from search-index segments/chunks, so formatting and content lost to indexing are preserved.
-- Response: `data.content` (full raw text of the document), plus `data.name`.
+- Response: `data.status` (e.g. `succeeded`) and `data.content` (full raw text of the document). There is **no** `data.name` in this response; a document's name comes from `documents list` or, for a Requirement's document, `knowledge_document.name`.
 - Maps to cawplan CLI: `cawplan knowledge documents get --dataset <id> --document <id>`.
   - Add `--output <path>` to also write `data.content` to a file.
   - Add `--grep <pattern>` (with `--context <n>`, default 3, like `grep -C`) to have the CLI itself
@@ -643,6 +643,11 @@ is the only reliable way to slice this metric today.
   document use create-by-file/create-by-text instead.
 - Maps to cawplan CLI: `cawplan knowledge documents update --dataset <id> --document <id> [--file <path> | --text-file <path>]`.
   Mirrors `documents upload`'s `--no-wait`/`--poll-interval`/`--poll-timeout` flags for the `--file` case.
+  For `--text-file` the CLI sends only `text` (it no longer sends `name`, so the document is not renamed); the server replaces the **whole** document with `text`.
+- update-by-text responses:
+  - Success: `{"code":"SUCCESS","data":{"batch":"…","document":{"id":"…","name":"…","indexing_status":"waiting","display_status":"queuing",…}},"msg":"success"}`. `data.document.id` is the engine's own id and is **not** the `{document_id}` used in paths — do not re-bind to it.
+  - Failure: `{"code":"<CODE>","data":null,"msg":"…"}` (e.g. `NOT_FOUND` for an unknown dataset); `DIFY_ERROR` with `Document is not available` while a previous write to the same document is still being processed (retry after a few seconds); the CLI prints it and exits 1. There is no `outcome` envelope — judge by `code`.
+- A document's content is readable immediately after the write (`documents get --refresh`); the document's `status` may stay `indexing` for a long time and is not a readiness signal.
 
 ### Search Knowledge Base
 - Endpoint: `POST /api/v1/public/openapi/knowledge/search`
@@ -927,20 +932,21 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 - Endpoint: `PATCH /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}`
 - Path params: `product_id`, `requirement_id`
 - Body: any subset of `function_description`, `entry_trigger`, `normal_expectation`, `constraints`, `out_of_scope`, `summary`, `ticket_id`, `is_ai_generated` — send **only changed** fields (plus CLI-injected `is_ai_generated: true` on every non-empty PATCH from QA Skills)
-- Notes: do not send `product_id`, `review_status`, or `is_edited` in the body. `summary` may be cleared with empty string or `null`. `ticket_id` is the ticket **display_id** (e.g. `CAWP-04606`); pass `null` to unlink. Use when updating an existing Requirement after hot/cold handoff; compare five fields against `five_field_snapshot`, `summary` against `summary_snapshot`, and `ticket_id` against `ticket_id_snapshot` before PATCH vs POST create. `is_ai_generated` is added by the CLI — omit from `--desired` / `--snapshot`. Example bodies (changed keys only): `{"constraints":"..."}`, `{"summary":"..."}`, `{"ticket_id":"CAWP-04606"}`, `{"ticket_id":null}`
+- Notes: do not send `product_id`, `review_status`, or `is_edited` in the body. `summary` may be cleared with empty string or `null`. `ticket_id` is the ticket **display_id** (e.g. `CAWP-04606`); pass `null` to unlink. Use when updating an existing Requirement after hot/cold handoff; compare `summary` against `summary_snapshot` and `ticket_id` against `ticket_id_snapshot` before PATCH vs POST create. **Requirement content is now a Markdown document: to change content, use `documents update --text-file` (update-by-text, §12) on the Requirement's `knowledge_document`; this PATCH is used only for `summary` / `ticket_id`** (a five-field PATCH does not regenerate the Markdown). `is_ai_generated` is added by the CLI — omit from `--desired` / `--snapshot`. Example bodies (changed keys only): `{"constraints":"..."}`, `{"summary":"..."}`, `{"ticket_id":"CAWP-04606"}`, `{"ticket_id":null}`
 - Maps to cawplan CLI: `cawplan qa-insights requirements update {product_id} {requirement_id} --desired '<json>' --snapshot '<json>'` — pass complete states; the command derives the changed keys and PATCHes only those
 
 ### Get Requirement (read — single item)
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}`
 - Path params: `product_id`, `requirement_id`
-- Response: single `QARequirement` in `data` — five fields, `summary` (`null` if unset), optional `url` (portal deep-link path, often `null`), and metadata (`id`, `module_tree_node_id`, `review_status`, `ticket_id`, etc.)
+- Response: single `QARequirement` in `data` — five fields, `summary` (`null` if unset), optional `url` (portal deep-link path, often `null`), `knowledge_document` (see below), and metadata (`id`, `module_tree_node_id`, `review_status`, `ticket_id`, etc.)
+- `knowledge_document` (same shape in all three Requirement reads): the Requirement's Markdown document `{dataset_id, id, display_id, name, redirect_url, status}` — `dataset_id` + `id` are the path ids for `knowledge documents get` / `update`. Absent (the key is missing, not `null`) for a Requirement with no document. `documents get` with a wrong `document_id` returns `code: "SUCCESS"` and `data.status: "not_found"` with no `content`. `status` is **not** an availability signal (it can stay `indexing` while content is already readable/writable); this subobject returned by Get Requirement may omit `display_id` / `redirect_url`.
 - Notes: primary path when the caller already has `product_id + requirement_id`, including old Portal URLs, hot handoff, and later refreshes. Use `data` directly; no list filter. `404` → Requirement missing or deleted. RBAC: `qa_insights.view`.
 - Maps to cawplan CLI: `cawplan qa-insights requirements get {product_id} {requirement_id}`
 
 ### Get Requirement by display ID (read — resolve + full Requirement data)
 - Endpoint: `GET /api/v1/public/openapi/qa/requirements/by-display-id/{display_id}`
 - Path params: `display_id` in strict `REQ-` + digits form (for example `REQ-00107`)
-- Response: the same full `QARequirement` object in `data` as Get Requirement, including the five fields and `url`
+- Response: the same full `QARequirement` object in `data` as Get Requirement, including the five fields, `url`, and `knowledge_document`
 - Notes:
     - `requirements resolve` accepts either a bare display ID or a Browse URL shaped like `/browse/product/{product_key}/qa/requirement/{display_id}`; it validates/extracts the display ID locally before requesting this endpoint.
     - The CLI validates and parses `product_id` + `requirement_id` from `data.url`, returning them in `meta`; the Browse URL's `product_key` is not a product UUID.
@@ -950,7 +956,7 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 ### List Requirements (read — reconcile)
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements`
 - Query params: `module_tree_node_id` (optional), `version_id` (optional)
-- Response: array of requirements (not paginated); each row includes five fields, `summary` (`null` if unset), optional `url` (portal deep-link path, often `null`), and metadata; filter client-side by `id` when needed.
+- Response: array of requirements (not paginated); each row includes five fields, `summary` (`null` if unset), optional `url` (portal deep-link path, often `null`), `knowledge_document` (see Get Requirement), and metadata; filter client-side by `id` when needed.
 - Notes: used by `cawplan-requirement-analyze` when a POST/PATCH outcome is **unknown** (network/timeout) — list rows under the target `module_tree_node_id` and compare **five fields only** to avoid duplicate POST creates. **Strong match / dedup compares five fields only** — `summary` does **not** participate. Reconcile compare rules: see `skills/cawplan-requirement-analyze/SKILL.md` §10 (Field comparison). **Not** used by `cawplan-testpoint-generate` for fetching five fields (use Get Requirement above).
 - Maps to cawplan CLI: `cawplan qa-insights requirements list {product_id} --module-tree-node-id {module_tree_node_id}`
 

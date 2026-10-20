@@ -8,10 +8,12 @@ Keep in session context after either:
 **Store**:
 
 - `bound_requirement_id` — from `api.data.id` (create/update response), `reconcile.matched_requirement_ids[0]` (10b), or the matched `id` from a cold-handoff GET.
-- `five_field_snapshot` — the five saved fields (`function_description`, `entry_trigger`, `normal_expectation`, `constraints`, `out_of_scope`) from that write or list row; **five fields only** (Field comparison) — never include `summary`.
-- `summary_snapshot` — the saved `summary` from that write or list row (`null` if server has no value); **separate from** `five_field_snapshot`.
-- `ticket_id_snapshot` — the saved `ticket_id` from that write or list row (`null` if none); **separate from** `five_field_snapshot` and `summary_snapshot`. Store the ticket **display_id** (e.g. `CAWP-04606`), not the unique id.
+- `summary_snapshot` — the saved `summary` from that write or list row (`null` if server has no value).
+- `ticket_id_snapshot` — the saved `ticket_id` from that write or list row (`null` if none); **separate from** `summary_snapshot`. Store the ticket **display_id** (e.g. `CAWP-04606`), not the unique id.
+- `knowledge_document` — `{dataset_id, id}` of the bound Requirement's Markdown document, taken from that Requirement's own data: `requirement_data` (cold handoff), or the `knowledge_document` in the create response (`api.data`), or a `requirements get` when it is first needed. Its `status` may be `uploading` / `indexing` — never a gate. **Never** from a write response's `data.document.id` (not the path id), never by searching documents by name. Re-binding to another Requirement discards the old value.
 - Also keep `product_id`, product name, `module_tree_node_id`, and module-tree node name when known.
+
+The five fields are **not** stored as a snapshot: after a successful create the five-field draft is frozen and is never a baseline for later edits — requirement content changes go through the Markdown (**11b-MD**).
 
 Snapshots = last values written to CawPlan, not unsaved draft.
 
@@ -22,8 +24,10 @@ After SQA confirms a write, if the CLI returns no clear `SUCCESS` or `FAILURE` �
 - `operation`: `POST` or `PATCH`
 - `product_id`, `module_tree_node_id`, `ticket_id` (if any)
 - For POST: full intended five fields + `summary`
-- For PATCH: `target_requirement_id` + changed keys and values (Field comparison — snapshot diff)
-- Do **not** set `bound_requirement_id` or refresh `five_field_snapshot` / `summary_snapshot` / `ticket_id_snapshot` on UNKNOWN.
+- For PATCH: `target_requirement_id` + changed keys and values (Field comparison — snapshot diff; `summary` / `ticket_id` only)
+- Do **not** set `bound_requirement_id` or refresh `summary_snapshot` / `ticket_id_snapshot` on UNKNOWN.
+
+`pending_write` is for POST and for the `summary` / `ticket_id` PATCH only. A **Markdown write-back (11b-MD) does not use it** — it carries its own pre-write comparison and read-back verification, and it is idempotent.
 
 On **clear API failure** (`FAILURE_*` or HTTP error with body): see **Failures** (Rules); `write_outcome` is not UNKNOWN — SQA may retry after read-back without reconcile-first for duplicate fear (same operation retry).
 
@@ -31,9 +35,9 @@ On **SUCCESS**: bind (step 10 Store), clear `pending_write`, set `write_outcome 
 
 **Field comparison** — the `qa-insights` commands own this. `requirements reconcile` decides what matches; `requirements update` decides which keys changed. Do not compare fields by hand or hand-compute a PATCH body.
 
-Your part is to feed them the right inputs: the probe / `--desired` come from the current draft, and **`--snapshot` is `five_field_snapshot` + `summary_snapshot` + `ticket_id_snapshot` verbatim** (step 10 **Store**). Put the intended `ticket_id` (display_id, or `null` to unlink) in `--desired` when the link should change; omit `ticket_id` from `--desired` only when you are not touching the link this round (leave-as-is).
+Your part is to feed them the right inputs. For a **POST** probe, the probe comes from the current five-field draft. For a bound Requirement, `requirements update` is used for `summary` / `ticket_id` **only**: `--desired` contains just those keys (the five-field keys are always omitted — omitted = unchanged), and **`--snapshot` is `summary_snapshot` + `ticket_id_snapshot` verbatim** (step 10 **Store**). Put the intended `ticket_id` (display_id, or `null` to unlink) in `--desired` when the link should change; omit `ticket_id` from `--desired` only when you are not touching the link this round (leave-as-is).
 
-**Fixed phrasing**: use the step 3 table sentences for inferred bullets — **no synonym rewrites**. Reworded bullets read as changed text and stop matching an earlier archive.
+**Fixed phrasing** (first-time five-field draft only): use the step 3 table sentences for inferred bullets — **no synonym rewrites**. Reworded bullets read as changed text and stop matching an earlier archive.
 
 **Cold handoff** (SQA provides a requirement `id`, display ID, Requirement link, or asks to continue an existing Requirement):
 
@@ -69,7 +73,7 @@ cawplan qa-insights requirements get <product_id> <requirement_id>
 - On `outcome: SUCCESS`, set `requirement_data = data` (single `QARequirement` object; no list filter).
 - When `requirements resolve` succeeds, require both `meta.product_id` and `meta.requirement_id`, then bind those IDs and set `requirement_data = data` directly. **Do not call `requirements get` in the same cold-handoff request.** Resolver `data` is the same full Requirement structure.
 
-For either source, `requirement_data` must be an object containing the five Requirement fields. Treat missing binding IDs, unusable data, or conflicting `data.id` / `data.product_id` versus resolver metadata as an abnormal API response; stop without replacing an existing binding or snapshots.
+For either source, `requirement_data` must be an object containing `id` and `product_id`. Treat missing binding IDs, unusable data, or conflicting `data.id` / `data.product_id` versus resolver metadata as an abnormal API response; stop without replacing an existing binding or snapshots.
 
 Display-ID resolver outcomes:
 
@@ -90,7 +94,7 @@ cawplan qa-insights requirements list <product_id> --module-tree-node-id <node_i
 
 On `outcome: SUCCESS`, `data` is the requirement array — filter client-side by `id` when SQA names a specific requirement, then use the matched row as `requirement_data`.
 
-Map `requirement_data`'s five fields into the current draft. Set `bound_requirement_id`, `five_field_snapshot` (five fields per Field comparison), `summary_snapshot`, and `ticket_id_snapshot` from it; also keep `product_id` and `module_tree_node_id`. If `summary` is `null`, **generate** a display summary for the draft now (step 4); next archive **PATCH** writes `summary`. Clear any `pending_write` / UNKNOWN. Re-show five fields + display summary + open-questions list if SQA wants to edit before the next archive/update.
+Bind only — **do not** map the five fields into a draft, do not generate a summary, and do not re-show five fields / summary / open-questions. Set `bound_requirement_id`, `summary_snapshot`, `ticket_id_snapshot`, and `knowledge_document` from `requirement_data`; also keep `product_id` and `module_tree_node_id`. Clear any `pending_write` / UNKNOWN and any previous five-field draft. Then tell SQA only that the Requirement is bound (`已绑定 REQ-xxx` / `Bound to REQ-xxx`, using `display_id` when present) and ask what to change. The Markdown is read on demand (11b-MD), not pre-loaded.
 
 ### 10b. Reconcile (run Table A)
 
@@ -101,14 +105,14 @@ Run when `write_outcome = UNKNOWN`, when SQA asks to archive again after a faile
 cawplan qa-insights requirements reconcile <product_id> \
   --module-tree-node-id <node_id> --probe-file <五字段 JSON>
 
-# PATCH pending — add the target and what that PATCH meant to write
+# PATCH pending (summary / ticket_id only) — add the target and what that PATCH meant to write
 cawplan qa-insights requirements reconcile <product_id> \
-  --module-tree-node-id <node_id> --probe-file <五字段 JSON> \
+  --module-tree-node-id <node_id> --probe-file <内容为 {} 的文件> \
   --target-requirement-id <bound_requirement_id> \
   --intended-patch-file <上次 update 返回的 patch_body>
 ```
 
-Probe = the **five fields** from `pending_write` or the current draft (the command ignores `summary`). `module_tree_node_id` comes from `pending_write` or context.
+POST probe = the **five fields** from `pending_write` or the current draft (the command ignores `summary`). PATCH pending: the PATCH branch only compares the keys in `--intended-patch-file`, so the probe content is unused — pass a file containing `{}` (`--probe-file` accepts a file only, and `--module-tree-node-id` is required). `module_tree_node_id` comes from `pending_write` or context.
 
 This command is **read-only** — it never writes. It reports what it found via `reconcile.decision`; act on it per **Table A** (step 11).
 
@@ -146,10 +150,10 @@ When SQA signals archive/submit intent ("可以了", "存吧", "归档", "提交
 | Condition | Action |
 |-----------|--------|
 | No `bound_requirement_id` | **11a POST** create (steps 7–8 if not done). |
-| Bound + five fields, `summary`, and `ticket_id` all unchanged vs snapshots (`requirements update` returns **`NOOP`**) | Warn: likely duplicate archive. Ask 是否**另建**? Confirm → **11a POST**. **Skip if you just bound via reconcile (10b)** — tell SQA already bound, no second copy.<br><br>Two branches, decided by `just_reconciled`: **(a) `just_reconciled = false`** → warn and **ask**; only after SQA confirms do you go to 11a. `NOOP` states a fact; it is **not** permission to create. **(b) `just_reconciled = true`** → **skip the warning and the question entirely**; tell SQA already bound, no second copy. Asking here would invite a duplicate moments after telling SQA 无需再建. |
-| Bound + five fields unchanged, `summary` and/or `ticket_id` changed | **11b PATCH** metadata only (`summary`, `ticket_id`, or both — command emits only changed keys). |
-| Bound + five fields changed | **11b PATCH** changed keys vs snapshots (`summary` / `ticket_id` only if they differ from their snapshots). |
-| SQA says it is a different requirement | **11a POST** (full read-back for **new**). |
+| Bound + SQA wants to change the requirement content (Markdown) | **11b-MD**. Not driven by a `requirements update` diff. |
+| Bound + `summary` and/or `ticket_id` changed vs snapshots | **11b-PATCH** (command emits only changed keys). Same request also changing Markdown → 11b-MD first, then 11b-PATCH, as two calls. |
+| Bound + `summary` and `ticket_id` unchanged vs snapshots, and no Markdown change (`requirements update` returns **`NOOP`**) | Warn: likely duplicate archive. Ask 是否**另建**? Confirm → **11a POST**. **Skip if you just bound via reconcile (10b)** — tell SQA already bound, no second copy.<br><br>Two branches, decided by `just_reconciled`: **(a) `just_reconciled = false`** → warn and **ask**; only after SQA confirms do you go to 11a. `NOOP` states a fact; it is **not** permission to create. **(b) `just_reconciled = true`** → **skip the warning and the question entirely**; tell SQA already bound, no second copy. Asking here would invite a duplicate moments after telling SQA 无需再建. |
+| SQA says it is a different requirement (**另建**) | **11a POST** only if the session still holds the five-field draft **and** no Markdown write-back has happened since binding. Otherwise say 需要提供素材重新分析 / the material must be provided again, and restart from step 1 — a stale draft must not create a requirement that disagrees with the current Markdown. |
 | **CLEAR_FAILURE** (not UNKNOWN) | Report error; read-back → retry **same** operation (no reconcile required). |
 
 #### 11a. Create (POST)
@@ -220,11 +224,14 @@ The command POSTs directly — it does **not** look for duplicates first. Preven
 
 **After the call**: branch on `outcome` (see **Command outcomes**) and update session state per step 10 (**Pending write**). On `SUCCESS` → **Confirmation**.
 
-#### 11b. Update (PATCH)
+#### 11b. Update a bound Requirement (11b-MD / 11b-PATCH)
 
-When Table B routes here (bound + snapshot diff shows changes).
+When Table B routes here (bound; SQA changes the requirement content, or `summary` / `ticket_id` differ from their snapshots). Two routes, never mixed in one call:
 
-**更新确认** — **仅当 `location_confirmed` 不为 true** 时执行乙式确认。§8 刚完成选位置时 **禁止**再弹「确认更新这条需求?」。
+- **11b-MD** — requirement **content** (the Markdown document). Defined below, after the shared confirmation.
+- **11b-PATCH** — `summary` / `ticket_id` only (`requirements update`). The five-field keys are never sent again after binding.
+
+**更新确认**（两条路由共用）— **仅当 `location_confirmed` 不为 true** 时执行乙式确认。§8 刚完成选位置时 **禁止**再弹「确认更新这条需求?」。11b-MD 的确认框**上方**放 `diff -u` 结果；`location_confirmed` 在已绑定后总是 false，所以 11b-MD 总会确认一次。
 
 **乙式确认**（`location_confirmed` 为 false / 未设时）— 先路径正文，再弹框。若更新场景无节点上下文 / 位置不变，**可省**框上方路径行。
 
@@ -256,26 +263,77 @@ This requirement will be updated under "{模块树节点全路径}." Confirm upd
 
 **落点**（仅乙式路径）：
 
-- **确认更新**（或同义肯定）→ 记录 `pending_write` 后 PATCH（见下方）。
-- **先不更新** → 逐字回执，**不 PATCH**（**跟随会话语言**二选一，不同时输出）：
+- **确认更新**（或同义肯定）→ 11b-MD：进入其第 5 步（写前比对）；11b-PATCH：记录 `pending_write` 后 PATCH（见下方）。
+- **先不更新** → 逐字回执，**不 PATCH、不写文档**（11b-MD 的 `new.md` 保留，不写入）（**跟随会话语言**二选一，不同时输出）：
   > 好的,先不更新。需求草稿还在,你可以继续改;想好了说一声「保存到 CawPlan」。
   > Okay, not updating for now. The requirement draft is still here — keep editing, and just say "save to CawPlan" when you're ready.
 
-**跳过乙式确认闸**（`location_confirmed = true`）— 直接记录 `pending_write` 后 PATCH。
+**跳过乙式确认闸**（`location_confirmed = true`，仅 11b-PATCH 可能出现）— 直接记录 `pending_write` 后 PATCH。
 
 Wait for SQA confirmation **only on the 乙式 path**. On the skip path, **do not wait** — PATCH immediately after Gate/Table routing.
+
+##### 11b-MD. Edit the requirement Markdown (full-text overwrite)
+
+The server stores the requirement content as one free-form Markdown document, and a write **replaces the whole document**. So: read the real text → change **only** what SQA asked → show the diff → confirm → write → verify. Never retype the whole document in the conversation — read and write through **files**.
+
+**Target — exactly one document**: the bound Requirement's own `knowledge_document` (`dataset_id` + `id`, step 10 **Store**). If it is not stored yet (e.g. right after a create), run `requirements get <product_id> <bound_requirement_id>` first and take it from that response. Never search documents by name; never use the `data.document.id` of a write response; no `cawplan api`.
+
+Shell variables do **not** survive between Bash calls. Create the temp directory once, **write its absolute path down**, and spell that absolute path in every later command (below `$D` stands for it). Keep it until the session ends — `orig.md` is the rollback source.
+
+```bash
+D="$(cawplan session temp-dir)/req-md-<display_id>-$(date +%s)"; mkdir -p "$D"
+cawplan knowledge documents get --dataset <ds> --document <doc> --refresh --no-interactive --output "$D/orig.md"
+cp "$D/orig.md" "$D/new.md"
+#   …edit new.md only…
+diff -u "$D/orig.md" "$D/new.md"
+#   …after SQA confirms…
+cawplan knowledge documents get --dataset <ds> --document <doc> --refresh --no-interactive --output "$D/pre.md"
+cmp "$D/orig.md" "$D/pre.md"
+cawplan knowledge documents update --dataset <ds> --document <doc> --text-file "$D/new.md"
+cawplan knowledge documents get --dataset <ds> --document <doc> --refresh --no-interactive --output "$D/verify.md"
+cmp "$D/new.md" "$D/verify.md"
+```
+
+Spell `--dataset <ds> --document <doc>` out in full in every command (or keep them in two separate variables). Never pack several options into one variable and expand it as `$A`: zsh does not word-split, so the CLI fails with `required option '--dataset' not specified` and nothing runs.
+
+`--refresh` is mandatory on every read (the CLI caches document content for 12 h and a write does not clear it). `--no-interactive` only keeps a real terminal from opening a menu. Do **not** pass `--name`, and use `--text-file` only (never `--file`).
+
+1. **Read.** Run the first `documents get` into `orig.md`. Stdout is `{code, data:{output_path, length}}`; check, in order:
+   - `knowledge_document` missing or empty → output the **统一提示** (`output-confirmation.md`「需求文档更新」) and stop; do not write.
+   - `code` is not `SUCCESS`, or stdout is not the `output_path` form (a wrong `document_id` returns `code: "SUCCESS"` with `data.status: "not_found"` and no content — that is this case) → output the 统一提示 plus the command's `msg`; stop. The file was **not** written — never use an older file in its place.
+   - `length` is 0, or `grep -q '[^[:space:]]' "$D/orig.md"` finds nothing → say the requirement document is empty and stop; do **not** re-analyse the requirement and write it back.
+   - Otherwise treat the file as the requirement Markdown. Read it by meaning — do not assume any fixed headings or sections. Then `cp` to `new.md`.
+2. **Edit** `new.md` only, with **local replacements**: change the original sentence to the new one; put added content in the semantically closest section. **Before replacing, confirm the original sentence occurs exactly once in `orig.md`** (zero or several matches → do not edit; ask SQA which one). Forbidden: rewriting the whole document, reordering sections, changing headings, translating, normalising wording, adding inference markers. Unsure which section something belongs in → ask SQA, do not guess.
+3. **Show.** The `diff -u` output is "what changes". No difference → tell SQA nothing changes and **do not write**. `new.md` empty, or much shorter than `orig.md` without SQA asking to delete → stop and confirm with SQA; do not write.
+4. **Confirm** with the shared 乙式确认闸 above (diff above the box).
+5. **Pre-write comparison.** Read again into `pre.md` and `cmp` it with `orig.md`.
+   - Identical → continue.
+   - Different → **do not write**. Tell SQA the document was changed by someone else while confirming; go back to step 1 on the new content and redo the same edit there. The old `new.md` is void — never merge it with the new content and write.
+   - The read fails → 统一提示 and stop.
+   This only narrows the race to the instant between compare and write; it is **not** a lock, and that residual window is accepted.
+6. **Write.** `documents update --text-file "$D/new.md"` (no `name`). Success = stdout `code == "SUCCESS"`; failure = `{code, data:null, msg}` + exit 1 — report the `msg` truthfully.
+7. **Verify by read-back** — after **every** write attempt (success, failure, or no response): read into `verify.md` and `cmp` it with `new.md`.
+   - Identical → the write landed → success receipt (`output-confirmation.md`「需求文档更新」).
+   - Write failed with `DIFY_ERROR` / `Document is not available` → the previous write is still being processed (large documents take longer): **wait ~5 s and retry the same `new.md`, up to 3 times** before reading back; this wait is not the "retry once" below.
+   - Different, or the write errored → retry **once** with the **same** `new.md` (no pre-write comparison before the retry), then read back again. Still different → failure receipt with the temp directory path. A full overwrite is idempotent, so the retry is safe; no `pending_write` / reconcile is involved.
+8. **Rollback** ("撤销刚才的修改"): first compare a fresh read (`pre.md`) with the **last written `new.md`**; different → stop and tell SQA someone changed it since. Identical → `documents update --text-file "$D/orig.md"`, then read-back verify as in step 7.
+9. **Success = `outcome: SUCCESS`** for the cross-skill relay: nothing extra to do — a relay only starts from an unsaved draft (a create), so it is never triggered from this route.
+
+Same request also changes `summary` / `ticket_id` → finish 11b-MD (including verification) first, then run 11b-PATCH as a separate call.
+
+##### 11b-PATCH. Update `summary` / `ticket_id`
 
 **After confirmation or skip** — record `pending_write` (operation `PATCH`, `target_requirement_id`) then call:
 
 ```bash
 cawplan qa-insights requirements update <product_id> <bound_requirement_id> \
-  --desired '<五字段 + summary + ticket_id 的期望状态 JSON>' \
-  --snapshot '<five_field_snapshot + summary_snapshot + ticket_id_snapshot 原样 JSON>'
+  --desired '<summary 与/或 ticket_id 的期望状态 JSON，不含五字段键>' \
+  --snapshot '<summary_snapshot + ticket_id_snapshot 原样 JSON>'
 ```
 
-Pass **complete** states, not a hand-computed diff — the command works out which keys changed and PATCHes only those. (`--desired-file` / `--snapshot-file` accept the same content from files when the JSON is long.) Include `ticket_id` in both objects when comparing or changing the ticket link (display_id, or `null` to clear); reconcile strong match still uses **five fields only**. The CLI adds `is_ai_generated: true` to every non-empty PATCH body — do not put it in `--desired` / `--snapshot`.
+Pass **complete** states, not a hand-computed diff — the command works out which keys changed and PATCHes only those. (`--desired-file` / `--snapshot-file` accept the same content from files when the JSON is long.) Include `ticket_id` in both objects when comparing or changing the ticket link (display_id, or `null` to clear). The CLI adds `is_ai_generated: true` to every non-empty PATCH body — do not put it in `--desired` / `--snapshot`.
 
-**`--snapshot` must be the values last written to CawPlan** — i.e. `five_field_snapshot` + `summary_snapshot` + `ticket_id_snapshot` from step 10, verbatim. Not the current draft (that yields `NOOP` and silently drops the edit), and not a fresh `GET` (that re-sends someone else's concurrent edit as if it were yours). Neither mistake raises an error.
+**`--snapshot` must be the values last written to CawPlan** — i.e. `summary_snapshot` + `ticket_id_snapshot` from step 10, verbatim. Not a value you made up for the edit (that yields `NOOP` and silently drops it), and not a fresh `GET` taken to "compare" (that re-sends someone else's concurrent edit as if it were yours). Neither mistake raises an error.
 
 Record returned `patch_body` keys internally (session / retry); **do not** print a changed-field list to SQA.
 
@@ -292,6 +350,8 @@ Every `cawplan qa-insights` command prints one JSON object. **Branch on the `out
 | `RECONCILED` | **Nothing was written** — reconcile found the earlier write had already landed | → **Table A** (`strong_match_single` / `patch_already_applied`) |
 | `FAILURE` | Definitively failed; nothing was written | Report `error.message` honestly. Fix and **retry the same operation** — no reconcile needed |
 | `UNKNOWN` | **The result is genuinely unknown** — the write may or may not have landed | Set `write_outcome = UNKNOWN`; keep `pending_write`; **never re-run the write**; → step **10b** reconcile. Never report this as success |
+
+`cawplan knowledge ...` commands (used by 11b-MD) have **no `outcome` envelope**: success is `code == "SUCCESS"` on stdout; a failure prints `{code, data: null, msg}` and exits 1. Judge them by `code` **and** by the read-back comparison in 11b-MD, never by exit code alone.
 
 `error.type` refines a `FAILURE`: `validation` (bad body — fix it), `not_found` (target gone), `auth` / `feature_disabled` (permissions), `api` (server-side business error).
 

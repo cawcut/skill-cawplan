@@ -25,7 +25,7 @@ cawplan skill check
 **上下文判定**：模型**无法可靠感知**静默裁剪。凡跨**用户消息**（新 invoke）且将进入 P4 / P1b / P2′ / P5 / P6，**一律 presume 所需 reference 不在上下文**，须 Read；**禁止**凭「本会话 earlier 读过」免读。
 **唯一可免读**：本 agent **同一响应内**刚通过 Read 工具载入该文件全文，且尚未结束该响应。
 **拿不准**是否仍在上下文 → 按**不在**处理，Read。
-行为上 step 6 **始终** Re-run steps 3–5（422 行）；免读只省 Read 工具，**不省**重跑行为。
+行为上 step 6（**仅未绑定草稿**）**始终** Re-run steps 3–5（422 行）；免读只省 Read 工具，**不省**重跑行为。已绑定（有 `bound_requirement_id`）的修改不走 step 6，见 P1b。
 
 **禁止**在判定工作路径之前批量读取 `references/`。
 
@@ -39,11 +39,11 @@ cawplan skill check
 |------|------|----------------------------------------------------------------|
 | **P0 · 零素材早停** | step 1 判定无任一素材 | **不读**；`stop` |
 | **P1 · 冷交接（仅载入）** | 延续已归档，本条不改字段 | `workflow-archive.md` |
-| **P1b · 冷交接后编辑** | P1 后 SQA 改字段 | analysis + rules + revise + Output；重跑 3–5 |
+| **P1b · 已绑定后编辑**（冷交接绑定后，或 create 成功后） | 有 `bound_requirement_id`，SQA 改需求内容 / 摘要 / 工单 | archive + rules + confirmation；需求内容走 11b-MD，摘要/工单走 11b-PATCH；**不**重跑 3–5 |
 | **P2 · 接力直归档** | `resume_intent`，本条不改草稿 | save + archive + rules + confirmation |
 | **P2′ · 接力后改草稿** | `resume_intent` + 改字段 | 同 **P4**（新 invoke **必读** analysis + rules） |
 | **P3 · 新分析** | 有素材、非冷交接 | step1-material → analysis → rules → Output |
-| **P4 · 修订** | 改字段/摘要，未触发保存闸 | **新 invoke 必读** analysis + rules + revise + Output；同响应内可免重复 Read |
+| **P4 · 修订** | 未绑定草稿：改字段/摘要，未触发保存闸 | **新 invoke 必读** analysis + rules + revise + Output；同响应内可免重复 Read |
 | **P5 · 保存** | 保存意图闸 / `resume_intent` | save + archive + rules + confirmation |
 | **P6 · UNKNOWN** | `pending_write` / UNKNOWN | archive + rules + confirmation；**始终 Read** |
 
@@ -60,7 +60,7 @@ cawplan skill check
 
 **入口路由前置检查（先判此项，再收素材）** — SQA 的意图是**延续 / 修改一条已归档的 Requirement**（给出 requirement `id`、`REQ-` display ID、Requirement 链接，或说「接着上次那条改」）？
 
-- **是** → 走 step 10 **Cold handoff** 载入服务端五字段作为草稿基线，**不要从头重分析**。理由：归档比对（`reconcile` strong match 与 `requirements update` 的 snapshot diff）是 **trim 后逐字节精确比对**，从头重分析必然产生措辞漂移，会让 reconcile 误判 `no_match`（重复建单风险）或 PATCH 误报变更键。
+- **是** → 走 step 10 **Cold handoff** 只做绑定（不载入五字段草稿），**不要从头重分析**。理由：需求内容以服务端的需求 Markdown 为准，修改是**全文覆盖**，从头重分析会丢掉用户在 Markdown 里手改的内容；修改走 `workflow-archive.md` 的 11b-MD。
 - **否**（新需求分析）→ 继续本步收集素材。
 
 裸 `REQ-` + 数字及 `/browse/product/{product_key}/qa/requirement/{display_id}` 是已归档 Requirement 引用，优先走 Cold handoff；不要把它当成 step 1 的 Ticket display ID。其他前缀的工单号仍按 Ticket material 处理。
@@ -103,9 +103,9 @@ Before step N: on each new user message, read `references/<file>.md` unless you 
 | Step | 摘要 | Read hook |
 |------|------|-----------|
 | 1（有素材） | 收素材 | 新 invoke：read `references/workflow-step1-material.md` |
-| 1 冷交接 | 载入已归档 | 新 invoke：read `references/workflow-archive.md`；随后编辑 → P1b |
+| 1 冷交接 | 绑定已归档（不载入草稿） | 新 invoke：read `references/workflow-archive.md`；随后编辑 → P1b |
 | 2–5b | 出稿管线 | 新 invoke：read `references/workflow-analysis.md` + `references/rules-global.md` |
-| 6 | 修订 | **Re-run 3–5 必选**。新 invoke：read analysis + rules + revise |
+| 6 | 修订（仅未绑定草稿；已绑定走 11b） | **Re-run 3–5 必选**。新 invoke：read analysis + rules + revise |
 | 7–8 | 保存准备 | 新 invoke：read `references/workflow-save.md` |
 | 10–11 | 绑定/归档 | 新 invoke：read `references/workflow-archive.md`；P6 **始终 read** |
 | 输出 | 呈现格式 | 新 invoke：read `references/output-confirmation.md` 对应节 |
@@ -140,6 +140,11 @@ Detail: `references/workflow-analysis.md` — Tag sources (step 2), five-field d
 Before analysis Output: on each new user message, read `references/output-confirmation.md` (Output section) unless you loaded it via Read in this same agent response already. **Mandatory** — call the Read tool on this file before emitting any Output text; a similar-looking format seen elsewhere (e.g. `workflow-analysis.md`) does **not** substitute for this Read.
 
 ### 6. Revise from SQA feedback
+
+**先判会话有没有 `bound_requirement_id`**：
+
+- **已绑定** → **跳过 steps 3–5b**，走 `references/workflow-archive.md` 的 **11b-MD**（改需求内容）/ **11b-PATCH**（改 `summary` / `ticket_id`）；读 archive + rules + confirmation，不读 analysis。
+- **未绑定**（新需求、接力入站的未保存草稿）→ 现有五字段草稿路径，不变：
 
 Before step 6: on each new user message, read `references/workflow-analysis.md`, `references/rules-global.md`, and `references/workflow-revise.md` unless you loaded them via Read in this same agent response already; then apply step 6 rules. **Re-run steps 3–5 + step 5b tail** after each revision round.
 
@@ -183,7 +188,7 @@ Before archive Confirmation: on each new user message, read `references/output-c
   - **出站**：归档或更新 `outcome: SUCCESS` 后，若会话存在 `resume_intent`（`testpoint` | `testcase`），回写 `product_id` + `requirement_id`（= `bound_requirement_id`），**读取并清除** `resume_intent`，回到发起方 skill 从其 **§2 refresh** 续跑；**不追加** §6 测试点引导（已自动回流）；不停在本 skill 等下一条指令。
   - **归档后测试点引导**：§6 成功回执末尾可选追加一句（见 `output-confirmation.md` §6 末尾引导）；用户回「马上生成测试点」→ 读 `cawplan-testpoint-generate` skill（P2 热交接）；不接茬则不重复提示。
   - §8 选位置确认后（`location_confirmed`）→ step 11 **跳过**乙式保存/更新确认，直接写入；§8 被跳过的路径（接力已带节点、冷交接未重选位置）→ **保留** step 11 乙式确认闸。
-> **入站「跳过 step 1–6」的范围**：仅指接力入站后**首轮自动路由**至 step 7 / step 11（保存），**不是**禁止 step 6。若 SQA 在保存确认前提出五字段/摘要/存疑修改 → 仍走 **step 6（P2′ / P1b）**，`Re-run steps 3–5`；**不是**从素材重分析（对照 step 1 第 27 行、Rules 920「不得从头重分析」）。
+> **入站「跳过 step 1–6」的范围**：仅指接力入站后**首轮自动路由**至 step 7 / step 11（保存），**不是**禁止 step 6。若 SQA 在保存确认前（**未绑定草稿**）提出五字段/摘要/存疑修改 → 仍走 **step 6（P2′）**，`Re-run steps 3–5`；**不是**从素材重分析（对照 step 1 第 27 行、Rules 920「不得从头重分析」）。
 
 ## References
 

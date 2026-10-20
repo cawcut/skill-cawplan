@@ -11,7 +11,7 @@ allowed-tools: Bash
 
 # CawPlan TestCase Generate
 
-跟随用户主语言回复；同一段不同时输出中英文。用例内容本身跟测试点/五字段语言走。
+跟随用户主语言回复；同一段不同时输出中英文。用例内容本身跟测试点/需求 Markdown 语言走。
 
 ## Bootstrap
 
@@ -21,7 +21,7 @@ cawplan skill check
 
 ## 最高优先级：源值保真
 
-- Title / Preconditions / Step / Expected 中的具体文案、错误码、阈值、次数、长度和枚举只能来自测试点或五字段。
+- Title / Preconditions / Step / Expected 中的具体文案、错误码、阈值、次数、长度和枚举只能来自测试点或需求 Markdown。
 - 源里逐字给出则原样带入 Title / Expected，不抽象、不意译、不挂诚实尾巴；源里没有则使用方向描述或写作规范定义的固定尾巴，不编硬值。
 - 详细判定和固定尾巴见 `references/testcase-writing-spec.md`；设计方法不得越过本规则。
 
@@ -119,24 +119,30 @@ cawplan qa-insights requirements resolve '<display_id_or_browse_url>'
 
 静默取得本次最新 Requirement 数据，并统一记为 `requirement_data`：
 
-- 本次刚成功执行 `requirements resolve`：直接使用该命令的 `data`；它与 `requirements get` 返回相同的 Requirement 五字段结构。本次不得再调用 `requirements get`。
+- 本次刚成功执行 `requirements resolve`：直接使用该命令的 `data`；它与 `requirements get` 返回相同的 Requirement 结构。本次不得再调用 `requirements get`。
 - 合法 `product_id + requirement_id`、旧 Portal URL、热接力或跨 Skill 恢复：执行：
 
 ```bash
 cawplan qa-insights requirements get <product_id> <requirement_id>
 ```
 
-以上两条路径取得 `requirement_data` 后，都必须执行：
+以上两条路径取得 `requirement_data` 后，`requirement_data` 只作元数据（`summary`、`module_tree_node_id`、`knowledge_document`、`redirect_url` 等）；需求正文来自需求 Markdown，必须依次执行：
 
 ```bash
+cawplan knowledge documents get --dataset <dataset_id> --document <document_id> --refresh --no-interactive
 cawplan qa-insights testpoints list <product_id> <requirement_id>
 ```
 
-- Requirement 数据源 `SUCCESS`：统一使用 `requirement_data` 中五字段、`module_tree_node_id` 和 metadata。
+`<dataset_id>` / `<document_id>` 取自 `requirement_data.knowledge_document` 的 `dataset_id` / `id`。必须带 `--refresh`（本地缓存 12 小时，写入后不会失效）。返回的 `data.content` 即需求 Markdown，记为 `requirement_md`：按语义阅读，**不假定标题或章节**；需求名取 `summary`，不用 `data.name`；**不以 `knowledge_document.status` 做门禁**。
+
+- Requirement 数据源 `SUCCESS` 且 `requirement_md` 取到：统一使用 `requirement_md`，以及 `requirement_data` 中的 `module_tree_node_id`、`summary` 和 metadata。
+- `knowledge_document` 缺失或为空：输出**统一提示**并停止：`需求文档暂未就绪。新建需求可能需要稍等片刻；历史需求若长期为空，可能未关联文档。请稍后重试。` / `The requirement document isn't ready yet. A newly created requirement may need a moment; for an older requirement that stays empty, no document may be linked. Please try again later.`（**跟随会话语言**二选一）；不获取 TestPoints、不生成 Case。
+- `documents get` 非 `SUCCESS`，或响应没有 `data.content`（含 `code:"SUCCESS"` 但 `data.status:"not_found"` 的情形）：同上统一提示，并附命令返回的 `msg`；停止；不使用旧数据。不等待重试。
+- `data.content` 为空或只有空白：报“需求文档为空” / "The requirement document is empty"（**跟随会话语言**二选一）并停止。
 - TestPoints `SUCCESS`：按 `data.test_points[].sort_order` 使用；映射 `id` → TestPointId、`title` → TestPointTitle、`tags[]` → `/` 拼接 Tag、`group` → Group。
 - 404 / `not_found`：如实报告，不使用陈旧会话数据。
 - `FAILURE` 或 `UNKNOWN`：如实报告；不假成功、盲重试或猜测。
-- 五字段尤其 `constraints` 与测试点创建时相比发生变化：展开前输出一条轻量存疑，不静默忽略。
+- 需求内容与测试点明显不一致：展开前输出一条轻量存疑，不静默忽略。
 
 display-id fast-path 只消除同一次请求里紧邻 resolver 的重复 GET，不建立跨回合缓存。后续新的热接力回合或 A2 完成后的恢复仍按上面的非 fast-path 执行 `requirements get`，再刷新 TestPoints。
 
@@ -145,7 +151,7 @@ display-id fast-path 只消除同一次请求里紧邻 resolver 的重复 GET，
 刷新后 `test_points.length === 0` 时不得创造 Case，读取交互文案 Reference 并渲染框 2；该分支与未归档框 3 互斥。
 
 - “马上生成测试点” → 写 `resume_intent = testcase`，读取 `cawplan-testpoint-generate`；归档成功后回 §2。
-- “先看看需求内容” → 展示 §2 已拉取的五字段，再等决定。
+- “先看看需求内容” → 展示 §2 已拉取的 `requirement_md`（过长时按标题分段展示），再等决定。
 - Other / 自由回复 → 按说明处理或复述。
 
 ### 4. Build and expand `cases[]`
@@ -219,7 +225,7 @@ Partial 的 `batchCount` 是本次点名数；Full 是当前尚未展开数，�
 - 父测试点列显示 ID、为空，或 Group 首行写“同上/同第 N 条” → 直接用该 Case 的完整 `testPointTitle` 硬修。
 - `steps` / `expected` 不等长或有空元素 → 按写作规范硬修；若源不足以可靠配对则停下并请 SQA 修正。
 - 标题丢失源逐字值或错挂诚实尾巴 → 硬修 `cases[].title`。展开态 Expected 疑似未保留源值时只标 `⚠源已有文案未保留`，不自动覆写；长源句只保留与该步相关片段可能合法。
-- 父测试点或五字段明确要求覆盖多个离散值/类别，却被“分别/各/与所选一致”等概括为一条 Case → 按写作规范逐项拆开后再渲染；源只给示例或无法判定是否要求逐项时不擅自扩展。
+- 父测试点或需求 Markdown 明确要求覆盖多个离散值/类别，却被“分别/各/与所选一致”等概括为一条 Case → 按写作规范逐项拆开后再渲染；源只给示例或无法判定是否要求逐项时不擅自扩展。
 
 其余软提示：错误“同上”引用标 `⚠同上引用错误`；Step 混入验证动词标 `⚠疑似预期混入步骤`；Expected 使用疑似无来源具体值标 `⚠具体值待核`。父标题只有疑似多取值信号但无法确认是否为必测离散清单时，回写作规范复核并可标 `⚠疑似未展开取值清单`；`Config/Idea/Storyboard` 等流程阶段名不因此误拆。
 
@@ -260,7 +266,7 @@ Priority 按写作规范推 P0–P3。
 
 #### 进场静默
 
-从解析并读取 Requirement、刷新 TestPoints 到首次标题清单前，不输出内部过程或 ID。缺 `product_id`、404/读取失败、框 1/2/3 硬停和五字段漂移存疑除外。
+从解析并读取 Requirement、刷新 TestPoints 到首次标题清单前，不输出内部过程或 ID。缺 `product_id`、404/读取失败、框 1/2/3 硬停和需求内容不一致存疑除外。
 
 成功进入标题首轮时，第一条可见输出逐字使用以下一种，`{N}` 为 TestPoint 数量，不插入 Requirement 显示标题：
 
@@ -286,7 +292,7 @@ Hints（按会话语言二选一）：
 
 ## Session state
 
-- Binding：`product_id`、`requirement_id`、`requirement_data` 中的最新五字段与 `module_tree_node_id`、GET 得到的 TestPoints。
+- Binding：`product_id`、`requirement_id`、`requirement_md`（本次读取）与 `requirement_data` 中的 `module_tree_node_id`、`summary`、GET 得到的 TestPoints。
 - Draft：内存 `cases[]`。Partial 回合只渲染本次点名行，可附“已展开: #1,#3”；之前展开内容继续保留。
 - 无磁盘状态：不建 `.memory` 或跨会话缓存；interim JSON 只在导出瞬间存在于 `/tmp/`，随后删除。
 - v1 不支持离线 CSV 编辑回传，无 `is_edited`；A3 不 POST/PATCH CawPlan。
