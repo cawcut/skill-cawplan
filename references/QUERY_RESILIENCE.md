@@ -27,11 +27,14 @@ Counting and change-history work runs on the CawPlan backend. The CLI only maps 
   or less.
 - Each event already carries `at`, `actor`, `old`/`new` and, for status, `old_category` /
   `new_category`. You do not need `product-lines statuses` to classify a status change.
-- `old` is `null` when the record kept only the new value, which is common: most CawPlan edits
-  record only the new status. Treat that event as "changed to `new`". To find transitions
-  (for example a reopen out of `COMPLETE`), walk each ticket's events oldest first and use the
-  preceding event's `new` / `new_category` as the previous value; do not rely on server-side
-  `--old_status_categories` alone, which only matches events that recorded `old`.
+- CawPlan edits record both `old` and `new`. `old` can be missing only on older records or on
+  some Jira / Zendesk / Slack sync events; the server then fills it with the `new` value of the
+  ticket's preceding change of the same field (even one before the window) and marks it
+  `old_source: previous_change` (`recorded` when it was stored on the change itself). `old` stays
+  `null` only when no earlier change exists; treat that event as "changed to `new`".
+- Find transitions server-side with the category filters, for example a reopen out of a terminal
+  status: `--old_status_categories COMPLETE,CANCELED --new_status_categories
+  BACKLOG,UNSTARTED,STARTED,TESTING`.
 - Without `--group_by`, the CLI follows the cursor for up to 20 pages. If the result has
   `truncated: true`, either narrow the scope/window or continue with `--cursor <next_cursor>`.
   Never present a truncated result as complete.
