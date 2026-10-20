@@ -175,6 +175,25 @@
     - Response items are lightweight: `unique_id`, `display_id`, `status`, `priority`, `type`, `version_id`, `product_id`, `product_line_id`, `parent_id`, `assignees`, `updated_at`, `is_backlog`. For full detail call Get Version Ticket.
 - Maps to cawplan CLI: `cawplan tickets poll`.
 
+### Ticket Stats (server-side counts)
+- Endpoint: `POST /api/v1/public/openapi/tickets/stats`
+- Query params and body filters: identical to Search Tickets (`time_range`, `start_date`/`end_date` on `created_at` with the same default one-month window and the same exemptions, `updated_start_date`/`updated_end_date`, and every `SearchVersionTicketsRequest` filter), plus required body `group_by[]`.
+- `group_by` (1–2 of): `priority`, `status`, `status_category`, `ux`, `assignee`, `label`, `type`, `product`, `version`, `platform`.
+- Response: `data.total` (distinct matching tickets), `data.groups[]` with `values[]` (`dimension`, `value`, `display_name`) and `count`. A ticket with several assignees or labels counts once in each of those groups; tickets with none fall in a group whose `value` is `null`.
+- Use it instead of paging `tickets search` and counting client-side for "how many High/Critical are open", "how many per status / per assignee".
+- Maps to cawplan CLI: `cawplan tickets stats --group_by <dims> [search filters]`. The CLI only maps flags; it never counts.
+
+### Ticket Changes (bulk field-change events)
+- Endpoint: `POST /api/v1/public/openapi/tickets/changes`
+- Query params: `start_date`, `end_date` (YYYY-MM-DD, inclusive, **required**, window at most 90 days), `page_size` (default 200, max 1000), `cursor` (opaque, from `next_cursor`).
+- Body: ticket scope (at least one of `product_ids`, `product_line_ids`, `version_ids`, `parent_ids`, `unique_ids`); `fields[]` (`status` default, `ux`, `priority`, `assignees`); `actor_ids[]`; `new_status_categories[]` / `old_status_categories[]`; optional `group_by[]` (1–2 of `actor`, `field`, `new_status_category`, `new_value`, `ticket`).
+- Sources: the same as Get Version Ticket History — CawPlan edits plus Jira / Zendesk / Slack sync activities attached to the ticket (Jira history shared through a sibling ticket that links the same Jira issue is not included). Soft-deleted tickets are excluded.
+- Response without `group_by`: `data.events[]` oldest first (`event_id`, `ticket_id`, `display_id`, `product_id`, `version_id`, `parent_id`, `field`, `old`, `new`, `old_category`, `new_category`, `actor{user_id, display_name}`, `source`, `source_id`, `at`), `data.tickets{unique_id → display_id, description, priority, status, status_category, ux, assignee_ids, labels, product_id, version_id, version_name, parent_id}`, `data.next_cursor`. `old` is `null` when the record only kept the new value; `old_category`/`new_category` are set for `status` only.
+- Response with `group_by`: `data.groups[]` (`values[]`, `count`, `ticket_count`), `data.total_events`, `data.truncated` (scan limit reached). No paging.
+- Use it instead of one `tickets history` call per ticket for completion, QA verification, reopen and UX-ready statistics.
+- Maps to cawplan CLI: `cawplan tickets changes --start_date <d> --end_date <d> --product_ids <id> [--fields ...] [--actor_ids ...] [--new_status_categories ...] [--group_by ...]`. Without `--group_by` the CLI follows `next_cursor` for up to 20 pages and merges `events`/`tickets`; if pages remain it returns `truncated: true` and `next_cursor` (resume with `--cursor`). The CLI does no counting or filtering of its own.
+- Before the backend ships these routes, both commands return a non-`SUCCESS` envelope (for example `OPENAPI_RBAC_SPEC_REQUIRED`); callers fall back to `tickets search` / `tickets history`.
+
 ### Get Version Ticket
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}`
 - Returns the same `VersionTicket` shape as the internal API minus per-user `permissions`.

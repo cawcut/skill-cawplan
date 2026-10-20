@@ -20,6 +20,19 @@ import { uploadTicketAttachmentFiles } from "../lib/ticket-attachment-upload.js"
 import { REPORT_FIELDS, REPORT_MODES, type ReportField, type ReportMode } from "../lib/ticket-html-report.js";
 import { addTicketAttachments } from "../lib/ticket-attachment-add.js";
 import type { ContentSource } from "../lib/ticket-attachment-source.js";
+import {
+  TICKET_CHANGE_FIELDS,
+  TICKET_CHANGE_GROUP_DIMENSIONS,
+  TICKET_FILTER_QUERY_KEYS,
+  TICKET_STATS_DIMENSIONS,
+  buildTicketChangesRequest,
+  buildTicketFilterBody,
+  buildTicketFilterQuery,
+  buildTicketStatsRequest,
+  fetchTicketChanges,
+  requestTicketStats,
+  validateTicketFilterWindow,
+} from "../lib/ticket-insights.js";
 
 export interface GetVersionTicketOptions {
   /** CSV sparse fieldset; omit for full enrich (labels, children, relations, …). */
@@ -271,6 +284,34 @@ function parsePositiveInt(value: string, flag: string): number {
   return n;
 }
 
+/** Filter options shared by `tickets search` and `tickets stats`. */
+function addTicketFilterOptions(command: Command): Command {
+  return command
+    .option("--time_range <range>", "Time range (e.g. 1m, 3m)")
+    .option("--start_date <date>", "Start date YYYY-MM-DD (filters ticket creation time, not last-updated)")
+    .option("--end_date <date>", "End date YYYY-MM-DD (filters ticket creation time, not last-updated)")
+    .option("--updated_start_date <date>", "Start date YYYY-MM-DD for an independent filter on last-updated time; finds tickets changed in this window regardless of when created")
+    .option("--updated_end_date <date>", "End date YYYY-MM-DD for the last-updated filter; must be paired with --updated_start_date")
+    .option("--product_ids <csv>", "Product IDs")
+    .option("--product_line_ids <csv>", "Product line IDs")
+    .option("--version_ids <csv>", "Version IDs")
+    .option("--unique_ids <csv>", "Ticket unique IDs")
+    .option("--display_ids <csv>", "Ticket display IDs")
+    .option("--parent_ids <csv>", "Parent ticket IDs")
+    .option("--type <csv>", "Deprecated legacy ticket types; prefer --label_ids or --label_names")
+    .option("--label_ids <csv>", "Label IDs")
+    .option("--label_names <csv>", "Label names")
+    .option("--status <csv>", "Ticket statuses")
+    .option("--excluded_status <csv>", "Statuses to exclude")
+    .option("--ux <csv>", "UX states: NOT_REQUIRED|PENDING|READY")
+    .option("--status_categories <csv>", "Status categories: BACKLOG|UNSTARTED|STARTED|TESTING|COMPLETE|CANCELED|JIRA")
+    .option("--excluded_status_categories <csv>", "Status categories to exclude")
+    .option("--priority <csv>", "Priorities")
+    .option("--platform <csv>", "Platforms")
+    .option("--assignees <csv>", "Assignees")
+    .option("--search <q>", "Search query");
+}
+
 export function registerTicketsCommand(program: Command): void {
   const tickets = program.command("tickets").description("Manage tickets");
 
@@ -363,101 +404,21 @@ export function registerTicketsCommand(program: Command): void {
       console.log(JSON.stringify(result, null, 2));
     });
 
-  tickets
-    .command("search")
-    .description("Search tickets")
-    .option("--time_range <range>", "Time range (e.g. 1m, 3m)")
-    .option("--start_date <date>", "Start date YYYY-MM-DD (filters ticket creation time, not last-updated)")
-    .option("--end_date <date>", "End date YYYY-MM-DD (filters ticket creation time, not last-updated)")
-    .option("--updated_start_date <date>", "Start date YYYY-MM-DD for an independent filter on last-updated time; finds tickets changed in this window regardless of when created")
-    .option("--updated_end_date <date>", "End date YYYY-MM-DD for the last-updated filter; must be paired with --updated_start_date")
-    .option("--product_ids <csv>", "Product IDs")
-    .option("--product_line_ids <csv>", "Product line IDs")
-    .option("--version_ids <csv>", "Version IDs")
-    .option("--unique_ids <csv>", "Ticket unique IDs")
-    .option("--display_ids <csv>", "Ticket display IDs")
-    .option("--parent_ids <csv>", "Parent ticket IDs")
-    .option("--type <csv>", "Deprecated legacy ticket types; prefer --label_ids or --label_names")
-    .option("--label_ids <csv>", "Label IDs")
-    .option("--label_names <csv>", "Label names")
-    .option("--status <csv>", "Ticket statuses")
-    .option("--excluded_status <csv>", "Statuses to exclude")
-    .option("--ux <csv>", "UX states: NOT_REQUIRED|PENDING|READY")
-    .option("--status_categories <csv>", "Status categories: BACKLOG|UNSTARTED|STARTED|TESTING|COMPLETE|CANCELED|JIRA")
-    .option("--excluded_status_categories <csv>", "Status categories to exclude")
-    .option("--priority <csv>", "Priorities")
-    .option("--platform <csv>", "Platforms")
-    .option("--assignees <csv>", "Assignees")
-    .option("--search <q>", "Search query")
+  addTicketFilterOptions(tickets.command("search").description("Search tickets"))
     .option("--page_size <n>", "Page size")
     .option("--page_num <n>", "Page number")
     .action(async (opts) => {
-      const uniqueIds = csvToArray(opts.unique_ids);
-      const displayIds = csvToArray(opts.display_ids);
-      const parentIds = csvToArray(opts.parent_ids);
-      const idLookup = Boolean(uniqueIds || displayIds || parentIds);
-
-      if (!idLookup && !opts.time_range && !(opts.start_date && opts.end_date)) {
-        console.error("Error: tickets search requires --time_range or --start_date + --end_date (unless --unique_ids/--display_ids/--parent_ids is set)");
+      const windowError = validateTicketFilterWindow(opts, "tickets search");
+      if (windowError) {
+        console.error(windowError);
         process.exit(1);
       }
 
-      if (opts.updated_end_date && !opts.updated_start_date) {
-        console.error("Error: --updated_end_date requires --updated_start_date");
-        process.exit(1);
-      }
-
-      const flags: Record<string, string> = {};
-      if (opts.time_range) flags.time_range = opts.time_range;
-      if (opts.start_date) flags.start_date = opts.start_date;
-      if (opts.end_date) flags.end_date = opts.end_date;
-      if (opts.updated_start_date) flags.updated_start_date = opts.updated_start_date;
-      if (opts.updated_end_date) flags.updated_end_date = opts.updated_end_date;
+      const flags = buildTicketFilterQuery(opts);
       if (opts.page_size) flags.page_size = opts.page_size;
       if (opts.page_num) flags.page_num = opts.page_num;
-      const query = buildQueryFromFlags(flags, [
-          "time_range",
-          "start_date",
-          "end_date",
-          "updated_start_date",
-          "updated_end_date",
-          "page_size",
-          "page_num"
-      ]);
-
-      const body: Record<string, unknown> = {};
-      const productIds = csvToArray(opts.product_ids);
-      const productLineIds = csvToArray(opts.product_line_ids);
-      const versionIds = csvToArray(opts.version_ids);
-      const type = csvToArray(opts.type);
-      const labelIds = csvToArray(opts.label_ids);
-      const labelNames = csvToArray(opts.label_names);
-      const status = csvToArray(opts.status);
-      const excludedStatus = csvToArray(opts.excluded_status);
-      const ux = csvToArray(opts.ux);
-      const statusCategories = csvToArray(opts.status_categories);
-      const excludedStatusCategories = csvToArray(opts.excluded_status_categories);
-      const priority = csvToArray(opts.priority);
-      const platform = csvToArray(opts.platform);
-      const assignees = csvToArray(opts.assignees);
-      if (productIds) body.product_ids = productIds;
-      if (productLineIds) body.product_line_ids = productLineIds;
-      if (versionIds) body.version_ids = versionIds;
-      if (uniqueIds) body.unique_ids = uniqueIds;
-      if (displayIds) body.display_ids = displayIds;
-      if (parentIds) body.parent_ids = parentIds;
-      if (type) body.type = type;
-      if (labelIds) body.label_ids = labelIds;
-      if (labelNames) body.label_names = labelNames;
-      if (status) body.status = status;
-      if (excludedStatus) body.excluded_status = excludedStatus;
-      if (ux) body.ux = ux;
-      if (statusCategories) body.status_categories = statusCategories;
-      if (excludedStatusCategories) body.excluded_status_categories = excludedStatusCategories;
-      if (priority) body.priority = priority;
-      if (platform) body.platform = platform;
-      if (assignees) body.assignees = assignees;
-      if (opts.search) body.search = opts.search;
+      const query = buildQueryFromFlags(flags, [...TICKET_FILTER_QUERY_KEYS, "page_size", "page_num"]);
+      const body = buildTicketFilterBody(opts);
 
       const result = await cawplanRequest({
         method: "POST",
@@ -465,6 +426,53 @@ export function registerTicketsCommand(program: Command): void {
         query,
         body,
       });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  addTicketFilterOptions(
+    tickets
+      .command("stats")
+      .description(
+        "Count tickets matching the tickets search filters, grouped by one or two dimensions (server-side aggregation)",
+      ),
+  )
+    .option("--group_by <csv>", `Dimensions (max 2): ${TICKET_STATS_DIMENSIONS.join("|")}`)
+    .action(async (opts) => {
+      const { request, error } = buildTicketStatsRequest(opts);
+      if (error || !request) {
+        console.error(error);
+        process.exit(1);
+      }
+      const result = await requestTicketStats(request);
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  tickets
+    .command("changes")
+    .description(
+      "List ticket field-change events (status/ux/priority/assignees) in a date window in bulk, or their server-side group counts",
+    )
+    .option("--start_date <date>", "First day YYYY-MM-DD of the change window (inclusive)")
+    .option("--end_date <date>", "Last day YYYY-MM-DD of the change window (inclusive, window at most 90 days)")
+    .option("--product_ids <csv>", "Product IDs")
+    .option("--product_line_ids <csv>", "Product line IDs")
+    .option("--version_ids <csv>", "Version IDs")
+    .option("--parent_ids <csv>", "Parent ticket IDs")
+    .option("--unique_ids <csv>", "Ticket unique IDs")
+    .option("--fields <csv>", `Changed fields (default status): ${TICKET_CHANGE_FIELDS.join("|")}`)
+    .option("--actor_ids <csv>", "Only changes made by these user IDs")
+    .option("--new_status_categories <csv>", "Only status changes into these categories (e.g. COMPLETE,TESTING)")
+    .option("--old_status_categories <csv>", "Only status changes out of these categories")
+    .option("--group_by <csv>", `Return counts instead of events (max 2): ${TICKET_CHANGE_GROUP_DIMENSIONS.join("|")}`)
+    .option("--page_size <n>", "Events per page (max 1000)")
+    .option("--cursor <cursor>", "Resume from a previous next_cursor")
+    .action(async (opts) => {
+      const { request, error } = buildTicketChangesRequest(opts);
+      if (error || !request) {
+        console.error(error);
+        process.exit(1);
+      }
+      const result = await fetchTicketChanges(request);
       console.log(JSON.stringify(result, null, 2));
     });
 
