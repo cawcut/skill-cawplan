@@ -19,6 +19,11 @@ Counting and change-history work runs on the CawPlan backend. The CLI only maps 
 | Counts of those changes | `cawplan tickets changes ... --group_by actor,new_status_category` | counting events yourself |
 | Ticket rows to display | `cawplan tickets search` (paged), or the `tickets` map returned by `tickets changes` | — |
 
+- When the question only needs counts, call `tickets stats` first. Do not page `tickets search`
+  to count, and do not page it before trying `tickets stats`.
+- `--group_by` values are exact. `tickets stats`: `priority`, `status`, `status_category`, `ux`,
+  `assignee` (singular), `label`, `type`, `product`, `version`, `platform`. `tickets changes`:
+  `actor`, `field`, `new_status_category`, `new_value`, `ticket`.
 - `tickets changes` takes a scope of `--product_ids`, `--product_line_ids`, `--version_ids`,
   `--parent_ids`, or `--unique_ids`. For person-scoped questions ("my tickets", one member),
   get the candidate unique IDs from `tickets search --assignees ...` first, then pass them as
@@ -133,6 +138,11 @@ The answer contains only the result, written for the user in their language.
 - No reasoning, self-checks or plans ("Let me…", "I must…", "Checking…", "Returned 17 total…").
   Work them out silently. When you made a judgment call, give the outcome in one short sentence,
   for example "IH-2977 is CLOSED, so it is counted as done."
+- Show status display names (Done, In Progress, Ready for QA), not status keys (`DONE`,
+  `IN_PROGRESS`).
+- Every count you state equals the number of items you list under it. Take the counts from the
+  final list, after any grouping or deduplication, and recount before answering.
+- Link a ticket as `https://app.cawplan.com/issue/<display_id>`.
 - Describe a failure in product terms and give the next step, for example:
   - "I couldn't finish the full query this time. Here is what I could verify: ... Narrowing it to
     one version will let me complete it."

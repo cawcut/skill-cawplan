@@ -28,6 +28,7 @@ cawplan skill check
 | A product's UX members' UX/design completion | Use `cawplan-ux-tracking` **Workflow D**; it counts `ux → READY` events performed by the product's configured Designers, not reporters or assignees. |
 | A product's QA members' Ticket verification / acceptance status | **D — QA verification activities**; count status-change events performed by that product's configured QA members, not by current Assignee. |
 | A named member, someone other than the caller ("how's Alex doing on...") | **C — Member report** |
+| Counts of tickets in a product, version or Team by status, assignee, priority, label or UX ("当前版本各状态多少条", "每个 Assignee 多少条") | One `cawplan tickets stats --group_by <dim>` call per dimension (see `references/QUERY_RESILIENCE.md` §1), scoped with `--product_ids` or `--version_ids`. Do not page `tickets search` to count. |
 | Reopened tickets in a product, version, Team or member scope over a period ("哪些被 reopen 了") | Use the definition and command in `references/QUERY_RESILIENCE.md` ("Reopens"), scoped with `--product_ids`, `--version_ids`, `--product_line_ids`, or the member's candidate `--unique_ids`. Report every reopen event (ticket, previous → new status, time). Do not limit it to a status named "Reopen". |
 
 If unsure whether a name is a product or a Team, resolve both (`products list --search`, `product-lines list`) and ask if either is ambiguous or both match. A user-supplied Team or product name must match an accessible record exactly (case-insensitively, after trimming whitespace), or be a unique short-form/token-prefix match. If it does not match uniquely, list the available or search-returned candidates and ask which Team/product they mean; never substitute a similarly named product or Team. If the user asks about their *own* task completion ("my tasks"), that's `cawplan-my-work`, not this skill.
@@ -272,7 +273,13 @@ Same ticket-change approach as Workflow B, scoped to one person instead of a who
    ```bash
    cawplan tickets search --assignees <user_id> --start_date 2000-01-01 --end_date <today> --updated_start_date <window_start> --updated_end_date <today> --page_size 100 --page_num 1
    ```
-   If the user also scoped to a product/version, add `--product_ids <id>` / `--version_ids <id>` (resolve the same way as Workflow A step 1). Apply the same `--updated_start_date`/`--updated_end_date`-over-`--start_date`/`--end_date` rule, widened-end-date, date-computation, and pagination rules as Workflow B step 2 — a ticket assigned to this member long ago but only completed inside the window must not be missed just because it wasn't *created* inside it. Then apply **Workflow B step 2a** (history-verified completion window) to this candidate set before reporting completion counts — the `updated_at`-is-not-"completed at" issue applies identically to a single member's tickets. Scope the bulk call to this member's candidates with `--unique_ids <candidate_ids_csv>` (at most 50 IDs per call) instead of `--product_line_ids`.
+   If the user also scoped to a product/version, add `--product_ids <id>` / `--version_ids <id>` (resolve the same way as Workflow A step 1). Apply the same `--updated_start_date`/`--updated_end_date`-over-`--start_date`/`--end_date` rule, widened-end-date, date-computation, and pagination rules as Workflow B step 2 — a ticket assigned to this member long ago but only completed inside the window must not be missed just because it wasn't *created* inside it.
+
+3. Verify the status changes with one bulk call per 50 candidates, as in **Workflow B step 2a** — the `updated_at`-is-not-"completed at" issue applies identically to a single member's tickets:
+   ```bash
+   cawplan tickets changes --unique_ids <candidate_ids_csv> --fields status --start_date <window_start> --end_date <window_end>
+   ```
+   Do not call `tickets history` per candidate. Use it only under Workflow B step 2a's fallback, when `tickets changes` itself fails (`references/QUERY_RESILIENCE.md`).
 
 ## Output
 
