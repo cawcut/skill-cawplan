@@ -19,7 +19,7 @@ cawplan skill check
 
 ## Important ticket-query rules
 
-`cawplan tickets search` **requires** `--time_range` or `--start_date`+`--end_date` unless doing an exact `--unique_ids`/`--display_ids`/`--parent_ids` lookup. Release tracking needs tickets regardless of age, so every version-wide search in this skill uses `--start_date 2000-01-01 --end_date <today>` and pages to `total`. In the hosted agent each page is its own tool call (no shell loops or `jq`) and a turn has roughly 16 calls; use `--page_size 100`. Reuse product/version IDs resolved earlier in the conversation for follow-ups, never pass a name as an ID, and report partial results honestly — see `references/QUERY_RESILIENCE.md`.
+`cawplan tickets search` **requires** `--time_range` or `--start_date`+`--end_date` unless doing an exact `--unique_ids`/`--display_ids`/`--parent_ids` lookup. Release tracking needs tickets regardless of age, so every version-wide search in this skill uses `--start_date 2000-01-01 --end_date <today>` and pages to `total`. In the hosted agent each page is its own tool call (no shell loops or `jq`) and a turn has roughly 16 calls; use `--page_size 100`. Follow-ups keep the earlier product/version scope (reuse the IDs when visible in your context, otherwise resolve the names again), never pass a name as an ID, and report partial results honestly — see `references/QUERY_RESILIENCE.md`.
 
 Labels are the classification source of truth. Do not use legacy ticket `type`, the `--type` search option, or returned `.type` to decide whether a ticket is a bug or feature. For category-specific queries, first list the confirmed product's visible labels, select only from that catalog, and filter with `--label_ids`.
 

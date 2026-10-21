@@ -34,7 +34,7 @@ UX queries need the full window:
 
 **Counts only** ("how many tickets still need UX, by priority/version"): use `cawplan tickets stats` with the same filters and `--group_by priority` (or `version`, `assignee`) instead of paging and counting.
 
-**Follow-ups and failures**: follow `references/QUERY_RESILIENCE.md`. In a follow-up such as "now only CRITICAL+HIGH", reuse the product/version IDs already resolved in this conversation instead of resolving them again; never pass a product name as `--product_ids`. If a command is rejected or a page fails, report what was verified as a partial result and do not show commands or error text to the user.
+**Follow-ups and failures**: follow `references/QUERY_RESILIENCE.md`. In a follow-up such as "now only CRITICAL+HIGH", keep the earlier product/version scope and add only the new filter. Reuse the IDs when they are visible in your context; otherwise resolve the scope name from the earlier answer again. Never drop the scope, and never pass a product name as `--product_ids`. If a command is rejected or a page fails, report what was verified as a partial result and do not show commands or error text to the user.
 
 ## Entry Routing
 

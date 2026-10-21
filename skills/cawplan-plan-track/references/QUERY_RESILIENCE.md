@@ -80,8 +80,12 @@ completed within the limits in §3, follow §4.
 - A `product_id`, `version_id`, `product_line_id`, `user_id`, or ticket `unique_id` must come from
   a CLI result in this conversation (or from the user verbatim). Never pass a product name,
   alias, or slug (for example `cawplan`) where an ID is expected.
-- In a follow-up ("now only CRITICAL+HIGH", "same for last week"), reuse the IDs already resolved
-  in this conversation. Do not call `products list` / `versions list` again for the same name.
+- In a follow-up ("now only CRITICAL+HIGH", "same for last week"), keep the previous scope
+  (product, version, Team, member) and add only the new filter. Never drop a scope filter.
+- Reuse an ID only when it is visible in your current context. In the hosted agent a new turn
+  carries the earlier questions and answers but not their tool results, so the ID is usually
+  gone: resolve the scope name from the earlier answer (for example "CawPlan") again, once, then
+  run the narrowed query.
 - If an ID cannot be resolved (no match, several matches, or the lookup was rejected), stop and ask
   the user. Do not continue with a guessed value; an empty result from a guessed ID is not data.
 
@@ -96,7 +100,7 @@ The hosted agent runs exactly one admitted `cawplan` command per tool call:
   distinctive unquoted word (or page the catalog) and match the complete name in the returned data.
 - A command line is at most 4096 bytes; keep ID lists in batches of at most 50.
 - A skill turn has roughly 16 tool calls. Plan the calls before starting: prefer the aggregate
-  commands in §1, reuse IDs from earlier turns (§2), and stop paging and report a partial result
+  commands in §1, reuse IDs already in your context (§2), and stop paging and report a partial result
   (§4) rather than running out of calls mid-way.
 
 A rejected command returns text like:
@@ -133,6 +137,9 @@ rules on IDs, partial results and user-facing output still apply.
 The answer contains only the result, written for the user in their language.
 
 - Lead with the answer: the count or the list, then any caveat.
+- Name the scope you queried (product, version or Team, and the window). In a follow-up, a
+  narrower filter cannot return more tickets than the earlier answer for the same scope; if it
+  does, the scope was lost, so fix the query before answering.
 - No CLI command names or flags (for example `tickets changes`, `--fields`), API paths, error
   codes, or tool diagnostics.
 - No internal field names or values (for example `truncated`, `next_cursor`, `old_source`,
