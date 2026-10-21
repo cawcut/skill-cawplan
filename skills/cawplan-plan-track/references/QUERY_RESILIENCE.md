@@ -32,14 +32,32 @@ Counting and change-history work runs on the CawPlan backend. The CLI only maps 
   ticket's preceding change of the same field (even one before the window) and marks it
   `old_source: previous_change` (`recorded` when it was stored on the change itself). `old` stays
   `null` only when no earlier change exists; treat that event as "changed to `new`".
-- Find transitions server-side with the category filters, for example a reopen out of a terminal
-  status: `--old_status_categories COMPLETE,CANCELED --new_status_categories
-  BACKLOG,UNSTARTED,STARTED,TESTING`.
+- Find transitions server-side with `--old_status_categories` / `--new_status_categories`; for
+  reopens use the definition and command in "Reopens" below.
 - Without `--group_by`, the CLI follows the cursor for up to 20 pages. If the result has
   `truncated: true`, either narrow the scope/window or continue with `--cursor <next_cursor>`.
   Never present a truncated result as complete.
 - Both commands need cawplan CLI 0.0.59 or later. Command details: `references/CAWPLAN_OPEN_API.md`
   ("Ticket Stats", "Ticket Changes").
+
+### Reopens
+
+A reopen is any status change from a terminal category (`COMPLETE` or `CANCELED`) back to a
+non-terminal one (`BACKLOG`, `UNSTARTED`, `STARTED`, `TESTING`), whatever the new status is
+called. Done → Ready for QA and Done → QA Testing are reopens, not only a move to a status named
+"Reopen". Every skill uses this one definition, whatever the scope (product, version, Team,
+member, or "my" tickets):
+
+```bash
+cawplan tickets changes <scope> --fields status --old_status_categories COMPLETE,CANCELED --new_status_categories BACKLOG,UNSTARTED,STARTED,TESTING --start_date <d> --end_date <d>
+```
+
+- Every returned event is one reopen. A ticket can be reopened several times; report every event,
+  oldest first, with the ticket, the previous and new status names, and the time.
+- The previous status comes from the change itself or, when an older record or a sync event lacks
+  it, from the ticket's preceding status change (the server fills it in). A change with no earlier
+  status on record cannot be classified and is not returned.
+- State the window you checked (at most 90 days per call).
 
 ### Fallback when the new commands are unavailable
 
@@ -104,10 +122,18 @@ rules on IDs, partial results and user-facing output still apply.
 
 ## 5. What the user sees
 
-- Do not show raw CLI commands, flags, internal IDs used only as arguments, error codes, or tool
-  diagnostics in the answer. Keep them for your own reasoning.
+The answer contains only the result, written for the user in their language.
+
+- Lead with the answer: the count or the list, then any caveat.
+- No CLI command names or flags (for example `tickets changes`, `--fields`), API paths, error
+  codes, or tool diagnostics.
+- No internal field names or values (for example `truncated`, `next_cursor`, `old_source`,
+  `status_display.category`, page counts) and no IDs that were only used as arguments. Say coverage
+  in plain words: "all status changes from Aug 22 to Oct 20 were checked".
+- No reasoning, self-checks or plans ("Let me…", "I must…", "Checking…", "Returned 17 total…").
+  Work them out silently. When you made a judgment call, give the outcome in one short sentence,
+  for example "IH-2977 is CLOSED, so it is counted as done."
 - Describe a failure in product terms and give the next step, for example:
   - "I couldn't finish the full query this time. Here is what I could verify: ... Narrowing it to
     one version will let me complete it."
   - "I couldn't find a product named 'X'. Did you mean A or B?"
-- Answer in the user's language.

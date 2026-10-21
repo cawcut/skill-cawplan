@@ -28,6 +28,7 @@ cawplan skill check
 | A product's UX members' UX/design completion | Use `cawplan-ux-tracking` **Workflow D**; it counts `ux → READY` events performed by the product's configured Designers, not reporters or assignees. |
 | A product's QA members' Ticket verification / acceptance status | **D — QA verification activities**; count status-change events performed by that product's configured QA members, not by current Assignee. |
 | A named member, someone other than the caller ("how's Alex doing on...") | **C — Member report** |
+| Reopened tickets in a product, version, Team or member scope over a period ("哪些被 reopen 了") | Use the definition and command in `references/QUERY_RESILIENCE.md` ("Reopens"), scoped with `--product_ids`, `--version_ids`, `--product_line_ids`, or the member's candidate `--unique_ids`. Report every reopen event (ticket, previous → new status, time). Do not limit it to a status named "Reopen". |
 
 If unsure whether a name is a product or a Team, resolve both (`products list --search`, `product-lines list`) and ask if either is ambiguous or both match. A user-supplied Team or product name must match an accessible record exactly (case-insensitively, after trimming whitespace), or be a unique short-form/token-prefix match. If it does not match uniquely, list the available or search-returned candidates and ask which Team/product they mean; never substitute a similarly named product or Team. If the user asks about their *own* task completion ("my tasks"), that's `cawplan-my-work`, not this skill.
 
@@ -276,7 +277,7 @@ Same ticket-change approach as Workflow B, scoped to one person instead of a who
 ## Output
 
 If any lookup, page, batch or window could not be completed, say what was verified and what was
-not before the report (`references/QUERY_RESILIENCE.md`). Never show CLI commands or raw errors.
+not before the report (`references/QUERY_RESILIENCE.md`). Write the answer by the rules in `references/QUERY_RESILIENCE.md` §5: no CLI commands, internal field names or reasoning text.
 
 **Workflow A:**
 

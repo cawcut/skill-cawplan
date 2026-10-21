@@ -133,6 +133,8 @@ If no exact or unique short-form product match exists, list any candidates (name
 
 ## Output
 
+Write the answer by the rules in `references/QUERY_RESILIENCE.md` §5: no CLI commands, internal field names or reasoning text.
+
 Report, scoped to what the user actually asked (don't run steps 4-13 for a plain "track this release" ask):
 
 - Version name, status, and risk level (with reason if MEDIUM or HIGH).

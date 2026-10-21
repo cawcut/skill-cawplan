@@ -130,7 +130,7 @@ line. If the product is omitted, ask which product's UX members should be report
 - State the search window and that terminal categories are excluded.
 - If nothing matches, say so plainly — don't return an empty table with no comment.
 - If any page, batch or check could not be completed, say what was verified and what was not
-  before the table (see `references/QUERY_RESILIENCE.md`). Never show CLI commands or raw errors.
+  before the table (see `references/QUERY_RESILIENCE.md`). Write the answer by the rules in `references/QUERY_RESILIENCE.md` §5: no CLI commands, internal field names or reasoning text.
 - For Workflow D, show each configured Designer's UX-Ready ticket count and the Ticket list
   (display ID, title, product/version, UX-Ready timestamp). State the requested window, the
   product used for the UX roster, and that counts are based on history-verified
