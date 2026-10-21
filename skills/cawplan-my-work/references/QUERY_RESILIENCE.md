@@ -21,6 +21,9 @@ Counting and change-history work runs on the CawPlan backend. The CLI only maps 
 
 - When the question only needs counts, call `tickets stats` first. Do not page `tickets search`
   to count, and do not page it before trying `tickets stats`.
+- `tickets stats` needs the same date window as `tickets search`: pass
+  `--start_date 2000-01-01 --end_date <today>` to count every ticket in scope, for example
+  `cawplan tickets stats --version_ids <id> --start_date 2000-01-01 --end_date <today> --group_by assignee`.
 - `--group_by` values are exact. `tickets stats`: `priority`, `status`, `status_category`, `ux`,
   `assignee` (singular), `label`, `type`, `product`, `version`, `platform`. `tickets changes`:
   `actor`, `field`, `new_status_category`, `new_value`, `ticket`.
