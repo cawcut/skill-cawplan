@@ -12,7 +12,7 @@
 
 | 字段 | 契约 |
 |---|---|
-| `requirementTitle` | 用于 `<title>_<timestamp>.csv` 文件名 |
+| `requirementTitle` | 取 `requirement_data.summary`，缺失则回退 `requirement_id`；用于 `<title>_<timestamp>.csv` 文件名 |
 | `title` | 必填，用例标题 |
 | `priority` | P0–P3 或英文优先级，由脚本映射 |
 | `tag`, `group`, `testPointTitle` | 原样继承；`testPointTitle` 必须为全称，不得写 `同上` |

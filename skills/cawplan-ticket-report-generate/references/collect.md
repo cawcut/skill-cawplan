@@ -67,7 +67,7 @@ cawplan qa-insights testrail execution summary <pid> <vid> --ticket-id <id> --re
 
 ## §Feature Step 5
 
-**feature_name**：① Requirement→`function_description`/`summary`；② `description` 首行≤120；③ `{display_id} {title}`。
+**feature_name**：① Requirement→`summary`；② `description` 首行≤120；③ `{display_id} {title}`。
 
 **RequirementLookup**（anchor + D1–D3）：`qa-insights module-tree get <product_id>` + `requirements?module_tree_node_id=`；按 ticket `unique_id` 过滤。
 

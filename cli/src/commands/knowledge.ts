@@ -1011,7 +1011,6 @@ export function registerKnowledgeCommand(program: Command): void {
 
       const body: Record<string, unknown> = {};
       if (hasTextFile) {
-        body.name = basename(opts.textFile);
         body.text = readFileSync(opts.textFile, "utf8");
       }
 

@@ -1,7 +1,7 @@
 ## Rules
 
 - **总则 — 防漏测（本 skill 最高准则，优先于红线 0）**:
-  - 五字段是下游的**根资产**：A2 生成测试点时**只读五字段**；A3 写用例时具体值**只能**来自测试点标题或五字段。**存疑清单不落库**，下游看不到。
+  - 首次归档的五字段由服务端转成需求 Markdown，是下游的**根资产**：A2 生成测试点时**只读需求 Markdown**；A3 写用例时具体值**只能**来自测试点标题或需求 Markdown；A1 绑定后改需求内容，通过 `knowledge documents` 读写该 Markdown。**存疑清单不落库**，下游看不到。
   - 本准则管**维度取舍的两个方向**（判据见 step 5 **判据 1**）：
     - **禁止该写的漏写** — 存在性已确定的验证维度，不得因缺具体取值被整条删除，也不得只存在于存疑清单。
     - **约束存在性不确定的别硬写** — 存在性依赖具体产品选择的维度不进字段，走 `待确认` / `需澄清`。
@@ -26,8 +26,8 @@
 - **总判据分工（不是互斥）**: step 5 table — **同一维度**只在字段出现一次（带标记），不得再以 `待确认` 重复问同一维度；但**取值缺口**可另列 `需补充`（字段写方向、存疑只问值）。Confirm Password on page → field, not 待确认.
 - **A2 boundary**: A1 owns directional rules in five fields; A2 generates test points — do not duplicate baseline gaps as A1-style `需补充：素材未提及`.
 - **Trigger boundary**: this skill is for SQA requirement analysis and QA Insights archiving — not for loading a ticket into a coding session. If the user only pasted a CawPlan issue URL with no analysis intent, stop and use `cawplan-ticket-context` instead. Ticket links are **material** here only when the user also wants five-field analysis or archive.
-- **Display summary**: see step 4 (展示摘要 / `summary` role). Snapshots: step 10 Store (`summary_snapshot` separate from `five_field_snapshot`).
-- **A1 API scope**: all reads and writes go through named `cawplan` CLI commands — `products overview`; `qa-insights module-tree get`, `requirements resolve` / `get` / `list`, `requirements create` / `update` / `reconcile`. Module-tree is managed globally: this skill may only read and select existing nodes, and must never create one. Portal/Browse Requirement URLs are parse-only inputs; **forbidden**: `cawplan api GET` or HTTP page fetches (including portal deep-link paths). **No test-point APIs.**
+- **Display summary**: see step 4 (展示摘要 / `summary` role). Snapshots: step 10 Store (`summary_snapshot` and `ticket_id_snapshot`, each separate).
+- **A1 API scope**: all reads and writes go through named `cawplan` CLI commands — `products overview`; `qa-insights module-tree get`, `requirements resolve` / `get` / `list`, `requirements create` / `update` / `reconcile`; for a bound Requirement's Markdown only: `knowledge documents get` / `update` (target = that Requirement's own `knowledge_document`). Module-tree is managed globally: this skill may only read and select existing nodes, and must never create one. Portal/Browse Requirement URLs are parse-only inputs; **forbidden**: `cawplan api GET` or HTTP page fetches (including portal deep-link paths). **No test-point APIs.**
 - **Failures**: for **POST** create failure, present to SQA per **Confirmation** §9（`没能保存。原因:…`）；**PATCH** update failure 见 Confirmation「更新失败」已知例外。内部仍读 `error.message`（及 `api.code` / `api.msg` when present）；**never claim success when `outcome` is `FAILURE` or `UNKNOWN`**. Keep the draft (five fields + display summary); do not claim saved or updated.
 - **五字段尾巴**：出稿与修订重出均只用 step 5b 固定轻量尾巴；产品 / 模块树 / 保存确认仅在保存意图触发后（step 7+）出现。用户可见引导用「保存到 CawPlan」。Step 7 **C** 分支列产品供选 ≠ A2/A3 链接解析缺 `product_id` 时的「do not scan product lists」——后者禁止猜产品；本 skill 保存流程内无 Ticket 时 **必须** 拉列表让 SQA 选。
 - **跨 skill 接力（入站 / 出站）**:

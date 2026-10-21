@@ -41,7 +41,7 @@ Requirement link: {current environment Portal Host + api.data.redirect_url}
 
 **更新（PATCH）** — 首行改 `已更新成功。`（英文版首行改 `Updated successfully.`），其余字段同上。
 
-内部：从 `api.data` 设置 `bound_requirement_id` 并刷新 `five_field_snapshot` / `summary_snapshot` / `ticket_id_snapshot`（step 10 **Store**）。**勿**向 SQA 展示 Requirement UUID、`review_status`、`product_id`、`module_tree_node_id` 等内部 id。
+内部：从 `api.data` 设置 `bound_requirement_id` 并刷新 `summary_snapshot` / `ticket_id_snapshot` 与 `knowledge_document`（step 10 **Store**）。**勿**向 SQA 展示 Requirement UUID、`review_status`、`product_id`、`module_tree_node_id` 等内部 id。
 
 `Requirement 链接` 只在最终回执展示层生成：静默执行 `cawplan config env`，读取其 `Portal` 值作为当前环境 Host，去掉 Host 末尾 `/` 后与非空 `api.data.redirect_url` 拼接。不得使用或回退到 `api.data.url`；`redirect_url` 缺失或为空时省略整行链接，也不提示缺失。不要修改 API 返回对象，不把拼接结果传给 `cawplan api`。
 
@@ -82,6 +82,17 @@ Requirement link: {current environment Portal Host + api.data.redirect_url}
 
 > 没能保存。原因:{错误信息}。需求草稿还在,改完可以再存一次。
 > Couldn't save. Reason: {错误信息}. The requirement draft is still here — you can try saving again after making changes.
+
+### 需求文档更新（11b-MD，`knowledge documents update`）
+
+**成功**（回读 `cmp` 一致后）：沿用 §6「更新（PATCH）」模板，首行 `已更新成功。` / `Updated successfully.`；`需求` 取 `summary_snapshot`（无则 `requirement_data.summary`），`关联工单` 取 `ticket_id_snapshot`，`Requirement 链接` 取 `requirement_data.redirect_url`（按 §6 展示层规则拼接；缺失则省略整行，`产品` / `位置` 行取不到则省略）。**不展示**临时目录路径。
+
+**最终失败**（重试一次后仍写入失败或回读不一致）：逐字（`{错误信息}` = 命令 `msg` 原文，回读不一致时写“写入后读回的内容与预期不一致”；**跟随会话语言**二选一，不同时输出）：
+
+> 没能更新需求文档。原因:{错误信息}。你确认的修改还保留在 {临时目录路径}。
+> Couldn't update the requirement document. Reason: {错误信息}. Your confirmed edit is kept at {临时目录路径}.
+
+**读取失败 / 无文档 / 内容为空**：逐字输出统一提示：`需求文档暂未就绪。新建需求可能需要稍等片刻；历史需求若长期为空，可能未关联文档。请稍后重试。` / `The requirement document isn't ready yet. A newly created requirement may need a moment; for an older requirement that stays empty, no document may be linked. Please try again later.`（命令返回了 `msg` 时在其后附上）。
 
 ### 更新失败（PATCH `FAILURE`）— 已知例外，文案未改本轮
 
