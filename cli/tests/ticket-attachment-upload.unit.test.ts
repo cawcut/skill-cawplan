@@ -36,7 +36,9 @@ function kindOf(filename: string): string {
 }
 
 /** Fake BE: upload-url issues sequential keys; GET/PUT ticket are recorded. */
-function mockBackend(opts: { field?: string; current?: string; version?: number; putStatuses?: number[] } = {}) {
+function mockBackend(
+  opts: { field?: string; current?: string; version?: number; putStatuses?: number[]; contentType?: string } = {},
+) {
   let n = 0;
   const puts: Array<Record<string, unknown>> = [];
   const putStatuses = [...(opts.putStatuses ?? [])];
@@ -53,6 +55,7 @@ function mockBackend(opts: { field?: string; current?: string; version?: number;
           filename: body.filename,
           type: kindOf(body.filename),
           expires_at: 1_900_000_000,
+          ...(opts.contentType ? { content_type: opts.contentType } : {}),
         },
       };
     }
@@ -248,6 +251,18 @@ describe("uploadTicketAttachmentFiles", () => {
     expect(url).toContain("X-Amz-Signature=put");
     expect(init.method).toBe("PUT");
     expect(init.headers).toEqual({ "content-type": "image/png", "content-length": "5" });
+  });
+
+  test("sends the server-signed content_type instead of guessing from the extension", async () => {
+    mockBackend({ contentType: "application/octet-stream" });
+    writeFileSync(path.join(dir, "notes.md"), "# hi");
+    const fetchImpl = okFetch();
+
+    const result = await uploadTicketAttachmentFiles(TICKET, [{ path: path.join(dir, "notes.md") }], { fetchImpl });
+
+    expect(result.failed).toEqual([]);
+    const [, init] = fetchImpl.mock.calls[0]! as [string, RequestInit];
+    expect(init.headers).toEqual({ "content-type": "application/octet-stream", "content-length": "4" });
   });
 
   test("S3 error code is surfaced", async () => {

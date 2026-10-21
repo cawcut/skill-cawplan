@@ -13,6 +13,11 @@ export interface TicketAttachmentUploadUrl {
   filename: string;
   type: TicketAttachmentType;
   expires_at: number;
+  /**
+   * Content-Type signed into upload_url (CWP-24597); the PUT must send exactly
+   * this. Older backends omit it and do not sign the type.
+   */
+  content_type?: string;
 }
 
 /** A version ticket whose `ticketId` is already the unique_id (UUID). */
@@ -205,7 +210,8 @@ export async function uploadTicketAttachmentFiles(
         if (!info.isFile()) throw new Error("not a regular file");
         if (info.size === 0) throw new Error("file is empty");
         const target = await requestTicketAttachmentUploadUrl(ticket, { filename, contentLength: info.size });
-        await putFileToSignedUrl(target.upload_url, file.path, info.size, mimeTypeForFilename(filename), options.fetchImpl);
+        const contentType = target.content_type || mimeTypeForFilename(filename);
+        await putFileToSignedUrl(target.upload_url, file.path, info.size, contentType, options.fetchImpl);
         const uploaded = {
           path: file.path,
           filename: target.filename || filename,
