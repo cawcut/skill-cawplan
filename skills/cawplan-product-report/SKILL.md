@@ -2,8 +2,8 @@
 version: 0.2.11
 name: cawplan-product-report
 description: |
-  Generate a CawPlan status report over a date range: for a single product (progress, risk analysis, priority recommendations, summaries), for a Team (CawPlan product line), or for a named member — ticket-change-based completion, in the last two cases. Also lists product-wide open tickets by a requested label-backed category and optional title keyword, including backlog tickets and tickets across versions.
-  Use when: the user asks for a product status report, progress report, risk summary, release readiness, priority recommendations, the open/unclosed tickets in a product's current or named version, or a product-wide filtered list such as "remaining Collage bugs"; asks how a Team/product line is doing over a date range; or asks how a specific member's task completion looks over a date range (not their own — use `cawplan-my-work` for "my tasks").
+  Generate a CawPlan status report over a date range: for a single product (progress, risk analysis, priority recommendations, summaries), for a Team (CawPlan product line), or for a named member — ticket-change-based completion, in the last two cases. Also lists product-wide open tickets by a requested label-backed category and optional title keyword, including backlog and cross-version tickets.
+  Use when: the user asks for a product status report, progress report, risk summary, release readiness, priority recommendations, the open/unclosed tickets in a product's current or named version, or a product-wide filtered list such as "remaining Collage bugs"; asks how a Team/product line is doing over a date range; asks which product/Team/version tickets were reopened over a period; or asks how a specific member's task completion looks over a date range (not their own — use `cawplan-my-work` for "my tasks").
   NOT for: raw activity feed, user activity, ticket creation, metrics dashboards, or critical issue lists.
 argument-hint: "[product name or ID, OR team/product-line name, OR member name/email, start date, end date, optional version]"
 allowed-tools: Bash

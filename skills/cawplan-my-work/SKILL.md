@@ -2,8 +2,8 @@
 version: 0.2.11
 name: cawplan-my-work
 description: |
-  Show the current user's CawPlan work: assigned tickets/critical issues, priority-sorted open tickets, a day/range status-change completion summary, reopened tickets, linked PRs/commits, or tickets with a PR/commit but no status progress — optionally scoped to a product/version.
-  Use when: the user asks for my work/tasks/tickets, my open tickets by priority, a summary of today's/recent task completion or status changes, reopened tickets, today's ticket PRs/commits, or tickets with a PR/commit but no status update. NOT for another person's work, broad ticket search/filtering, ticket changes, or release tracking.
+  Show the current user's CawPlan work: assigned tickets/critical issues, priority-sorted open tickets, a day/range status-change completion summary, the user's own reopened tickets, linked PRs/commits, or tickets with a PR/commit but no status progress — optionally scoped to a product/version.
+  Use when: the user asks for my work/tasks/tickets, my open tickets by priority, a summary of today's/recent task completion or status changes, which of my tickets were reopened, today's ticket PRs/commits, or tickets with a PR/commit but no status update. NOT for another person's work, reopens or status changes across a product/Team/version (use `cawplan-product-report`), broad ticket search/filtering, ticket changes, or release tracking.
 argument-hint: "[optional: product/version to narrow to]"
 allowed-tools: Bash
 ---
