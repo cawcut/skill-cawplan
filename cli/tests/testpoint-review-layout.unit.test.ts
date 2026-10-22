@@ -76,7 +76,7 @@ describe("test point review layout", () => {
         const html = testPointReviewHtml(state, "tok");
 
         expect(html).toContain(
-            "If Chat does not respond, send “Continue optimization” in Chat.",
+            JSON.stringify('If AI doesn\'t respond, send "Continue optimization" in Chat.'),
         );
         expect(html).toContain("No changes to optimize. Make a change first.");
     });

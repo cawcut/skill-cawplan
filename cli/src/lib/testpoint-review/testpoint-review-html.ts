@@ -127,7 +127,7 @@ const SUBMIT_TEXT: {
   saveBusy: string;
   invalid: string;
 } = {
-    countdown: "Done — closing in {n} seconds",
+    countdown: "Saved successfully. Closing in {n}s...",
     unknown: "No response received (if the local server has closed, it was likely submitted). Check in Chat; this page is locked, do not resubmit.",
     unconfirmed: "Could not confirm the save to CawPlan. Verify in Chat; this page is locked.",
     saveBusy: "Another save is in progress; this page is locked. Check the result in Chat.",
@@ -913,6 +913,20 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       color: var(--amber-soft);
       font-size: 10px;
       font-weight: 800;
+    }
+    .action-notice.optimize-success {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+      background: transparent;
+      color: #27834a;
+    }
+    .action-notice.optimize-success::before { display: none; }
+    .optimize-success-guidance {
+      color: var(--ink-400);
+      font-size: 11px;
+      font-weight: 400;
     }
   </style>
 </head>
@@ -1818,9 +1832,21 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         }
       }
 
+      function renderCloseHint(hint, text, extra) {
+        if (!hint) return;
+        hint.textContent = text;
+        hint.classList.add("optimize-success");
+        if (extra) {
+          var guidance = document.createElement("span");
+          guidance.className = "optimize-success-guidance";
+          guidance.textContent = extra;
+          hint.appendChild(guidance);
+        }
+      }
+
       function tryCloseTab(hint, extra) {
         try { window.close(); } catch (e) { /* browsers may refuse */ }
-        if (hint) hint.textContent = DONE_CLOSE_HINT + (extra ? " " + extra : "");
+        renderCloseHint(hint, DONE_CLOSE_HINT, extra);
       }
 
       // Closing is best-effort: browsers usually refuse window.close() for tabs a script did not
@@ -1828,7 +1854,8 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       function startCloseCountdown(hint, extra) {
         var remaining = 5;
         function render() {
-          if (hint) hint.textContent = SUBMIT_TEXT.countdown.replace("{n}", String(remaining)) + (extra ? " " + extra : "");
+          var text = extra ? "Submitted successfully. Closing in " + remaining + "s..." : SUBMIT_TEXT.countdown.replace("{n}", String(remaining));
+          renderCloseHint(hint, text, extra);
         }
         render();
         var timer = setInterval(function () {
@@ -1881,11 +1908,13 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         var btn = document.getElementById("optimize-btn");
         var hint = document.getElementById("optimize-hint");
         if (!btn) return;
+        var buttonLabel = btn.textContent;
 
         btn.addEventListener("click", function () {
           btn.disabled = true;
+          btn.textContent = "Submitting...";
           setQuestionInputsFrozen(true);
-          if (hint) hint.textContent = "Requesting optimization…";
+          if (hint) hint.textContent = "";
           flushQuestionAnswers({ requireSuccess: true })
             .then(function (flushed) {
               if (!flushed) throw new Error("question answers were not saved");
@@ -1917,7 +1946,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
                 throw unknownResult();
               }
               lockPage();
-              startCloseCountdown(hint, "If Chat does not respond, send “Continue optimization” in Chat.");
+              startCloseCountdown(hint, ${JSON.stringify('If AI doesn\'t respond, send "Continue optimization" in Chat.')});
             })
             .catch(function (err) {
               if (err && err.message === "conflict") return;
@@ -1931,6 +1960,9 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
               if (hint) hint.textContent = hasUnsavedQuestionAnswers()
                 ? "Retry saving your answers before submitting to AI."
                 : "Request failed, please retry";
+            })
+            .finally(function () {
+              btn.textContent = buttonLabel;
             });
         });
       }
@@ -1939,13 +1971,15 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
         var btn = document.getElementById("save-cawplan-btn");
         var hint = document.getElementById("save-cawplan-hint");
         if (!btn) return;
+        var buttonLabel = btn.textContent;
 
         function submit() {
           btn.disabled = true;
+          btn.textContent = "Saving...";
           setQuestionInputsFrozen(true);
           if (hint) {
             hint.className = "action-notice save-cawplan-hint";
-            hint.textContent = "Saving to CawPlan…";
+            hint.textContent = "";
           }
           flushQuestionAnswers({ requireSuccess: true })
             .then(function (flushed) {
@@ -2020,6 +2054,9 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
                 hint.className = "action-notice save-cawplan-hint save-cawplan-hint-error";
                 hint.textContent = (err && err.message) || "Save failed, please retry";
               }
+            })
+            .finally(function () {
+              btn.textContent = buttonLabel;
             });
         }
 

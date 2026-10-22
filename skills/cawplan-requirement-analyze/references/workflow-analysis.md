@@ -6,6 +6,8 @@ Track source per fact (user text / ticket / screenshot; multiple screenshots by 
 
 ### 3. Produce the five-field draft
 
+**语言前置检查**：按主文件「输出语言」确定本轮语言。选定英文时，出稿前**必须 Read `references/terminology-en.md` 全文**（仅本 agent 同一响应内已 Read 全文可免重复读取）；使用其中的英文标题、推断标记与固定措辞，不得因下方中文示例改回中文。呈现前检查标题与正文、展示摘要、存疑清单及固定尾巴均使用选定语言。
+
 Present exactly these five fields, in this order, as **section headings** (not a table). **跟随会话语言**：中文会话用下方中文标题；英文会话改用 `references/terminology-en.md` 第 1 节对应的英文标题（`Function Description` / `Entry Point / Trigger Condition` / `Expected Behavior (Happy Path)` / `Constraints & Rules` / `Out of Scope`），**不要**同一份需求里中英标题混用：
 
 1. **功能描述** (`function_description`) — what the feature is and what problem it solves. No triggers or rules.
