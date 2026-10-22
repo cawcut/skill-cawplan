@@ -16,9 +16,21 @@ describe("stripHarnessBlocks", () => {
     expect(stripHarnessBlocks(`${REMINDER}\n${NOTIFICATION}`)).toBe("");
   });
 
+  test("strips the in-app browser ambient block with its attributes", () => {
+    const browser =
+      '<in-app-browser-context source="ambient-ui-state">\nThis block is automatically supplied ambient UI state.\n' +
+      "- Current URL: https://app.cawplan.com/auth/login\n</in-app-browser-context>";
+    expect(stripHarnessBlocks(`\n${browser}\n\n## My request:\nupdate the test points`)).toBe(
+      "## My request:\nupdate the test points"
+    );
+  });
+
   test("leaves an unclosed tag alone", () => {
     expect(stripHarnessBlocks("why does <system-reminder> show up in my report?")).toBe(
       "why does <system-reminder> show up in my report?"
+    );
+    expect(stripHarnessBlocks("where does <in-app-browser-context> come from?")).toBe(
+      "where does <in-app-browser-context> come from?"
     );
   });
 });

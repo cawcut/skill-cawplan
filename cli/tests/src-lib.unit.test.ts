@@ -1785,6 +1785,12 @@ describe("src lib collect codex", () => {
     const ideContext = (request: string, heading = "## My request:") =>
       "# Context from my IDE setup:\n\n## Active file: services/ud/envs.json\n\n## Open tabs:\n" +
       `- envs.json: services/ud/envs.json\n\n${heading}\n${request}`;
+    // Codex Desktop with the in-app browser open (QS-00891 shape).
+    const browserContext = (request: string, heading = "## My request:") =>
+      '\n<in-app-browser-context source="ambient-ui-state">\nThis block is automatically supplied ambient UI ' +
+      "state, not part of the user's request.\n# In app browser:\n- The user has the in-app browser open with 1 tab.\n" +
+      "- Current URL: https://app.cawplan.com/auth/login?returnTo=%2Fbrowse%2Fproduct%2FCWP\n" +
+      `</in-app-browser-context>\n\n${heading}\n${request}`;
     const userTurn = (ts: string, text: string) => ({
       type: "response_item",
       timestamp: ts,
@@ -1800,6 +1806,16 @@ describe("src lib collect codex", () => {
       userTurn("2026-10-12T02:12:00.000Z", ideContext("")),
       // A user quoting the header mid-message keeps the whole text.
       userTurn("2026-10-12T02:13:00.000Z", "为什么会有 # Context from my IDE setup: 这一段?"),
+      userTurn("2026-10-12T02:14:00.000Z", browserContext("针对module 删除，更新下测试点。列出需要删除和新增的测试点")),
+      userTurn("2026-10-12T02:15:00.000Z", browserContext("看下这个 PR", "## My request for Codex:")),
+      // Browser context with nothing typed is not human input.
+      userTurn("2026-10-12T02:16:00.000Z", browserContext("")),
+      // Pasted attachments listed ahead of the browser block.
+      userTurn(
+        "2026-10-12T02:17:00.000Z",
+        "# Files mentioned by the user:\n\n## codex-clipboard-1.png: /tmp/codex-clipboard-1.png\n" +
+          browserContext("截图里的报错是什么")
+      ),
     ];
     const rolloutPath = join(sessionsDir, "rollout.jsonl");
     await writeFile(rolloutPath, events.map((event) => JSON.stringify(event)).join("\n"), "utf-8");
@@ -1821,6 +1837,9 @@ describe("src lib collect codex", () => {
       "提交变更，然后 pr 到 release-df",
       "直接从 develop pr",
       "为什么会有 # Context from my IDE setup: 这一段?",
+      "针对module 删除，更新下测试点。列出需要删除和新增的测试点",
+      "看下这个 PR",
+      "截图里的报错是什么",
     ]);
   });
 

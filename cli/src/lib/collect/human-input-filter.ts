@@ -12,9 +12,10 @@
 
 // Harness-written blocks that can sit anywhere in a user turn (a <system-reminder> is often
 // prepended, a queued notification can follow typed text), so they are stripped rather than
-// matched at the start of the message.
+// matched at the start of the message. Desktop apps prepend the in-app browser's open tabs as
+// <in-app-browser-context source="ambient-ui-state">, hence the optional attributes.
 const HARNESS_BLOCK_RE =
-  /<task-notification>[\s\S]*?<\/task-notification>|<system-reminder>[\s\S]*?<\/system-reminder>/g;
+  /<task-notification>[\s\S]*?<\/task-notification>|<system-reminder>[\s\S]*?<\/system-reminder>|<in-app-browser-context(?:\s[^>]*)?>[\s\S]*?<\/in-app-browser-context>/g;
 
 export function stripHarnessBlocks(text: string): string {
   return text.replace(HARNESS_BLOCK_RE, "").trim();

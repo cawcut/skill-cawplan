@@ -217,13 +217,17 @@ const CODEX_APP_EVENT_BLOCK_RE = /<(external_codex_apps_[a-z_]+)>[\s\S]*?<\/\1>/
 
 // The Codex IDE extension prepends editor state ("## Active file", "## Open tabs", …) under this
 // header; only the "## My request:" (older builds: "## My request for Codex:") section was typed.
-const CODEX_IDE_CONTEXT_HEADER = "# Context from my IDE setup:";
+// Codex Desktop uses the same heading after its attachment list ("# Files mentioned by the user:")
+// and after an <in-app-browser-context> block, so once that block is stripped the message may
+// start with the heading itself.
+const CODEX_CONTEXT_HEADERS = ["# Context from my IDE setup:", "# Files mentioned by the user:"];
 const CODEX_IDE_REQUEST_HEADING_RE = /^## My request(?: for Codex)?:[ \t]*$/m;
 
 /** The typed request inside an IDE-context message; "" when the request section is missing or empty. */
 export function extractCodexIdeRequest(text: string): string {
-  if (!text.startsWith(CODEX_IDE_CONTEXT_HEADER)) return text;
   const heading = CODEX_IDE_REQUEST_HEADING_RE.exec(text);
+  if (heading?.index === 0) return text.slice(heading[0].length).trim();
+  if (!CODEX_CONTEXT_HEADERS.some((header) => text.startsWith(header))) return text;
   if (!heading) return "";
   return text.slice(heading.index + heading[0].length).trim();
 }
