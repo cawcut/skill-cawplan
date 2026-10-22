@@ -64,6 +64,7 @@ cawplan products list --search "UniFi Access"
 More examples: `COOKBOOK.md`.
 
 For developer AI daily reporting, see `docs/AI_DAILY_REPORTING.md`.
+For `cawplan-metrics` reporting and querying (ingest, query, domains), see `docs/metrics-reporting.md`.
 Use `/cawplan-ticket-context` before or during ticket work so the next `/cawplan-coding-commit` report includes those tickets on the matching session's `ticket_ids`.
 
 ## Troubleshooting

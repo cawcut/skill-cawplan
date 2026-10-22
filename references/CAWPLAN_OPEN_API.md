@@ -383,6 +383,21 @@ by it returns nothing, which doesn't mean there were no throttle events, only
 that this producer hasn't been tagged with workspace attribution yet. `route`
 is the only reliable way to slice this metric today.
 
+#### Discover which domains / metrics actually have data
+- Endpoint: `GET /api/v1/public/openapi/key-metrics/domains`
+- Query params (both optional): `start` (inclusive, RFC3339; default 30 days before `end`),
+  `end` (exclusive, RFC3339; default now). The scan is always bounded: an explicit `start` may reach
+  back at most 186 days before `end`; there is no all-history scan.
+- Why it exists: `query` returns zero rows both for a misspelled `domain`/`metric` and for a real one
+  with no traffic in the window. This endpoint scans the stored data, so the vocabulary it returns is
+  what was really ingested, not a hand-maintained list (a defined-but-unwired metric will not appear).
+- Response: `data.domains[]` (`{domain, metrics[]}`, sorted by domain name, metrics sorted), plus
+  `data.start`/`data.end` (the window actually scanned, since both default server-side) and
+  `data.truncated` (`true` when the scan hit the row cap, so `domains` is an alphabetical prefix).
+- Scope: the scan is forced to the caller's own workspace, same as `query`/`ingest`.
+- Maps to cawplan CLI: none yet (there is no `cawplan metrics domains` command). Call the endpoint
+  directly with the CLI's Bearer token, or confirm spelling against the tables above.
+
 #### Ingest one or more events
 - Endpoint: `POST /api/v1/public/openapi/key-metrics/ingest`
 - Body: `{ "items": [KeyMetricPoint, ...] }`, where each item is:
