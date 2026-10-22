@@ -2,6 +2,7 @@ import {resolveTicketContexts, ticketContextIsResolved} from "../ai-session/tick
 import type {QaAssetChange, QaDailyApiJson, QaSessionData} from "../collect/qa-types.js";
 import type {QaExcludedSession} from "../collect/aggregators/qa-daily.js";
 import type {QaWebAssignment} from "./types.js";
+import {toQaUploadPayload} from "../collect/aggregators/qa-daily.js";
 import {normalizeTicketDisplayIds} from "../assignment-ui/ticket-id-parse.js";
 
 export {normalizeTicketDisplayIds} from "../assignment-ui/ticket-id-parse.js";
@@ -18,18 +19,21 @@ function emptyAssetChange(): QaAssetChange {
 }
 
 /**
- * Each session must have one product and may appear at most once; conflicting
+ * Each active session must have one product and may appear at most once; conflicting
  * product_id values for the same session_id are rejected.
  */
 export function validateQaAssignments(assignments: QaWebAssignment[]): void {
-    const productBySession = new Map<string, string>();
+    const productBySession = new Map<string, string | undefined>();
     for (const assignment of assignments) {
         const sessionId = assignment.session_id?.trim();
         if (!sessionId) {
             throw new QaAssignmentValidationError("session_id is required for every assignment");
         }
         const productId = assignment.product_id?.trim();
-        if (!productId) {
+        if (assignment.ignored !== undefined && typeof assignment.ignored !== "boolean") {
+            throw new QaAssignmentValidationError("ignored must be a boolean");
+        }
+        if (!productId && !assignment.ignored) {
             throw new QaAssignmentValidationError(`product_id is required for session ${sessionId}`);
         }
         if (productBySession.has(sessionId)) {
@@ -66,6 +70,7 @@ function createSupplementedSession(
         models: [],
         testpoint: emptyAssetChange(),
         testcase: emptyAssetChange(),
+        review_stats: {messages: {user: 0, assistant: 0, tool_calls: 0}, usage_breakdown: []},
     };
 }
 
@@ -96,8 +101,10 @@ async function applyTicketDisplayIds(session: QaSessionData, assignment: QaWebAs
 }
 
 function refreshTotals(daily: QaDailyApiJson): void {
-    daily.totals.sessions = daily.sessions.length;
-    daily.totals.agents = [...new Set(daily.sessions.map((session) => session.agent).filter(Boolean))];
+    const payload = toQaUploadPayload(daily, true);
+    daily.totals = payload.totals;
+    daily.usage_breakdown = payload.usage_breakdown;
+    daily.model_usage = payload.model_usage;
 }
 
 export async function applyQaWebAssignments(
@@ -106,6 +113,11 @@ export async function applyQaWebAssignments(
     excludedSessions: QaExcludedSession[] = [],
 ): Promise<number> {
     validateQaAssignments(assignments);
+    if (assignments.some((assignment) => assignment.ignored) && daily.sessions.some((session) => !session.review_stats)) {
+        throw new QaAssignmentValidationError(
+            "This report lacks per-session statistics. Re-collect this date before ignoring sessions."
+        );
+    }
     let applied = 0;
 
     for (const assignment of assignments) {
@@ -125,6 +137,17 @@ export async function applyQaWebAssignments(
             throw new Error(`session not found: ${sessionId}`);
         }
 
+        if (assignment.ignored) {
+            session.ignored = true;
+            if (assignment.product_id) session.product_id = assignment.product_id.trim();
+            if (assignment.ticket_display_ids) {
+                const refs = normalizeTicketDisplayIds(assignment.ticket_display_ids);
+                if (JSON.stringify(refs) !== JSON.stringify(session.ticket_display_ids)) session.ticket_ids = [];
+                session.ticket_display_ids = refs;
+            }
+            continue;
+        }
+        delete session.ignored;
         session.product_id = assignment.product_id!.trim();
 
         await applyTicketDisplayIds(session, assignment);

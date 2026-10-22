@@ -285,6 +285,7 @@ export function buildQaDailyPayload(
             testpoint: assetChanges.testpoint,
             testcase: assetChanges.testcase,
             display_time_range: pickDisplayTimeRange(session),
+            review_stats: {messages: {...session.message_stats}, usage_breakdown: session.usage_breakdown},
         };
     });
 
@@ -337,10 +338,46 @@ export function buildQaDailyJson(sessions: SessionData[], date: string, author: 
     return buildQaDailyPayload(sessions, date, author).daily;
 }
 
-/** Strip assignment-only session fields before upload (R2 / §1.4). */
-export function toQaUploadPayload(daily: QaDailyApiJson): QaDailyApiJson {
+/** Filter local review state and strip local-only fields before upload. */
+export function toQaUploadPayload(
+    daily: QaDailyApiJson,
+    refreshTotals = daily.sessions.some((session) => session.ignored),
+): QaDailyApiJson {
+    const active = daily.sessions.filter((session) => !session.ignored);
+    const ignoredIds = new Set(daily.sessions.filter((session) => session.ignored).map((session) => session.session_id));
+    const hasStats = daily.sessions.every((session) => session.review_stats);
+    if (ignoredIds.size > 0 && !hasStats) {
+        throw new Error("This report lacks per-session statistics. Re-collect this date before ignoring sessions.");
+    }
+    let totals = refreshTotals
+        ? {...daily.totals, sessions: active.length, agents: [...new Set(active.map((session) => session.agent))]}
+        : daily.totals;
+    let usageBreakdown = daily.usage_breakdown;
+    let modelUsage = daily.model_usage;
+    if (hasStats && refreshTotals) {
+        let buckets: Record<string, UsageBucket> = {};
+        const messages = {user: 0, assistant: 0, tool_calls: 0};
+        for (const session of active) {
+            const stats = session.review_stats!;
+            buckets = mergeUsageBuckets(buckets, qaBucketsToMap(stats.usage_breakdown));
+            messages.user += stats.messages.user;
+            messages.assistant += stats.messages.assistant;
+            messages.tool_calls += stats.messages.tool_calls;
+        }
+        totals = {...totals, messages, cost: Object.fromEntries(
+            Object.entries(sumCostByCurrency(buckets)).map(([currency, cost]) => [currency, r2(cost)])
+        )};
+        usageBreakdown = Object.values(buckets).sort((a, b) => b.cost - a.cost)
+            .map((bucket) => ({...bucket, cost: r2(bucket.cost)}));
+        modelUsage = Object.fromEntries(Object.entries(foldBucketsToModel(buckets))
+            .map(([key, value]) => [key, {...value, cost: r2(value.cost)}]));
+    }
     return {
         ...daily,
-        sessions: daily.sessions.map(({display_time_range: _displayTimeRange, ...session}) => session),
+        totals,
+        usage_breakdown: usageBreakdown,
+        model_usage: modelUsage,
+        sessions: active.map(({display_time_range: _display, ignored: _ignored, review_stats: _stats, ...session}) => session),
+        human_inputs: daily.human_inputs.filter((input) => !input.session_id || !ignoredIds.has(input.session_id)),
     };
 }

@@ -61,6 +61,13 @@ export interface QaSessionData {
     /** Assignment UI only — omitted from upload payload (see toQaUploadPayload). */
     display_time_range?: QaDisplayTimeRange;
 
+    /** Local review state; never uploaded. Re-collection starts without ignored flags. */
+    ignored?: boolean;
+    review_stats?: {
+        messages: QaDailyApiJson["totals"]["messages"];
+        usage_breakdown: UsageBucket[];
+    };
+
     // Optional (not produced in V1)
     conversation?: QaConversation;
 }

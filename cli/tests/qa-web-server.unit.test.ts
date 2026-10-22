@@ -110,6 +110,7 @@ describe("applyQaWebAssignments", () => {
             "models",
             "product_id",
             "requirement_ids",
+            "review_stats",
             "session_id",
             "session_title",
             "skill_layers",
@@ -174,6 +175,36 @@ describe("dispatchQaAssignRequest", () => {
         expect(body.daily.sessions).toHaveLength(1);
         expect(body.products).toHaveLength(2);
         expect(body.excludedSessions).toHaveLength(1);
+    });
+
+    test("Ignore saves locally, survives reopen, and Restore preserves session data", async () => {
+        const daily = sampleDaily();
+        daily.sessions[0]!.review_stats = {messages: daily.totals.messages, usage_breakdown: []};
+        writeQaDailyReport(reportPath, daily);
+        const id = daily.sessions[0]!.session_id;
+        const save = (assignments: unknown[]) => dispatchQaAssignRequest(
+            {method: "POST", url: `/qa-assign/save?token=${token}`},
+            JSON.stringify({assignments}), report, token,
+            {readReport: readQaDailyReport, writeReport: writeQaDailyReport},
+        );
+        // Closing without saving changes nothing.
+        await dispatchQaAssignRequest({method: "POST", url: `/qa-assign/close?token=${token}`}, "", report, token);
+        expect(readQaDailyReport(reportPath)).toEqual(daily);
+        expect((await save([{session_id: id, ignored: true}])).status).toBe(200);
+        const ignored = readQaDailyReport(reportPath);
+        expect(ignored.sessions[0]).toEqual({...daily.sessions[0], ignored: true});
+        expect(ignored.human_inputs).toEqual(daily.human_inputs);
+        expect(ignored.totals.sessions).toBe(0);
+        const reopened = await dispatchQaAssignRequest(
+            {method: "GET", url: `/qa-assign/bootstrap?token=${token}`}, "", report, token,
+            {readReport: readQaDailyReport, listProducts: async () => []},
+        );
+        expect((reopened.body as {daily: QaDailyApiJson}).daily.sessions[0]?.ignored).toBe(true);
+        expect((await save([{session_id: id, product_id: PRODUCT_A}])).status).toBe(200);
+        const restored = readQaDailyReport(reportPath);
+        expect(restored.sessions).toEqual(daily.sessions);
+        expect(restored.totals.messages).toEqual(daily.totals.messages);
+        expect(restored.totals.sessions).toBe(1);
     });
 
     test("persists a valid assignment payload", async () => {
