@@ -16,6 +16,7 @@ export interface QaWebAssignment {
     ticket_display_ids?: string[];
     /** Set when the row was added from the layer 2/3 excluded-session supplement list. */
     manually_added?: boolean;
+    ignored?: boolean;
 }
 
 export interface QaAssignmentBootstrap {

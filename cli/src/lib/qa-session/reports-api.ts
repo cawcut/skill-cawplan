@@ -7,10 +7,14 @@ import type {QaSessionReportItem} from "./types.js";
 const QA_REPORTS_PATH = "/api/v1/public/openapi/qa-session-usage/reports";
 
 export async function uploadQaDailyReport(payload: QaDailyApiJson): Promise<unknown> {
+    const upload = toQaUploadPayload(payload);
+    if (upload.sessions.length === 0) {
+        return {skipped: true, message: "No QA sessions to upload."};
+    }
     return cawplanRequest({
         method: "POST",
         path: QA_REPORTS_PATH,
-        body: toQaUploadPayload(payload),
+        body: upload,
     });
 }
 

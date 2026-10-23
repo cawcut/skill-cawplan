@@ -97,8 +97,8 @@ export function renderQaSessionRowHtml(
         ? productInputHtml(session, products)
         : `<span class="product-readonly">${escapeHtml(session.product_id ?? "—")}</span>`;
 
-    return `<tr data-session-id="${escapeHtml(session.session_id)}">` +
-        `<td class="sid-cell"><code>${escapeHtml(session.session_id)}</code></td>` +
+    return `<tr data-session-id="${escapeHtml(session.session_id)}" class="${session.ignored ? "is-ignored" : ""}">` +
+        `<td class="sid-cell"><span class="session-state-dot" role="img" aria-label="${session.ignored ? "Ignored" : "Active"}"></span><code>${escapeHtml(session.session_id)}</code></td>` +
         `<td class="title-cell"><span class="title-text">${escapeHtml(title)}</span></td>` +
         `<td class="input-cell">${qaHumanInputsHtml(report, session)}</td>` +
         `<td class="agent-cell">${escapeHtml(session.agent || "—")}</td>` +
@@ -113,6 +113,7 @@ export function renderQaSessionRowHtml(
             )}</td>`
             : "") +
         `<td class="dt-cell">${escapeHtml(sessionDateTimeText(session))}</td>` +
+        (interactive ? `<td class="action-cell"><button type="button" class="session-action">${session.ignored ? "Undo" : "Ignore"}</button></td>` : "") +
         `</tr>`;
 }
 
@@ -122,7 +123,7 @@ function productInputHtml(
 ): string {
     const currentProduct = products.find((product) => product.product_id === session.product_id);
     const productValue = currentProduct?.product_name ?? session.product_id ?? "";
-    return `<input class="product" list="product-list" value="${escapeHtml(productValue)}" placeholder="Search product" aria-label="Product for session" required />` +
+    return `<input class="product" list="product-list" value="${escapeHtml(productValue)}" placeholder="Search product" aria-label="Product for session"${session.ignored ? " disabled" : ""} required />` +
         `<div class="product-error field-error"></div>`;
 }
 
@@ -153,7 +154,7 @@ function ticketPickerHtmlServer(
             `<button class="ticket-remove" type="button" data-ticket="${escapeHtml(ticket)}" aria-label="Remove ${escapeHtml(ticket)}">×</button>` +
             `</span>`,
         ).join("");
-    return `<div class="ticket-picker">` +
+    return `<div class="ticket-picker${session.ignored ? " disabled" : ""}">` +
         `<div class="ticket-trigger" role="button" tabindex="0">${tagsHtml}</div>` +
         `<div class="ticket-menu hidden">` +
         `<div class="ticket-options">${optionRows}</div>` +
@@ -206,7 +207,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
                 },
             ))
             .join("")}</tbody>`
-        : `<tbody id="qa-rows"><tr><td colspan="${readonly ? 8 : 9}" class="muted">Loading sessions...</td></tr></tbody>`;
+        : `<tbody id="qa-rows"><tr><td colspan="${readonly ? 8 : 10}" class="muted">Loading sessions...</td></tr></tbody>`;
     const productListOptions = opts.bootstrap
         ? opts.bootstrap.products.map((product) =>
             `<option value="${escapeHtml(product.product_name)}"></option>`,
@@ -214,11 +215,12 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
         : "";
 
     const ticketHeader = readonly ? "" : "<th>Tickets</th>";
-    const colSpan = readonly ? 8 : 9;
+    const colSpan = readonly ? 8 : 10;
 
     // Entry point hidden from the confirmation page per product request; underlying
     // excluded-session data plumbing (collect sidecar, qa-apply, etc.) is untouched.
     const supplementSection = "";
+    const ignoredCount = (opts.bootstrap?.daily.sessions ?? []).filter((session) => session.ignored).length;
 
     const actions = readonly
         ? ""
@@ -330,6 +332,20 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     #close { background: var(--bg); color: var(--text-01); border: 1px solid var(--border); height: 32px; padding: 0 14px; border-radius: 4px; cursor: pointer; font: inherit; font-weight: 600; }`}
     .status { font-size: 13px; color: var(--text-03); margin-right: auto; }
     .status-error { color: var(--red-06); }
+    .session-state-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--green-07); vertical-align: middle; }
+    tr.is-ignored td, tr.is-ignored:hover td { background: var(--n-02); color: var(--text-03); }
+    tr.is-ignored .session-state-dot { background: #999; }
+    tr.is-ignored .testpoints-add, tr.is-ignored .dt-cell, tr.is-ignored .human-inputs li { color: var(--text-03); }
+    tr.is-ignored .model-icon { opacity: .5; }
+    tr.is-ignored input:disabled { background: var(--n-02); color: var(--text-03); cursor: not-allowed; }
+    .action-cell { vertical-align: middle; text-align: right; white-space: nowrap; }
+    ${readonly ? "" : "th:last-child { width: 96px; }"}
+    /* Match the Test Point Review question Ignore / Undo controls. */
+    .session-action { flex-shrink: 0; height: 32px; min-width: 60px; padding: 0 12px; border: 1px solid #e3e5e9; border-radius: 5px; background: #fff; color: #454a54; font-size: 12px; cursor: pointer; }
+    .session-action:hover:not(:disabled) { background: #f6f7f9; border-color: #d3d6db; }
+    .session-action:disabled { opacity: .5; cursor: not-allowed; }
+    tr.is-ignored .session-action { color: #2547b0; font-weight: 600; }
+    .review-notes { color: var(--text-03); font-size: 12px; }
     .hidden { display: none !important; }
     .muted { color: var(--text-03); }
     @media (max-width: 900px) { .phdr, .pbody { padding-left: 16px; padding-right: 16px; } }
@@ -353,10 +369,15 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
               <th>Product${readonly ? "" : ` <span class="required">*</span>`}</th>
               ${ticketHeader}
               <th>Date / Time</th>
+              ${readonly ? "" : "<th>Action</th>"}
             </tr>
           </thead>
           ${preRenderedTable}
         </table>
+      </div>
+      <div class="review-notes" aria-live="polite">
+        <p id="ignored-summary">${ignoredCount} session${ignoredCount === 1 ? "" : "s"} ignored. They will not be uploaded.</p>
+        ${readonly ? "" : '<p id="unsaved-note" class="hidden">Unsaved changes.</p>'}
       </div>
       ${supplementSection}
       ${actions}
@@ -391,6 +412,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     let products = [];
     let excludedSessions = [];
     let manuallyAddedIds = new Set();
+    let hasUnsavedChanges = false;
 
     ${INLINE_ESCAPE_HTML}
 
@@ -627,8 +649,8 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
 
     function sessionRowHtml(session) {
       const title = resolveSessionTitle(session);
-      return '<tr data-session-id="' + escapeHtml(session.session_id) + '">' +
-        '<td class="sid-cell"><code>' + escapeHtml(session.session_id) + '</code></td>' +
+      return '<tr data-session-id="' + escapeHtml(session.session_id) + '" class="' + (session.ignored ? 'is-ignored' : '') + '">' +
+        '<td class="sid-cell"><span class="session-state-dot" role="img" aria-label="' + (session.ignored ? 'Ignored' : 'Active') + '"></span><code>' + escapeHtml(session.session_id) + '</code></td>' +
         '<td class="title-cell"><span class="title-text">' + escapeHtml(title) + '</span></td>' +
         '<td class="input-cell">' + qaHumanInputsHtml(daily, session) + '</td>' +
         '<td class="agent-cell">' + escapeHtml(session.agent || "—") + '</td>' +
@@ -637,6 +659,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
         '<td class="product-cell">' + productInputHtml(session) + '</td>' +
         '<td class="tickets-cell">' + ticketPickerHtml(session) + '</td>' +
         '<td class="dt-cell">' + escapeHtml(sessionDateTimeText(session)) + '</td>' +
+        '<td class="action-cell"><button type="button" class="session-action">' + (session.ignored ? 'Undo' : 'Ignore') + '</button></td>' +
         '</tr>';
     }
 
@@ -702,7 +725,10 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       if (!row) return;
       const session = findSession(row.dataset.sessionId);
       const picker = row.querySelector(".ticket-picker");
-      if (session && picker) session.ticket_display_ids = selectedTicketDisplayIds(picker);
+      if (session && picker) {
+        session.ticket_display_ids = selectedTicketDisplayIds(picker);
+        markUnsaved();
+      }
     }
 
     function addTicketFromRow(row) {
@@ -747,11 +773,11 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
     function updateTicketPickerState(row) {
       const picker = row.querySelector(".ticket-picker");
       if (!picker) return;
-      const productSelected = Boolean(findProduct(row.querySelector(".product").value));
+      const productSelected = !findSession(row.dataset.sessionId).ignored && Boolean(findProduct(row.querySelector(".product").value));
       picker.classList.toggle("disabled", !productSelected);
       picker.querySelector(".ticket-trigger").setAttribute("aria-disabled", String(!productSelected));
       picker.querySelector(".ticket-trigger").tabIndex = productSelected ? 0 : -1;
-      picker.querySelectorAll(".ticket-option-cb, .ticket-add").forEach((input) => {
+      picker.querySelectorAll(".ticket-option-cb, .ticket-add, .ticket-remove").forEach((input) => {
         input.disabled = !productSelected;
       });
       if (!productSelected) setTicketMenuOpen(picker, false);
@@ -807,6 +833,13 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
 
     function wireSessionRows() {
       document.querySelectorAll("#qa-rows tr[data-session-id]").forEach((row) => {
+        row.querySelector(".session-action").addEventListener("click", () => {
+          syncSessionRows();
+          const session = findSession(row.dataset.sessionId);
+          session.ignored = !session.ignored;
+          updateSessionRowState(row);
+          markUnsaved();
+        });
         const productInput = row.querySelector(".product");
         productInput.addEventListener("change", () => setRowProduct(row, findProduct(productInput.value)));
         const picker = row.querySelector(".ticket-picker");
@@ -814,6 +847,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
           wireTicketPicker(picker, row);
           updateTicketPickerState(row);
         }
+        updateSessionRowState(row);
       });
     }
 
@@ -831,11 +865,12 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       }
       validateProductRow(row);
       updateTicketPickerState(row);
+      markUnsaved();
     }
 
     function renderSessionTable() {
       const tbody = document.getElementById("qa-rows");
-      const sessions = Array.isArray(daily && daily.sessions) ? daily.sessions : [];
+      const sessions = daily && daily.sessions || [];
       if (sessions.length === 0) {
         tbody.innerHTML = '<tr><td colspan="${colSpan}" class="muted" style="text-align:center;padding:32px;">No QA sessions in this report.</td></tr>';
         return;
@@ -843,6 +878,42 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       const sorted = [...sessions].sort((a, b) => sessionStartMs(a) - sessionStartMs(b));
       tbody.innerHTML = sorted.map(sessionRowHtml).join("");
       wireSessionRows();
+    }
+
+    function syncSessionRows() {
+      document.querySelectorAll("#qa-rows tr[data-session-id]").forEach((row) => {
+        const session = findSession(row.dataset.sessionId);
+        if (session.ignored) return;
+        addTicketFromRow(row);
+        const product = findProduct(row.querySelector(".product").value);
+        session.product_id = product ? product.product_id : undefined;
+        session.ticket_display_ids = selectedTicketDisplayIds(row.querySelector(".ticket-picker"));
+      });
+    }
+
+    function updateSessionRowState(row) {
+      const ignored = Boolean(findSession(row.dataset.sessionId).ignored);
+      row.classList.toggle("is-ignored", ignored);
+      row.querySelector(".session-state-dot").setAttribute("aria-label", ignored ? "Ignored" : "Active");
+      row.querySelector(".session-action").textContent = ignored ? "Undo" : "Ignore";
+      row.querySelector(".product").disabled = ignored;
+      if (ignored) {
+        row.classList.remove("invalid-product");
+        row.querySelector(".product-error").textContent = "";
+        row.querySelector(".product").setCustomValidity("");
+      }
+      updateTicketPickerState(row);
+    }
+
+    function updateReviewNotes() {
+      const count = (daily.sessions || []).filter((session) => session.ignored).length;
+      document.getElementById("ignored-summary").textContent = count + " session" + (count === 1 ? "" : "s") + " ignored. They will not be uploaded.";
+      document.getElementById("unsaved-note").classList.toggle("hidden", !hasUnsavedChanges);
+    }
+
+    function markUnsaved() {
+      hasUnsavedChanges = true;
+      updateReviewNotes();
     }
 
     function renderSupplementCandidates() {
@@ -913,7 +984,7 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
 
     /** Each session row owns exactly one required product selector. */
     function validateSingleProductPerSession() {
-      const rows = Array.from(document.querySelectorAll("#qa-rows tr[data-session-id]"));
+      const rows = Array.from(document.querySelectorAll("#qa-rows tr[data-session-id]")).filter((row) => !findSession(row.dataset.sessionId).ignored);
       const seen = new Set();
       for (const row of rows) {
         const sessionId = row.dataset.sessionId;
@@ -936,10 +1007,12 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
       validateSingleProductPerSession();
       return Array.from(document.querySelectorAll("#qa-rows tr[data-session-id]")).map((row) => {
         const sessionId = row.dataset.sessionId;
+        const session = findSession(sessionId);
         const product = findProduct(row.querySelector(".product").value);
         return {
           session_id: sessionId,
-          product_id: product ? product.product_id : undefined,
+          product_id: session.ignored ? session.product_id : (product ? product.product_id : undefined),
+          ignored: Boolean(session.ignored),
           product_line_id: product ? product.product_line_id : undefined,
           product_name: product ? product.product_name : undefined,
           ticket_display_ids: selectedTicketDisplayIds(row.querySelector(".ticket-picker")),
@@ -973,8 +1046,10 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
           products = normalizeProducts(payload.products || []);
           excludedSessions = payload.excludedSessions || [];
         }
+        document.getElementById("qa-rows").addEventListener("input", markUnsaved);
         renderProductList();
         renderSessionTable();
+        updateReviewNotes();
         renderSupplementCandidates();
         document.addEventListener("click", (event) => {
           document.querySelectorAll(".ticket-picker").forEach((picker) => {
@@ -1002,6 +1077,8 @@ export function qaAssignmentHtml(opts: QaAssignmentHtmlOptions = {}): string {
         saveBtn.classList.remove("btn-saved");
         setStatus("Saving...");
         const result = await api("/qa-assign/save", {method: "POST", body: JSON.stringify({assignments})});
+        hasUnsavedChanges = false;
+        updateReviewNotes();
         saveBtn.textContent = "Saved ✓ Return to agent";
         saveBtn.classList.add("btn-saved");
         const fileList = result.file || "";

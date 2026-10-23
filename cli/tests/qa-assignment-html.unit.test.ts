@@ -221,6 +221,7 @@ describe("qaAssignmentHtml segment 2 — product selection", () => {
             "Product *",
             "Tickets",
             "Date / Time",
+            "Action",
         ]);
     });
 
@@ -358,5 +359,25 @@ describe("qaAssignmentHtml - submit effect", () => {
 
     test("contains btn-saved CSS class", () => {
         expect(qaAssignmentHtml({bootstrap: bootstrapFixture()})).toContain(".btn-saved");
+    });
+});
+
+
+describe("QA inline ignore state", () => {
+    test("ignored sessions stay in the original sorted table with all columns and Undo", () => {
+        const bootstrap = {daily: mockDailyFixture(), products: MOCK_PRODUCTS, excludedSessions: []};
+        bootstrap.daily.sessions[0]!.ignored = true;
+        const html = qaAssignmentHtml({bootstrap});
+        const table = html.match(/<tbody id="qa-rows">([\s\S]*?)<\/tbody>/)![1]!;
+        expect([...table.matchAll(/<tr /g)]).toHaveLength(3);
+        expect(table).toContain('class="is-ignored"');
+        expect(table).toContain('aria-label="Ignored"');
+        expect(html).not.toContain("ignored-badge");
+        expect(table).toContain('class="session-action">Undo</button>');
+        expect(table).toContain('aria-label="Product for session" disabled required');
+        expect(html).toContain('1 session ignored. They will not be uploaded.');
+        expect(html).not.toContain('id="qa-ignored-panel"');
+        expect(html).not.toContain('id="qa-ignored-list"');
+        expect(html).toContain('id="unsaved-note" class="hidden">Unsaved changes.</p>');
     });
 });
