@@ -1,0 +1,499 @@
+import {Command} from "commander";
+import {mkdirSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {buildQueryFromFlags, csvToArray} from "../lib/cache.js";
+import {cawplanRequest} from "../lib/http.js";
+import {collect, collectQaResult} from "../lib/collect/index.js";
+import {uploadQaDailyReport} from "../lib/qa-session/reports-api.js";
+import {qaBackfillMissingReports} from "../lib/qa-session/backfill.js";
+import {readQaDailyReport, readQaExcludedSessions} from "../lib/qa-assign/qa-report-io.js";
+import {startQaAssignmentWebServer} from "../lib/qa-assign/qa-web-server.js";
+import type {DailyApiJson} from "../lib/collect/types.js";
+import {
+    addReportQueryOptions,
+    dateParams,
+    limitOffsetParams,
+    parseISODate,
+} from "../lib/ai-session/helpers.js";
+import {backfillMissingReports} from "../lib/ai-session/backfill.js";
+import {uploadDailyReport} from "../lib/ai-session/reports-api.js";
+import type {AiSessionAgent} from "../lib/ai-session/types.js";
+import {assignProjectsFromCloudMappings} from "../lib/assign/auto-assign.js";
+import {
+    createProductRepoMapping,
+    listProductRepoMappings,
+    toProductChoices,
+} from "../lib/assign/products-api.js";
+import {readDailyReport} from "../lib/assign/report-io.js";
+import {assertAllSessionsHaveProduct, reportsNeedAssignment, warnMissingProductAssignment} from "../lib/assign/session-checks.js";
+import {
+    assignReportsFromTty,
+    readDailyReports,
+    startAssignmentWebServer,
+} from "../lib/assign/web-server.js";
+import {listCawplanProducts} from "../lib/product-catalog.js";
+import {registerAiSessionInsightsCommands} from "./session-insights.js";
+
+const REPORT_TEMP_DIR_NAME = "cawplan-ai-daily";
+const QA_REPORT_TEMP_DIR_NAME = "cawplan-qa-daily";
+
+// resolveReportTempDir returns the shared, workflow-scoped temp directory
+// used to stage ai-daily-<date>.json report files across collect/assign/
+// review/upload, creating it if it doesn't already exist. Centralized here
+// so callers (including the cawplan-coding-commit skill) don't need their
+// own platform-specific directory-creation logic.
+export function resolveReportTempDir(): string {
+    const dir = join(tmpdir(), REPORT_TEMP_DIR_NAME);
+    mkdirSync(dir, {recursive: true});
+    return dir;
+}
+
+// resolveQaReportTempDir mirrors resolveReportTempDir but for QA daily
+// reports, kept in a physically separate directory from coding ai-daily-<date>.json outputs.
+export function resolveQaReportTempDir(): string {
+    const dir = join(tmpdir(), QA_REPORT_TEMP_DIR_NAME);
+    mkdirSync(dir, {recursive: true});
+    return dir;
+}
+
+export function formatElapsedMs(ms: number): string {
+    const totalSeconds = Math.max(0, Math.round(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+}
+
+export function registerSessionCommand(program: Command): void {
+    registerSessionSubcommands(program.command("session").description("Coding session usage"));
+    registerSessionSubcommands(program.command("ai-session", {hidden: true}).description("Deprecated alias for session"));
+}
+
+function registerSessionSubcommands(session: Command): void {
+    session.command("collect")
+        .description("Collect coding session data from local agents and write ai-daily-<date>.json")
+        .option("--date <YYYY-MM-DD>", "Date to collect (default: today)")
+        .option(
+            "--agent <name>",
+            "Agent(s) to collect from: claude-code, cursor, codex, vscode (repeatable)",
+            (val: string, prev: string[]) => [...prev, val],
+            [] as string[]
+        )
+        .option("--output <path>", "Output file path (default: <tmp>/cawplan-ai-daily/ai-daily-<date>.json)")
+        .option("--verbose", "Print detailed collection progress and per-step timings")
+        .option("--mode <coding|qa>", "Collection mode: coding (default) or qa", "coding")
+        .option("--upload", "For --mode qa: upload the collected QA report immediately")
+        .option("--assign", "For --mode qa: open the QA assignment confirmation page after collection")
+        .action(async (opts) => {
+            const date = opts.date ?? new Date().toISOString().slice(0, 10);
+            const collectMode: "coding" | "qa" = opts.mode === "qa" ? "qa" : "coding";
+            if (opts.assign && collectMode !== "qa") {
+                console.error("Error: --assign requires --mode qa");
+                process.exit(1);
+            }
+            const outputPath: string =
+                opts.output ??
+                (collectMode === "qa"
+                    ? join(resolveQaReportTempDir(), `qa-daily-${date}.json`)
+                    : join(resolveReportTempDir(), `ai-daily-${date}.json`));
+            const agents =
+                opts.agent && opts.agent.length > 0
+                    ? (opts.agent as AiSessionAgent[])
+                    : undefined;
+            const startedAt = Date.now();
+            const verbose = Boolean(opts.verbose);
+            const verboseLog = (message: string) => {
+                if (!verbose) return;
+                console.error(`[collect +${formatElapsedMs(Date.now() - startedAt)}] ${message}`);
+            };
+
+            console.error(`Collecting session data for ${date}...`);
+            try {
+                if (collectMode === "qa") {
+                    const {daily: qaDaily, excludedSessions} = await collectQaResult({
+                        date,
+                        agents,
+                        verbose,
+                        outputPath,
+                    });
+                    console.error(
+                        `Collected ${qaDaily.totals.sessions} QA session(s) from agents: ${
+                            qaDaily.totals.agents.join(", ") || "none"
+                        }`
+                    );
+                    console.error(`Output written to ${outputPath}`);
+                    if (opts.upload) {
+                        const result = await uploadQaDailyReport(qaDaily);
+                        console.log(JSON.stringify(result, null, 2));
+                    }
+                    if (opts.assign) {
+                        await startQaAssignmentWebServer({
+                            file: outputPath,
+                            daily: qaDaily,
+                            excludedSessions,
+                        });
+                    }
+                    console.error(`Collection completed in ${formatElapsedMs(Date.now() - startedAt)}.`);
+                    return;
+                }
+
+                const daily = await collect({date, agents, verbose, collectMode});
+                console.error(
+                    `Collected ${
+                        (daily.totals as {sessions?: number})?.sessions ?? 0
+                    } sessions from agents: ${
+                        ((daily.totals as {agents?: string[]})?.agents ?? []).join(", ") || "none"
+                    }`
+                );
+
+                verboseLog(`Assign product/project mappings to ${outputPath}...`);
+                const assignStartedAt = Date.now();
+                const matched = await assignProjectsFromCloudMappings(daily, outputPath);
+                verboseLog(`Assign product/project mappings done in ${formatElapsedMs(Date.now() - assignStartedAt)}.`);
+                console.error(`Product/project assignment written for ${matched} sessions.`);
+                warnMissingProductAssignment(outputPath, daily);
+
+                console.error(`Output written to ${outputPath}`);
+                console.error(`Collection completed in ${formatElapsedMs(Date.now() - startedAt)}.`);
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    session.command("temp-dir")
+        .description("Create (if needed) and print the shared temp directory for ai-daily report files")
+        .action(() => {
+            console.log(resolveReportTempDir());
+        });
+
+    session.command("products")
+        .description("List CawPlan products for report assignment")
+        .option("--q <text>", "Filter products by name")
+        .action(async (opts) => {
+            try {
+                const needle = String(opts.q ?? "").trim().toLowerCase();
+                const products = toProductChoices(await listCawplanProducts({search: String(opts.q ?? ""), pageSize: "100"}))
+                    .filter((product) => !needle || product.product_name.toLowerCase().includes(needle));
+                console.log(JSON.stringify({products}, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    const productRepos = session.command("product-repos")
+        .description("List product-repository mappings for report assignment")
+        .option("--product-id <id>", "Filter mappings by product unique_id")
+        .option("--q <text>", "Filter mappings by repo name or URL")
+        .action(async (opts) => {
+            try {
+                const needle = String(opts.q ?? "").trim().toLowerCase();
+                const mappings = (await listProductRepoMappings())
+                    .filter((mapping) => !opts.productId || mapping.product_id === opts.productId)
+                    .filter((mapping) => {
+                        if (!needle) return true;
+                        return [mapping.repo_name, mapping.repo_url, mapping.product_name]
+                            .filter(Boolean)
+                            .some((value) => String(value).toLowerCase().includes(needle));
+                    })
+                    .sort((a, b) =>
+                        `${a.product_name ?? ""}/${a.repo_name ?? ""}`.localeCompare(
+                            `${b.product_name ?? ""}/${b.repo_name ?? ""}`
+                        )
+                    );
+                console.log(JSON.stringify({mappings}, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    productRepos
+        .command("create")
+        .description("Create a product-repository mapping for report assignment")
+        .requiredOption("--product-id <id>", "Product unique_id")
+        .requiredOption("--repo-url <url>", "GitHub repository URL")
+        .option("--repo-name <name>", "Repository name; inferred from --repo-url when omitted")
+        .action(async (opts) => {
+            try {
+                const mapping = await createProductRepoMapping({
+                    productId: String(opts.productId),
+                    repoUrl: String(opts.repoUrl),
+                    repoName: opts.repoName ? String(opts.repoName) : undefined,
+                });
+                console.log(JSON.stringify({mapping}, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    productRepos
+        .command("batch-create")
+        .description("Create multiple product-repository mappings for report assignment")
+        .requiredOption("--product-id <id>", "Product unique_id")
+        .requiredOption("--repo-urls <csv>", "GitHub repository URLs (CSV)")
+        .action(async (opts) => {
+            try {
+                const repoUrls = csvToArray(opts.repoUrls);
+                if (!repoUrls || repoUrls.length === 0) {
+                    throw new Error("--repo-urls must include at least one URL");
+                }
+                const result = await cawplanRequest({
+                    method: "POST",
+                    path: "/api/v1/public/openapi/ai-session-usage/product-repos",
+                    body: {
+                        product_id: String(opts.productId),
+                        repo_urls: repoUrls,
+                    },
+                });
+                console.log(JSON.stringify(result, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    productRepos
+        .command("get <unique_id>")
+        .description("Get a product-repository mapping")
+        .action(async (uniqueId: string) => {
+            try {
+                const result = await cawplanRequest({
+                    method: "GET",
+                    path: `/api/v1/public/openapi/ai-session-usage/product-repo/${uniqueId}`,
+                });
+                console.log(JSON.stringify(result, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    productRepos
+        .command("update <unique_id>")
+        .description("Update a product-repository mapping")
+        .option("--product-id <id>", "Product unique_id")
+        .option("--repo-name <name>", "Repository mapping name")
+        .option("--repo-url <url>", "Repository URL")
+        .option("--contributors <csv>", "Contributor user IDs (CSV)")
+        .option("--last-update <datetime>", "Last update time")
+        .action(async (uniqueId: string, opts) => {
+            try {
+                const body: Record<string, unknown> = {};
+                if (opts.productId) body.product_id = String(opts.productId);
+                if (opts.repoName) body.repo_name = String(opts.repoName);
+                if (opts.repoUrl) body.repo_url = String(opts.repoUrl);
+                if (opts.lastUpdate) body.last_update = String(opts.lastUpdate);
+                const contributors = csvToArray(opts.contributors);
+                if (contributors) body.contributors = contributors;
+                if (Object.keys(body).length === 0) {
+                    throw new Error("product-repos update requires at least one updatable flag");
+                }
+                const result = await cawplanRequest({
+                    method: "PATCH",
+                    path: `/api/v1/public/openapi/ai-session-usage/product-repo/${uniqueId}`,
+                    body,
+                });
+                console.log(JSON.stringify(result, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    productRepos
+        .command("delete <unique_id>")
+        .description("Delete a product-repository mapping")
+        .action(async (uniqueId: string) => {
+            try {
+                const result = await cawplanRequest({
+                    method: "DELETE",
+                    path: `/api/v1/public/openapi/ai-session-usage/product-repo/${uniqueId}`,
+                });
+                console.log(JSON.stringify(result, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    session.command("assign")
+        .description("Assign report sessions to products and optional repositories")
+        .option("--file <path>", "Path to ai-daily JSON file")
+        .option("--files <path>", "Batch assign ai-daily JSON file paths with --web or --tty (repeatable)", (val: string, prev: string[]) => [...prev, val], [] as string[])
+        .option("--tty", "Assign sessions using cloud mappings and interactive selector when available")
+        .option("--web", "Assign sessions in a local web page (skipped when every session already has a product)")
+        .option("--force", "With --web, open the page even when every session already has a product")
+        .action(async (opts) => {
+            try {
+                if (Array.isArray(opts.files) && opts.files.length > 0) {
+                    const reports = readDailyReports(opts.files.map(String));
+                    if (opts.web) {
+                        if (!opts.force && !reportsNeedAssignment(reports)) {
+                            console.error("All sessions already have a product; skipping the assignment page. Use --force to open it anyway.");
+                            return;
+                        }
+                        await startAssignmentWebServer(reports, true);
+                        return;
+                    }
+                    if (opts.tty) {
+                        const result = await assignReportsFromTty(reports);
+                        console.log(JSON.stringify({
+                            files: result.files,
+                            assigned_sessions: result.assignedSessions,
+                        }, null, 2));
+                        return;
+                    }
+                    throw new Error("--files requires --web or --tty");
+                }
+                if (!opts.file) throw new Error("--file is required unless --files is set");
+                const daily = readDailyReport(String(opts.file));
+                if (opts.web) {
+                    if (!opts.force && !reportsNeedAssignment([{daily}])) {
+                        console.error("All sessions already have a product; skipping the assignment page. Use --force to open it anyway.");
+                        return;
+                    }
+                    await startAssignmentWebServer([{file: String(opts.file), daily}]);
+                    return;
+                }
+
+                if (opts.tty) {
+                    const file = String(opts.file);
+                    const assignedSessions = await assignProjectsFromCloudMappings(daily, file);
+                    assertAllSessionsHaveProduct(daily);
+                    console.log(JSON.stringify({
+                        file,
+                        assigned_sessions: assignedSessions,
+                    }, null, 2));
+                    return;
+                }
+
+                throw new Error("assign requires --web or --tty");
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    session.command("report")
+        .description("Upload a daily coding session report. Provide --file")
+        .requiredOption("--file <path>", "Path to daily.json; must contain 'author' and 'date' fields")
+        .action(async (opts) => {
+            let payload: DailyApiJson;
+            try {
+                payload = readDailyReport(String(opts.file));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+
+            if (warnMissingProductAssignment(String(opts.file), payload)) {
+                process.exit(1);
+            }
+
+            const result = await uploadDailyReport(payload);
+            console.log(JSON.stringify(result, null, 2));
+        });
+
+    session.command("qa-upload")
+        .description("Upload a QA daily session report. Provide --file")
+        .requiredOption("--file <path>", "Path to qa-daily JSON; must contain schema qa-session.1, author, and date")
+        .action(async (opts) => {
+            try {
+                const payload = readQaDailyReport(String(opts.file));
+                const result = await uploadQaDailyReport(payload);
+                console.log(JSON.stringify(result, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    session.command("qa-assign")
+        .description("Open the QA assignment confirmation page for an existing qa-daily JSON file")
+        .requiredOption("--file <path>", "Path to qa-daily JSON; must contain schema qa-session.1, author, and date")
+        .action(async (opts) => {
+            try {
+                const file = String(opts.file);
+                const daily = readQaDailyReport(file);
+                const excludedSessions = readQaExcludedSessions(file);
+                await startQaAssignmentWebServer({
+                    file,
+                    daily,
+                    excludedSessions,
+                });
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    session.command("qa-backfill")
+        .description("List or backfill missing QA daily session reports in a date range")
+        .requiredOption("--from <YYYY-MM-DD>", "Start date")
+        .requiredOption("--to <YYYY-MM-DD>", "End date")
+        .option("--dry-run", "Only list missing QA report dates without collecting or uploading")
+        .action(async (opts) => {
+            try {
+                if (!opts.dryRun) {
+                    throw new Error("QA backfill requires --dry-run for now; batch upload will be added in a later release");
+                }
+                const dateFrom = String(opts.from);
+                const dateTo = String(opts.to);
+                parseISODate(dateFrom);
+                parseISODate(dateTo);
+
+                const backfill = await qaBackfillMissingReports(dateFrom, dateTo, {
+                    dryRun: true,
+                });
+                console.log(JSON.stringify(backfill, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    session.command("backfill")
+        .description("Collect and upload missing daily session reports in a date range")
+        .requiredOption("--from <YYYY-MM-DD>", "Start date")
+        .requiredOption("--to <YYYY-MM-DD>", "End date")
+        .option("--dry-run", "Only list missing report dates without collecting or uploading")
+        .action(async (opts) => {
+            try {
+                const dateFrom = String(opts.from);
+                const dateTo = String(opts.to);
+                parseISODate(dateFrom);
+                parseISODate(dateTo);
+
+                const backfill = await backfillMissingReports(dateFrom, dateTo, {
+                    dryRun: Boolean(opts.dryRun),
+                });
+                console.log(JSON.stringify(backfill, null, 2));
+            } catch (e) {
+                console.error(`Error: ${(e as Error).message}`);
+                process.exit(1);
+            }
+        });
+
+    addReportQueryOptions(session.command("reports")
+        .description("List uploaded daily session reports"))
+        .action(async (opts) => {
+            const query = buildQueryFromFlags({
+                ...dateParams(opts),
+                ...limitOffsetParams(opts),
+                ...(opts.userId ? {user_id: String(opts.userId)} : {}),
+            }, ["date", "date_from", "date_to", "user_id", "limit", "offset"]);
+            const result = await cawplanRequest({
+                method: "GET",
+                path: "/api/v1/public/openapi/ai-session-usage/reports",
+                query,
+            });
+            console.log(JSON.stringify(result, null, 2));
+        });
+
+    registerAiSessionInsightsCommands(session);
+}

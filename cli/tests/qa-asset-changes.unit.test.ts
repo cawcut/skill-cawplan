@@ -1,0 +1,33 @@
+import {existsSync} from "node:fs";
+import {join} from "node:path";
+import {describe, expect, test} from "vitest";
+import {collectQaAssetChanges} from "../src/lib/collect/qa-asset-changes.js";
+import {tracesFromToolResultStdout} from "../src/lib/collect/qa-trace-extract.js";
+
+// Real Claude Code QA session transcripts (*.jsonl). These tests skip unless the directory is set.
+const QA_DIR = process.env.CAWPLAN_QA_SESSION_DIR ?? "";
+
+const REAL_SESSION_CASES = [
+    {id: "fcc914fb-041a-4ce6-8c2d-f79910c13d0d", expectedTestpointAdded: 6},
+    {id: "87a6526b-63fa-42a6-bb6e-c3c497b42485", expectedTestpointAdded: 0},
+    {id: "f79fffba-51c6-4ce0-87e8-0d78b732d54f", expectedTestpointAdded: 0},
+];
+
+const availableCases = REAL_SESSION_CASES.filter((c) => existsSync(join(QA_DIR, `${c.id}.jsonl`)));
+
+describe.skipIf(availableCases.length === 0)("collectQaAssetChanges (real sessions)", () => {
+    test.each(availableCases)("session $id resolves the expected testpoint.added", ({id, expectedTestpointAdded}) => {
+        const traces = tracesFromToolResultStdout(join(QA_DIR, `${id}.jsonl`));
+        const changes = collectQaAssetChanges(traces);
+        expect(changes.testpoint.added).toBe(expectedTestpointAdded);
+    });
+
+    test("A3-only sessions have all six numbers at zero", () => {
+        const traces = tracesFromToolResultStdout(join(QA_DIR, "87a6526b-63fa-42a6-bb6e-c3c497b42485.jsonl"));
+        const changes = collectQaAssetChanges(traces);
+        expect(changes).toEqual({
+            testpoint: {added: 0, modified: 0, deleted: 0},
+            testcase: {added: 0, modified: 0, deleted: 0},
+        });
+    });
+});

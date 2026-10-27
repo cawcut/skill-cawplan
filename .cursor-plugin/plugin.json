@@ -1,0 +1,92 @@
+{
+  "$schema": "https://cursor.com/schemas/cursor-plugin/plugin.json",
+  "name": "cawplan",
+  "displayName": "CawPlan Agent Skills",
+  "version": "0.2.11",
+  "description": "CawPlan CLI-backed skills for products, tickets, todos, reports, critical issues, and metrics.",
+  "author": {
+    "name": "Ubiquiti",
+    "email": "support@cawplan.com"
+  },
+  "publisher": "UbiquitiUID",
+  "homepage": "https://app.cawplan.com/",
+  "repository": "https://github.com/cawcut/skill-cawplan",
+  "license": "MIT",
+  "category": "productivity",
+  "keywords": [
+    "cawplan",
+    "release-management",
+    "developer-cli",
+    "agent-skill"
+  ],
+  "skills": [
+    {
+      "name": "cawplan-ticket-create",
+      "path": "skills/cawplan-ticket-create"
+    },
+    {
+      "name": "cawplan-product-report",
+      "path": "skills/cawplan-product-report"
+    },
+    {
+      "name": "cawplan-product-insights",
+      "path": "skills/cawplan-product-insights"
+    },
+    {
+      "name": "cawplan-plan-create",
+      "path": "skills/cawplan-plan-create"
+    },
+    {
+      "name": "cawplan-plan-track",
+      "path": "skills/cawplan-plan-track"
+    },
+    {
+      "name": "cawplan-coding-commit",
+      "path": "skills/cawplan-coding-commit"
+    },
+    {
+      "name": "cawplan-ticket-context",
+      "path": "skills/cawplan-ticket-context"
+    },
+    {
+      "name": "cawplan-ticket-attachments",
+      "path": "skills/cawplan-ticket-attachments"
+    },
+    {
+      "name": "cawplan-coding-insights",
+      "path": "skills/cawplan-coding-insights"
+    },
+    {
+      "name": "cawplan-my-work",
+      "path": "skills/cawplan-my-work"
+    },
+    {
+      "name": "cawplan-ux-tracking",
+      "path": "skills/cawplan-ux-tracking"
+    },
+    {
+      "name": "cawplan-requirement-analyze",
+      "path": "skills/cawplan-requirement-analyze"
+    },
+    {
+      "name": "cawplan-testpoint-generate",
+      "path": "skills/cawplan-testpoint-generate"
+    },
+    {
+      "name": "cawplan-testcase-generate",
+      "path": "skills/cawplan-testcase-generate"
+    },
+    {
+      "name": "cawplan-qa-commit",
+      "path": "skills/cawplan-qa-commit"
+    },
+    {
+      "name": "cawplan-knowledge",
+      "path": "skills/cawplan-knowledge"
+    },
+    {
+      "name": "cawplan-support-metrics",
+      "path": "skills/cawplan-support-metrics"
+    }
+  ]
+}

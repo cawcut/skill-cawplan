@@ -1,0 +1,18 @@
+{
+  "name": "cawplan",
+  "version": "0.2.11",
+  "description": "CawPlan agent skills: products, tickets, todos, reports, critical issues, and metrics via the cawplan CLI.",
+  "author": {
+    "name": "Ubiquiti",
+    "url": "https://app.cawplan.com/"
+  },
+  "homepage": "https://app.cawplan.com/",
+  "repository": "https://github.com/cawcut/skill-cawplan",
+  "license": "MIT",
+  "keywords": [
+    "cawplan",
+    "release-management",
+    "developer-cli",
+    "agent-skill"
+  ]
+}

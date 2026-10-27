@@ -1,0 +1,21 @@
+{
+  "products": {
+    "cawplan": {
+      "displayName": "CawPlan",
+      "cliName": "cawplan",
+      "oauthEndpoint": "cawplan-cli",
+      "credentialsDir": ".cawplan",
+      "defaultEnv": "prd",
+      "env": {
+        "prd": {
+          "portalBase": "https://app.cawplan.com",
+          "apiBase": "https://api.cawplan.com/core-product"
+        },
+        "local": {
+          "portalBase": "http://localhost:5173",
+          "apiBase": "http://localhost"
+        }
+      }
+    }
+  }
+}

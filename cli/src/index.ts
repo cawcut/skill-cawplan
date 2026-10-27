@@ -1,0 +1,134 @@
+#!/usr/bin/env node
+
+import {Command} from "commander";
+import {createRequire} from "node:module";
+import {ApiError} from "./lib/http.js";
+import {registerAuthCommand} from "./commands/auth.js";
+import {registerProductsCommand} from "./commands/products.js";
+import {registerVersionsCommand} from "./commands/versions.js";
+import {registerTicketsCommand} from "./commands/tickets.js";
+import {registerCriticalCommand} from "./commands/critical.js";
+import {registerMetricsCommand} from "./commands/metrics.js";
+import {registerTodosCommand} from "./commands/todos.js";
+import {registerUsersCommand} from "./commands/users.js";
+import {registerActivitiesCommand} from "./commands/activities.js";
+import {registerUserActivityCommand} from "./commands/user-activity.js";
+import {registerProductActivityCommand} from "./commands/product-activity.js";
+import {registerKnowledgeCommand} from "./commands/knowledge.js";
+import {registerAnalyticsCommand} from "./commands/analytics.js";
+import {registerQAReportsCommand} from "./commands/qa-reports.js";
+import {registerQAInsightsCommand} from "./commands/qa-insights.js";
+import {registerTestPointReviewCommand} from "./commands/testpoint-review.js";
+import {registerCommunityCommand} from "./commands/community.js";
+import {registerSessionCommand} from "./commands/session.js";
+import {registerInitCommand} from "./commands/init.js";
+import {registerUpgradeCommand} from "./commands/upgrade.js";
+import {registerSkillCommand} from "./commands/skill.js";
+import {registerConfigCommand} from "./commands/config.js";
+
+const require = createRequire(import.meta.url);
+const {version} = require("../package.json") as { version: string };
+
+const program = new Command();
+
+program
+    .name("cawplan")
+    .description("CawPlan CLI")
+    .version(version);
+
+// Register all commands
+registerAuthCommand(program);
+registerProductsCommand(program);
+registerVersionsCommand(program);
+registerTicketsCommand(program);
+registerCriticalCommand(program);
+registerMetricsCommand(program);
+registerTodosCommand(program);
+registerUsersCommand(program);
+registerActivitiesCommand(program);
+registerUserActivityCommand(program);
+registerProductActivityCommand(program);
+registerKnowledgeCommand(program);
+registerAnalyticsCommand(program);
+registerQAReportsCommand(program);
+registerQAInsightsCommand(program);
+registerTestPointReviewCommand(program);
+registerCommunityCommand(program);
+registerSessionCommand(program);
+registerInitCommand(program);
+registerUpgradeCommand(program);
+registerSkillCommand(program);
+registerConfigCommand(program);
+
+// Raw API passthrough
+program
+    .command("api <method> <path>")
+    .description("Raw API request passthrough")
+    .option("--query <params>", "Query params as key=val&key2=val2")
+    .option("--body <json>", "Request body as JSON")
+    .action(async (method: string, path: string, opts) => {
+        const {cawplanRequest} = await import("./lib/http.js");
+        const {getApiBase, getDefaultEnvName} = await import("./lib/products.js");
+        const {readUserConfig} = await import("./lib/user-config.js");
+        let body: unknown;
+        if (opts.body) {
+            try {
+                body = JSON.parse(opts.body);
+            } catch {
+                console.error("Error: --body must be valid JSON");
+                process.exit(1);
+            }
+        }
+        const query = opts.query
+            ? Object.fromEntries(new URLSearchParams(opts.query).entries())
+            : undefined;
+
+        const httpMethod = method.toUpperCase() as "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+        const userConfig = await readUserConfig();
+        const envName = userConfig?.env ?? getDefaultEnvName();
+        let baseUrl = getApiBase().trim();
+        if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+            baseUrl = `https://${baseUrl}`;
+        }
+        baseUrl = baseUrl.replace(/\/$/, "");
+        const normalizedPath = path.trim().startsWith("/") ? path.trim() : `/${path.trim()}`;
+        const debugUrl = new URL(`${baseUrl}${normalizedPath}`);
+        if (query) {
+            for (const [key, value] of Object.entries(query)) {
+                debugUrl.searchParams.set(key, value);
+            }
+        }
+        console.error(`[cawplan api debug] env=${envName} ${httpMethod} ${debugUrl.toString()}`);
+
+        const result = await cawplanRequest({
+            method: httpMethod,
+            path,
+            query,
+            body,
+        });
+        console.log(JSON.stringify(result, null, 2));
+    });
+
+// Cache management
+program
+    .command("cache")
+    .description("Manage local cache")
+    .command("clear")
+    .description("Clear the local cache")
+    .action(async () => {
+        const {clearCache} = await import("./lib/cache.js");
+        clearCache();
+        console.log(JSON.stringify({code: "SUCCESS", msg: "cache cleared"}, null, 2));
+    });
+
+try {
+    await program.parseAsync(process.argv);
+} catch (err) {
+    if (err instanceof ApiError) {
+        const payload = err.body && typeof err.body === "object" ? err.body : {code: "ERROR", data: null, msg: err.message};
+        console.error(JSON.stringify(payload, null, 2));
+    } else {
+        console.error(JSON.stringify({code: "ERROR", data: null, msg: err instanceof Error ? err.message : String(err)}, null, 2));
+    }
+    process.exit(1);
+}

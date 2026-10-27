@@ -1,0 +1,79 @@
+{
+  "comment": "Role -> skill mapping for `cawplan skill update`. Roles come from product members (GET /api/v1/public/openapi/products -> members.<members_key>). A user gets the union of every matched role. `common` is added to every role unless include_common is false. `all: true` means every skill listed by any role. `optional` skills are never installed by role and never pruned. Validated by scripts/validate-skills.sh.",
+  "common": [
+    "cawplan-ticket-context",
+    "cawplan-ticket-attachments",
+    "cawplan-my-work",
+    "cawplan-ticket-create",
+    "cawplan-knowledge"
+  ],
+  "roles": {
+    "owner": {
+      "members_key": "owners",
+      "all": true
+    },
+    "pm": {
+      "members_key": "product_managers",
+      "skills": [
+        "cawplan-plan-create",
+        "cawplan-plan-track",
+        "cawplan-product-report",
+        "cawplan-product-insights",
+        "cawplan-metrics",
+        "cawplan-risk-assessment"
+      ]
+    },
+    "rd": {
+      "members_key": "rds",
+      "skills": [
+        "cawplan-coding-commit",
+        "cawplan-coding-insights"
+      ]
+    },
+    "qa": {
+      "members_key": "qas",
+      "skills": [
+        "cawplan-requirement-analyze",
+        "cawplan-testpoint-generate",
+        "cawplan-testcase-generate",
+        "cawplan-testcase-import",
+        "cawplan-testplan-layout",
+        "cawplan-testrail-link",
+        "cawplan-defect-ticket",
+        "cawplan-test-execution-progress",
+        "cawplan-ticket-report-generate",
+        "cawplan-qa-commit",
+        "cawplan-risk-assessment"
+      ]
+    },
+    "ux": {
+      "members_key": "designers",
+      "skills": [
+        "cawplan-ux-tracking"
+      ]
+    },
+    "support": {
+      "members_key": "supports",
+      "skills": [
+        "cawplan-support-metrics"
+      ]
+    },
+    "viewer": {
+      "members_key": "viewers",
+      "include_common": false,
+      "skills": [
+        "cawplan-ticket-context",
+        "cawplan-my-work",
+        "cawplan-product-report",
+        "cawplan-product-insights",
+        "cawplan-plan-track",
+        "cawplan-coding-insights",
+        "cawplan-ux-tracking",
+        "cawplan-test-execution-progress",
+        "cawplan-knowledge",
+        "cawplan-metrics"
+      ]
+    }
+  },
+  "optional": []
+}

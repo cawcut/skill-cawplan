@@ -1,0 +1,65 @@
+# AGENTS.md — CawPlan Skills
+
+Guidance for Codex and compatible agents when working in this repository.
+
+## What This Is
+
+Two deliverables:
+
+1. `cawplan` CLI: TypeScript/npm binary for OAuth, API-key auth, and CawPlan Open API commands.
+2. Agent skills: Markdown instruction packs under `skills/` that tell agents how to invoke the CLI.
+
+Skills are not an MCP server. Agents execute local `cawplan` processes; skill files are routing and UX instructions only.
+
+## Repository Structure
+
+```text
+flow-cawplan-skill/
+├── cli/                      # npm package — the cawplan binary
+│   ├── src/commands/
+│   └── src/lib/
+├── skills/
+│   ├── cawplan-ticket-create/
+│   ├── cawplan-product-report/
+│   ├── cawplan-product-insights/
+│   ├── cawplan-plan-create/
+│   ├── cawplan-plan-track/
+│   ├── cawplan-coding-commit/
+│   ├── cawplan-ticket-context/
+│   ├── cawplan-ticket-attachments/
+│   ├── cawplan-coding-insights/
+│   ├── cawplan-my-work/
+│   └── cawplan-ux-tracking/
+├── .Codex-plugin/
+├── .cursor-plugin/
+└── .codex-plugin/
+```
+
+## API Conventions
+
+All skills route through `cawplan`. Do not call CawPlan HTTP APIs directly from skills; the CLI handles OAuth, refresh, API-key fallback, and errors.
+
+| Concern | Convention                                                           |
+|---------|----------------------------------------------------------------------|
+| Auth | `cawplan auth login` (OAuth)                                         |
+| Credentials | `~/.cawplan/credentials.json`, mode `0600`                           |
+| Environment | `cawplan config env prd/proto/local` writes `~/.cawplan/config.json` |
+| Raw escape hatch | `cawplan api <method> <path>`                                        |
+
+## Development
+
+```bash
+# 验证 skills（从仓库根目录运行）
+bash scripts/validate-skills.sh
+
+# npm 单独跑测试
+cd cli && npm install && npm run build && npm test
+```
+
+## Skill Authoring Rules
+
+- Keep each `SKILL.md` concise.
+- Include bootstrap checks for `cawplan` installation and auth.
+- Prefer CLI commands over direct HTTP.
+- Link to `references/` docs for endpoint details.
+- Run `bash scripts/validate-skills.sh` before committing.

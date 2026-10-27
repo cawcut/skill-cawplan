@@ -1,0 +1,28 @@
+node_modules/
+dist/
+cli/dist/
+*.tsbuildinfo
+__pycache__/
+*.pyc
+.DS_Store
+coverage/
+cli/coverage/
+.env
+.env.*
+.idea/
+Outputs/
+Reports/
+ai-daily-*.json
+.cursor/rules/
+local/
+cli/tests/fixtures/coding-baseline/*.json
+cli/tests/fixtures/long-turn/*.jsonl
+docs/bedoc/
+# Locally generated human-input samples (build_sample.mjs --copy-for-editor); contain real session data
+skills/*/assets/samples/latest.json
+
+# Real conversation captures and local release records are never source assets.
+*.jsonl
+.playwright-mcp/
+daily.api.json
+.cawplan/

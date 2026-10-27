@@ -1,0 +1,1096 @@
+# CawPlan Open API
+
+## Base
+- Auth:
+    - Interactive CLI: `Authorization: Bearer <accessToken>` from `cawplan auth login`.
+- Notes:
+    - `cawplan-cli` OAuth access tokens are identified by token source and checked against the user's RBAC scope on supported OpenAPI routes.
+### Local Caching (CLI)
+- Cache file: `~/.cawplan/cache.json` (override with `CAWPLAN_CACHE_PATH`)
+- TTL: `CAWPLAN_CACHE_TTL_HOURS` (default 12)
+- Commands with cache: users list/query, products list, product-lines list/get, tickets search, critical search, knowledge documents get
+- Bypass cache: add `--refresh`
+- Clear cache: `cawplan cache clear`
+
+## 1) User APIs
+### List Users
+- Endpoint: `GET /api/v1/public/openapi/users`
+- Query params: `page_size` (default 20, max 100), `page_num` (default 1), `search`
+
+### Query User
+- Endpoint: `POST /api/v1/public/openapi/users/query`
+- Body: `{ "email": "contributor@example.com" }` OR `{ "keyword": "john", "page_num": 1, "page_size": 20 }`
+- Notes: either email or keyword required; email takes precedence when both provided
+- Response fields: `unique_id`, `email`, `first_name`, `last_name`, `avatar`, `status`, `created_at`, `updated_at`
+
+## 1.1) Todo APIs
+### Get User Todos
+- Endpoint: `GET /api/v1/public/openapi/todos/users/{user_id}`
+- Path params: `user_id` (user `unique_id`)
+- Query params: `ticket_status` (CSV), `issue_status` (CSV)
+- Response: `tickets` (grouped by product_line → product → version), `critical_issues` (grouped by product_line → product), `summary`
+
+## 2) Product APIs
+### List Products
+- Endpoint: `GET /api/v1/public/openapi/products`
+- Query params: `page_size` (default 10), `page_num` (default 1), `search`, `type_id`, `product_line_id`, `version_id` (filter by version `unique_id`, CSV)
+- Response: list of products with `unique_id`, `name`, `description`, `product_type`, `product_line`, `controls` (array of enabled feature keys, e.g. `dashboard`, `version-plans`, `issues-suggestions`, `knowledge`, `test-suites`, `coding-insights` — a product only has coding session data if `coding-insights` is present), plus paging
+
+### Get Product Overview
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/overview`
+- Path params: `product_id` (product `unique_id`)
+- Response envelope: `code`, `data`, `msg` — success when `code == "SUCCESS"` and `data.description` is non-empty
+- Response `data` (top-level fields used by `cawplan-requirement-analyze`): `name`, `description` — ignore other `data` keys such as `product_line`, `type`, `product_types`
+- Notes: read-only product background for agent context; not a QA Insights route
+- Maps to cawplan CLI: `cawplan api GET /api/v1/public/openapi/product/{product_id}/overview`
+
+## 2.1) Product Line APIs
+### List Product Lines
+- Endpoint: `GET /api/v1/public/openapi/product_lines`
+- Query params: `page_size` (default 20), `page_num` (default 1)
+- Response: list of product lines with `unique_id`, `name`, `description`, plus paging
+
+### Get Product Line
+- Endpoint: `GET /api/v1/public/openapi/product_lines/{product_line_id}`
+- Path params: `product_line_id` (product line `unique_id`)
+
+### Get Product Line Ticket Statuses (workflow states)
+- Endpoint: `GET /api/v1/public/openapi/product_lines/{product_line_id}/ticket_statuses`
+- Response items: `key`, `display_name`, `color`, `category` (`UNSTARTED` / `STARTED` / `DONE` / ...), `is_default`, `order`
+- Notes: ticket `status` values are **per product line**. Build the adapter `stateMap` (Linear `IssueState` → PRM `key`) from this at init time. Maps to Linear `getWorkflowStates`.
+- Maps to cawplan CLI: `cawplan product-lines statuses <product_line_id>`.
+
+## 2.2) Label APIs
+### List Labels (name → id resolution)
+- Endpoint: `GET /api/v1/public/openapi/labels`
+- Query params: `search` (case-insensitive substring on name), `product_id` (scope to a product's visible labels; omit for workspace-wide), `page_size`, `page_num`
+- Response items: `unique_id`, `name`, `color`, `behavior` (`FEATURE` / `BUGFIX` / `null`), `is_system`, `product_id` (`null` = workspace-wide), `created_at`
+- Notes: read-only. Adapters that receive label **names** (e.g. Linear) build a `name → unique_id` cache from this, then pass `label_ids[]` to create/update. No label write API is exposed.
+- Maps to cawplan CLI: `cawplan labels list`.
+
+## 3) Version APIs
+### List Versions
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions`
+- Path params: `product_id` (product `unique_id`)
+
+### Get Version Detail
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}`
+
+### Create Version (Version Plan)
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/versions`
+- Body: `name` (required, e.g. `1.3.2`), `major_id` (**optional**, the major version `unique_id`), `description?`, `extra?` (optional `target_release[]`, `monitor_link`, `hotfix`)
+- Notes:
+    - `major_id` is **optional** — when omitted the server auto-resolves the major from `name`: a major-format name (e.g. `5.0`) anchors itself; a minor (e.g. `5.0.1`) looks up / creates the `5.0` major under the same product. Pass `major_id` only when you need to force a specific anchor. Discover IDs via `cawplan versions list <product_id>`.
+    - Major versions cannot be marked `hotfix`; minor versions may.
+    - API-key requests use the integration actor fallback. CLI Bearer requests use the authenticated user and RBAC scope.
+- Maps to cawplan CLI: `cawplan versions create`.
+
+### Get Release History
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/release`
+- Response items: `unique_id`, `version`, `status`, `release_date`
+
+## 4) Ticket APIs
+### List Version Tickets
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets`
+- Query params: `type` (required: `FEATURE` or `BUGFIX`), `page_size`, `page_num`
+
+### Search Version Tickets
+- Endpoint: `POST /api/v1/public/openapi/tickets/search`
+- Query params: `time_range` or (`start_date` + `end_date`), optionally also (`updated_start_date` + `updated_end_date`), `page_size`, `page_num`
+- Body: `product_ids[]`, `product_line_ids[]`, `version_ids[]`, `unique_ids[]`, `display_ids[]`, `parent_ids[]`, `label_ids[]`, `label_names[]`, `type[]` (legacy), `status[]`, `excluded_status[]`, `ux[]`, `status_categories[]`, `excluded_status_categories[]`, `priority[]`, `platform[]`, `assignees[]`, `search`
+- Notes:
+    - OR within same field; AND across fields.
+    - **Use labels for ticket classification.** `label_ids[]` and `label_names[]` match tickets carrying any supplied label. Prefer `label_ids[]` after resolving the product-visible catalog with `cawplan labels list --product_id <product_id>`; `label_names[]` is available when exact names are already known. `type[]` is a legacy compatibility filter and must not drive new category-classification workflows.
+    - `ux[]` filters by UX state (`NOT_REQUIRED`, `PENDING`, `READY`). `excluded_status[]` excludes tickets whose status key is in the supplied list. `status_categories[]` includes, and `excluded_status_categories[]` excludes, resolved product-line categories (`BACKLOG`, `UNSTARTED`, `STARTED`, `TESTING`, `COMPLETE`, `CANCELED`, `JIRA`). CLI: `--ux PENDING,READY --excluded_status DONE,CANCELED --status_categories STARTED,TESTING --excluded_status_categories COMPLETE,CANCELED`.
+    - `unique_ids[]` / `display_ids[]` are exact-match lookups (Linear `fetchIssuesByIds` / global `getIssue`). When either is set, **the time window is not required** (no `time_range` / date range needed).
+    - `parent_ids[]` returns **all** sub-issues of the given parents (Linear `getChildIssues`). It is a bounded relationship lookup, so it also **exempts the time window** — the full child set is returned regardless of age (a dependency-aware scheduler must not lose old children). `time_range` is therefore not required when `parent_ids[]` is set.
+- **`start_date`/`end_date` filter `created_at`, not `updated_at`** — this is easy to miss since the field name isn't in the param name. A ticket created before the window but changed (status, assignee, comments, etc.) within it will **not** show up from `start_date`/`end_date` alone, no matter how the request is otherwise scoped (product/version/assignee filters don't change this). If the actual question is "what changed in this window" (release reports, member/team activity reports) rather than "what was created in this window," that's `updated_start_date`/`updated_end_date` (below), not `start_date`/`end_date`.
+- **`updated_start_date`/`updated_end_date`** — independent, optional filter on `updated_at`. No default, not required, can be combined with `start_date`/`end_date` (AND) or used alone (pair with `start_date 2000-01-01`/today per the workaround below if you don't also want the created_at window narrowing results). `updated_at` has **no DB index** (unlike `created_at`), so keep this paired with a narrowing filter (`product_ids`, `assignees`, etc.) rather than firing it alone across a whole workspace/product line.
+- **`updated_at` is not "completed at"** — it's the record's overall last-modified time, refreshed by *any* field change (status, version transfer, priority, assignee, comments, etc.), not specifically a status→`DONE` transition. Confirmed live: [CAWP-18478](https://app.cawplan.com/issue/CAWP-18478) moved to `DONE` on 2026-08-13 (inside an 08-10~08-16 report window), then had an unrelated version transfer (1.6.34 → 1.6.33) on 2026-08-17 that bumped `updated_at` to 08-17 — a report scoped to `--updated_start_date 2026-08-10 --updated_end_date 2026-08-16` silently drops this ticket even though it genuinely completed inside the window. The same mechanism can also cause a **false positive** the other way: a ticket that completed *before* a window but got an unrelated edit *inside* the window will show up as "changed" with a current status of `DONE`, which is easy to mis-report as "completed in this window" if you only check current status. Any report computing "completed in window N" from `status`/`updated_at` alone is subject to both failure modes — use **Get Version Ticket History** (below) to verify the actual completion timestamp instead of trusting `updated_at` or current status for that specific claim.
+- **Canonical workaround for "every matching ticket regardless of age" queries** (e.g. release health checks, UX-pending sweeps, stale-ticket detection, or "what changed" reports that need `updated_start_date`/`updated_end_date` without the `created_at` window also narrowing results): none of `--version_ids`/`--product_ids`/`--product_line_ids`/`--label_ids`/`--label_names`/`--priority`/`--type`/`--status`/`--assignees` exempt the time window on their own. Two valid options, pick per need:
+    1. Pass a deliberately maximal window, e.g. `--start_date 2000-01-01 --end_date <today>` — use when you need a field only present on the full `VersionTicket` shape (see below), since Poll Tickets doesn't return it, or when combining with `updated_start_date`/`updated_end_date`.
+    2. Switch to **Poll Tickets** (below) instead, which has no time window at all — use when the fields you need are in Poll's lightweight shape.
+   Skills should reference this section rather than re-deriving the workaround independently.
+- **`VersionTicket` fields of note** (full shape returned by Search/Get, not by Poll):
+    - `ux`: `NOT_REQUIRED` / `PENDING` / `READY` — whether the ticket needs UX design work and where that stands. `PENDING` means UX was flagged as needed but isn't done; `NOT_REQUIRED` is the default and does **not** mean "needs UX."
+    - `links[]`: external resource links, each `{ platform, url, title, external_id }`. `platform` is free text and not a reliable discriminator in practice (e.g. a GitHub PR/commit link can show `platform: "LINK"`) — classify by inspecting `url` instead (contains `/pull/` → PR, `/commit/` → commit).
+    - `status_display.category`: the resolved workflow-status category (`UNSTARTED`/`STARTED`/`TESTING`/`COMPLETE`/`CANCELED`) for the ticket's current `status` key — same taxonomy as Get Product Line Ticket Statuses, provided inline so callers don't have to cross-reference it separately.
+
+### Get Version Ticket History
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/history`
+- Maps to cawplan CLI: `cawplan tickets history <product_id> <version_id> <ticket_id>`
+- Response: `data[]`, newest first, each entry:
+    - `action_type`: `CREATED` / `UPDATED` / `TRANSFERRED` (version moves) — other action types may exist; don't assume this list is exhaustive.
+    - `changed_fields`: `null` for `CREATED`; for `UPDATED` a map of field → `{old, new}` (e.g. `{"status": {"old": "READY_FOR_QA", "new": "DONE"}}`); for `TRANSFERRED` a `{"transfer": {"source": {...}, "target": {...}}}` shape (product/version/major_version/is_backlog on each side) — a version transfer has **no `status` key** in `changed_fields`, so it cannot be mistaken for a status transition.
+    - `created_at`: ISO-8601 string (not epoch, unlike `VersionTicket.created_at`/`updated_at`) — this is the timestamp of that specific history event, e.g. the exact moment a status transition happened.
+    - `user_id`/`user_display_name`/`user_avatar`: actor who made the change; `source`/`source_id`: set for non-manual changes (e.g. an integration), `null` for direct edits.
+- **Canonical pattern: finding the real "completed at" timestamp for a ticket** (use this instead of trusting `updated_at` or current status when a report specifically claims "completed in window [A, B]"):
+    1. Fetch history and scan for entries where `action_type == "UPDATED"` and `changed_fields.status.new` resolves to a `COMPLETE`- or `CANCELED`-category status (cross-reference via Get Product Line Ticket Statuses, same lookup `cawplan-my-work` uses for reopen detection).
+    2. Take the **latest** such entry (a ticket can cycle done → reopened → done again; only the most recent completion is "when it's currently done since") — its `created_at` is the ticket's actual completion timestamp. If no such entry exists (rare: created directly into a terminal status), fall back to the `CREATED` entry's `created_at`.
+    3. A ticket only counts as "completed in window [A, B]" if that timestamp falls inside `[A, B]` — regardless of what its current `updated_at` says.
+    - This adds one `tickets history` call per *candidate* ticket (ones whose current `status_display.category` is `COMPLETE`/`CANCELED`), not per ticket in the whole result set — bound the candidate set with `status`/`product_ids`/`assignees` filters on the search call first.
+
+### List / Download Ticket Attachments
+- Endpoints:
+    - `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/attachments`
+    - `GET /api/v1/public/openapi/product/{product_id}/tickets/{ticket_id}/attachments` (backlog ticket)
+- Query: `expires_in?` — presigned URL lifetime in seconds (default 900, clamped to 60–3600).
+- Response: `data = { ticket_id, display_id, attachments[] }`, each attachment `{ key, filename, type, size?, source_field, signed_url, expires_at }`.
+    - Attachments are not a separate relation: they are the files the rich-text editor embedded in `description` / `remarks` / `comment` / `progress_comment` / `root_cause` / `solution` (inline images, PDF / video / generic file blocks). External links and video poster frames are not returned. `source_field` is the first field that references the file; duplicates are collapsed by `key`.
+    - `type`: `image` / `video` / `pdf` / `zip` / `file` (`file` covers docs, logs, `.har`, `.md`, …).
+    - `filename` is the editor display name (`data-filename` or image `alt`, often `image.png` for pasted screenshots) and is user-controlled — never use it as a path without sanitizing.
+    - `signed_url` is an S3 presigned GET with `Content-Disposition: attachment`. Fetch it **without** an `Authorization` header (S3 rejects a second auth mechanism and the CawPlan token must not leak to S3).
+    - Authorization is per ticket (same RBAC as Get Version Ticket); only keys referenced by that ticket are signed. The generic `/api/v1/attachments/*` signing endpoints reject CLI tokens — use this endpoint instead.
+- Maps to cawplan CLI:
+    - `cawplan tickets attachments list <product_id> <version_id> <ticket_id> [--expires_in N]` — raw envelope with signed URLs.
+    - `cawplan tickets attachments download <product_id> <version_id> <ticket_id> [--key K]... [--type pdf,image] [--out DIR]` — streams files to `DIR` (default `./cawplan-attachments/<display_id>/`), de-duplicates local names (`image (1).png`), progress on stderr, JSON summary on stdout: `{ ticket_id, display_id, out_dir, downloaded[{key, filename, type, source_field, path, bytes, sha256}], failed[{…, error}] }`; exits 1 if any download failed.
+    - `cawplan backlog attachments list|download <product_id> <ticket_id> …` for backlog tickets.
+    - `<ticket_id>` accepts a display ID (e.g. `CAWP-123`), resolved via `tickets search` like the other ticket commands.
+
+### Upload / Add Ticket Attachments
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/attachments/upload-url`
+- Body: `{ filename, content_length, expires_in? }` — `content_length` (bytes, required) is checked against the workspace plan upload limit; the extension must be on the attachments allowlist (images, video, audio, PDF/office, text/logs/HAR, archives, …; no executables/SVG/JS).
+- Response: `data = { key, upload_url, url, filename, type, expires_at }`.
+    - `upload_url` is an S3 presigned PUT (default 900s, clamped to 60–3600). Send the raw bytes with `Content-Length` and **no** `Authorization` header.
+    - `url` is the permanent CloudFront URL to embed in ticket HTML; `key` is `attachments/<workspace_id>/<YYYY>/<MM>/<uuid><ext>`, same layout as editor uploads. Validation failures come back as HTTP 200 with a non-`SUCCESS` code.
+    - The file only belongs to the ticket once its `url` is saved into a rich-text field (`remarks` / `comment` / `progress_comment` / …) with Update Version Ticket; after that it shows in the web editor and in List Ticket Attachments.
+    - RBAC: ticket **edit** on that ticket (CLI allowlist), and the ticket must exist in `version_id`. Version tickets only.
+- Maps to cawplan CLI:
+    - `cawplan tickets attachments upload <product_id> <version_id> <ticket_id> --file <path> [--file …] [--concurrency 4] [--dry-run]` — JSON `{ ticket_id, uploaded[{path, filename, type, bytes, key, url, html}], failed[{path, filename, error}] }`; `html` is the editor-shaped snippet (`<img>`, `div[data-type=video-attachment]`, `span[data-type=pdf-attachment|zip-attachment]`). Exits 1 if any upload failed. `--dry-run` uploads nothing and prints `{ dry_run, files[{path, filename, bytes}], refused[{path, filename, error}] }` (exits 1 when anything is refused). Credential files (`~/.ssh`, `~/.aws`, `~/.cawplan`, `.env` / `.env.*`, including symlinks to them) are always refused.
+    - `cawplan tickets attachments add <product_id> <version_id> <ticket_id> (--file <path>... | --dir <path> | --md-file <path> | --html-file <path>) [--note <markdown>] [--field progress_comment|comment|remarks] [--mode append|replace] [--block-id ID] [--base-dir DIR] [--allow-outside-base] [--html-out PATH] [--dry-run]` — builds the content from exactly one source, uploads every local file it references (each path once), rewrites the references to editor attachments, reads the ticket for its current field value and `version`, and PUTs the merged field with that `version` (409 → re-read and retry, up to 3 attempts).
+        - `--file` (repeatable): plain files embedded in the given order; a directory is rejected (use `--dir`).
+        - `--dir`: no document needed. Optional `README.md` / `index.md` / `summary.md` at the root is the intro; each subdirectory becomes a section titled by its name with its `*.md` notes (`README.md` / `notes.md` first) followed by its other files (recursive, natural name order) that the notes did not already reference; loose root files are listed at the end, under "Attachments" when there is an intro or sections. Hidden files and `.DS_Store` are skipped; references in a section's notes resolve relative to that section directory.
+        - `--md-file`: Markdown rendered to HTML (`![](shots/a.png)`, `[rec](rec/a.mp4)`, `![](<path with spaces.png>)`, raw HTML allowed).
+        - `--html-file`: `<img src>`, `<a href>`, `<video src>` / `<source src>` and `data-src` references (URLs, `#anchors` and `data:` left alone); only `<body>` is kept, `<script>`/`<style>` dropped.
+        - `--note`: Markdown placed before the content; its references resolve against the current directory.
+        - Reference confinement: references in `--dir` (the `--dir` root), `--md-file` / `--html-file` (the file's directory, or `--base-dir`) and `--note` (the current directory) must stay inside that base directory after resolving `../`, absolute paths, `file:` URLs and symlinks; others are listed in `blocked[]` with `reason: "outside_base"`. `--allow-outside-base` lets them through and marks them `outside_base: true` in `files[]`. Explicit `--file` paths are not confined. Credential files (`~/.ssh`, `~/.aws`, `~/.cawplan`, `.env` / `.env.*`) are always `blocked[]` with `reason: "sensitive"`.
+        - `append` (default) wraps the content in `<!-- cawplan-report:ID -->…<!-- /cawplan-report:ID -->` and replaces an existing block with the same ID in place; `replace` overwrites the field. Default ID: the `--dir` / `--md-file` / `--html-file` name (re-running syncs that block), or `attach-YYYYMMDD-HHmmss` for `--file` (each run appends). Missing or blocked files, or any failed upload, abort before the ticket is touched (uploaded objects are left unreferenced). JSON summary: `{ ticket_id, display_id, source, field, mode, block_id, dry_run, version, html_bytes, html_out, files[], uploaded[], failed[], missing[], blocked[] }`; exits 1 on `missing[]` / `blocked[]` / `failed[]`.
+    - Skill: `cawplan-ticket-attachments` (list / download / upload / add).
+
+### Poll Tickets (daemon-friendly, no time window)
+- Endpoint: `POST /api/v1/public/openapi/tickets/poll`
+- Body: `status[]` (**required**), `product_ids[]?`, `product_line_ids[]?`, `since_updated_at?` (epoch seconds — only return tickets with `updated_at >` this), `page_num?`, `page_size?` (max 200)
+- Notes:
+    - No `time_range` — this is the difference from `tickets/search`. Use it for daemon reconcile loops that must see all open tickets regardless of age.
+    - Ordered by `updated_at desc`; pass `since_updated_at` for incremental polling.
+    - Response items are lightweight: `unique_id`, `display_id`, `status`, `priority`, `type`, `version_id`, `product_id`, `product_line_id`, `parent_id`, `assignees`, `updated_at`, `is_backlog`. For full detail call Get Version Ticket.
+- Maps to cawplan CLI: `cawplan tickets poll`.
+
+### Ticket Stats (server-side counts)
+- Endpoint: `POST /api/v1/public/openapi/tickets/stats`
+- Query params and body filters: identical to Search Tickets (`time_range`, `start_date`/`end_date` on `created_at` with the same default one-month window and the same exemptions, `updated_start_date`/`updated_end_date`, and every `SearchVersionTicketsRequest` filter), plus required body `group_by[]`.
+- `group_by` (1–2 of): `priority`, `status`, `status_category`, `ux`, `assignee`, `label`, `type`, `product`, `version`, `platform`.
+- Response: `data.total` (distinct matching tickets), `data.groups[]` with `values[]` (`dimension`, `value`, `display_name`) and `count`. A ticket with several assignees or labels counts once in each of those groups; tickets with none fall in a group whose `value` is `null`.
+- Use it instead of paging `tickets search` and counting client-side for "how many High/Critical are open", "how many per status / per assignee".
+- Maps to cawplan CLI: `cawplan tickets stats --group_by <dims> [search filters]`. The CLI only maps flags; it never counts.
+
+### Ticket Changes (bulk field-change events)
+- Endpoint: `POST /api/v1/public/openapi/tickets/changes`
+- Query params: `start_date`, `end_date` (YYYY-MM-DD, inclusive, **required**, window at most 90 days), `page_size` (default 200, max 1000), `cursor` (opaque, from `next_cursor`).
+- Body: ticket scope (at least one of `product_ids`, `product_line_ids`, `version_ids`, `parent_ids`, `unique_ids`); `fields[]` (`status` default, `ux`, `priority`, `assignees`); `actor_ids[]`; `new_status_categories[]` / `old_status_categories[]`; optional `group_by[]` (1–2 of `actor`, `field`, `new_status_category`, `new_value`, `ticket`).
+- Sources: the same as Get Version Ticket History — CawPlan edits plus Jira / Zendesk / Slack sync activities attached to the ticket (Jira history shared through a sibling ticket that links the same Jira issue is not included). Soft-deleted tickets are excluded.
+- Response without `group_by`: `data.events[]` oldest first (`event_id`, `ticket_id`, `display_id`, `product_id`, `version_id`, `parent_id`, `field`, `old`, `new`, `old_category`, `new_category`, `actor{user_id, display_name}`, `source`, `source_id`, `at`, `old_source`), `data.tickets{unique_id → display_id, description, priority, status, status_category, ux, assignee_ids, labels, product_id, version_id, version_name, parent_id}`, `data.next_cursor`. CawPlan edits record `old`; when an older record or a sync event lacks it, the server fills it from the ticket's preceding change of the same field (`old_source: previous_change`, otherwise `recorded`), and `old` is `null` only when no earlier change exists. `old_category`/`new_category` are set for `status` only, so `--old_status_categories` / `--new_status_categories` find transitions such as reopens.
+- Response with `group_by`: `data.groups[]` (`values[]`, `count`, `ticket_count`), `data.total_events`, `data.truncated` (scan limit reached). No paging.
+- Use it instead of one `tickets history` call per ticket for completion, QA verification, reopen and UX-ready statistics.
+- Maps to cawplan CLI: `cawplan tickets changes --start_date <d> --end_date <d> --product_ids <id> [--fields ...] [--actor_ids ...] [--new_status_categories ...] [--group_by ...]`. Without `--group_by` the CLI follows `next_cursor` for up to 20 pages and merges `events`/`tickets`; if pages remain it returns `truncated: true` and `next_cursor` (resume with `--cursor`). The CLI does no counting or filtering of its own.
+- Before the backend ships these routes, both commands return a non-`SUCCESS` envelope (for example `OPENAPI_RBAC_SPEC_REQUIRED`); callers fall back to `tickets search` / `tickets history`.
+
+### Get Version Ticket
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}`
+- Returns the same `VersionTicket` shape as the internal API minus per-user `permissions`.
+
+### Create Version Ticket (Issue / Sub-issue)
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets`
+- Body (required): `description` (ticket title/summary; not the web page description body)
+- Body (optional): `remarks` (ticket page body; HTML supported), `type` (`FEATURE`/`BUGFIX` — legacy; when omitted it is derived from `label_ids`), `priority` (`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`), `status` (per-product-line status key), `assignee_ids[]`, `parent_id` (set this to make the ticket a sub-issue), `label_ids[]`, `reporter_id`, `due_date` (`YYYY-MM-DD`), `comment`
+- Notes:
+    - The web page description body is stored as `remarks`; set it with CLI `--remarks "<html>"`.
+    - **`priority` and `status` are optional and defaulted server-side**: when omitted (or empty) the backend stores `priority = MEDIUM` and `status =` the product line's configured default status (or its first active status). An adapter that only carries a "todo" intent (Clawcode/Linear `createIssue`) can leave both unset and still get a well-formed ticket — no empty-string fields are persisted. A provided `status` is still validated against the product line.
+    - When `parent_id` is set the new ticket becomes a sub-issue. Sub-issues must share the same `product_line` as the parent and the parent chain depth is capped at 5.
+    - CLI `--parent_id` accepts a unique ID or a display ID (e.g. `CWP-14556`); display IDs are resolved via Search Tickets before the create call.
+    - Activity is recorded with actor resolved from product owner / PM / first assignee (or `public-api-user` fallback).
+- Maps to cawplan CLI: `cawplan tickets create`.
+
+### Update Version Ticket (transition / progress / fields)
+- Endpoint: `PUT /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}`
+- Body (all optional, sparse update): `status`, `priority`, `version_id` (move ticket to another version), `description`, `remarks`, `comment`, `progress_comment`, `root_cause`, `solution`, `assignee_ids[]`, `parent_id`, `label_ids[]`, `due_date`, `manual_progress`, `links[]`, `fix_versions[]`, `api_status`, `notifiers`
+- Notes:
+    - `description` updates the ticket title/summary field. It does **not** update the web page description body; that body is stored as `remarks` and accepts HTML.
+    - `version_id` updates the ticket's target version. CLI supports this through `cawplan tickets update ... --target_version_id <id>` or `--target-ver <name>`.
+    - `root_cause`/`solution` are plain strings on write but come back on read (`tickets get`/`tickets search`) as `UserDataInfo` objects (`{display_name, user_id, avatar, data, updated_at}` — the actual text is in `.data`) with author/timestamp attribution auto-filled server-side from the update caller. Only processed for `type: BUGFIX` — silently ignored on a FEATURE ticket, so don't set them expecting an effect there. CLI: `cawplan tickets update ... --root_cause "<text>" --solution "<text>"`.
+    - This is the primary "transition" + "comment" surface for adapters: change `status` to transition, set `progress_comment` (HTML) to record narrative work. `progress_comment` is a single string field — adapters that need multi-message threads should embed marker blocks (e.g. `<!-- clawcode-workpad-{runId} -->...<!-- /clawcode-workpad-{runId} -->`) and find/replace.
+    - `status` must be a valid status key for the ticket's `product_line`. Read the ticket detail or list with `include=available_statuses` to discover the legal values; otherwise the call may fail with `invalid ticket status '...' for this product line`.
+    - Externally synced tickets (Jira) reject status / priority edits.
+    - Ticket-edit access is resource-scoped per ticket, not just a bare `ticket.edit` permission key — verified live that even a same-product/team ticket can 403 with `user has 'ticket.edit' but lacks access to ticket '<id>'` if the caller's role scope doesn't cover it, regardless of which fields are being updated (confirmed by isolating a plain `--comment`-only update, which failed identically). The path `{ticket_id}` must be the ticket **`unique_id` (UUID)**; a display_id such as `CAWP-20544` is not recognized by RBAC resource lookup. **`cawplan tickets update` (and `get` / `history` / `relate` / `backlog get`) auto-resolve display_id via `tickets search` before calling the API**; raw HTTP clients must resolve first.
+    - Response includes `version_promoted: true` when the version status was auto-bumped to INPROGRESS.
+    - **Optimistic lock (optional)**: the response carries the current `version` (integer). To guard against lost updates when multiple writers touch `progress_comment`, read the ticket, then PUT with `version` set to the value you read. If it no longer matches, the server returns **409 CONFLICT** with the current version — re-read and retry. Omitting `version` (or `0`) keeps the legacy last-writer-wins behaviour.
+- Maps to cawplan CLI: `cawplan tickets update` (`--expected_version N` to opt into the lock).
+
+### Create / Get Product-Level (Backlog) Tickets
+- Endpoints:
+    - `POST /api/v1/public/openapi/product/{product_id}/tickets` (single)
+    - `POST /api/v1/public/openapi/product/{product_id}/tickets/batch`
+    - `GET  /api/v1/public/openapi/product/{product_id}/tickets` (list backlog)
+    - `GET  /api/v1/public/openapi/product/{product_id}/tickets/{ticket_id}`
+- Body (single): same as Create Version Ticket plus an **optional `version_id`**.
+    - `version_id` omitted/null → **product-level (backlog)** ticket. Stored with `version_id = product_id`; response carries `is_backlog: true`.
+    - `version_id` present → behaves like a version-level create under that version (`is_backlog: false`).
+    - `parent_id` is validated for product-line / product / version compatibility.
+    - `priority`/`status` defaulting (MEDIUM + product-line default status) applies here too — for both the single and the `/batch` endpoint — so omitting them never persists empty fields.
+- This is the **canonical** create route for adapters (a single endpoint covers both backlog and version-level). The older `.../versions/{version_id}/tickets` route still works.
+- Maps to cawplan CLI: `cawplan tickets create <product_id> [--version_id VID | --backlog]`, `cawplan backlog list/get`.
+
+## 4.1) Issue Relation APIs (Blocking / Blocked-by / Related / Duplicate)
+> PRM stores **one row per relation pair** with a perspective-aware `relation_type`; reading from the other ticket inverts the type automatically. Adapters MUST NOT create the inverse row themselves — call once from either side.
+
+### List Issue Relations
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/relations`
+- Returns `{ blocking[], blocked_by[], related[], duplicate[] }` from the perspective of `ticket_id`.
+- Each entry contains `relation_id` and a `ticket` summary (display_id, status, priority, version, product, assignees).
+- Maps to cawplan CLI: `cawplan tickets relate list`.
+
+### Create Issue Relation
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/relations`
+- Body: `target_ticket_id` (the *other* ticket's `unique_id`), `relation_type` (`RELATED` | `BLOCKING` | `BLOCKED_BY` | `DUPLICATE`)
+- Notes: only one relation may exist between two tickets (enforced by a `LEAST/GREATEST` unique index regardless of direction). Re-creating returns `relation already exists`; call `list` first if you need to overwrite.
+- Maps to cawplan CLI: `cawplan tickets relate create`.
+
+### Update Issue Relation Type
+- Endpoint: `PUT /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/relations/{relation_id}`
+- Body: `relation_type`
+- Maps to cawplan CLI: `cawplan tickets relate update`.
+
+### Delete Issue Relation
+- Endpoint: `DELETE /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}/relations/{relation_id}`
+- Maps to cawplan CLI: `cawplan tickets relate delete`.
+
+## 5) AI Session Ticket Links
+### Load Coding Session Ticket Context
+- During `cawplan session collect`, session `human_inputs` are parsed for `ticket_id`, `ticket_display_id`, issue URLs, and display IDs. Resolved tickets receive `sessions[].ticket_ids[]` only when their `product_id` matches the session `product_id`.
+- Ticket refs are resolved through `POST /api/v1/public/openapi/tickets/search`.
+
+### Upload AI Session Report With Ticket Context
+- Endpoint: `POST /api/v1/public/openapi/ai-session-usage/reports`
+- Body: existing daily report payload with optional session-level `sessions[].ticket_ids[]`.
+- Session-level `sessions[].ticket_ids[]` scopes the association to the exact coding session.
+- Maps to CawPlan CLI: `cawplan session collect`.
+
+## 6) Critical Issue APIs
+### List Critical Issues
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/critical_issues`
+- Query params: `time_range` (e.g. `1w`, `2w`, `1m`, `3m`, `1y`), `start`, `end`, `status` (CSV), `search`
+- Response: `critical_issues.tickets` and `critical_issues.counts` (status counts)
+
+### Search Critical Issues
+- Endpoint: `POST /api/v1/public/openapi/critical_issues/search`
+- Query params: `time_range` or `days` or (`start_date` + `end_date`), `page_size`, `page_num`
+- Body: `status[]`, `issue_types[]`, `product_line_ids[]`, `product_type_ids[]`, `product_ids[]`, `tech_owners[]`, `search`
+- Notes: OR within same field; AND across fields
+
+### List Critical Issues by Product Line
+- Endpoint: `GET /api/v1/public/openapi/product_line/{product_line_id}/critical_issues`
+- Path params: `product_line_id` (product line `unique_id`)
+- Query params: `time_range` OR (`start` + `end`), `status` (CSV), `search`
+- Response: map keyed by product_id, each with `critical_issues` (tickets + counts)
+
+### Get Critical Issue Detail
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/critical_issues/{critical_issue_id}`
+
+### Create Critical Issue
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/critical_issues`
+- Body fields (selected): `description` (HTML), `status`, `scope`, `issue_type`, `root_cause`, `solution`,
+  `lesson_learned`, `fix_teams`, `tech_owners`, `jira_link`, `slack_link`, `zendesk_link`, `event_at`,
+  `linked_cases`, `action_items`
+
+### Update Critical Issue
+- Endpoint: `PUT /api/v1/public/openapi/product/{product_id}/critical_issues/{critical_issue_id}`
+- Body fields (all optional): `status`, `description`, `root_cause`, `solution`, `lesson_learned`,
+  `progress_comment`, `tech_owners`, `linked_cases`
+
+### Delete Critical Issue
+- Endpoint: `DELETE /api/v1/public/openapi/product/{product_id}/critical_issues/{critical_issue_id}`
+
+### Critical Issue Status Values
+- `INVESTIGATING`, `MONITORING`, `IN_PROGRESS`, `QA_TESTING`, `RESOLVED`
+
+### Linked Cases URL Whitelist
+- `https://example.atlassian.net/`
+- `https://example.slack.com/`
+- `https://example.zendesk.com/`
+- `https://community.ui.com/`
+
+## 7) Metrics APIs
+
+> The device/app metrics public endpoint that used to live here
+> (`GET /api/v1/public/openapi/product/{product_id}/metrics`, and the CLI's
+> `cawplan metrics get`) has been retired — it is no longer publicly exposed
+> via API key/CLI. The underlying device-metrics feature (installations,
+> crash rate, etc.) still exists and still serves the internal web app
+> (`GET /api/v1/product/{unique_id}/metrics`); only the public-openapi wrapper
+> and its CLI command are gone. `cawplan metrics` now refers exclusively to
+> the generic business key-metrics system below.
+
+### Key Metrics APIs (generic business events)
+
+A single schema for every non-device business metric: one `business_event`
+per occurrence, tagged by `domain` + `metric` (e.g. `domain=cawplan_subscription`,
+`metric=new`), plus a fixed dimension bundle (`app`, `platform`, `product`,
+`workspace_id`, `plan`, `region`, `environment`) and arbitrary extra tags.
+`workspace_id` is the tenant-attribution dimension — every domain here is
+workspace-scoped data. Unlike the other six dimensions, though, it is never
+caller-controlled: both endpoints force it from the caller's authenticated
+identity server-side (`scopeQueryToCallerWorkspace` on query,
+`IngestKeyMetricsCommand.Execute` on ingest, both in `example-backend`) —
+a `tag.workspace_id=...`/`dimensions.workspace_id` value the caller supplies
+is silently overridden, not honored, on either endpoint. There is currently
+no way to query across more than one workspace through this API. Fields are
+`value`, `count`, `cost`, `credit` — only the ones actually supplied on a
+point are stored (no zero-fill), so query results distinguish "not measured"
+from "measured zero". Every domain is prefixed `cawplan_`.
+
+Every domain and metric name is defined up front in `internal/metrics/metrics.go`
+in `example-backend`, but a defined metric doesn't necessarily have a producer
+writing to it yet — querying one that doesn't looks identical to "no data in
+this range." Currently wired: `cawplan_ticket` (all three metrics),
+`cawplan_qa_insight` (all four), `cawplan_subscription.new`/`.renew` (from
+Stripe's `invoice.paid`, disambiguated by `billing_reason`), `cawplan_subscription.cancel`
+(user-initiated cancel-to-Free), `cawplan_api.throttled` (one point per 429),
+`cawplan_ai_session_usage.usage_reported` (one point per daily AI coding-tool
+usage report upload — internal engineering cost telemetry, not the
+customer-facing token/credit ledger). Defined but not yet wired to any
+producer: `cawplan_subscription.winback`/`.upgrade`/`.downgrade`,
+`cawplan_api.request`, `cawplan_workflow`, `cawplan_token`, `cawplan_user`,
+`cawplan_csm`, `cawplan_purchase`.
+
+Beyond the fixed dimension bundle, some domains attach their own dynamic tags
+(via `tags`, not `dimensions`) to disambiguate events that would otherwise be
+indistinguishable at query time:
+
+| Domain | Dynamic tag | Meaning |
+|---|---|---|
+| `cawplan_ticket` | `ticket_id` | The ticket's own `unique_id`, on all three ticket metrics. Without it, a burst of `ticket_updated` points for one product can't be told apart from an ancestor-status-propagation cascade across several *different* tickets (expected) vs. the same ticket written repeatedly (a bug) — filter or `--group_by ticket_id` to tell them apart. |
+| `cawplan_qa_insight` | `qa_result` | On `execution` events only: the literal `pass`/`pass_with_issues`/`failed` value. The standard `result` tag that `metrics.QAExecutionResult` writes is only `passed`/`failed` (`pass_with_issues` collapses into `passed` there) — `qa_result` preserves the three-way distinction. |
+| `cawplan_subscription` | `from_plan`/`to_plan` | On `upgrade`/`downgrade` only — and those two metrics aren't wired to any producer yet (see above), so this tag has no real data behind it right now either. |
+| `cawplan_ticket` | `from_status`/`to_status` | On `ticket_status_changed` only. |
+| `cawplan_api` | `route` | On both `throttled` and `request` — the path that was rate-limited/served, e.g. `/api/v1/public/openapi/key-metrics/ingest`. |
+| `cawplan_api` | `status_code` | On `request` only (not wired to a producer yet, see above). |
+
+Not every domain has one — check the producer code (`docs/cawplan-ticket-metrics-collection.md` in `example-backend` for tickets) if a dynamic tag you expect isn't showing up in query results; it may simply not have been wired for that call site yet.
+
+`cawplan_api.throttled` specifically: the rate limiters currently wired to it
+(`internal/middleware.IPRateLimiter`, `.APIKeyRateLimiter`) emit with an empty
+`Dimensions{}`, so these points carry no `workspace_id` tag at all — filtering
+by it returns nothing, which doesn't mean there were no throttle events, only
+that this producer hasn't been tagged with workspace attribution yet. `route`
+is the only reliable way to slice this metric today.
+
+#### Discover which domains / metrics actually have data
+- Endpoint: `GET /api/v1/public/openapi/key-metrics/domains`
+- Query params (both optional): `start` (inclusive, RFC3339; default 30 days before `end`),
+  `end` (exclusive, RFC3339; default now). The scan is always bounded: an explicit `start` may reach
+  back at most 186 days before `end`; there is no all-history scan.
+- Why it exists: `query` returns zero rows both for a misspelled `domain`/`metric` and for a real one
+  with no traffic in the window. This endpoint scans the stored data, so the vocabulary it returns is
+  what was really ingested, not a hand-maintained list (a defined-but-unwired metric will not appear).
+- Response: `data.domains[]` (`{domain, metrics[]}`, sorted by domain name, metrics sorted), plus
+  `data.start`/`data.end` (the window actually scanned, since both default server-side) and
+  `data.truncated` (`true` when the scan hit the row cap, so `domains` is an alphabetical prefix).
+- Scope: the scan is forced to the caller's own workspace, same as `query`/`ingest`.
+- Maps to cawplan CLI: none yet (there is no `cawplan metrics domains` command). Call the endpoint
+  directly with the CLI's Bearer token, or confirm spelling against the tables above.
+
+#### Ingest one or more events
+- Endpoint: `POST /api/v1/public/openapi/key-metrics/ingest`
+- Body: `{ "items": [KeyMetricPoint, ...] }`, where each item is:
+  ```json
+  {
+    "domain": "cawplan_subscription",
+    "metric": "upgrade",
+    "value": 1,
+    "dimensions": {"product": "01983a8b-..."},
+    "tags": {"from_plan": "basic", "to_plan": "pro"},
+    "timestamp": "2026-09-09T10:00:00Z"
+  }
+  ```
+  `domain`/`metric` are required and must match `^[a-z][a-z0-9_]*$`; at least
+  one of `value`/`count`/`cost`/`credit` is required per item; `dimensions`,
+  `tags`, and `timestamp` are all optional (`timestamp` defaults to receipt
+  time). The whole batch is validated up front and rejected as one
+  `INVALID_INPUT` response on the first bad item — there is no partial write.
+- Rate limited to 180 requests/minute per calling credential (the whole
+  `Authorization` header value, hashed — a Bearer token and a raw API key are
+  bucketed the same way, so this applies to CLI callers too). Exceeding it
+  returns HTTP 429 with `{"code":"RATE_LIMITED",...}` directly, not a
+  `CommonResp`-shaped business error. Batch (`--items`) rather than looping
+  single-item calls when writing many events at once.
+- Maps to cawplan CLI: `cawplan metrics ingest --domain <domain> --metric <metric> --value <n> [--dimensions <json>] [--tags <json>]`,
+  or `cawplan metrics ingest --items <json array>` for a batch.
+
+#### Query events back out
+- Endpoint: `GET /api/v1/public/openapi/key-metrics/query`
+- Query params: `domain` (required), `metric` (optional, narrows to one metric),
+  `start`/`end` (required, RFC3339, exclusive upper bound), `granularity`
+  (`raw`|`minute`|`hour`|`day`, default `raw`), `tag` (repeatable
+  `<key>:<value>` filter, or the equivalent `tag.<key>=<value>` form),
+  `group_by` (repeated param, extra tag keys to break results down by —
+  ignored when `granularity=raw`), `fields` (repeated param, subset of
+  `value`/`count`/`cost`/`credit`, defaults to all four), `limit`.
+- Response: `data.rows[]`, one row per time bucket per distinct tag
+  combination — `{time, domain, metric, tags: {...}, value, count, cost,
+  credit}` — shaped so it can be turned directly into chart series without
+  further client-side grouping. `data.truncated` is `true` when more rows
+  matched than were returned (raise `--limit`, though the server clamps it to
+  its own maximum, or narrow the time range/filters).
+- The `start`–`end` span and the row count are both capped server-side; this
+  is a shared multi-tenant read path, not a per-product cache, so it will
+  reject an attempt to pull unbounded history in one call. Current defaults:
+  span capped at 186 days (~6 months — a span wider than that is rejected as
+  `FAILURE_INVALID_INPUT`, not silently truncated to less data), row count
+  capped at 5000 (surfaced via `data.truncated`, not an error). Both are
+  configurable server-side (`MetricsConfig`), so treat these as the current
+  defaults, not a hard contract.
+- Maps to cawplan CLI: `cawplan metrics query --domain <domain> --start <iso> --end <iso> [--metric <metric>] [--granularity day] [--tag key:value ...] [--group_by k1,k2] [--fields value,count]`.
+- By default `query` only prints the JSON (`data.rows`). For a chart the caller just wants to look
+  at in-conversation rather than a file to keep, there's no CLI rendering step needed at all — hand
+  `data.rows` to the `dataviz` skill (or render/describe it directly), same as any other structured
+  result; nothing has to be written to disk.
+- When a standalone chart *file* is actually wanted, the CLI can render the result as an SVG line
+  chart (pure JS, no native dependencies — built on `d3-scale`/`d3-shape`/`d3-array`, not a DOM- or
+  canvas-based charting library) via `--chart <path>.svg` [`--chart-field
+  value|count|cost|credit`] [`--chart-title <text>`] on the same `query` call — one series per tag
+  combination (the same grouping `--group_by` produces).
+
+  `--png <path>.png` rasterizes that same SVG to a PNG file on disk instead —
+  for contexts that can display an image but only decode raster formats and
+  treat SVG as plain text, notably a Claude Code session's `Read` tool
+  reading the result back into the chat. SVG remains the file to keep/store
+  (vector, small, easy to re-edit); the PNG is a disposable display copy
+  generated from it on demand. This shells out rather than bundling a
+  rasterizer: `qlmanage` (macOS, built into the OS) is tried first, then
+  `rsvg-convert` (common on Linux via librsvg). If neither is available the
+  command exits non-zero with an error instead of writing a broken/empty
+  file — fall back to `--chart` for the SVG in that case. Known cosmetic
+  limitation: `qlmanage`'s thumbnail mode always produces a square canvas, so
+  a non-square chart (e.g. the default 960x480) comes back letterboxed with
+  blank space rather than cropped — doesn't affect the correctness of the
+  rendered chart itself. Observed gap: `Read`-ing this PNG in a Claude Code
+  session doesn't always actually display it to the user, even in a terminal
+  (iTerm2) that renders images fine when the same file is opened with
+  `imgcat` directly — decoding the file for the model and displaying it in
+  the user's client are apparently two different things. If a user reports
+  not seeing the chart after `Read`, have them try `imgcat <path>.png` (or
+  their terminal's equivalent) directly as a fallback.
+
+  `--preview` renders the same SVG as an actual inline image directly in the
+  terminal — it shells out to whichever terminal-graphics tool is actually
+  available (iTerm2's bundled `imgcat`, Kitty's `icat` kitten, or `chafa`,
+  tried in that order) instead of bundling an SVG rasterizer into the CLI
+  itself: every one of those protocols needs a raster image, and adding a
+  rasterizer (native or WASM) would reintroduce exactly the native-dependency
+  weight choosing SVG over PNG was meant to avoid in the first place.
+  Verified that iTerm2's `imgcat` decodes SVG bytes directly with no separate
+  conversion step. If none of those tools are found, the command prints a
+  message and points to `--chart`/`--png` instead. **This only works in a
+  real terminal emulator reading raw stdout** — verified that running it
+  through a tool that captures stdout as text (as a Claude Code session does
+  when it runs the CLI) just shows the raw escape-sequence bytes as garbled
+  text instead of an image, so don't reach for `--preview` from inside a
+  Claude Code session; read `data.rows` directly or use `--png` there instead.
+
+## 8) Analytics APIs
+### Get Product AI Feedback Analytics
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/analytics`
+- Query params: `time_range` OR (`start` + `end`) required; `version` (major.minor filter, e.g. `3.4`)
+- Response: AI-categorized feedback buckets: `software_issues`, `hardware_issues`, `suggestions` — each with `counts`, `sorted_counts`, `stats` (time series), `tickets`, `versions`
+- Maps to cawplan CLI: `cawplan analytics get <product_id>`.
+
+## 9) Activity Report APIs
+### Get Product Activity Report
+- Endpoint: `GET /api/v1/public/openapi/product-report`
+- Query params: `product_id` (required), `start` (YYYY-MM-DD, required), `end` (YYYY-MM-DD, required), `version_id` (optional)
+- Response: `summary` (ticket_updates, critical_issue_updates, qa_report_updates, versions_affected), `versions[]` (each with tickets and their activity log), `critical_issues[]`
+- Maps to cawplan CLI: `cawplan product-activity get`.
+
+### Get User Activity Report
+- Endpoint: `GET /api/v1/public/openapi/user-report`
+- Query params: `user_id` OR `email` (one required), `start` (YYYY-MM-DD, required), `end` (YYYY-MM-DD, required)
+- Response: activity summary scoped to a single user across all products they contribute to
+- Maps to cawplan CLI: `cawplan user-activity get`.
+
+## 10) QA Report APIs
+### List QA Reports for a Product
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa_report`
+- Query params: `type` (`sqa`|`aqa`|`stress`|`performance`|`smoke`), `result` (`pass`|`pass_with_issues`|`failed`), `status`, `page_size` (max 100), `page_num`
+- Response: QA reports grouped by version
+- Maps to cawplan CLI: `cawplan qa-reports list <product_id>`.
+
+### List QA Reports for a Version
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/qa_report`
+- Query params: same as product-level (`type`, `result`, `status`, `page_size`, `page_num`)
+- Maps to cawplan CLI: `cawplan qa-reports list-version <product_id> <version_id>`.
+
+### Get QA Report Detail
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/versions/{version_id}/qa_report/{qa_report_id}`
+- Maps to cawplan CLI: `cawplan qa-reports get <product_id> <version_id> <qa_report_id>`.
+
+### Create QA Report (Portal)
+- Endpoint: `POST /api/v1/product/{product_id}/versions/{version_id}/qa_report`
+- Body: `QAReportCreateRequest` (`topic` required; `details`, `type`, `result`, `status`, `ticket_id`, `links`, `date_start`, `date_end`, …)
+- Maps to cawplan CLI: `cawplan qa-reports create <product_id> <version_id> --body-file <path>` or `--body <json>`.
+
+### Update QA Report (Portal)
+- Endpoint: `PUT /api/v1/product/{product_id}/versions/{version_id}/qa_report/{qa_report_id}`
+- Body: `QAReportUpdateRequest` (partial fields)
+- Maps to cawplan CLI: `cawplan qa-reports update <product_id> <version_id> <qa_report_id> --body-file <path>` or `--body <json>`.
+
+## 11) Community APIs
+### Get Community Release Timeline
+- Endpoint: `GET /api/v1/public/openapi/community/timeline`
+- Query params: `time_range` OR (`start` + `end`); `channels` (CSV: `GA,EA,Alpha`)
+- Response: release timeline events across all products for the given window and channels
+- Maps to cawplan CLI: `cawplan community timeline`.
+
+## 12) Knowledge APIs
+### List Knowledge Datasets
+- Endpoint: `GET /api/v1/public/openapi/knowledge/datasets`
+- Response: `data.datasets[]` — every dataset the caller can access, each `{id, name, document_count}`. `id` is the raw dataset id used by the other two knowledge endpoints below.
+- Optional query: `product_id` (the product's owned + linked datasets), `module_id` (keeps only owned datasets with at least one document under that module). Maps to `--product` / `--module`.
+- Maps to cawplan CLI: `cawplan knowledge datasets list`.
+
+### Create Knowledge Dataset
+- Endpoint: `POST /api/v1/public/openapi/knowledge/datasets`
+- Body: `name` (required), `description` (optional), `permission` (optional: `only_me` | `all_team_members` | `partial_members`, default `only_me`); also accepts the other `KBCreateDatasetRequest` fields (`indexing_technique`, `embedding_model`, ...) if needed, passed straight through to Dify.
+- Response: the created dataset — the raw Dify id, name, etc., plus `document_count: 0` patched in for shape-consistency with the datasets-list response.
+- Body also accepts `product_id` (optional): the product that directly **owns** the dataset. Ownership is required for the dataset's documents to be placed under that product's modules. Distinct from linking via `PUT .../products` below.
+- Maps to cawplan CLI: `cawplan knowledge datasets create --name <name> [--description <text>] [--permission <level>] [--owner-product <id>] [--product <id>...]` (`--owner-product` → `product_id`).
+- Implementation note: proxies to Dify's `POST /api/v1/datasets` and also creates a PRM `knowledge_dataset` tracking record (same as the internal `KbCreateDataset`), but — unlike the internal API, which swaps the response id for the PRM `unique_id` — the public response keeps the raw Dify id, consistent with every other public knowledge endpoint.
+- Linking is separate: the CLI's `--product` flag is sugar — it calls this endpoint, then a follow-up `PUT .../products` call (below) with the returned dataset id.
+
+### Get / Set Products a Dataset Is Bound To
+- Endpoints: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/products`, `PUT /api/v1/public/openapi/knowledge/datasets/{dataset_id}/products`
+- `dataset_id` is the PRM unique_id (the `id` returned by datasets-list/create above).
+- `PUT` body: `{"product_ids": [...]}` — replaces the full set of bound products (not additive); an empty array unbinds all.
+- Binding a dataset to a product scopes it for that product's knowledge search (`product_id` param on the search/get-datasets-by-product paths) and for permission-based dataset visibility.
+- Maps to cawplan CLI: `cawplan knowledge datasets products get --dataset <id>`, `cawplan knowledge datasets products set --dataset <id> [--product <id>...]`.
+
+### List Documents in a Dataset
+- Endpoint: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents`
+- Query params: `keyword` (optional), `page` (optional), `limit` (optional)
+- `dataset_id` must be one of the ids returned by the datasets-list endpoint above; an inaccessible or unknown id returns `NOT_FOUND`.
+- Maps to cawplan CLI: `cawplan knowledge documents list --dataset <id>`.
+
+### Get Document Content
+- Endpoint: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/{document_id}/content`
+- `dataset_id` and `document_id` must come from the datasets-list and documents-list endpoints above; an inaccessible or unknown id returns `NOT_FOUND`.
+- Reads the original source file directly (e.g. from S3 via the document's stored file reference) and returns it verbatim — not reassembled from search-index segments/chunks, so formatting and content lost to indexing are preserved.
+- Response: `data.status` (e.g. `succeeded`) and `data.content` (full raw text of the document). There is **no** `data.name` in this response; a document's name comes from `documents list` or, for a Requirement's document, `knowledge_document.name`.
+- Maps to cawplan CLI: `cawplan knowledge documents get --dataset <id> --document <id>`.
+  - Add `--output <path>` to also write `data.content` to a file.
+  - Add `--grep <pattern>` (with `--context <n>`, default 3, like `grep -C`) to have the CLI itself
+    filter `data.content` client-side and return only matching line ranges with context — for a large
+    document, this locates one section precisely in a single call instead of loading the whole
+    response into an agent's context or piping to a separate shell `grep`. Best for freeform pattern
+    search in body text, or non-Markdown sources; `--section` (below) is better once you know the
+    exact heading, since a fixed-line-count `--context` can bleed into a neighboring section.
+  - Add `--outline` to get the document's Markdown heading tree as structured JSON
+    (`{level, title, line, preview, children}`) instead of the content — built client-side from the
+    cached content (`cli/src/lib/knowledge/outline.ts`, skips lines inside fenced ` ``` ` code blocks
+    so a `#`-prefixed shell comment in a curl example is never mistaken for a heading). Each node's
+    `preview` is its own first few body lines, so one `--outline` call already carries enough to
+    describe every heading for a browsing menu — no follow-up fetch per heading needed. Previews
+    are converted to plain text (`src/lib/knowledge/plaintext.ts`): headings, `**bold**`, inline
+    code and table pipes are stripped, tables become space-aligned columns. Preview consumers (a
+    chat client's preview panel, a terminal picker's description line) display text verbatim, so
+    raw Markdown would show its syntax as visible noise. Cannot be combined with `--grep`,
+    `--section`, or `--interactive`.
+  - Add `--section <heading>` to get the complete, cleanly-bounded content of the heading(s) whose
+    title contains this text (case-insensitive substring match, returns every match) — from that
+    heading's own line up to (not including) the next heading at the same or a shallower level, so
+    nested subsections are included and neighboring sections never bleed in. Use after `--outline`
+    once you know which heading you want. Cannot be combined with `--grep`, `--outline`, or
+    `--interactive`.
+  - The raw response is cached locally per `(dataset_id, document_id)`, scoped per workspace, for the
+    same TTL as the rest of the CLI's local cache (`~/.cawplan/cache.json`, default 12h, see Local
+    Caching (CLI) above) — repeated `--grep`/`--outline`/`--section`/`--output` calls against the same
+    document re-filter the cached content instead of re-fetching it. Add `--refresh` to bypass the
+    cache and re-fetch.
+  - Interactive browsing (CLI-only, no backend/response change): browse the document's markdown
+    headings as a live `select` menu in the terminal instead of printing JSON — pick a heading to
+    print that section, then the menu reappears (Esc or "Exit" to quit). This is the **default**
+    when both stdin and stdout are a real TTY and none of `--grep`/`--outline`/`--section` are given;
+    pass `--no-interactive` to force plain JSON at a terminal instead, or `-i, --interactive` to be
+    explicit (also errors clearly if forced without a real TTY). Cannot be combined with `--grep`.
+    Agent/skill invocations are unaffected — `cawplan` run as a subprocess never has a real TTY, so
+    they always get plain JSON regardless of these flags; agents should use `--outline`/`--section`
+    (see the `cawplan-knowledge` skill's Navigation Model for the drill-down pattern).
+
+### Browse the Knowledge Base Interactively (CLI-only, real TTY required)
+- No new endpoint — composes the three GET endpoints above (datasets list → documents list →
+  document content) into one live picker.
+- CLI: `cawplan knowledge browse` — pick a dataset (name + `document_count`), then a document
+  (previewing its first lines as you highlight it), then browse that document's heading tree
+  exactly like `documents get --interactive`. Esc goes back one level; Esc at the dataset list
+  exits. Shows only the first 10 documents per dataset — fall back to
+  `documents list --dataset <id> --keyword ...` to search a larger set.
+- Requires a real interactive terminal, same restriction as `documents get --interactive` — errors
+  with `"cawplan knowledge browse requires an interactive terminal"` if run as a subprocess (e.g.
+  from an agent). Agents should use the `--outline`/`--section` drill-down pattern instead.
+
+### Upload Document to a Dataset — File (async)
+- Endpoint: `POST /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/create-by-file`
+- Body: `multipart/form-data` with **one** `file` part per call, plus an optional `data` part (a JSON
+  string with indexing config, same shape as create-by-text minus `name`/`text`). One file per request —
+  there is no multi-file batch body; batching means issuing this call once per file.
+- `dataset_id` must come from the datasets-list (or datasets-create) endpoint above.
+- This mirrors the internal `create-by-file` endpoint's real behavior: it does **not** block on
+  processing. It runs a background pipeline (convert-to-markdown → S3 → create-by-text — the same
+  pipeline the internal Knowledge Base UI uses) and returns immediately with
+  `data: {status: "pending", job_id}`. Poll the job status endpoint below for completion and the
+  resulting `document_id`.
+- Maps to cawplan CLI: `cawplan knowledge documents upload --dataset <id> --file <path> [--file <path> ...]`
+  — repeat `--file` to batch multiple files into the same dataset; the CLI submits one request per file
+  and then polls each job to completion by default (`--no-wait` to just return job ids;
+  `--poll-interval`/`--poll-timeout` control the polling, default 3s / 180s per file).
+- Implementation note: the CLI sends real multipart (Node's native `FormData`/`Blob`, no base64
+  encoding) via a `formData` option added to `cawplanRequest` (`cli/src/lib/http.ts`) — everything else
+  on this CLI is JSON-only.
+
+### Poll File-Upload Job Status
+- Endpoint: `GET /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/ai-jobs/{job_id}`
+- `job_id` comes from the create-by-file response above.
+- Response: `data.status` (`pending` / `processing` / `succeeded` / `failed`), `data.document_id` once
+  succeeded, `data.error_message` if failed, `data.batch` (Dify's indexing batch id) once the document
+  is created — `succeeded` only means Dify accepted the document, not that embedding has finished.
+- Maps to cawplan CLI: `cawplan knowledge documents job-status --dataset <id> --job <job_id>` (used
+  automatically by `documents upload --file` unless `--no-wait` is passed).
+
+### Upload Document to a Dataset — Text (sync)
+- Endpoint: `POST /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/create-by-text`
+- Body: `name` (required), `text` (required); also accepts the other `KBCreateDocumentByTextRequest`
+  fields (`indexing_technique`, `doc_form`, `doc_language`, ...) if needed. One document per call — no
+  batch array; batching means issuing this call once per document.
+- `dataset_id` must come from the datasets-list (or datasets-create) endpoint above.
+- If `indexing_technique` is omitted, the server resolves it from the dataset automatically (Dify
+  requires it explicitly for create-by-text, unlike create-by-file which inherits it), so a bare
+  `{name, text}` body works.
+- Response: the created document (Dify's create-by-text response, `{document: {...}, batch}`) —
+  synchronous, no polling needed. The text is also best-effort mirrored into S3 so
+  `documents get`/`--content` works for these documents too.
+- Maps to cawplan CLI: `cawplan knowledge documents upload --dataset <id> --text-file <path> [--text-file <path> ...]`
+  — the CLI reads each local file's content and sends it as `text`, named after the file's basename;
+  repeat `--text-file` to batch multiple text documents into the same dataset (one request per file).
+  Do not mix `--file` and `--text-file` in the same invocation — the CLI rejects that locally; run it
+  twice for a mixed batch.
+- Both create-by-text (JSON `module_id`) and create-by-file (form field `module_id`, or `module_id` inside the `data` JSON) accept an optional module; it must belong to the dataset's owner product, otherwise `BAD_REQUEST`. CLI: `documents upload ... --module <id>`.
+
+### Set a Document's Module
+- Endpoint: `PUT /api/v1/public/openapi/knowledge/datasets/{dataset_id}/documents/{document_id}/module`
+- Body: `{"module_id": "<id>"}`; an empty string removes the document from its module. Module must belong to the dataset's owner product.
+- Maps to cawplan CLI: `cawplan knowledge documents set-module --dataset <id> --document <id> (--module <id> | --clear)`.
+
+### Update an Existing Document — File (async) / Text (sync)
+- Endpoints: `POST .../documents/{document_id}/update-by-file` and `POST .../documents/{document_id}/update-by-text`
+  — same dataset-scoped paths as create, plus a `document_id` from `documents list`.
+- Same body shapes and behavior as the corresponding create endpoints above (update-by-file is async
+  with a `job_id` to poll; update-by-text is sync), except no `name`/`text` are required — omit `text`
+  on update-by-text to leave the document's content unchanged (e.g. only rename it).
+- Use this for re-syncing a document whose source changed since it was created — for a brand-new
+  document use create-by-file/create-by-text instead.
+- Maps to cawplan CLI: `cawplan knowledge documents update --dataset <id> --document <id> [--file <path> | --text-file <path>]`.
+  Mirrors `documents upload`'s `--no-wait`/`--poll-interval`/`--poll-timeout` flags for the `--file` case.
+  For `--text-file` the CLI sends only `text` (it no longer sends `name`, so the document is not renamed); the server replaces the **whole** document with `text`.
+- update-by-text responses:
+  - Success: `{"code":"SUCCESS","data":{"batch":"…","document":{"id":"…","name":"…","indexing_status":"waiting","display_status":"queuing",…}},"msg":"success"}`. `data.document.id` is the engine's own id and is **not** the `{document_id}` used in paths — do not re-bind to it.
+  - Failure: `{"code":"<CODE>","data":null,"msg":"…"}` (e.g. `NOT_FOUND` for an unknown dataset); `DIFY_ERROR` with `Document is not available` while a previous write to the same document is still being processed (retry after a few seconds); the CLI prints it and exits 1. There is no `outcome` envelope — judge by `code`.
+- A document's content is readable immediately after the write (`documents get --refresh`); the document's `status` may stay `indexing` for a long time and is not a readiness signal.
+
+### Search Knowledge Base
+- Endpoint: `POST /api/v1/public/openapi/knowledge/search`
+- Body: `query` (required), `dataset_id` (optional, narrows to a single dataset), `dataset_ids` (optional array, narrows to multiple datasets — takes precedence over `dataset_id` if both are set), `product_id` (optional, scopes search to a product's knowledge datasets), `limit` (default 10)
+- Dataset ids must come from the datasets-list endpoint above; if any requested id isn't accessible, the request fails closed.
+- When neither `dataset_id` nor `dataset_ids` is set, all datasets accessible to the caller are searched.
+- Response: ranked knowledge fragments with source metadata
+- Maps to cawplan CLI: `cawplan knowledge search`, or repeat `--dataset <id>` one or more times to narrow (single repeat sends `dataset_id`, multiple repeats send `dataset_ids`).
+
+## 13) Activity APIs
+### Query Activities
+- Endpoint: `POST /api/v1/public/openapi/activities/query`
+- Query params:
+    - `page_num` (int, default 1)
+    - `page_size` (int, default 20, max 100)
+    - `time_range` (string, e.g. `1d`, `1w`, `1m`, `3m`, `6m`, `1y`; default 7 days)
+- Body:
+    - `user_id` (string, optional) actor `unique_id`
+    - `product_id` (string, optional)
+    - `activity_types` (array, optional): `RELEASE`, `ISSUE`, `TICKET`, `VERSION`, `PRODUCT`, `USER`
+- Response fields (selected):
+    - `unique_id`
+    - `actor.unique_id`, `actor.display_name`, `actor.alternate_id`, `actor.avatar`
+    - `event.activity_scope` (user, product, version, system, organization)
+    - `event.display_message`
+    - `event.published` (ISO 8601)
+    - `event.type` (RELEASE, ISSUE, TICKET, VERSION, PRODUCT, USER)
+    - `targets[]`: `id`, `type` (product, product.version, product.line, product.type, user, critical_issue), `display_name`
+    - `status`: `COMPLETED`, `IN_PROGRESS`, `FAILED`, `CANCELLED`, `PENDING`
+
+## 14) AI Session Usage APIs
+AI coding daily reports (`ai-daily-<date>.json`, schema `2.0`), workspace analytics, human-input quality, and product-repo mappings.
+
+Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Paginated breakdowns also accept `page_num` (default 1) and `page_size` (default 20, max 200). Overview endpoints optionally accept `compare_date`, `compare_date_from`, `compare_date_to` for period-over-period deltas.
+
+### Upload AI Session Usage Daily Report
+- Endpoint: `POST /api/v1/public/openapi/ai-session-usage/reports`
+- Body: `daily.json` schema **2.0** (`additionalProperties` allowed)
+- Required: `date` (`YYYY-MM-DD`), `author` (reporter key, usually git username)
+- Optional (recommended): `schema`, `generated_at`, `totals`, `sessions[]`, `human_inputs[]`, `usage_breakdown`, `model_usage`, `repos[]`
+- Notes:
+    - Each `sessions[]` item should include `product_id` before upload.
+    - `include_conversation` (bool, default `false`) — when `true`, non-empty `sessions[].conversation` is encrypted server-side.
+- Response: `report_id`, `upserted`, `report_date`, `reporter_key`
+- Maps to cawplan CLI: `cawplan session report --file <path>`
+
+### List Uploaded AI Session Usage Reports
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/reports`
+- Query params: `date`, `date_from`, `date_to`, `user_id`, `include_payload` (bool, default `false`), `limit` (default 20, max 100), `offset` (default 0)
+- Response: report metadata list for the workspace; `include_payload=true` returns decrypted `raw_payload`
+- Maps to cawplan CLI: `cawplan session reports`
+
+### Get AI Session Usage Overview
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/overview`
+- Query params: `date`, `date_from`, `date_to`, `compare_date`, `compare_date_from`, `compare_date_to`
+- Response: `member_count`, `total_cost`, `total_tokens`, `date_from`, `date_to`, plus optional `compare_*` change fields
+- Maps to cawplan CLI: `cawplan session overview`
+
+### Get AI Session Usage Trend
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/trend`
+- Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
+- Response: daily rows with `date`, `cost`, `cost_percentage`, `tokens`, `members`
+- Maps to cawplan CLI: `cawplan session trend`
+
+### Get AI Session Usage by Member
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/by-member`
+- Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
+- Response: per-member rows with `member`, `user_id`, `user_display_name`, `user_avatar`, `cost`, `cost_percentage`, `tokens`
+- Maps to cawplan CLI: `cawplan session by-member`
+
+### Get AI Session Usage by Model
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/by-model`
+- Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
+- Response: per-model rows with `model`, `cost`, `cost_percentage`, `tokens`
+- Maps to cawplan CLI: `cawplan session by-model`
+
+### Get AI Session Usage by Model Dimension
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/by-model-dimension`
+- Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
+- Response: cost breakdown by model plus billing dimension (input/output/cache)
+- Maps to cawplan CLI: `cawplan session by-model-dimension`
+
+### Get AI Session Usage by Agent
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/by-agent`
+- Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
+- Response: cost breakdown by coding agent (e.g. Claude Code, Cursor)
+- Maps to cawplan CLI: `cawplan session by-agent`
+
+### Get AI Session Usage by Project
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/by-project`
+- Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
+- Response: cost breakdown by git project/repository name
+- Maps to cawplan CLI: `cawplan session by-project`
+
+### Get AI Session Usage by Product
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/by-product`
+- Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`, `product_id`, `fuzzy_match` (bool, default `false`)
+- Notes: when `fuzzy_match=true`, product-repo `repo_name` glob patterns (`*`, `?`) match `sessions[].project`; unmatched sessions roll into `Other`
+- Response: cost breakdown by product
+- Maps to cawplan CLI: `cawplan session by-product`
+
+### List AI Session Usage Report Dates
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/dates`
+- Response: array of `YYYY-MM-DD` strings, newest first
+- Maps to cawplan CLI: `cawplan session dates`
+
+### List AI Session Usage Members
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/members`
+- Response: members (`reporter_key`) who have uploaded reports in the workspace
+- Maps to cawplan CLI: `cawplan session members`
+
+### Get AI Session Usage Member Detail
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/member-detail`
+- Query params: `member` (required, reporter key)
+- Response: full session/cost detail for one member
+- Maps to cawplan CLI: `cawplan session member-detail --member <name>`
+
+### Get Human Input Summary
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/human-input-summary`
+- Query params: `date`, `date_from`, `date_to`
+- Response: `total`, `files_changed`, `lines_added`, `lines_deleted`, `categories[]`, `topics[]`, `low_classification_confidence`, `classification_confidence_threshold`, `members[]`
+- Maps to cawplan CLI: `cawplan session human-input-summary`
+
+### List Human Inputs
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/human-inputs`
+- Query params: `date`, `date_from`, `date_to`, `member`, `product`, `category`, `topic`, `model`, `needs_review` (bool), `q`, `page_num`, `page_size`
+- Response: `items[]`, `total`, `limit`, `offset`
+- Maps to cawplan CLI: `cawplan session human-inputs`
+
+### List Human Input Logs
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/human-input-logs`
+- Query params: same as List Human Inputs
+- Response: same shape as List Human Inputs
+
+### Get Human Input Quality
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/human-input-quality`
+- Query params: `date`, `date_from`, `date_to`, `limit` (default 100, max 500)
+- Response: `low_classification_confidence`, `classification_confidence_threshold`, `items[]` (prompt rows flagged for review)
+- Maps to cawplan CLI: `cawplan session human-input-quality`
+
+### Get Human Input by Product
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/human-input-by-product`
+- Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
+- Response: prompt counts and quality breakdown grouped by product/project
+- Maps to cawplan CLI: `cawplan session human-input-by-product`
+
+### Get User AI Session Usage Overview
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/user/{user_id}/overview`
+- Path params: `user_id` (user `unique_id`)
+- Query params: `date`, `date_from`, `date_to`, `compare_date`, `compare_date_from`, `compare_date_to`
+- Response: user-scoped overview with optional comparison deltas
+- Maps to cawplan CLI: `cawplan session my-sessions` (combined with sessions)
+
+### Get User AI Session Usage Sessions
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/user/{user_id}/sessions`
+- Path params: `user_id` (user `unique_id`)
+- Query params: `date`, `date_from`, `date_to`
+- Response: session list for the user in the date window
+- Maps to cawplan CLI: `cawplan session my-sessions`
+
+### Get User Human Input Summary
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/user/{user_id}/human-input-summary`
+- Path params: `user_id` (user `unique_id`)
+- Query params: `date`, `date_from`, `date_to`
+- Response: same shape as workspace Human Input Summary, scoped to one user
+- Maps to cawplan CLI: `cawplan session user-human-inputs --user-id <id>`
+
+### List User Human Input Logs
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/user/{user_id}/human-input-logs`
+- Path params: `user_id` (user `unique_id`)
+- Query params: `date`, `date_from`, `date_to`, `category`, `topic`, `model`, `needs_review`, `q`, `page_num`, `page_size`
+- Response: paginated human-input rows for the user
+
+### Get Product AI Session Usage Overview
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product/{product_id}/overview`
+- Path params: `product_id` (product `unique_id`)
+- Query params: `date`, `date_from`, `date_to`, `compare_date`, `compare_date_from`, `compare_date_to`
+- Response: product-scoped overview with optional comparison deltas
+- Maps to cawplan CLI: `cawplan session product-overview --product-id <id>`
+
+### Get Product AI Session Usage Trend
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product/{product_id}/trend`
+- Path params: `product_id` (product `unique_id`)
+- Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
+- Response: daily trend rows for the product
+- Maps to cawplan CLI: `cawplan session product-trend --product-id <id>`
+
+### Get Product AI Session Usage by Member
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product/{product_id}/by-member`
+- Path params: `product_id` (product `unique_id`)
+- Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
+- Response: per-member cost breakdown for the product
+- Maps to cawplan CLI: `cawplan session product-by-member --product-id <id>`
+
+### Get Product AI Session Usage by Model
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product/{product_id}/by-model`
+- Path params: `product_id` (product `unique_id`)
+- Query params: `date`, `date_from`, `date_to`, `page_num`, `page_size`
+- Response: per-model cost breakdown for the product
+- Maps to cawplan CLI: `cawplan session product-by-model --product-id <id>`
+
+### Get Product Human Input Summary
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product/{product_id}/human-input-summary`
+- Path params: `product_id` (product `unique_id`)
+- Query params: `date`, `date_from`, `date_to`
+- Response: same shape as workspace Human Input Summary, scoped to one product
+- Maps to cawplan CLI: `cawplan session product-human-inputs --product-id <id>`
+
+### List Product Human Input Logs
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product/{product_id}/human-input-logs`
+- Path params: `product_id` (product `unique_id`)
+- Query params: `date`, `date_from`, `date_to`, `category`, `topic`, `model`, `needs_review`, `q`, `page_num`, `page_size`
+- Response: paginated human-input rows for the product
+
+### List Product-Repo Mappings
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product-repo`
+- Query params: `product_id` (optional filter)
+- Response: `mappings[]` with `unique_id`, `product_id`, `product_name`, `repo_name`, `repo_url`, `added_by`, `added_date`, `contributors[]`, `last_update`
+- Maps to cawplan CLI: `cawplan session product-repos`
+
+### Create Product-Repo Mapping
+- Endpoint: `POST /api/v1/public/openapi/ai-session-usage/product-repo`
+- Body (required): `product_id`, `repo_name`
+- Body (optional): `repo_url`, `contributors[]` (user `unique_id` list), `last_update` (ISO 8601)
+- Notes: `repo_name` may be a glob when queries use `fuzzy_match=true` (e.g. `uid.core-*`)
+- Response: created mapping item
+- Maps to cawplan CLI: `cawplan session product-repos create --product-id --repo-url [--repo-name]`
+
+### Get Product-Repo Mapping
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/product-repo/{unique_id}`
+- Path params: `unique_id` (mapping `unique_id`)
+- Response: single mapping item
+
+### Update Product-Repo Mapping
+- Endpoint: `PATCH /api/v1/public/openapi/ai-session-usage/product-repo/{unique_id}`
+- Path params: `unique_id` (mapping `unique_id`)
+- Body (all optional): `product_id`, `repo_name`, `repo_url`, `contributors[]`, `last_update`
+- Response: updated mapping item
+
+### Delete Product-Repo Mapping
+- Endpoint: `DELETE /api/v1/public/openapi/ai-session-usage/product-repo/{unique_id}`
+- Path params: `unique_id` (mapping `unique_id`)
+- Response: standard success envelope
+
+### Get AI Session Conversation
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/conversation`
+- Query params: `entry_id` (required, `ai_session_entry.unique_id`)
+- Response: decrypted conversation JSON for one session entry
+- Maps to cawplan CLI: `cawplan session conversation --entry-id <id>`
+
+### Download AI Session Usage PDF Report
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/report.pdf`
+- Query params: `date` or `date_from` + `date_to`, `fuzzy_match` (optional)
+- Response: `application/pdf` binary
+
+## 15) QA Insights APIs
+Module tree and Requirement archive for Test Suites. **Public Open API only** — do not use Internal routes (`/api/v1/product/{unique_id}/qa/...`).
+
+**CLI routing**: the three **write** endpoints used by QA Skills go through the `cawplan qa-insights` command family, which owns the correctness-critical rules (five-field strong match, PATCH changed-keys diff, batch all-or-nothing, forbidden-field rejection, UNKNOWN handling). Module-tree is globally managed; QA Skills only read and select existing nodes and do not expose node creation. The manual TestPoint category PATCH documented below is a frontend/manual-classification path, not a QA Skill write. **`cawplan-requirement-analyze`, `cawplan-testpoint-generate`, and `cawplan-testcase-generate` reads** use named `cawplan qa-insights` commands: `module-tree get`, `requirements resolve` / `get` / `list`, and—where applicable—`testpoints list`. Reconcile paths (`requirements reconcile`, `testpoints reconcile`) are read-only and never write.
+
+### Get Module Tree
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/module-tree`
+- Path params: `product_id` (product `unique_id`)
+- Response: `product_id`, hierarchical `nodes[]` (`id`, `name`, `parent_id`, `level`, `children[]`); `nodes` may be empty
+- Maps to cawplan CLI: `cawplan qa-insights module-tree get {product_id}`
+
+### Create Requirement
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/requirements`
+- Path params: `product_id` (**do not include `product_id` in the body**)
+- Body (required): `module_tree_node_id`, `function_description`, `entry_trigger`, `normal_expectation`, `constraints`
+- Body (optional on API): `out_of_scope`, `ticket_id` (ticket `display_id`), `summary` (display label for list/cards — API allows null), `is_ai_generated` (default `false`; QA Skills inject `true` via CLI at body top level)
+- Notes:
+    - `summary`: short one-line overview for QA Insights list display. **Not** one of the five requirement fields; **not** test-point input. `cawplan-requirement-analyze` always sends non-empty `summary` on POST.
+    - Do not send `review_status` (defaults to `PENDING`) or `is_edited` (TestPoint field only).
+    - `is_ai_generated`: injected by `cawplan qa-insights requirements create` — skill/agent omit from `--body-file`.
+    - Response `data.url` is a **portal deep-link path** (e.g. `/product/{product_id}/qa-insights/test-suites/requirements/{id}`) for opening Test Suites in the browser — **not** a Public Open API route. Return it to the user as-is from the response; **never** construct or guess this path.
+    - Response `data.id` is the requirement id for later API calls (e.g. `GET .../qa/requirements/{id}`, `POST .../qa/requirements/{id}/testpoints/batch`).
+- Maps to cawplan CLI: `cawplan qa-insights requirements create {product_id} --body-file <path>`
+- Example body: `{"summary":"道具图固定1:1裁剪","function_description":"...","entry_trigger":"...","normal_expectation":"...","constraints":"...","out_of_scope":"...","module_tree_node_id":"<id>","ticket_id":"CAWP-04606"}`
+
+### Update Requirement
+- Endpoint: `PATCH /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}`
+- Path params: `product_id`, `requirement_id`
+- Body: any subset of `function_description`, `entry_trigger`, `normal_expectation`, `constraints`, `out_of_scope`, `summary`, `ticket_id`, `is_ai_generated` — send **only changed** fields (plus CLI-injected `is_ai_generated: true` on every non-empty PATCH from QA Skills)
+- Notes: do not send `product_id`, `review_status`, or `is_edited` in the body. `summary` may be cleared with empty string or `null`. `ticket_id` is the ticket **display_id** (e.g. `CAWP-04606`); pass `null` to unlink. Use when updating an existing Requirement after hot/cold handoff; compare `summary` against `summary_snapshot` and `ticket_id` against `ticket_id_snapshot` before PATCH vs POST create. **Requirement content is now a Markdown document: to change content, use `documents update --text-file` (update-by-text, §12) on the Requirement's `knowledge_document`; this PATCH is used only for `summary` / `ticket_id`** (a five-field PATCH does not regenerate the Markdown). `is_ai_generated` is added by the CLI — omit from `--desired` / `--snapshot`. Example bodies (changed keys only): `{"constraints":"..."}`, `{"summary":"..."}`, `{"ticket_id":"CAWP-04606"}`, `{"ticket_id":null}`
+- Maps to cawplan CLI: `cawplan qa-insights requirements update {product_id} {requirement_id} --desired '<json>' --snapshot '<json>'` — pass complete states; the command derives the changed keys and PATCHes only those
+
+### Get Requirement (read — single item)
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}`
+- Path params: `product_id`, `requirement_id`
+- Response: single `QARequirement` in `data` — five fields, `summary` (`null` if unset), optional `url` (portal deep-link path, often `null`), `knowledge_document` (see below), and metadata (`id`, `module_tree_node_id`, `review_status`, `ticket_id`, etc.)
+- `knowledge_document` (same shape in all three Requirement reads): the Requirement's Markdown document `{dataset_id, id, display_id, name, redirect_url, status}` — `dataset_id` + `id` are the path ids for `knowledge documents get` / `update`. Absent (the key is missing, not `null`) for a Requirement with no document. `documents get` with a wrong `document_id` returns `code: "SUCCESS"` and `data.status: "not_found"` with no `content`. `status` is **not** an availability signal (it can stay `indexing` while content is already readable/writable); this subobject returned by Get Requirement may omit `display_id` / `redirect_url`.
+- Notes: primary path when the caller already has `product_id + requirement_id`, including old Portal URLs, hot handoff, and later refreshes. Use `data` directly; no list filter. `404` → Requirement missing or deleted. RBAC: `qa_insights.view`.
+- Maps to cawplan CLI: `cawplan qa-insights requirements get {product_id} {requirement_id}`
+
+### Get Requirement by display ID (read — resolve + full Requirement data)
+- Endpoint: `GET /api/v1/public/openapi/qa/requirements/by-display-id/{display_id}`
+- Path params: `display_id` in strict `REQ-` + digits form (for example `REQ-00107`)
+- Response: the same full `QARequirement` object in `data` as Get Requirement, including the five fields, `url`, and `knowledge_document`
+- Notes:
+    - `requirements resolve` accepts either a bare display ID or a Browse URL shaped like `/browse/product/{product_key}/qa/requirement/{display_id}`; it validates/extracts the display ID locally before requesting this endpoint.
+    - The CLI validates and parses `product_id` + `requirement_id` from `data.url`, returning them in `meta`; the Browse URL's `product_key` is not a product UUID.
+    - Callers must use the returned `data` directly as Requirement data. Do not immediately call `requirements get` again; the resolved IDs remain necessary for Requirement update/reconcile, cross-Skill handoff, List TestPoints, and Review/archive flows.
+- Maps to cawplan CLI: `cawplan qa-insights requirements resolve '<display_id_or_browse_url>'`
+
+### List Requirements (read — reconcile)
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements`
+- Query params: `module_tree_node_id` (optional), `version_id` (optional)
+- Response: array of requirements (not paginated); each row includes five fields, `summary` (`null` if unset), optional `url` (portal deep-link path, often `null`), `knowledge_document` (see Get Requirement), and metadata; filter client-side by `id` when needed.
+- Notes: used by `cawplan-requirement-analyze` when a POST/PATCH outcome is **unknown** (network/timeout) — list rows under the target `module_tree_node_id` and compare **five fields only** to avoid duplicate POST creates. **Strong match / dedup compares five fields only** — `summary` does **not** participate. Reconcile compare rules: see `skills/cawplan-requirement-analyze/SKILL.md` §10 (Field comparison). **Not** used by `cawplan-testpoint-generate` for fetching five fields (use Get Requirement above).
+- Maps to cawplan CLI: `cawplan qa-insights requirements list {product_id} --module-tree-node-id {module_tree_node_id}`
+
+### List TestPoints (read — probe, incremental, UNKNOWN reconcile)
+- Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints`
+- Path params: `product_id`, `requirement_id`
+- Response: `test_points[]` for the requirement, stable order by `sort_order` (backend-assigned). Each item includes `id`, `requirement_id`, `title`, `tags[]`, nullable `category_code`, `group`, `priority`, `is_edited`, `created_by`, `created_at`, `updated_at`.
+- Notes:
+    - **No sequence number in response** — caller computes N / N.M from `group` + return order (empty `group` → "未分组", last). See `cawplan-testpoint-generate` A2_SPEC §4.4.
+    - Used before generate (first vs incremental, stubs), and after ambiguous POST (count reconcile). `cawplan-testpoint-generate` does **not** use PATCH/DELETE on archived rows.
+- Maps to cawplan CLI: `cawplan qa-insights testpoints list {product_id} {requirement_id}`
+
+### TestPoint `category_code` contract (V1)
+
+Contract version: `qa-testpoint-category/v1`. `category_code` is a nullable enum; its only non-null values are (see table below for the current full list):
+
+| Code | Chinese label | English label |
+|------|---------------|---------------|
+| `POSITIVE` | 正向 | Positive |
+| `BOUNDARY` | 边界 | Boundary |
+| `EXCEPTION` | 异常 | Exception |
+| `REVERSE_ACTION` | 逆向 | Reverse Action |
+| `INPUT_TYPE` | 输入类型 | Input Type |
+| `INTERACTION_FEEDBACK` | 交互反馈 | Interaction Feedback |
+| `STATE_TRANSITION` | 状态迁移 | State Transition |
+| `ROLE_PERMISSION` | 角色权限 | Role & Permission |
+| `SOURCE_ENTRY` | 来源入口 | Source Entry |
+| `IDEMPOTENCY` | 幂等 | Idempotency |
+| `CONCURRENCY` | 并发 | Concurrency |
+| `CONSISTENCY` | 一致性 | Consistency |
+| `BACKWARD_COMPATIBILITY` | 存量兼容 | Backward Compatibility |
+| `ENVIRONMENT_COMPATIBILITY` | 环境兼容 | Environment Compatibility |
+| `PERFORMANCE` | 性能 | Performance |
+| `SECURITY_AUDIT` | 安全审计 | Security Audit |
+| `OBSERVABILITY` | 可观测 | Observability |
+| `RESULT_VALIDITY` | 结果有效性 | Result Validity |
+| `INSTRUCTION_COMPLIANCE` | 指令遵循 | Instruction Compliance |
+| `FACTUAL_GROUNDING` | 事实依据 | Factual Grounding |
+| `OUTPUT_STABILITY` | 输出稳定性 | Output Stability |
+| `CONTEXT` | 上下文 | Context |
+| `AGENT_EXECUTION` | Agent 执行 | Agent Execution |
+| `OTHER` | 其他 | Other |
+
+- `null` is not an enum value. It means automatic classification could not determine a category; clients display it as `Unclassified` / 「待归类」.
+- `OTHER` means a human has confirmed that the test point belongs to another category. Only a manual categorization operation may write it; automatic tag mapping must never produce `OTHER`.
+- Batch create accepts an omitted `category_code`, explicit `null`, or one of the valid codes above. The new CLI computes and injects it once at creation from `tags[0]`; the server only accepts, stores, and validates it and does not derive it from tags.
+- Unmatched example: `{"tags":["自定义"],"category_code":null}`. A standard primary tag such as `正向` maps to `POSITIVE`, not `null`.
+- TestPoint create and list/detail responses return nullable `category_code`.
+- PATCH may update or clear `category_code` independently. Updating `tags` does not recalculate `category_code`; updating `category_code` does not change `tags`. A mismatch between them is valid.
+- Historical records are not backfilled. Creates from old clients that omit `category_code` are stored as `null`.
+
+### Batch Create TestPoints (write — archive drafts)
+- Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints/batch`
+- Path params: `product_id`, `requirement_id` (**do not include in body**)
+- Body: `{ "test_points": [ { "title", "tags", "group", "priority", "is_edited", "is_ai_generated", "category_code" }, ... ] }` — skill/agent supply only the five caller keys `title`, `tags`, `group`, `priority`, `is_edited`; CLI injects `is_ai_generated: true` and nullable `category_code` on each element before POST
+- Notes:
+    - Each item (caller): **only** `title`, `tags`, `group`, `priority`, `is_edited`. `tags` may be `[]`; `group` may be empty (display as 未分组). `priority` is required and must be one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`.
+    - CLI POST payload: each item also carries `is_ai_generated: true` and `category_code` (a valid V1 code or explicit `null`; both are inside the object, not at batch top level).
+    - Old clients may omit `category_code`; the server stores it as `null`. Explicit `null` is also valid. Unknown codes are rejected as invalid input.
+    - **Do not send**: `id`, `sort_order`, `product_id`, `requirement_id`, review fields, or display sequence N/N.M.
+    - Array order = display order = backend `sort_order`. Batch is all-or-nothing (no partial success).
+    - Response on `code: SUCCESS`: `data.test_points[]` — same length as POST array; each item echoes `title`, `tags`, nullable `category_code`, `group`, `priority`, `is_edited` from the request plus server-assigned `id`, `requirement_id`, `created_by`, `created_at`, `updated_at` (same shape as List TestPoints rows).
+    - **`cawplan-testpoint-generate` counts shown to SQA**: **only** in post-POST success receipt (`已归档 N 条…`, N = `body.test_points.length`). **Do not** output `共 N 条草稿`, `本轮新增 M 条`, `其余 K 条为已存`, or any other row-count summary after tables; do not put counts in archive prompts or §8.4 read-back — agents cannot reliably count table rows in chat. Incremental display uses per-row `已存`/`新增` status column only (optional non-numeric footer allowed).
+    - **`cawplan-testpoint-generate` success receipt**: agent stores returned `id`s in session stubs only; tells SQA a one-line count confirmation (e.g. `已归档 N 条到 Requirement〔标题〕下`, N = POST length) — **does not** list per-row `id`s or titles, **does not** re-generate or summarize titles after POST, **does not** post-hoc apologize for miscounts; appends Requirement `url` from refresh **only when non-empty** — **never** mentions missing `url` (no "未返回 url"/"无法附链接").
+- Maps to cawplan CLI: `cawplan qa-insights testpoints archive {product_id} {requirement_id} --body-file <path>`
+- Example body: `{"test_points":[{"title":"用户名含特殊字符注册时应被拦截并明确提示","tags":["异常"],"group":"注册校验","priority":"HIGH","is_edited":false}]}`
+
+### Update TestPoint category (manual write)
+- Endpoint: `PATCH /api/v1/public/openapi/product/{product_id}/qa/testpoints/{test_point_id}`
+- Path params: `product_id`, `test_point_id`
+- Body: any supported changed fields; for manual categorization, send only `category_code` with one valid V1 code or `null`, for example `{"category_code":"OTHER"}`.
+- Notes:
+    - Unknown codes are rejected as invalid input.
+    - Updating `tags` does not recalculate `category_code`.
+    - Updating or clearing `category_code` does not modify `tags`.
+    - QA Skills do not call this endpoint for archived-row edits; it is the frontend/manual classification path.
+
+## Error Responses
+- `401` Unauthorized
+- `404` Not Found
+- `400` Bad Request
+- `500` Internal Error

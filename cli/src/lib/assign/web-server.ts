@@ -1,0 +1,456 @@
+import {randomBytes} from "node:crypto";
+import {createServer, type IncomingMessage, type ServerResponse} from "node:http";
+import {openBrowser} from "../oauth.js";
+import {getPortalBase} from "../products.js";
+import {readMatchingBrowserModule} from "./matching-browser.js";
+import {assignmentHtml} from "./assignment-html.js";
+import {assignmentAssetContentType, readAssignmentAsset} from "./assets.js";
+import {
+    createProductRepoMapping,
+    listProductRepoMappings,
+    listProductsForSelector,
+} from "./products-api.js";
+import {assignProjectsFromCloudMappings} from "./auto-assign.js";
+import {applyProductRepoMappingToProject} from "./apply.js";
+import {assignmentReportPayload, readDailyReports, writeDailyReport} from "./report-io.js";
+import {assertAllSessionsHaveProduct, findSessionById} from "./session-checks.js";
+import {resolveTicketContexts, ticketContextIsResolved} from "../ai-session/ticket-context.js";
+import {normalizeTicketDisplayIdsIfArray} from "../assignment-ui/ticket-id-parse.js";
+import {setCachedAssignmentTicketRefsFromSession} from "../collect/assignment-ticket-cache.js";
+import type {AssignmentReport, ProductRepoMapping, WebAssignment} from "./types.js";
+import type {DailyApiJson} from "../collect/types.js";
+
+const localAssignmentHost = "127.0.0.1";
+const ASSIGNMENT_SERVER_TIMEOUT_MS = 10 * 60 * 1000;
+
+interface TicketAssignmentWarning {
+    file?: string;
+    session_id: string;
+    ticket_display_ids: string[];
+    reason: string;
+}
+
+class TicketAssignmentValidationError extends Error {
+    constructor(readonly ticketWarnings: TicketAssignmentWarning[]) {
+        super("Fix ticket(s) that are not in the selected product line before saving.");
+    }
+}
+
+function productLineByProductId(products: Array<{product_id?: string; product_line_id?: string}>): Map<string, string> {
+    return new Map(products
+        .filter((product) => product.product_id && product.product_line_id)
+        .map((product) => [product.product_id!, product.product_line_id!]));
+}
+
+function ticketMatchesSelectedProductLine(
+    context: {product_id?: string; product_line_id?: string},
+    assignment: Pick<WebAssignment, "product_id" | "product_line_id">,
+    productLineByProduct: Map<string, string>
+): boolean {
+    const selectedProductId = assignment.product_id?.trim();
+    if (!selectedProductId) return true;
+    if (context.product_id?.trim() === selectedProductId) return true;
+
+    const selectedProductLineId = assignment.product_line_id?.trim()
+        || productLineByProduct.get(selectedProductId);
+    if (!selectedProductLineId) return false;
+
+    const ticketProductLineId = context.product_line_id?.trim()
+        || (context.product_id ? productLineByProduct.get(context.product_id) : undefined);
+    return ticketProductLineId === selectedProductLineId;
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+    const payload = JSON.stringify(body);
+    res.writeHead(status, {
+        "content-type": "application/json; charset=utf-8",
+        "content-length": Buffer.byteLength(payload),
+        "cache-control": "no-store",
+    });
+    res.end(payload);
+}
+
+function sendText(res: ServerResponse, status: number, body: string, contentType = "text/plain; charset=utf-8"): void {
+    res.writeHead(status, {
+        "content-type": contentType,
+        "content-length": Buffer.byteLength(body),
+        "cache-control": "no-store",
+    });
+    res.end(body);
+}
+
+function sendBinary(res: ServerResponse, status: number, body: Buffer, contentType: string): void {
+    res.writeHead(status, {
+        "content-type": contentType,
+        "content-length": body.length,
+        "cache-control": "no-store",
+    });
+    res.end(body);
+}
+
+function readRequestBody(req: IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+        req.on("error", reject);
+    });
+}
+
+async function readJsonBody<T>(req: IncomingMessage): Promise<T> {
+    const raw = await readRequestBody(req);
+    return raw ? JSON.parse(raw) as T : {} as T;
+}
+
+function requestHasToken(req: IncomingMessage, token: string): boolean {
+    const url = new URL(req.url ?? "/", `http://${localAssignmentHost}`);
+    return url.searchParams.get("token") === token;
+}
+
+async function ticketTitlesForReports(reports: AssignmentReport[]): Promise<Record<string, string>> {
+    const displayIDs = [...new Set(reports.flatMap(({daily}) => daily.sessions.flatMap(
+        (session) => session.ticket_display_ids ?? []
+    )).map((id) => String(id).trim().toUpperCase()).filter(Boolean))];
+    if (displayIDs.length === 0) return {};
+
+    try {
+        const contexts = await resolveTicketContexts(displayIDs);
+        return Object.fromEntries(contexts.flatMap((context) => {
+            const displayID = context.ticket_display_id?.trim().toUpperCase();
+            const title = context.title?.trim();
+            return displayID && title ? [[displayID, title]] : [];
+        }));
+    } catch (error) {
+        // Ticket titles are an assignment-page enhancement. Do not prevent users
+        // from assigning products when contextual lookup is temporarily unavailable.
+        console.warn(`Warning: ticket title lookup failed: ${(error as Error).message}`);
+        return {};
+    }
+}
+
+async function ticketWarningsForAssignment(
+    session: Pick<DailyApiJson["sessions"][number], "session_id">,
+    assignment: WebAssignment,
+    productLineByProduct: Map<string, string>,
+    file?: string
+): Promise<TicketAssignmentWarning[]> {
+    const displayIds = normalizeTicketDisplayIdsIfArray(assignment.ticket_display_ids);
+    if (!displayIds) return [];
+    if (displayIds.length === 0) {
+        return [];
+    }
+
+    const productId = assignment.product_id?.trim();
+    if (!productId) return [];
+    const contexts = await resolveTicketContexts(displayIds);
+    const contextByDisplayId = new Map(contexts
+        .filter((context) => context.ticket_display_id && context.ticket_id && ticketContextIsResolved(context))
+        .map((context) => [String(context.ticket_display_id).toUpperCase(), context]));
+    const unresolved = displayIds.filter((displayId) => {
+        const context = contextByDisplayId.get(displayId);
+        return !context || context.ticket_id === displayId;
+    });
+    if (unresolved.length > 0) {
+        throw new Error(`unable to resolve ticket display ID(s): ${unresolved.join(", ")}`);
+    }
+
+    const skipped = displayIds.filter((displayId) => {
+        const context = contextByDisplayId.get(displayId);
+        return context && !ticketMatchesSelectedProductLine(context, assignment, productLineByProduct);
+    });
+    if (skipped.length === 0) return [];
+    return [{
+        file,
+        session_id: session.session_id,
+        ticket_display_ids: skipped,
+        reason: "not_in_selected_product_line",
+    }];
+}
+
+async function validateTicketAssignments(daily: DailyApiJson, assignments: WebAssignment[], file?: string): Promise<void> {
+    const ticketWarnings: TicketAssignmentWarning[] = [];
+    const products = await listProductsForSelector();
+    const productLineByProduct = productLineByProductId(products);
+    for (const assignment of assignments) {
+        if (!assignment.session_id) throw new Error("session_id is required for every assignment");
+        if (!assignment.product_id) throw new Error(`product_id is required for session ${assignment.session_id}`);
+        const session = findSessionById(daily, assignment.session_id);
+        ticketWarnings.push(...await ticketWarningsForAssignment(session, assignment, productLineByProduct, file));
+    }
+    if (ticketWarnings.length > 0) {
+        for (const warning of ticketWarnings) {
+            console.error(`Warning: ticket(s) not in selected product line for session ${warning.session_id}: ${warning.ticket_display_ids.join(", ")}`);
+        }
+        throw new TicketAssignmentValidationError(ticketWarnings);
+    }
+}
+
+async function applyTicketDisplayIds(session: DailyApiJson["sessions"][number], assignment: WebAssignment): Promise<void> {
+    const displayIds = normalizeTicketDisplayIdsIfArray(assignment.ticket_display_ids);
+    if (!displayIds) return;
+    if (displayIds.length === 0) {
+        delete session.ticket_display_ids;
+        delete session.ticket_ids;
+        return;
+    }
+
+    const contexts = await resolveTicketContexts(displayIds);
+    const contextByDisplayId = new Map(contexts
+        .filter((context) => context.ticket_display_id && context.ticket_id && ticketContextIsResolved(context))
+        .map((context) => [String(context.ticket_display_id).toUpperCase(), context]));
+    const unresolved = displayIds.filter((displayId) => {
+        const context = contextByDisplayId.get(displayId);
+        return !context || context.ticket_id === displayId;
+    });
+    if (unresolved.length > 0) {
+        throw new Error(`unable to resolve ticket display ID(s): ${unresolved.join(", ")}`);
+    }
+
+    const productLineByProduct = productLineByProductId(await listProductsForSelector());
+    const matchedContexts = displayIds
+        .map((displayId) => contextByDisplayId.get(displayId))
+        .filter((context): context is NonNullable<typeof context> => Boolean(context))
+        .filter((context) => ticketMatchesSelectedProductLine(context, assignment, productLineByProduct));
+    session.ticket_display_ids = matchedContexts.map((context) => context.ticket_display_id!).filter(Boolean);
+    session.ticket_ids = matchedContexts.map((context) => context.ticket_id).filter(Boolean);
+    if (session.ticket_display_ids.length === 0) delete session.ticket_display_ids;
+    if (session.ticket_ids.length === 0) delete session.ticket_ids;
+}
+
+async function applyWebAssignments(
+    daily: DailyApiJson,
+    assignments: WebAssignment[]
+): Promise<number> {
+    let assigned = 0;
+    for (const assignment of assignments) {
+        if (!assignment.session_id) throw new Error("session_id is required for every assignment");
+        if (!assignment.product_id) throw new Error(`product_id is required for session ${assignment.session_id}`);
+        const session = findSessionById(daily, assignment.session_id);
+        let mapping: ProductRepoMapping = {
+            product_id: assignment.product_id,
+            product_name: assignment.product_name,
+            repo_name: assignment.repo_name,
+            repo_url: assignment.repo_url,
+        };
+
+        if (assignment.create_mapping) {
+            if (!assignment.repo_url) {
+                throw new Error(`repo_url is required to create a mapping for session ${assignment.session_id}`);
+            }
+            mapping = {
+                ...(await createProductRepoMapping({
+                    productId: assignment.product_id,
+                    repoUrl: assignment.repo_url,
+                })),
+                product_name: assignment.product_name,
+            };
+        }
+
+        assigned += applyProductRepoMappingToProject(daily, session, mapping);
+        await applyTicketDisplayIds(session, assignment);
+    }
+    return assigned;
+}
+
+async function applyBatchWebAssignments(
+    reports: AssignmentReport[],
+    assignments: WebAssignment[]
+): Promise<{assignedSessions: number; files: string[]}> {
+    let assignedSessions = 0;
+    const savedFiles: string[] = [];
+    for (const report of reports) {
+        const fileAssignments = assignments.filter((assignment) => assignment.file === report.file);
+        await validateTicketAssignments(report.daily, fileAssignments, report.file);
+    }
+    for (const report of reports) {
+        const fileAssignments = assignments.filter((assignment) => assignment.file === report.file);
+        if (fileAssignments.length > 0) {
+            assignedSessions += await applyWebAssignments(report.daily, fileAssignments);
+        }
+        assertAllSessionsHaveProduct(report.daily);
+        writeDailyReport(report.file, report.daily);
+        for (const session of report.daily.sessions) {
+            setCachedAssignmentTicketRefsFromSession(session);
+        }
+        savedFiles.push(report.file);
+    }
+    return {assignedSessions, files: savedFiles};
+}
+
+export async function assignReportsFromTty(
+    reports: AssignmentReport[]
+): Promise<{assignedSessions: number; files: string[]}> {
+    let assignedSessions = 0;
+    const files: string[] = [];
+    for (const report of reports) {
+        console.error(`Assigning products for ${report.file}...`);
+        assignedSessions += await assignProjectsFromCloudMappings(report.daily, report.file);
+        assertAllSessionsHaveProduct(report.daily);
+        files.push(report.file);
+    }
+    return {assignedSessions, files};
+}
+
+export async function startAssignmentWebServer(reports: AssignmentReport[], batchMode = false): Promise<void> {
+    const token = randomBytes(16).toString("hex");
+    let closed = false;
+
+    await new Promise<void>((resolve, reject) => {
+        let timeout: NodeJS.Timeout | undefined;
+        let server: ReturnType<typeof createServer>;
+        const closeServer = () => {
+            if (closed) return;
+            closed = true;
+            if (timeout) clearTimeout(timeout);
+            server.close(() => resolve());
+        };
+        const closeServerSoon = () => {
+            if (closed) return;
+            closed = true;
+            if (timeout) clearTimeout(timeout);
+            setTimeout(() => server.close(() => resolve()), 50);
+        };
+
+        server = createServer(async (req, res) => {
+            try {
+                const url = new URL(req.url ?? "/", `http://${localAssignmentHost}`);
+                if (!requestHasToken(req, token)) {
+                    sendJson(res, 403, {error: "invalid token"});
+                    return;
+                }
+
+                if (req.method === "GET" && url.pathname === "/") {
+                    sendText(res, 200, assignmentHtml(getPortalBase()), "text/html; charset=utf-8");
+                    return;
+                }
+
+                if (req.method === "GET" && url.pathname === "/assign/matching.js") {
+                    sendText(res, 200, readMatchingBrowserModule(), "text/javascript; charset=utf-8");
+                    return;
+                }
+
+                if (req.method === "GET" && url.pathname.startsWith("/assets/")) {
+                    const assetName = url.pathname.slice("/assets/".length);
+                    const asset = readAssignmentAsset(assetName);
+                    if (!asset) {
+                        sendJson(res, 404, {error: "asset not found"});
+                        return;
+                    }
+                    sendBinary(res, 200, asset, assignmentAssetContentType(assetName));
+                    return;
+                }
+
+                if (req.method === "GET" && url.pathname === "/api/report") {
+                    const ticket_titles = await ticketTitlesForReports(reports);
+                    if (batchMode) {
+                        sendJson(res, 200, {
+                            batch: true,
+                            reports: reports.map(assignmentReportPayload),
+                            ticket_titles,
+                        });
+                    } else {
+                        sendJson(res, 200, {
+                            batch: false,
+                            ...assignmentReportPayload(reports[0]),
+                            ticket_titles,
+                        });
+                    }
+                    return;
+                }
+
+                if (req.method === "GET" && url.pathname === "/api/products") {
+                    const search = url.searchParams.get("search") ?? url.searchParams.get("q") ?? undefined;
+                    sendJson(res, 200, {products: await listProductsForSelector(search)});
+                    return;
+                }
+
+                if (req.method === "GET" && url.pathname === "/api/product-repos") {
+                    sendJson(res, 200, {mappings: await listProductRepoMappings()});
+                    return;
+                }
+
+                if (req.method === "POST" && url.pathname === "/api/product-repos") {
+                    const body = await readJsonBody<{
+                        product_id?: string;
+                        repo_url?: string;
+                        repo_name?: string;
+                    }>(req);
+                    if (!body.product_id) throw new Error("product_id is required");
+                    if (!body.repo_url) throw new Error("repo_url is required");
+                    const mapping = await createProductRepoMapping({
+                        productId: body.product_id,
+                        repoUrl: body.repo_url,
+                        repoName: body.repo_name,
+                    });
+                    sendJson(res, 200, {mapping});
+                    return;
+                }
+
+                if (req.method === "POST" && url.pathname === "/api/assignments") {
+                    const body = await readJsonBody<{assignments?: WebAssignment[]}>(req);
+                    if (!Array.isArray(body.assignments)) throw new Error("assignments must be an array");
+                    const result = batchMode
+                        ? await applyBatchWebAssignments(reports, body.assignments)
+                        : await applyBatchWebAssignments(
+                              reports,
+                              body.assignments.map((assignment) => ({
+                                  ...assignment,
+                                  file: reports[0].file,
+                              }))
+                          );
+                    sendJson(res, 200, {
+                        file: result.files[0],
+                        files: result.files,
+                        assigned_sessions: result.assignedSessions,
+                    });
+                    closeServerSoon();
+                    return;
+                }
+
+                if (req.method === "POST" && url.pathname === "/api/close") {
+                    sendJson(res, 200, {closed: true});
+                    closeServerSoon();
+                    return;
+                }
+
+                sendJson(res, 404, {error: "not found"});
+            } catch (e) {
+                if (e instanceof TicketAssignmentValidationError) {
+                    sendJson(res, 422, {
+                        error: e.message,
+                        ticket_warnings: e.ticketWarnings,
+                    });
+                    return;
+                }
+                sendJson(res, 500, {error: (e as Error).message});
+            }
+        });
+
+        server.on("error", reject);
+        server.listen(0, localAssignmentHost, () => {
+            const address = server.address();
+            if (!address || typeof address === "string") {
+                reject(new Error("failed to determine local assignment server address"));
+                return;
+            }
+            const assignmentUrl = `http://${localAssignmentHost}:${address.port}/?token=${token}`;
+            console.error(`Open this URL to assign sessions: ${assignmentUrl}`);
+            void openBrowser(assignmentUrl).catch(() => {
+                console.error("Could not open the browser automatically; please open the URL manually.");
+            });
+            console.error("Waiting for browser assignment. Click Save assignments or Close in the page to exit.");
+            console.error("This assignment server will automatically close after 10 minutes.");
+            console.error("Do not start another assign --web command while this one is waiting.");
+            timeout = setTimeout(() => {
+                console.error("Assignment page timed out after 10 minutes; closing local server.");
+                closeServer();
+            }, ASSIGNMENT_SERVER_TIMEOUT_MS);
+        });
+
+        process.once("SIGINT", () => {
+            closeServer();
+        });
+    });
+}
+
+export {readDailyReports};

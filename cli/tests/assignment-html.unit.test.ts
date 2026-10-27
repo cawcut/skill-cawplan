@@ -1,0 +1,278 @@
+import {describe, expect, test} from "vitest";
+import {assignmentHtml} from "../src/lib/assign/assignment-html";
+
+describe("assignmentHtml - stats panel", () => {
+    test("contains stats-bar element", () => {
+        expect(assignmentHtml()).toContain('id="stats-bar"');
+    });
+
+    test("contains stats-bar CSS", () => {
+        expect(assignmentHtml()).toContain("#stats-bar {");
+    });
+
+    test("contains storage bar stats layout", () => {
+        const html = assignmentHtml();
+        expect(html).toContain(".storage-wrap");
+        expect(html).toContain("function storageRow(title, counts, preferredOrder)");
+    });
+
+    test("contains renderStats function", () => {
+        expect(assignmentHtml()).toContain("renderStats()");
+    });
+});
+
+describe("assignmentHtml - human input source", () => {
+    test("reads human inputs from report-level rows by session_id", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("function humanInputsForSession(report, session)");
+        expect(html).toContain("report.human_inputs");
+        expect(html).toContain("input.session_id");
+        expect(html).toContain("humanInputsHtml(report, s)");
+        expect(html).not.toContain("input.session_title");
+    });
+
+    test("does not render category and topic table filters", () => {
+        const html = assignmentHtml();
+        expect(html).not.toContain('id="filter-category"');
+        expect(html).not.toContain('id="filter-topic"');
+        expect(html).not.toContain("<th>Category</th>");
+        expect(html).not.toContain("<th>Topic</th>");
+    });
+
+    test("input column shows first three rows without wrapping", () => {
+        const html = assignmentHtml();
+        expect(html).toContain(".slice(0, 3)");
+        expect(html).toContain(".input-cell { overflow: hidden; }");
+        expect(html).toContain("white-space: nowrap; overflow: hidden; text-overflow: ellipsis;");
+        expect(html).toContain("'<td class=\"input-cell\">' + humanInputsHtml(report, s) + '</td>'");
+    });
+});
+
+describe("assignmentHtml - needs review filter", () => {
+    test("contains filter-unassigned button", () => {
+        expect(assignmentHtml()).toContain('id="filter-unassigned"');
+    });
+
+    test("contains showAssignedSessions state variable", () => {
+        expect(assignmentHtml()).toContain("showAssignedSessions");
+    });
+
+    test("contains standalone search and filter toolbar CSS", () => {
+        const html = assignmentHtml();
+        expect(html).toContain(".tsearch {");
+        expect(html).toContain(".filter-group {");
+        expect(html).toContain("input.unassigned-cb");
+    });
+
+    test("shows assigned sessions by default and filters only when enabled", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("function shouldShowSession(session)");
+        expect(html).toContain("function sessionHasProduct(session)");
+        expect(html).toContain("!showAssignedSessions && sessionHasProduct(session)");
+        expect(html).toContain("let showAssignedSessions = false;");
+        expect(html).toContain("showAssignedSessions = true;");
+        expect(html).toContain('id="filter-unassigned" class="unassigned-cb" /> Unassigned product');
+        expect(html).not.toContain("Unassigned only");
+    });
+});
+
+describe("assignmentHtml - session column", () => {
+    test("renders session title with cwd hover tooltip", () => {
+        const html = assignmentHtml();
+        // sessionTitleTooltip() now also includes cost, not just cwd — the tooltip
+        // still surfaces cwd, so check its actual current content rather than the
+        // exact old inline expression.
+        expect(html).toContain("function sessionTitleTooltip(session)");
+        expect(html).toContain("'\\nCWD: ' + String(session.cwd || '')");
+        expect(html).toContain("const titleTooltip = ' title=\"' + escapeHtml(sessionTitleTooltip(s)) + '\"';");
+        expect(html).toContain("'<td><div class=\"session-title\"' + titleTooltip + '>' + escapeHtml(title) + '</div></td>'");
+        expect(html).not.toContain("[s.agent, s.project].filter(Boolean).join(' | ')");
+    });
+});
+
+describe("assignmentHtml - lines column", () => {
+    test("uses session files_added/files_deleted fields for line deltas", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("Number(session.files_added || 0)");
+        expect(html).toContain("Number(session.files_deleted || 0)");
+        expect(html).not.toContain("Number(session.lines_added || 0)");
+        expect(html).not.toContain("Number(session.lines_deleted || 0)");
+    });
+});
+
+describe("assignmentHtml - date time column", () => {
+    test("formats date time like the standalone design", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("d.toLocaleDateString('en-US', {month: 'short', day: 'numeric'})");
+        expect(html).toContain("d.toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'})");
+        expect(html).toContain("'<td class=\"dt-cell\">' + escapeHtml(sessionDateTimeText(s)) + '</td>'");
+        expect(html).not.toContain("sessionDateTimeText(date, s)");
+    });
+});
+
+describe("assignmentHtml - model column", () => {
+    test("renders agent text and models from session.models", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("function sessionModels(session)");
+        expect(html).toContain("function sessionModelsHtml(session)");
+        expect(html).toContain("const models = Array.isArray(session.models) ? session.models : [];");
+        expect(html).toContain("value.includes('claude')");
+        expect(html).toContain("value.includes('gpt')");
+        expect(html).toContain("'<td class=\"agent-cell\"");
+        expect(html).toContain("'<td class=\"models-cell\"");
+        expect(html).toContain("MODEL_ICON_PATHS");
+        expect(html).not.toContain("function agentChip(agent)");
+        expect(html).not.toContain(".agent-chip {");
+        expect(html).not.toContain("escapeHtml(model || '—')");
+    });
+});
+
+describe("assignmentHtml - repo column", () => {
+    test("uses custom repo picker instead of native dropdown UI", () => {
+        const html = assignmentHtml();
+        expect(html).toContain(".repo-field {");
+        expect(html).toContain("select.repo { display: none;");
+        expect(html).toContain(".repo-picker {");
+        expect(html).toContain("function repoPickerHtml(productId, selectedRepo)");
+        expect(html).toContain("function syncRepoPicker(row)");
+        expect(html).toContain("function setRepoMenuOpen(picker, open)");
+        expect(html).toContain(".repo-trigger { width: 100%; height: 32px;");
+        expect(html).toContain(".repo-trigger:disabled { background: var(--bg);");
+        expect(html).toContain("repoPickerHtml(s.product_id, selectedRepo)");
+        expect(html).toContain("class=\"repo-option");
+    });
+});
+
+describe("assignmentHtml - tickets column", () => {
+    test("renders tickets column from session ticket display IDs", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("<th>Tickets</th>");
+        expect(html).toContain("function sessionTickets(session)");
+        expect(html).toContain("session.ticket_display_ids");
+        expect(html).not.toContain("session.ticket_ids");
+        expect(html).toContain("function allTicketDisplayIds()");
+        expect(html).toContain("function ticketDisplayIdFromInput(value)");
+        expect(html).toContain("pad(urlMatch[1])");
+        expect(html).toContain("ticketDisplayIdFromInput(value)");
+        expect(html).toContain("function ticketDetailUrl(ticket)");
+        expect(html).toContain("function ticketLinkHtml(ticket)");
+        expect(html).toContain("function ticketOpenLinkHtml(ticket)");
+        expect(html).toContain("let ticketTitles = {};");
+        expect(html).toContain("function ticketTitle(ticket)");
+        expect(html).toContain("ticketTitles[displayId]");
+        expect(html).toContain("ticketTitles = reportData.ticket_titles || {};");
+        expect(html).toContain("target=\"_blank\"");
+        expect(html).toContain("rel=\"noopener noreferrer\"");
+        expect(html).toContain("function ticketOptionRows(session)");
+        expect(html).toContain("function ticketPickerHtml(session)");
+        expect(html).toContain("function selectedTicketDisplayIds(picker)");
+        expect(html).toContain("function addTicketOption(picker, value)");
+        expect(html).toContain("function addTicketFromRow(row)");
+        expect(html).toContain("'<td class=\"tickets-cell\"");
+        expect(html).toContain("'<td class=\"tickets-cell\">' + ticketPickerHtml(s) + '</td>'");
+        expect(html).toContain("class=\"ticket-picker\"");
+        expect(html).toContain("class=\"ticket-option-cb\"");
+        expect(html).toContain("class=\"ticket-remove\"");
+        expect(html).toContain("'<input class=\"ticket-add\" placeholder=\"Add ticket ID\" />'");
+        expect(html).toContain("ticket_display_ids: selectedTicketDisplayIds");
+        expect(html).toContain("querySelectorAll('.ticket-option-cb:checked')");
+        expect(html).toContain(".ticket-option-choice");
+        expect(html).toContain(".ticket-option-label");
+        expect(html).toContain(".ticket-open-link");
+        expect(html).toContain(".ticket-warning");
+        expect(html).toContain("class=\"ticket-warning hidden\"");
+        expect(html).toContain(">Open</a>");
+        expect(html).toContain("'<label class=\"ticket-option-choice\">' +");
+        expect(html).toContain("'<span class=\"ticket-option-label\" title=\"' + escapeHtml(ticketTitle(ticket)) + '\">' + escapeHtml(ticket) + '</span>'");
+        expect(html).toContain("'<span class=\"ticket-tag\" data-ticket=\"' + escapeHtml(ticket) + '\" title=\"' + escapeHtml(ticketTitle(ticket)) + '\">'");
+        expect(html).not.toContain("'<input class=\"ticket-option-cb\" type=\"checkbox\" value=\"' + escapeHtml(ticket) + '\"' + (selected.has(ticket) ? ' checked' : '') + ' />' +\n          ticketLinkHtml(ticket)");
+    });
+
+    test("uses configured portal base for ticket detail links", () => {
+        const html = assignmentHtml("https://example.cawplan.test/");
+        expect(html).toContain('const CAWPLAN_PORTAL_BASE = "https://example.cawplan.test";');
+        expect(html).toContain("return CAWPLAN_PORTAL_BASE + '/issue/' + encodeURIComponent(ticket);");
+    });
+
+    test("supports adding tickets before saving", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("event.key !== 'Enter'");
+        // addTicketFromRow is now called with a pre-extracted `row`/`tr` variable
+        // rather than an inline `el.closest('tr')` — check the current call sites.
+        expect(html).toContain("if (row) addTicketFromRow(row);");
+        expect(html).toContain("addTicketFromRow(tr);");
+    });
+
+    test("requires product selection before tickets can be changed", () => {
+        const html = assignmentHtml();
+        expect(html).toContain(".ticket-picker.disabled .ticket-trigger");
+        expect(html).toContain("function updateTicketPickerState(row)");
+        expect(html).toContain("const productSelected = Boolean(findProduct(row.querySelector('.product').value));");
+        expect(html).toContain("picker.classList.toggle('disabled', !productSelected);");
+        expect(html).toContain("input.disabled = !productSelected;");
+        expect(html).toContain("if (!productSelected) setTicketMenuOpen(picker, false);");
+        expect(html).toContain("updateTicketPickerState(row);");
+        expect(html).toContain("if (picker.classList.contains('disabled')) return;");
+        expect(html).toContain("if (event.target.closest('.ticket-link')) return;");
+        expect(html.indexOf("const remove = event.target.closest('.ticket-remove');"))
+            .toBeGreaterThan(html.indexOf("if (event.target.closest('.ticket-link')) return;"));
+    });
+
+    test("places tickets column after repo column", () => {
+        const html = assignmentHtml();
+        expect(html.indexOf("<th>Repo</th>")).toBeLessThan(html.indexOf("<th>Tickets</th>"));
+        expect(html.indexOf("'<td><div class=\"repo-field\"><select class=\"repo\">")).toBeLessThan(html.indexOf("'<td class=\"tickets-cell\""));
+    });
+
+    test("uses eleven-column empty states", () => {
+        const html = assignmentHtml();
+        // A column was added to the table (now 11 <th> headers) after this test
+        // was written for 10; the empty-state colspan was correctly updated to
+        // match, this test wasn't.
+        expect(html).toContain('colspan="11"');
+        expect(html).not.toContain('colspan="10"');
+        expect(html).not.toContain('colspan="12"');
+    });
+
+    test("includes tickets in table search text", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("sessionTicketsText(session)");
+    });
+});
+
+describe("assignmentHtml - submit effect", () => {
+    test("contains Saved check-mark text", () => {
+        expect(assignmentHtml()).toContain("Saved ✓");
+    });
+
+    test("tells the user to return to the agent after saving", () => {
+        const html = assignmentHtml();
+        expect(html).toContain("Saved ✓ Return to agent");
+        expect(html).toContain("Return to your agent to review and confirm upload.");
+    });
+
+    test("does not use alert for save confirmation", () => {
+        expect(assignmentHtml()).not.toContain("alert('Saved");
+    });
+
+    test("contains btn-saved CSS class", () => {
+        expect(assignmentHtml()).toContain(".btn-saved");
+    });
+
+    test("contains status-error CSS class", () => {
+        expect(assignmentHtml()).toContain(".status-error");
+    });
+
+    test("shows skipped ticket warnings and rejects assignment save", () => {
+        const html = assignmentHtml();
+        expect(html).toContain(".status-warning");
+        expect(html).toContain("err.response = data");
+        expect(html).toContain("e.response.ticket_warnings");
+        expect(html).toContain("function applyTicketWarnings(ticketWarnings)");
+        expect(html).toContain("row.querySelector('.ticket-warning')");
+        expect(html).toContain("product_line_id: product.product_line_id");
+        expect(html).toContain("p.product_line_id || (p.product_line && (p.product_line.unique_id || p.product_line.id))");
+        expect(html).toContain("then save again");
+        expect(html).toContain("not in selected product line");
+    });
+});

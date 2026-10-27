@@ -1,0 +1,60 @@
+{
+  "name": "cawplan",
+  "version": "0.0.61",
+  "description": "CawPlan CLI",
+  "author": "Ubiquiti UID",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "cawplan": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "config"
+  ],
+  "keywords": [
+    "cawplan",
+    "prm",
+    "release-management",
+    "ubiquiti"
+  ],
+  "engines": {
+    "node": ">=22.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cawcut/skill-cawplan.git",
+    "directory": "cli"
+  },
+  "scripts": {
+    "build": "tsc",
+    "postbuild": "chmod +x dist/index.js && node scripts/copy-assets.mjs",
+    "prepublishOnly": "npm run build",
+    "prepack": "node scripts/pack-public-config.mjs prepack",
+    "postpack": "node scripts/pack-public-config.mjs postpack",
+    "cli": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.5.2",
+    "commander": "^12.0.0",
+    "d3-array": "^3.2.4",
+    "d3-scale": "^4.0.2",
+    "d3-shape": "^3.2.0",
+    "marked": "^15.0.12",
+    "marked-terminal": "^7.3.0",
+    "string-width": "^7.2.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/d3-array": "^3.2.2",
+    "@types/d3-scale": "^4.0.9",
+    "@types/d3-shape": "^3.2.0",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.8"
+  }
+}
