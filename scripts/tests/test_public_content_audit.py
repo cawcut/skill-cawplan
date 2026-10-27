@@ -59,12 +59,12 @@ class PublicContentAuditTests(unittest.TestCase):
 
     def test_identity_shaped_message_does_not_bypass_email_scan(self):
         findings = []
-        audit.inspect_commit(b"tree abc\n\nauthor Example <contributor@example.com> 123 +0000\n", "fixture", findings)
+        audit.inspect_commit(b"tree abc\n\nauthor Example <person" + b"@" + b"ui.com> 123 +0000\n", "fixture", findings)
         self.assertTrue(any(f["rule"] == "employee-email" for f in findings))
 
     def test_other_secrets_in_commit_identity_are_still_detected(self):
         findings = []
-        audit.inspect_commit(b"author /home/dev <contributor@example.com> 123 +0000\n\nSafe\n", "fixture", findings)
+        audit.inspect_commit(b"author /Users/" + b"example-person <person" + b"@" + b"ui.com> 123 +0000\n\nSafe\n", "fixture", findings)
         self.assertTrue(any(f["rule"] == "personal-path" for f in findings))
         findings = []
         audit.inspect_commit(b"author Example <ghp_" + b"A" * 36 + b"@ui.com> 123 +0000\n\nSafe\n", "fixture", findings)
