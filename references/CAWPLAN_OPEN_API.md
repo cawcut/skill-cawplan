@@ -369,6 +369,7 @@ indistinguishable at query time:
 | Domain | Dynamic tag | Meaning |
 |---|---|---|
 | `cawplan_ticket` | `ticket_id` | The ticket's own `unique_id`, on all three ticket metrics. Without it, a burst of `ticket_updated` points for one product can't be told apart from an ancestor-status-propagation cascade across several *different* tickets (expected) vs. the same ticket written repeatedly (a bug) — filter or `--group_by ticket_id` to tell them apart. |
+| `cawplan_qa_insight` | `module_id` | On `test_point_created`/`test_point_updated`: the QA module tree node the requirement was in when the event was emitted (later moves are not rewritten). Filter with `--module_id` (optionally `--include_descendants`) or break down with `--group_by module_id`. |
 | `cawplan_qa_insight` | `qa_result` | On `execution` events only: the literal `pass`/`pass_with_issues`/`failed` value. The standard `result` tag that `metrics.QAExecutionResult` writes is only `passed`/`failed` (`pass_with_issues` collapses into `passed` there) — `qa_result` preserves the three-way distinction. |
 | `cawplan_subscription` | `from_plan`/`to_plan` | On `upgrade`/`downgrade` only — and those two metrics aren't wired to any producer yet (see above), so this tag has no real data behind it right now either. |
 | `cawplan_ticket` | `from_status`/`to_status` | On `ticket_status_changed` only. |
@@ -415,7 +416,8 @@ is the only reliable way to slice this metric today.
   `domain`/`metric` are required and must match `^[a-z][a-z0-9_]*$`; at least
   one of `value`/`count`/`cost`/`credit` is required per item; `dimensions`,
   `tags`, and `timestamp` are all optional (`timestamp` defaults to receipt
-  time). The whole batch is validated up front and rejected as one
+  time). The server adds a reserved `ingested_by` tag (the uploader's user id)
+  to every point; a caller-supplied `ingested_by` is overwritten. The whole batch is validated up front and rejected as one
   `INVALID_INPUT` response on the first bad item — there is no partial write.
 - Rate limited to 180 requests/minute per calling credential (the whole
   `Authorization` header value, hashed — a Bearer token and a raw API key are
@@ -434,7 +436,13 @@ is the only reliable way to slice this metric today.
   `<key>:<value>` filter, or the equivalent `tag.<key>=<value>` form),
   `group_by` (repeated param, extra tag keys to break results down by —
   ignored when `granularity=raw`), `fields` (repeated param, subset of
-  `value`/`count`/`cost`/`credit`, defaults to all four), `limit`.
+  `value`/`count`/`cost`/`credit`, defaults to all four), `limit`,
+  `product_id` (pins the read to one product), `module_id` (QA module tree node
+  unique_id; exact match on the `module_id` tag) and `include_descendants`
+  (with `module_id`: also every descendant module; needs `product_id`, and the
+  module must belong to that product). Without `module_id` the read stays at
+  product/workspace level. `module_id` cannot be combined with a `module_id`
+  tag filter, and `include_descendants` alone is `FAILURE_INVALID_INPUT`.
 - Response: `data.rows[]`, one row per time bucket per distinct tag
   combination — `{time, domain, metric, tags: {...}, value, count, cost,
   credit}` — shaped so it can be turned directly into chart series without
@@ -449,7 +457,7 @@ is the only reliable way to slice this metric today.
   capped at 5000 (surfaced via `data.truncated`, not an error). Both are
   configurable server-side (`MetricsConfig`), so treat these as the current
   defaults, not a hard contract.
-- Maps to cawplan CLI: `cawplan metrics query --domain <domain> --start <iso> --end <iso> [--metric <metric>] [--granularity day] [--tag key:value ...] [--group_by k1,k2] [--fields value,count]`.
+- Maps to cawplan CLI: `cawplan metrics query --domain <domain> --start <iso> --end <iso> [--metric <metric>] [--granularity day] [--tag key:value ...] [--group_by k1,k2] [--fields value,count] [--product_id <id>] [--module_id <id> [--include_descendants]]`.
 - By default `query` only prints the JSON (`data.rows`). For a chart the caller just wants to look
   at in-conversation rather than a file to keep, there's no CLI rendering step needed at all — hand
   `data.rows` to the `dataviz` skill (or render/describe it directly), same as any other structured

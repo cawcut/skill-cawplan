@@ -63,7 +63,7 @@ PROGRESS+anchor 已完成→`ANCHOR_ALREADY_COMPLETE`。衍生 phase/readiness�
 4. **Verification Status** — **仅子单**（D1–D3）；桶 `ol>li>strong` → priority/type `ul>li>strong` → ticket `ol>li` 链接；**禁止**列出 anchor；末桶 Under Development；差异见 `collect §ModeMatrix`
 5. **可选链接** — TestRail 等（有 `runs[].url`）
 6. **Environment & Dependencies**
-7. **Notes** — 父 ticket；Requirement 链接（可无）
+7. **Notes** — 父 ticket；Test Suite Link（可无）
 
 **HTML 层级**：主节 `<h2>`；Issue Summary 子块 `<h5>`（禁 `h3`/`h4`）；Verification 桶有序 `ol`；priority/type 无序 `ul`+`strong`；ticket 有序 `ol`；Issue 正文与 Hotspots 子项用 `ul`/`li`；COMPLETION passed 测试点 `ul` 纯文本。空层省略。
 

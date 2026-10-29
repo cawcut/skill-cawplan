@@ -17,7 +17,7 @@
 | 字段 | 来源（优先级） |
 |------|----------------|
 | `product_id` | 门户产品链接 · 同会话绑定 · `products list` 消歧 |
-| `requirement_id` | Requirement 链接 · A3 热接力 · `requirements get` |
+| `requirement_id` | Test Suite Link · A3 热接力 · `requirements get` |
 
 **热接力（P1）**：同会话 `cawplan-testcase-generate` 刚导出 CSV → 用户说「映射回」「link 导入的用例」→ 复用 `product_id` + `requirement_id`；**跳过框 A1**。
 

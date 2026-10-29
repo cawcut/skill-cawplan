@@ -37,6 +37,16 @@ describe("knowledge commands (document modules)", () => {
     process.exitCode = undefined;
   });
 
+  test("datasets list prints C1-safe JSON without changing returned data", async () => {
+    const payload = {code: "SUCCESS", data: [{id: DATASET, name: "name\u009b2J", note: "\u009d52;c;canary\u009c"}]};
+    request.mockResolvedValue(payload);
+    await run(["datasets", "list"]);
+    const output = vi.mocked(console.log).mock.calls.at(-1)![0] as string;
+    expect(JSON.parse(output)).toEqual(payload);
+    expect(output).not.toContain("\u009b");
+    expect(output).not.toContain("\u009d");
+  });
+
   test("datasets create --owner-product sends product_id and does not link when no --product", async () => {
     request.mockResolvedValue({ code: "SUCCESS", msg: "success", data: { id: DATASET } });
 

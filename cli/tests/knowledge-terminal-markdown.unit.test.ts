@@ -1,6 +1,11 @@
 import stringWidth from "string-width";
 import { afterEach, describe, expect, test } from "vitest";
-import { fitTableColumns, getMarkedForTerminal, renderMarkdownPreview } from "../src/lib/knowledge/terminal-markdown.js";
+import {
+  fitTableColumns,
+  getMarkedForTerminal,
+  renderMarkdownPreview,
+  stripTerminalControls,
+} from "../src/lib/knowledge/terminal-markdown.js";
 
 function stripAnsi(text: string): string {
   // eslint-disable-next-line no-control-regex
@@ -142,5 +147,39 @@ describe("renderMarkdownPreview", () => {
   test("returns an empty string for a section with no body", async () => {
     expect(await renderMarkdownPreview("", 6, 12)).toBe("");
     expect(await renderMarkdownPreview("\n\n   \n", 6, 12)).toBe("");
+  });
+});
+
+describe("stripTerminalControls", () => {
+  const ESC = "\x1b";
+
+  test("drops whole CSI sequences, not just the ESC byte", () => {
+    expect(stripTerminalControls(`a${ESC}[2J${ESC}[1;31mred${ESC}[0m b`)).toBe("ared b");
+    expect(stripTerminalControls("x\x9b31my")).toBe("xy");
+  });
+
+  test("drops OSC strings such as window titles, hyperlinks and clipboard writes", () => {
+    expect(stripTerminalControls(`${ESC}]0;pwned\x07title`)).toBe("title");
+    expect(stripTerminalControls(`${ESC}]8;;https://evil.example${ESC}\\click${ESC}]8;;${ESC}\\`)).toBe("click");
+    expect(stripTerminalControls(`ok${ESC}]52;c;Y3VybCBldmls\x07`)).toBe("ok");
+    expect(stripTerminalControls(`ok${ESC}]0;never terminated`)).toBe("ok");
+  });
+
+  test("drops two-byte escapes and stray control characters", () => {
+    expect(stripTerminalControls(`${ESC}chello${ESC}7`)).toBe("hello");
+    expect(stripTerminalControls("over\rwrite\bbell\x07del\x7f")).toBe("overwritebelldel");
+  });
+
+  test("keeps tabs, newlines, CJK text and markdown, and normalizes CRLF", () => {
+    const markdown = "# 标题\r\n\r\n| a\t| b |\r\n|---|---|\r\n- item `code`";
+    expect(stripTerminalControls(markdown)).toBe("# 标题\n\n| a\t| b |\n|---|---|\n- item `code`");
+  });
+
+  test("renders a stripped document without any injected escape reaching the output", async () => {
+    const body = `## Steps\n\nRun ${ESC}]0;owned\x07this${ESC}[8m hidden${ESC}[0m now`;
+    const preview = await renderMarkdownPreview(stripTerminalControls(body), 6, 12);
+    expect(preview).not.toContain("]0;");
+    expect(preview).not.toContain(`${ESC}[8m`);
+    expect(stripAnsi(preview)).toContain("Run this hidden now");
   });
 });

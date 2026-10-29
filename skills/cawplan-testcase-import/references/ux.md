@@ -77,7 +77,7 @@ Markdown：`[{name}（ID [{id}](url)）](url)` · Case：`[C{case_id}](case_url)
 |----|------|------|
 | P1 | 同会话 `testcase-generate` 后有 case 明细 | 自动 `INLINE`；**跳过框 0、1**；**须 Step 0.6**（≥1 已展开则无感；全标题 → 框 Steps-confirm）；**仍走框 3、框 3.5**（或 Intent/ConfirmState）；版本无感 |
 | P1b | §Intent 热接力词 + 有用例明细 | 自动 `INLINE`；跳过框 1；**须 Step 0.6**（同 P1） |
-| P2 | Requirement URL，无展开用例 | `REQUIREMENT`；跳过框 1 |
+| P2 | Test Suite Link，无展开用例 | `REQUIREMENT`；跳过框 1 |
 | P3 | 仅「导入 TestRail」，上下文不全 | 框 0 |
 | P4 | 有 `product_id`+`requirement_id`，无 case | `REQUIREMENT`（框 3、框 3.5 仍须；版本无感） |
 
@@ -93,7 +93,7 @@ Markdown：`[{name}（ID [{id}](url)）](url)` · Case：`[C{case_id}](case_url)
 
 | 框 | 触发 | option labels（中 / EN） |
 |----|------|------------------------|
-| 0 入口 | P3 | 粘贴 Requirement 链接 / Paste requirement link · 用上面已生成用例 / Use cases above · 粘贴产品链接 / Paste product link |
+| 0 入口 | P3 | 粘贴 Test Suite Link / Paste Test Suite Link · 用上面已生成用例 / Use cases above · 粘贴产品链接 / Paste product link |
 | 1 数据源 | 未命中 P1/P1b 且模糊 | 用上面用例（推荐）/ Use cases above (recommended) · 只从测试点生成 / From test points only · 先不导入 / Not now |
 | Steps-confirm | Step 0.6 全标题或 REQUIREMENT（0 条已展开），且未 Intent/`§ConfirmState` 放行 | **先去展开步骤（推荐）** / Expand steps first (recommended) · **不展开，继续导入** / Continue without steps · **先不导入** / Not now |
 | 3 Suite | 见 `§SuiteConfirm` | 见 `§SuiteConfirm` |
