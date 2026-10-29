@@ -2,6 +2,32 @@ import stringWidth from "string-width";
 
 const FENCE_PATTERN = /^(```|~~~)/;
 
+/* eslint-disable no-control-regex */
+// OSC / DCS / SOS / PM / APC strings run until BEL or ST (ESC \); an unterminated one runs to the end.
+const ESC_STRING_SEQUENCE = /\x1b[\]PX^_][\s\S]*?(?:\x07|\x1b\\|$)/g;
+const CSI_SEQUENCE = /(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]/g;
+const OTHER_ESC_SEQUENCE = /\x1b[ -/]*[0-~]/g;
+// Every remaining C0 control except tab and newline, plus DEL and the C1 range.
+const CONTROL_CHARACTERS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
+/* eslint-enable no-control-regex */
+
+/**
+ * Removes terminal escape sequences and control characters from knowledge-base text before it
+ * reaches the terminal. Document content and names are written by other users, and both the
+ * `select` previews and `less -R` pass raw escapes through, so an embedded sequence could rewrite
+ * the screen, retitle the window, plant OSC 8 links or clipboard writes, or hide text. Whole
+ * sequences are dropped (not just the ESC byte) so their parameters do not leak as visible noise;
+ * tabs and newlines survive, and CRLF line endings are normalized rather than discarded.
+ */
+export function stripTerminalControls(text: string): string {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(ESC_STRING_SEQUENCE, "")
+    .replace(CSI_SEQUENCE, "")
+    .replace(OTHER_ESC_SEQUENCE, "")
+    .replace(CONTROL_CHARACTERS, "");
+}
+
 /**
  * Takes the leading `maxLines` non-blank lines of `body` while keeping the blank lines between
  * them. Dropping the blanks (as a plain non-blank filter does) merges adjacent markdown blocks —
@@ -31,7 +57,7 @@ function excerptLines(body: string, maxLines: number): string[] {
  * so an unbalanced fence is closed before parsing.
  */
 export async function renderMarkdownPreview(body: string, maxLines: number, maxRenderedLines: number): Promise<string> {
-  const excerpt = excerptLines(body, maxLines);
+  const excerpt = excerptLines(stripTerminalControls(body), maxLines);
   if (excerpt.length === 0) return "";
   if (excerpt.filter((line) => FENCE_PATTERN.test(line.trim())).length % 2 === 1) excerpt.push("```");
 
@@ -112,4 +138,17 @@ export async function getMarkedForTerminal(): Promise<typeof import("marked").ma
     markedForTerminal = marked;
   }
   return markedForTerminal;
+}
+
+/** JSON.stringify escapes C0 but leaves C1 controls literal. Escape those too
+ * when printing JSON; JSON.parse still recovers the exact original data.
+ */
+export function stringifyKnowledgeOutput(value: unknown, replacer: null = null, space: number = 2): string {
+  return JSON.stringify(value, replacer, space).replace(/[\u007f-\u009f]/g, (char) =>
+    "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"));
+}
+
+/** Keep stable IDs as values; strip controls only from the visible label. */
+export function knowledgeChoiceLabel(name: string | undefined, fallback = ""): string {
+  return stripTerminalControls(name ?? fallback);
 }

@@ -91,7 +91,7 @@ Markdown 惯例：
 | 框 | 触发 | option labels（中 / EN） |
 |----|------|--------------------------|
 | **0 路由** | A/B 均未命中或双命中 | 链接用例（CSV 导入后）/ Link cases · 绑定计划或运行 / Link plan or run · 先不 / Not now |
-| **A1 上下文** | 缺 product 或 requirement（非热接力） | 粘贴 Requirement 链接 / Paste requirement link · 粘贴产品链接 / Paste product link · 先不 / Not now |
+| **A1 上下文** | 缺 product 或 requirement（非热接力） | 粘贴 Test Suite Link / Paste Test Suite Link · 粘贴产品链接 / Paste product link · 先不 / Not now |
 | **A3 Suite** | `suites.length` 2–4 且无 Intent | 同 import 框 3（**不新建 Suite**） |
 | **A3s 导入目录** | AutoScan retry 仍 `to_link=0` 且无 conflict | **3 个** Section 候选（名称 + ID）+ Other · 先不 / Not now |
 | **A-confirm** | `to_link>0` 且 `conflict===0` | 确认链接 / Confirm link · 先不 / Not now |

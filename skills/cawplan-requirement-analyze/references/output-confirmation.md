@@ -23,27 +23,35 @@
 
 ```text
 已保存成功。
-需求:{需求摘要}
-产品:{产品名}
-位置:{模块树节点全路径}
-关联工单:{工单号，没有则「无」}
-Requirement 链接:{当前环境 Portal Host + api.data.redirect_url}
+- **需求:{需求摘要}
+- **产品:{产品名}
+- **模块:{模块树节点全路径}
+- **关联工单:{工单号，没有则「无」}
+- **Knowledge Doc: [Knowledge Doc Link]({当前环境 Portal Host + api.data.browse_url})**（查看和维护需求 MD 文档。）
+- **Test Suite: [Test Suite Link]({当前环境 Portal Host + api.data.redirect_url})**（用于后续生成测试点和测试用例，测试点统一归档在此。）
 ```
 
 ```text
 Saved successfully.
-Requirement: {需求摘要}
-Product: {产品名}
-Location: {模块树节点全路径}
-Linked ticket: {工单号，没有则 "None"}
-Requirement link: {current environment Portal Host + api.data.redirect_url}
+- Requirement: {需求摘要}
+- Product: {产品名}
+- Module: {模块树节点全路径}
+- Linked ticket: {工单号，没有则 "None"}
+- Knowledge Doc: [Knowledge Doc Link]({current environment Portal Host + api.data.browse_url}) (View and maintain the requirement Markdown document.)
+- Test Suite: [Test Suite Link]({current environment Portal Host + api.data.redirect_url}) (Generate test points and test cases; all test points are archived here.)
 ```
+
+以上代码块仅用于描述模板；实际回执按 Markdown 渲染，不包裹代码块。两个链接使用固定链接文字 `Knowledge Doc Link` / `Test Suite Link`，完整 URL 只放在 Markdown 链接目标中，不作为可见文字；各自说明放在同一行括号内，中文使用全角括号，英文使用半角括号。
 
 **更新（PATCH）** — 首行改 `已更新成功。`（英文版首行改 `Updated successfully.`），其余字段同上。
 
 内部：从 `api.data` 设置 `bound_requirement_id` 并刷新 `summary_snapshot` / `ticket_id_snapshot` 与 `knowledge_document`（step 10 **Store**）。**勿**向 SQA 展示 Requirement UUID、`review_status`、`product_id`、`module_tree_node_id` 等内部 id。
 
-`Requirement 链接` 只在最终回执展示层生成：静默执行 `cawplan config env`，读取其 `Portal` 值作为当前环境 Host，去掉 Host 末尾 `/` 后与非空 `api.data.redirect_url` 拼接。不得使用或回退到 `api.data.url`；`redirect_url` 缺失或为空时省略整行链接，也不提示缺失。不要修改 API 返回对象，不把拼接结果传给 `cawplan api`。
+`Knowledge Doc Link` 使用本次 POST response 的 `api.data.browse_url` 相对路径，按下方与 Test Suite Link 共用的展示层规则拼接当前环境 Portal Host；不从 `redirect_url` / `url` 推导。PATCH 回执仅在其响应带有非空 `browse_url` 时展示该链接；reconcile 和需求文档更新回执仅在绑定的 Requirement 数据已有非空 `browse_url` 时展示，不为补链接增加请求。`browse_url` 缺失、为空或 null 时省略 Knowledge Doc Link 及其说明，不提示缺失；两个链接独立展示，均只在链接存在时展示对应说明。Knowledge Doc Link 始终在 Test Suite Link 上方。
+
+`Test Suite Link` 是原 Requirement 链接的展示名称，仍用于后续测试点 / 测试用例生成与测试点归档；Knowledge Doc Link 用于查看和维护需求 MD 文档，不替换后续流程的 Requirement 引用。仅调整展示名称与提示，不修改内部字段、接口参数、会话绑定或链接解析规则。
+
+两个链接只在最终回执展示层生成，共用同一次环境识别及 URL 拼接规则：静默执行 `cawplan config env`，读取其 `Portal` 值作为当前环境 Host。对非空相对路径统一使用 `Host.replace(/\/+$/, "") + "/" + path.replace(/^\/+/, "")` 拼接，确保连接处恰好一个 `/`；Knowledge Doc Link 的 `path` 取 `api.data.browse_url`，Test Suite Link 的 `path` 仍取 `api.data.redirect_url`。不得使用或回退到 `api.data.url`；`redirect_url` 缺失或为空时省略该链接及其说明，也不提示缺失。不要修改 API 返回对象，不把拼接结果传给 `cawplan api`。
 
 **§6 末尾引导（可选追加）** — 满足**全部**条件时，在成功回执**最后**另起一行逐字追加（不弹框、不追问、**仅本轮一次**；**跟随会话语言**二选一，不同时输出）：
 
@@ -68,7 +76,7 @@ Requirement link: {current environment Portal Host + api.data.redirect_url}
 > 这条上次其实已经保存成功了(当时没返回确认)。已绑定到那一条,没有重复创建。
 > This was actually already saved last time (the confirmation just didn't come back). It's now bound to that entry — no duplicate was created.
 
-下接 §6 成功回执（数据取自绑定行：`summary`、产品名、节点全路径、关联工单、`redirect_url`；链接仍按 §6 展示层规则拼接）。清除 `pending_write` 与 UNKNOWN。
+下接 §6 成功回执（数据取自绑定行：`summary`、产品名、节点全路径、关联工单、`browse_url`（若有）、`redirect_url`；两个链接及说明按 §6 展示层规则输出）。清除 `pending_write` 与 UNKNOWN。
 
 ### reconcile 绑定（`patch_already_applied`）— 已知例外，文案未改本轮
 
@@ -85,7 +93,7 @@ Requirement link: {current environment Portal Host + api.data.redirect_url}
 
 ### 需求文档更新（11b-MD，`knowledge documents update`）
 
-**成功**（回读 `cmp` 一致后）：沿用 §6「更新（PATCH）」模板，首行 `已更新成功。` / `Updated successfully.`；`需求` 取 `summary_snapshot`（无则 `requirement_data.summary`），`关联工单` 取 `ticket_id_snapshot`，`Requirement 链接` 取 `requirement_data.redirect_url`（按 §6 展示层规则拼接；缺失则省略整行，`产品` / `位置` 行取不到则省略）。**不展示**临时目录路径。
+**成功**（回读 `cmp` 一致后）：沿用 §6「更新（PATCH）」模板，首行 `已更新成功。` / `Updated successfully.`；`需求` 取 `summary_snapshot`（无则 `requirement_data.summary`），`关联工单` 取 `ticket_id_snapshot`，`Knowledge Doc Link` 取 `requirement_data.browse_url`（若有），`Test Suite Link` 取 `requirement_data.redirect_url`（两个链接及说明按 §6 展示层规则输出；缺失则省略对应链接及说明，`产品` / `模块` 行取不到则省略）。**不展示**临时目录路径。
 
 **最终失败**（重试一次后仍写入失败或回读不一致）：逐字（`{错误信息}` = 命令 `msg` 原文，回读不一致时写“写入后读回的内容与预期不一致”；**跟随会话语言**二选一，不同时输出）：
 

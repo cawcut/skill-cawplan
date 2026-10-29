@@ -327,5 +327,24 @@ for skill_dir in skills/cawplan-*/; do
 done
 [ "$fail" -eq 0 ] && echo "✓ QUERY_RESILIENCE.md — skill copies byte-identical"
 
+echo "→ Validating every skill carries UNTRUSTED_CONTENT.md..."
+# Every skill reads ticket / knowledge / attachment content written by other people,
+# so each one must point at the untrusted-content rules and bundle its own copy.
+UC_CANONICAL="references/UNTRUSTED_CONTENT.md"
+for skill_dir in skills/cawplan-*/; do
+  copy="${skill_dir}references/UNTRUSTED_CONTENT.md"
+  if ! grep -q 'references/UNTRUSTED_CONTENT.md' "${skill_dir}SKILL.md" 2>/dev/null; then
+    echo "::error file=${skill_dir}SKILL.md::does not reference references/UNTRUSTED_CONTENT.md"
+    fail=1
+  elif [ ! -f "$copy" ]; then
+    echo "::error file=${skill_dir}SKILL.md::references UNTRUSTED_CONTENT.md but ${copy} is missing (hosted bundles only skills/)"
+    fail=1
+  elif ! diff -q "$UC_CANONICAL" "$copy" >/dev/null; then
+    echo "::error file=${copy}::differs from ${UC_CANONICAL} (copies must be byte-identical)"
+    fail=1
+  fi
+done
+[ "$fail" -eq 0 ] && echo "✓ UNTRUSTED_CONTENT.md — every skill references a byte-identical copy"
+
 [ "$fail" -eq 0 ] || exit 1
 echo "All skill validations passed."

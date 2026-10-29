@@ -39,7 +39,7 @@ Your part is to feed them the right inputs. For a **POST** probe, the probe come
 
 **Fixed phrasing** (first-time five-field draft only): use the step 3 table sentences for inferred bullets — **no synonym rewrites**. Reworded bullets read as changed text and stop matching an earlier archive.
 
-**Cold handoff** (SQA provides a requirement `id`, display ID, Requirement link, or asks to continue an existing Requirement):
+**Cold handoff** (SQA provides a requirement `id`, display ID, Test Suite Link, or asks to continue an existing Requirement):
 
 Resolve the reference in this order:
 
@@ -223,6 +223,8 @@ Body: `module_tree_node_id` + the five fields + non-empty `summary` (+ `ticket_i
 The command POSTs directly — it does **not** look for duplicates first. Preventing duplicates is this skill's job (step 11 Gate + Table B + 10b reconcile), not the command's.
 
 **After the call**: branch on `outcome` (see **Command outcomes**) and update session state per step 10 (**Pending write**). On `SUCCESS` → **Confirmation**.
+
+**本步完成标准**（POST / PATCH / 11b-MD 通用）：`SUCCESS` 后本轮**最终回复**已包含 `output-confirmation.md` §6 成功回执（需求 `REQ-xxxxx`、Knowledge Doc Link、Test Suite Link；`browse_url` / `redirect_url` 为空的按 §6 省略）。生成回执前先 Read 该文件，并按其规则执行 `cawplan config env` 拼接链接。收尾摘要不能替代回执。
 
 #### 11b. Update a bound Requirement (11b-MD / 11b-PATCH)
 

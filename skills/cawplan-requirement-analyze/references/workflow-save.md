@@ -99,10 +99,10 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 
 | 字段 | 中文值 | English value |
 |------|-----|-----|
-| `header` | 选择位置 | Choose Location |
+| `header` | 选择模块 | Choose Module |
 | `question` | 是否要保存到「{推荐节点全路径}」节点下? | Save under the "{推荐节点全路径}" node? |
-| option 1 · `label` | 就保存到这里 | Use this location |
-| option 1 · `description` | 用推荐的这个位置 | Go with the recommended location |
+| option 1 · `label` | 就保存到这里 | Use this module |
+| option 1 · `description` | 用推荐的这个模块 | Go with the recommended module |
 | option 2 · `label` | 看看有哪些节点 | Browse nodes |
 | option 2 · `description` | 列出模块树再选 | List the module tree and pick |
 
@@ -118,7 +118,7 @@ On `outcome: SUCCESS`, parse `data.nodes`（可能为 `[]`）。从五字段尝�
 ```
 
 ```text
-Save under the "{推荐节点全路径}" node? 1. Use this location 2. Browse nodes (reply with a number)
+Save under the "{推荐节点全路径}" node? 1. Use this module 2. Browse nodes (reply with a number)
 ```
 
 ---

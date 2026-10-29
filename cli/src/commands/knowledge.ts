@@ -16,7 +16,7 @@ import {
   parseMarkdownOutline,
   type FlatOutlineNode,
 } from "../lib/knowledge/outline.js";
-import { getMarkedForTerminal, renderMarkdownPreview } from "../lib/knowledge/terminal-markdown.js";
+import { getMarkedForTerminal, renderMarkdownPreview, stripTerminalControls, stringifyKnowledgeOutput, knowledgeChoiceLabel } from "../lib/knowledge/terminal-markdown.js";
 import { markdownToPlainText } from "../lib/knowledge/plaintext.js";
 
 function collect(value: string, prev: string[]): string[] {
@@ -125,8 +125,13 @@ function showInPager(text: string): Promise<void> {
   });
 }
 
-/** Live TTY loop: show the document's heading tree, print the picked section, then show the tree again until the user exits. */
-async function runInteractiveOutline(name: string | undefined, content: string): Promise<void> {
+/**
+ * Live TTY loop: show the document's heading tree, print the picked section, then show the tree again until the user exits.
+ * Name and content are user-authored, so terminal controls are stripped before anything is rendered.
+ */
+async function runInteractiveOutline(rawName: string | undefined, rawContent: string): Promise<void> {
+  const name = rawName === undefined ? undefined : stripTerminalControls(rawName);
+  const content = stripTerminalControls(rawContent);
   const marked = await getMarkedForTerminal();
   const flat = flattenOutline(parseMarkdownOutline(content));
   if (flat.length === 0) {
@@ -209,7 +214,7 @@ export function registerKnowledgeCommand(program: Command): void {
         path: "/api/v1/public/openapi/knowledge/search",
         body,
       });
-      console.log(JSON.stringify(result, null, 2));
+      console.log(stringifyKnowledgeOutput(result, null, 2));
     });
 
   const datasets = knowledge.command("datasets").description("Manage knowledge datasets");
@@ -244,7 +249,7 @@ export function registerKnowledgeCommand(program: Command): void {
         if (!productId) {
           const picked = await selectProductIdInteractive();
           if (!picked) {
-            console.error(JSON.stringify({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
+            console.error(stringifyKnowledgeOutput({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
             process.exitCode = 1;
             return;
           }
@@ -255,7 +260,7 @@ export function registerKnowledgeCommand(program: Command): void {
           if (modules.length > 0) {
             const picked = await selectModuleIdInteractive(productId, { allowNone: "All datasets under this product" }, modules);
             if (picked === undefined) {
-              console.error(JSON.stringify({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
+              console.error(stringifyKnowledgeOutput({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
               process.exitCode = 1;
               return;
             }
@@ -273,7 +278,7 @@ export function registerKnowledgeCommand(program: Command): void {
         path: "/api/v1/public/openapi/knowledge/datasets",
         query,
       });
-      console.log(JSON.stringify(result, null, 2));
+      console.log(stringifyKnowledgeOutput(result, null, 2));
     });
 
   interface ModuleTreeNodeKnowledgeDataset {
@@ -335,7 +340,7 @@ export function registerKnowledgeCommand(program: Command): void {
       const indent = "  ".repeat(Math.max(0, (m.level ?? 1) - 1));
       const datasetNames = (m.knowledge ?? []).map((k) => k.name).filter((n): n is string => Boolean(n));
       const suffix = datasetNames.length > 0 ? ` (${datasetNames.join(", ")})` : "";
-      choices.push({ name: `${indent}${m.name ?? m.id}${suffix}`, value: m.id });
+      choices.push({ name: knowledgeChoiceLabel(`${indent}${m.name ?? m.id}${suffix}`), value: m.id });
     }
     try {
       return await withTtyShortcuts(
@@ -373,7 +378,7 @@ export function registerKnowledgeCommand(program: Command): void {
     }
     const choices = productList
       .filter((p): p is CawplanProduct & { unique_id: string } => Boolean(p.unique_id))
-      .map((p) => ({ name: p.name ?? p.unique_id, value: p.unique_id }));
+      .map((p) => ({ name: knowledgeChoiceLabel(p.name, p.unique_id), value: p.unique_id }));
     try {
       return await withTtyShortcuts(
         (context) =>
@@ -429,7 +434,7 @@ export function registerKnowledgeCommand(program: Command): void {
         assertInteractiveTerminal("cawplan knowledge datasets create --interactive requires an interactive terminal");
         const pickedProduct = await selectProductIdInteractive();
         if (!pickedProduct) {
-          console.error(JSON.stringify({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
+          console.error(stringifyKnowledgeOutput({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
           process.exitCode = 1;
           return;
         }
@@ -449,13 +454,13 @@ export function registerKnowledgeCommand(program: Command): void {
       });
 
       if (productIds.length === 0) {
-        console.log(JSON.stringify(result, null, 2));
+        console.log(stringifyKnowledgeOutput(result, null, 2));
         return;
       }
 
       const datasetId = (result as { data?: { id?: string } })?.data?.id;
       if ((result as { code?: string })?.code !== "SUCCESS" || !datasetId) {
-        console.log(JSON.stringify(result, null, 2));
+        console.log(stringifyKnowledgeOutput(result, null, 2));
         return;
       }
 
@@ -472,7 +477,7 @@ export function registerKnowledgeCommand(program: Command): void {
           product_ids: (productsResult as { data?: { product_ids?: string[] } })?.data?.product_ids ?? productIds,
         },
       };
-      console.log(JSON.stringify(merged, null, 2));
+      console.log(stringifyKnowledgeOutput(merged, null, 2));
     });
 
   const datasetProducts = datasets.command("products").description("Manage which CawPlan products a dataset is bound to");
@@ -486,7 +491,7 @@ export function registerKnowledgeCommand(program: Command): void {
         method: "GET",
         path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/products`,
       });
-      console.log(JSON.stringify(result, null, 2));
+      console.log(stringifyKnowledgeOutput(result, null, 2));
     });
 
   datasetProducts
@@ -505,7 +510,7 @@ export function registerKnowledgeCommand(program: Command): void {
         path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/products`,
         body: { product_ids: opts.product as string[] },
       });
-      console.log(JSON.stringify(result, null, 2));
+      console.log(stringifyKnowledgeOutput(result, null, 2));
     });
 
   datasets
@@ -524,15 +529,15 @@ export function registerKnowledgeCommand(program: Command): void {
         assertInteractiveTerminal("cawplan knowledge datasets modules --interactive requires an interactive terminal");
         const picked = await selectModuleIdInteractive(opts.product, {}, modules);
         if (picked === undefined) {
-          console.error(JSON.stringify({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
+          console.error(stringifyKnowledgeOutput({ code: "CANCELLED", data: null, msg: TTY_CANCEL_MESSAGE }, null, 2));
           process.exitCode = 1;
           return;
         }
         const chosen = modules.find((m) => m.id === picked);
-        console.log(JSON.stringify({ code: "SUCCESS", data: chosen, msg: "success" }, null, 2));
+        console.log(stringifyKnowledgeOutput({ code: "SUCCESS", data: chosen, msg: "success" }, null, 2));
         return;
       }
-      console.log(JSON.stringify({ code: "SUCCESS", data: modules, msg: "success" }, null, 2));
+      console.log(stringifyKnowledgeOutput({ code: "SUCCESS", data: modules, msg: "success" }, null, 2));
     });
 
   const modules = knowledge
@@ -548,7 +553,7 @@ export function registerKnowledgeCommand(program: Command): void {
     .requiredOption("--product <id>", "Product id (see: cawplan products list)")
     .action(async (opts) => {
       const nodes = await fetchFlatModules(opts.product);
-      console.log(JSON.stringify({ code: "SUCCESS", data: nodes, msg: "success" }, null, 2));
+      console.log(stringifyKnowledgeOutput({ code: "SUCCESS", data: nodes, msg: "success" }, null, 2));
     });
 
   modules
@@ -573,7 +578,7 @@ export function registerKnowledgeCommand(program: Command): void {
         path: `/api/v1/public/openapi/product/${encodeURIComponent(opts.product)}/module-tree`,
         body,
       });
-      console.log(JSON.stringify(result, null, 2));
+      console.log(stringifyKnowledgeOutput(result, null, 2));
     });
 
   const documents = knowledge.command("documents").description("Manage knowledge documents");
@@ -596,7 +601,7 @@ export function registerKnowledgeCommand(program: Command): void {
         path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/documents`,
         query,
       });
-      console.log(JSON.stringify(result, null, 2));
+      console.log(stringifyKnowledgeOutput(result, null, 2));
     });
 
   documents
@@ -651,7 +656,7 @@ export function registerKnowledgeCommand(program: Command): void {
       ].filter((flag): flag is string => flag !== null);
       if (exclusiveFlags.length > 1) {
         console.error(
-          JSON.stringify(
+          stringifyKnowledgeOutput(
             { code: "ERROR", data: null, msg: `${exclusiveFlags.join(", ")} cannot be combined with each other` },
             null,
             2,
@@ -675,7 +680,7 @@ export function registerKnowledgeCommand(program: Command): void {
       const data = extractDocumentContentData(result);
 
       if (data?.content === undefined) {
-        console.log(JSON.stringify(result, null, 2));
+        console.log(stringifyKnowledgeOutput(result, null, 2));
         return;
       }
 
@@ -690,7 +695,7 @@ export function registerKnowledgeCommand(program: Command): void {
 
       if (opts.outline) {
         console.log(
-          JSON.stringify(
+          stringifyKnowledgeOutput(
             { code: "SUCCESS", data: { name: data.name, outline: buildOutlineWithPreview(data.content) }, msg: "success" },
             null,
             2,
@@ -711,7 +716,7 @@ export function registerKnowledgeCommand(program: Command): void {
         }));
 
         console.log(
-          JSON.stringify(
+          stringifyKnowledgeOutput(
             {
               code: "SUCCESS",
               data: {
@@ -757,7 +762,7 @@ export function registerKnowledgeCommand(program: Command): void {
         }));
 
         console.log(
-          JSON.stringify(
+          stringifyKnowledgeOutput(
             {
               code: "SUCCESS",
               data: {
@@ -778,7 +783,7 @@ export function registerKnowledgeCommand(program: Command): void {
 
       if (opts.output) {
         console.log(
-          JSON.stringify(
+          stringifyKnowledgeOutput(
             { code: "SUCCESS", data: { name: data.name, output_path: opts.output, length: data.content.length }, msg: "success" },
             null,
             2,
@@ -787,7 +792,7 @@ export function registerKnowledgeCommand(program: Command): void {
         return;
       }
 
-      console.log(JSON.stringify(result, null, 2));
+      console.log(stringifyKnowledgeOutput(result, null, 2));
     });
 
   documents
@@ -831,13 +836,13 @@ export function registerKnowledgeCommand(program: Command): void {
       const textFiles = opts.textFile as string[];
 
       if (files.length === 0 && textFiles.length === 0) {
-        console.error(JSON.stringify({ code: "ERROR", data: null, msg: "Provide at least one --file or --text-file" }, null, 2));
+        console.error(stringifyKnowledgeOutput({ code: "ERROR", data: null, msg: "Provide at least one --file or --text-file" }, null, 2));
         process.exitCode = 1;
         return;
       }
       if (files.length > 0 && textFiles.length > 0) {
         console.error(
-          JSON.stringify(
+          stringifyKnowledgeOutput(
             { code: "ERROR", data: null, msg: "Use --file or --text-file in one call, not both — run the command twice for a mixed batch" },
             null,
             2,
@@ -886,7 +891,7 @@ export function registerKnowledgeCommand(program: Command): void {
         }
 
         if (opts.wait === false) {
-          console.log(JSON.stringify({ code: "SUCCESS", data: { submissions }, msg: "submitted, not waiting" }, null, 2));
+          console.log(stringifyKnowledgeOutput({ code: "SUCCESS", data: { submissions }, msg: "submitted, not waiting" }, null, 2));
           return;
         }
 
@@ -902,7 +907,7 @@ export function registerKnowledgeCommand(program: Command): void {
           const finalStatus = await pollDocumentAiJob(opts.dataset, jobId, pollIntervalMs, pollTimeoutMs);
           results.push({ file: submission.file, ...finalStatus });
         }
-        console.log(JSON.stringify({ code: "SUCCESS", data: { results }, msg: "success" }, null, 2));
+        console.log(stringifyKnowledgeOutput({ code: "SUCCESS", data: { results }, msg: "success" }, null, 2));
         return;
       }
 
@@ -935,7 +940,7 @@ export function registerKnowledgeCommand(program: Command): void {
           results.push({ file: filePath, code: "ERROR", msg: err instanceof Error ? err.message : String(err) });
         }
       }
-      console.log(JSON.stringify({ code: "SUCCESS", data: { results }, msg: "success" }, null, 2));
+      console.log(stringifyKnowledgeOutput({ code: "SUCCESS", data: { results }, msg: "success" }, null, 2));
     });
 
   documents
@@ -961,14 +966,14 @@ export function registerKnowledgeCommand(program: Command): void {
 
       if (!hasFile && !hasTextFile) {
         console.error(
-          JSON.stringify({ code: "ERROR", data: null, msg: "Provide --file or --text-file" }, null, 2),
+          stringifyKnowledgeOutput({ code: "ERROR", data: null, msg: "Provide --file or --text-file" }, null, 2),
         );
         process.exitCode = 1;
         return;
       }
       if (hasFile && hasTextFile) {
         console.error(
-          JSON.stringify({ code: "ERROR", data: null, msg: "Use --file or --text-file in one call, not both" }, null, 2),
+          stringifyKnowledgeOutput({ code: "ERROR", data: null, msg: "Use --file or --text-file in one call, not both" }, null, 2),
         );
         process.exitCode = 1;
         return;
@@ -990,7 +995,7 @@ export function registerKnowledgeCommand(program: Command): void {
           });
         } catch (err) {
           console.error(
-            JSON.stringify({ code: "ERROR", data: null, msg: err instanceof Error ? err.message : String(err) }, null, 2),
+            stringifyKnowledgeOutput({ code: "ERROR", data: null, msg: err instanceof Error ? err.message : String(err) }, null, 2),
           );
           process.exitCode = 1;
           return;
@@ -998,14 +1003,14 @@ export function registerKnowledgeCommand(program: Command): void {
         const data = extractJobStatusData(result);
 
         if (opts.wait === false || !data?.job_id) {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(stringifyKnowledgeOutput(result, null, 2));
           return;
         }
 
         const pollIntervalMs = Math.max(1, Number(opts.pollInterval) || 3) * 1000;
         const pollTimeoutMs = Math.max(1, Number(opts.pollTimeout) || 180) * 1000;
         const finalStatus = await pollDocumentAiJob(opts.dataset, data.job_id, pollIntervalMs, pollTimeoutMs);
-        console.log(JSON.stringify({ code: "SUCCESS", data: finalStatus, msg: "success" }, null, 2));
+        console.log(stringifyKnowledgeOutput({ code: "SUCCESS", data: finalStatus, msg: "success" }, null, 2));
         return;
       }
 
@@ -1019,7 +1024,7 @@ export function registerKnowledgeCommand(program: Command): void {
         path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/documents/${encodeURIComponent(opts.document)}/update-by-text`,
         body,
       });
-      console.log(JSON.stringify(result, null, 2));
+      console.log(stringifyKnowledgeOutput(result, null, 2));
     });
 
   documents
@@ -1035,13 +1040,13 @@ export function registerKnowledgeCommand(program: Command): void {
     .action(async (opts) => {
       if (opts.module && opts.clear) {
         console.error(
-          JSON.stringify({ code: "ERROR", data: null, msg: "Use --module or --clear, not both" }, null, 2),
+          stringifyKnowledgeOutput({ code: "ERROR", data: null, msg: "Use --module or --clear, not both" }, null, 2),
         );
         process.exitCode = 1;
         return;
       }
       if (!opts.module && !opts.clear) {
-        console.error(JSON.stringify({ code: "ERROR", data: null, msg: "Provide --module <id> or --clear" }, null, 2));
+        console.error(stringifyKnowledgeOutput({ code: "ERROR", data: null, msg: "Provide --module <id> or --clear" }, null, 2));
         process.exitCode = 1;
         return;
       }
@@ -1051,7 +1056,7 @@ export function registerKnowledgeCommand(program: Command): void {
         path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/documents/${encodeURIComponent(opts.document)}/module`,
         body: { module_id: opts.clear ? "" : opts.module },
       });
-      console.log(JSON.stringify(result, null, 2));
+      console.log(stringifyKnowledgeOutput(result, null, 2));
     });
 
   documents
@@ -1064,7 +1069,7 @@ export function registerKnowledgeCommand(program: Command): void {
         method: "GET",
         path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/documents/ai-jobs/${encodeURIComponent(opts.job)}`,
       });
-      console.log(JSON.stringify(result, null, 2));
+      console.log(stringifyKnowledgeOutput(result, null, 2));
     });
 
   interface BrowseDataset {
@@ -1100,7 +1105,9 @@ export function registerKnowledgeCommand(program: Command): void {
           method: "GET",
           path: "/api/v1/public/openapi/knowledge/datasets",
         });
-        const datasets = (datasetsResult as { data?: { datasets?: BrowseDataset[] } })?.data?.datasets ?? [];
+        const datasets = ((datasetsResult as { data?: { datasets?: BrowseDataset[] } })?.data?.datasets ?? []).map(
+          (d) => ({ ...d, name: stripTerminalControls(d.name ?? "") }),
+        );
         if (datasets.length === 0) {
           console.log("No knowledge datasets accessible.");
           return;
@@ -1137,7 +1144,9 @@ export function registerKnowledgeCommand(program: Command): void {
             path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(dataset.id)}/documents`,
             query: { limit: String(DOCUMENT_PAGE_SIZE), page: String(page) },
           });
-          const documents = (documentsResult as { data?: { data?: BrowseDocument[] } })?.data?.data ?? [];
+          const documents = ((documentsResult as { data?: { data?: BrowseDocument[] } })?.data?.data ?? []).map(
+            (doc) => ({ ...doc, name: stripTerminalControls(doc.name ?? "") }),
+          );
           if (documents.length === 0) {
             if (page > 1) {
               console.log("No more documents.");
@@ -1160,7 +1169,11 @@ export function registerKnowledgeCommand(program: Command): void {
               try {
                 const content = extractDocumentContentData(await fetchDocumentContentResult(dataset.id, doc.id));
                 if (!content?.content) return "";
-                return markdownToPlainText(content.content, { maxLines: 4, stripCodeBlocks: true, compact: true });
+                return markdownToPlainText(stripTerminalControls(content.content), {
+                  maxLines: 4,
+                  stripCodeBlocks: true,
+                  compact: true,
+                });
               } catch {
                 return "";
               }
