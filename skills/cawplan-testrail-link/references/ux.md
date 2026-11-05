@@ -20,8 +20,20 @@
 | `RUN_ONLY_MODE` | 独立 Run 模式 |
 | `TICKET_MAPPING_EXISTS` | 工单已有 Plan 映射（须确认替换） |
 | `has_mapping` | 版本已绑定里程碑 / 尚未绑定里程碑 |
+| `to_unlink` | 将解绑 |
+| `STALE_DELETED` | 旧用例已在 TestRail 删除 |
+| `STALE_NOT_FOUND` | 旧用例在 TestRail 中不存在 |
+| `ALIVE` | 旧用例仍存在 |
+| `UNKNOWN`（case_state） | 暂时无法确认（TestRail 无响应） |
+| `IMPORT` / `MANUAL_LINK` | 导入生成 / 手工链接 |
+| `moved` | 旧用例已被移动到其他目录 |
+| `skip_reason=CASE_ALIVE` | 旧用例仍存在，未解绑 |
+| `skip_reason=TESTRAIL_STATE_UNKNOWN` | 无法确认旧用例状态，未解绑 |
+| `skip_reason=NOT_SELECTED` | 未被选中 |
+| `MAPPING_ALREADY_REMOVED` | 映射已被移除 |
+| `MAPPING_CHANGED` | 映射已变化 |
 
-**意图同义词**：回链/link back · 确认链接/confirm link · 先不/cancel · 重新预览/re-preview · 替换绑定/supersede · 技术详情/technical details
+**意图同义词**：回链/link back · 确认链接/confirm link · 先不/cancel · 重新预览/re-preview · 替换绑定/supersede · 技术详情/technical details · 解绑/unlink · 旧映射/stale mapping · 换绑/rebind
 
 ## §Cost（降本 · SHALL）
 
@@ -68,6 +80,8 @@ Markdown 惯例：
 | 自动扫描 / 默认 | 不传 `parent_section_id` → AutoScan 第一步 |
 | 绑定 run {id} / runs/view/{id} | B：`plan_id=0`，`run_ids=[id]` |
 | 绑定 plan {id} / plans/view/{id} | B：`plan_id={id}` |
+| 解绑 / 清理旧映射 / 删除后重新导入冲突 | 路由 Workflow C（`link-cases.md §ConflictResolution`） |
+| 换绑 / 把这个测试点的旧用例解绑 | Workflow C · `--scope SELECTED`（`unlink-cases.md §SelectedUnlink`） |
 | 换 Suite | 清 `confirmed_suite_*` **及** `confirmed_parent_section_*` → 框 A3 |
 | 换导入目录 | 仅清 `confirmed_parent_section_*` → 重走 AutoScan |
 
@@ -95,6 +109,8 @@ Markdown 惯例：
 | **A3 Suite** | `suites.length` 2–4 且无 Intent | 同 import 框 3（**不新建 Suite**） |
 | **A3s 导入目录** | AutoScan retry 仍 `to_link=0` 且无 conflict | **3 个** Section 候选（名称 + ID）+ Other · 先不 / Not now |
 | **A-confirm** | `to_link>0` 且 `conflict===0` | 确认链接 / Confirm link · 先不 / Not now |
+| **A-unlink-confirm** | `unlink preview` 的 `to_unlink>0` 且 `alive_selected=0` | 确认解绑并继续 / Confirm unlink · 先不 / Not now |
+| **A-unlink-confirm-alive** | `alive_selected>0` | 我已了解，仍然解绑 / Unlink anyway · 先不 / Not now |
 | **B1 上下文** | 缺 product 或 version | 粘贴版本链接 / Paste version link · 产品名+版本名 / Name lookup · 先不 / Not now |
 | **B2 绑定收集** | Milestone 已绑定 | 继续添加一条 / Add another · 开始预览 / Preview now · 先不 / Not now |
 | **B-supersede** | `supersede_required>0` | 替换已有绑定 / Replace existing · 先不 / Not now |
@@ -116,6 +132,20 @@ Markdown 惯例：
 > `conflict>0` 或 `to_link=0` 时 **不展示本框**。
 
 **`to_link=0` 且 `already_linked>0` 且无 conflict**：不弹确认闸；说明「全部已链接，无需执行」。
+
+**框 A-unlink-confirm 框上正文（SHALL）**：
+
+> 将解绑 **{to_unlink}** 条旧映射（对应的旧用例已在 TestRail 删除）。  
+> 解绑只会清除 CawPlan 里的关联，**不会修改或删除 TestRail 上的任何用例**。  
+> {从 A 接续：解绑后会自动重新预览，没有冲突时再请你确认链接。}
+
+**框 A-unlink-confirm-alive 框上正文（SHALL）**：
+
+> ⚠️ 其中 **{alive_selected}** 条对应的旧用例**仍存在于 TestRail**。  
+> 解绑后这些用例将不再关联到测试点；如果之后重新导入，请先确认 TestRail 里的旧用例已处理，避免重复。  
+> 解绑只会清除 CawPlan 里的关联，**不会修改或删除 TestRail 上的任何用例**。
+
+只有用户选「我已了解，仍然解绑」，才允许在 `unlink execute` 加 `--confirm-alive-cases`。
 
 **框 B-confirm 框上正文**：
 
@@ -177,8 +207,8 @@ Markdown 惯例：
 
 | BE `message` | 用户文案 |
 |--------------|----------|
-| `TestRail case is already mapped to a different test point` | 该 TestRail Case 已绑定到其他测试点；请核对 CSV 中 TestPointId 或解绑旧 mapping |
-| `TestRail case does not match the case already mapped for this test point` | 该测试点已映射到其他 Case |
+| `TestRail case is already mapped to a different test point` | 该 TestRail Case 已绑定到其他测试点；请核对 CSV 中 TestPointId |
+| `TestRail case does not match the case already mapped for this test point` | 该测试点仍绑定着旧用例。如果旧用例已在 TestRail 删除，可以解绑旧映射后重新链接（Workflow C） |
 | `another TestRail case in this preview claims the same test point and case identity` | 本次预览中多条 Case 的 refs 重复，须保留一条 |
 
 D13 场景 API **无** `existing_test_point_id`：**禁止**编造「绑在 TP-X」；仅用上表文案 + Case 链接。
@@ -191,6 +221,62 @@ D13 场景 API **无** `existing_test_point_id`：**禁止**编造「绑在 TP-X
 | `AMBIGUOUS_SECTION_MATCH` | 多个根级目录名与需求匹配，已合并扫描 |
 | `REQUIREMENT_SECTION_NOT_FOUND` | 未匹配到根级目录（AutoScan 应已 retry；仍出现则引导框 A3s） |
 | `REQUIREMENT_HAS_NO_TESTPOINTS` | 该需求下无测试点，无法链接 |
+
+**解绑 preview 的 `warnings[]`**：
+
+| warning | 展示（一句） |
+|---------|-------------|
+| `ALIVE_CASES_INCLUDED` | 包含仍存在于 TestRail 的旧用例，请确认 |
+| `IMPORT_ORIGIN_INCLUDED` | 含导入生成的映射；重新导入前请先处理 TestRail 里的旧用例 |
+| `CASES_MOVED_FROM_MAPPED_SUITE` | 部分旧用例已被移动到其他目录 |
+| `TESTRAIL_STATE_UNKNOWN` | 部分用例暂时无法确认状态，已跳过，稍后可重试 |
+
+## §PreviewUnlink（Workflow C）
+
+**表头（SHALL · 明细之前）**：
+
+```markdown
+## 解绑旧映射预览 — {requirement_summary}
+
+| 项目 | 内容 |
+|------|------|
+| 范围 | {scope 中译：仅已失效 / 指定项 / 整个需求}{有 suite：· 用例集 [{suite_name}（ID [{suite_id}](suite_url)）](suite_url)} |
+| 将解绑 | **{to_unlink}** |
+| 跳过 | {skipped}（旧用例仍存在 {alive}，无法确认 {unknown}） |
+| 来源 | 导入生成 {origin_import} · 手工链接 {origin_manual_link} |
+```
+
+表下一句：解绑只清除 CawPlan 的关联，**不会修改或删除 TestRail 上的任何用例**。`warnings[]` 非空时按 `§PreviewWarnings` 追加提示行。
+
+**将解绑（节选 ≤10 行；`to_unlink` 较多时汇总 +「说『技术详情』展开」）**：
+
+```markdown
+### 将解绑
+| 测试点 | 旧用例 | 状态 | 来源 |
+|--------|--------|------|------|
+| {test_point_title 或摘要} | [C{case_id}](case_url) | {case_state 中译} | {origin 中译} |
+```
+
+**已跳过**：仅汇总计数；用户追问再按 `skip_reason` 展开。`moved>0` 时一句说明旧用例已被移到其他目录。
+
+`to_unlink=0` → **不弹确认框**，按 `skip_reason` 说明原因（旧用例仍存在 / 无法确认 / 未选中），不再 execute。
+
+## §ResultUnlink
+
+```markdown
+## 已解绑旧映射 — {requirement_summary}
+
+| 项目 | 结果 |
+|------|------|
+| 已解绑 | **{unlinked}** |
+| 已跳过 | {skipped} |
+| 失败 | {failed} |
+```
+
+- `skipped>0`：一句说明（映射已被移除 / 映射已变化），`skipped_mappings[].skip_reason` 见 `§Glossary`。
+- `failed>0`：列表格（测试点、旧用例、`error`）。
+- 固定补一句：已创建的 Plan / Run 不受影响；若测试计划是用旧映射生成的，必要时请重新编排。
+- 从 A 接续：接着说明「正在重新预览链接……」并回到 Workflow A Step 3。
 
 ## §PreviewPlans（Workflow B）
 
@@ -252,8 +338,12 @@ D13 场景 API **无** `existing_test_point_id`：**禁止**编造「绑在 TP-X
 | 同 Case 跨测试点冲突 | 该 TestRail Case 已绑定其他测试点；核对 CSV TestPointId | 查看冲突表 / 取消 |
 | `MILESTONE_NOT_BOUND` | 见 `link-plans.md §MilestoneGate` | 去编排 Milestone / 取消 |
 | `CONFLICT_BLOCKS_EXECUTE` | 存在映射冲突 | 查看冲突表 / 取消 |
+| `SELECTION_REQUIRED` | 指定解绑需要至少一个测试点、Case 或映射 | 补充选择 / 取消 |
+| `PREVIEW_TOO_LARGE` | 一次涉及的映射过多 | 指定用例集或测试点缩小范围 / 取消 |
+| `ALIVE_CASES_REQUIRE_CONFIRMATION` | 其中包含仍存在的旧用例，需要你明确同意 | 回到确认框 / 取消 |
+| `NO_ITEMS_TO_UNLINK` | 没有可解绑的映射 | 查看跳过原因 / 取消 |
 | `SUPERSEDE_REQUIRED` | 须确认替换 | 确认替换 / 取消 |
-| `PREVIEW_EXPIRED` | 预览已过期（约 1h） | 重新预览 / 取消 |
+| `PREVIEW_EXPIRED` | 预览已过期（约 1h）；解绑过期后须重新预览并重新确认 | 重新预览 / 取消 |
 | `TESTRAIL_UNAVAILABLE` | TestRail 暂不可用 | 稍后重试 / 取消 |
 | `SUITE_NOT_IN_PROJECT` | 用例集无效 | 重新选用例集 / 取消 |
 | `SECTION_NOT_IN_SUITE` | 目录不属于该用例集 | 重选导入目录（框 A3s） / 取消 |

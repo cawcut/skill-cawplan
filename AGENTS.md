@@ -9,7 +9,7 @@ Two deliverables:
 1. `cawplan` CLI: TypeScript/npm binary for OAuth, API-key auth, and CawPlan Open API commands.
 2. Agent skills: Markdown instruction packs under `skills/` that tell agents how to invoke the CLI.
 
-Skills are not an MCP server. Agents execute local `cawplan` processes; skill files are routing and UX instructions only.
+Skills are not an MCP server. Agents execute local `cawplan` processes or, where no CLI is available (for example Claude on the web), call the CawPlan MCP server; skill files are routing and UX instructions only.
 
 ## Repository Structure
 
@@ -61,5 +61,6 @@ cd cli && npm install && npm run build && npm test
 - Keep each `SKILL.md` concise.
 - Include bootstrap checks for `cawplan` installation and auth.
 - Prefer CLI commands over direct HTTP.
+- Transport-neutral skills (pilot: `cawplan-ticket-context`) name capabilities such as capability `tickets.search` and reference `references/CAPABILITIES.md` instead of CLI commands or MCP tools. Edit `references/capabilities.json`, run `python3 scripts/capabilities.py render`, and refresh `references/mcp-tools.json` with `python3 scripts/capabilities.py sync-mcp --core-product <path>` when the MCP tool set changes.
 - Link to `references/` docs for endpoint details.
 - Run `bash scripts/validate-skills.sh` before committing.

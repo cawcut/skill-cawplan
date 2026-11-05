@@ -346,5 +346,13 @@ for skill_dir in skills/cawplan-*/; do
 done
 [ "$fail" -eq 0 ] && echo "✓ UNTRUSTED_CONTENT.md — every skill references a byte-identical copy"
 
+echo "→ Validating capability registry and resolver skills..."
+# Skills that reference references/CAPABILITIES.md name capabilities instead of
+# CLI commands or MCP tools; the registry must match the CLI source and the
+# MCP tool snapshot, and generated copies must be current.
+if ! python3 scripts/capabilities.py check; then
+  fail=1
+fi
+
 [ "$fail" -eq 0 ] || exit 1
 echo "All skill validations passed."

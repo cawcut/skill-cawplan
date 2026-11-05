@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { sensitivePathMessage, sensitivePathReason } from "./attachment-path-policy.js";
+import { displayImageSize, readImageSize } from "./image-dimensions.js";
 import { cawplanRequest } from "./http.js";
 import type { TicketAttachmentType } from "./ticket-attachments.js";
 
@@ -37,6 +38,9 @@ export interface UploadedAttachment {
   key: string;
   /** Permanent URL to embed in ticket HTML. */
   url: string;
+  /** Display size for images (see displayImageSize); absent when unreadable. */
+  width?: number;
+  height?: number;
   /** Editor-shaped HTML snippet for this file. */
   html: string;
 }
@@ -105,13 +109,22 @@ export function escapeHtml(value: string): string {
  * (example-web-service RichEditor/Full Image/Video/Pdf/ZipAttachment nodes),
  * so it previews and lists exactly like a file dropped into the editor.
  */
-export function renderAttachmentHtml(file: { url: string; filename: string; type: TicketAttachmentType; bytes: number }): string {
+export function renderAttachmentHtml(file: {
+  url: string;
+  filename: string;
+  type: TicketAttachmentType;
+  bytes: number;
+  width?: number;
+  height?: number;
+}): string {
   const src = escapeHtml(file.url);
   const name = escapeHtml(file.filename);
   const size = escapeHtml(formatAttachmentFileSize(file.bytes));
   switch (file.type) {
     case "image":
-      return `<img src="${src}" alt="${name}">`;
+      return file.width && file.height
+        ? `<img src="${src}" alt="${name}" width="${file.width}" height="${file.height}">`
+        : `<img src="${src}" alt="${name}">`;
     case "video":
       return (
         `<div data-type="video-attachment" class="video-attachment" data-src="${src}" data-filename="${name}" ` +
@@ -221,6 +234,7 @@ export async function uploadTicketAttachmentFiles(
         const target = await requestTicketAttachmentUploadUrl(ticket, { filename, contentLength: bytes });
         const contentType = target.content_type || mimeTypeForFilename(filename);
         await putFileToSignedUrl(target.upload_url, file.path, bytes, contentType, options.fetchImpl);
+        const size = target.type === "image" ? await readImageSize(file.path) : undefined;
         const uploaded = {
           path: file.path,
           filename: target.filename || filename,
@@ -228,6 +242,7 @@ export async function uploadTicketAttachmentFiles(
           bytes,
           key: target.key,
           url: target.url,
+          ...(size && displayImageSize(size)),
         };
         results[i] = { ...uploaded, html: renderAttachmentHtml(uploaded) };
         options.onProgress?.(`Uploaded ${++done}/${files.length}: ${filename}`);

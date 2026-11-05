@@ -346,7 +346,11 @@ is silently overridden, not honored, on either endpoint. There is currently
 no way to query across more than one workspace through this API. Fields are
 `value`, `count`, `cost`, `credit` — only the ones actually supplied on a
 point are stored (no zero-fill), so query results distinguish "not measured"
-from "measured zero". Every domain is prefixed `cawplan_`.
+from "measured zero". The `cawplan_` prefix belongs only to CawPlan's own internal
+domains (written by CawPlan's services); data reported from outside (ingest, HTTP pull
+sources, custom cards) must not use it. The predefined Dashboard charts live in the
+`default` domain, which is also the default of every `domain` parameter (see
+`docs/usage-metrics.md`, "预设图表", for the metric list).
 
 Every domain and metric name is defined up front in `internal/metrics/metrics.go`
 in `example-backend`, but a defined metric doesn't necessarily have a producer
@@ -413,24 +417,35 @@ is the only reliable way to slice this metric today.
     "timestamp": "2026-09-09T10:00:00Z"
   }
   ```
-  `domain`/`metric` are required and must match `^[a-z][a-z0-9_]*$`; at least
-  one of `value`/`count`/`cost`/`credit` is required per item; `dimensions`,
-  `tags`, and `timestamp` are all optional (`timestamp` defaults to receipt
+  `metric` is required and `domain` is optional (defaults to `default`, the domain of the predefined
+  charts); both must match `^[a-z][a-z0-9_]*$`; at least
+  one of `value`/`count`/`cost`/`credit` is required per item; **`dimensions.product`
+  is required on every item** (the product unique id, which must exist in the caller's
+  workspace); `tags` and `timestamp` are optional (`timestamp` defaults to receipt
   time). The server adds a reserved `ingested_by` tag (the uploader's user id)
   to every point; a caller-supplied `ingested_by` is overwritten. The whole batch is validated up front and rejected as one
   `INVALID_INPUT` response on the first bad item — there is no partial write.
+- Authorization: the caller must be an admin or hold product edit permission
+  (`product.edit`) on **every** product named in the batch; otherwise the whole
+  request is rejected with HTTP 403 and nothing is written. The shared global
+  public API key has no user identity and is always rejected with 403 — use a
+  personal API key or the CLI login. A missing `dimensions.product`, or a product
+  that does not exist in the workspace, is `FAILURE_INVALID_INPUT`.
 - Rate limited to 180 requests/minute per calling credential (the whole
   `Authorization` header value, hashed — a Bearer token and a raw API key are
   bucketed the same way, so this applies to CLI callers too). Exceeding it
   returns HTTP 429 with `{"code":"RATE_LIMITED",...}` directly, not a
   `CommonResp`-shaped business error. Batch (`--items`) rather than looping
   single-item calls when writing many events at once.
-- Maps to cawplan CLI: `cawplan metrics ingest --domain <domain> --metric <metric> --value <n> [--dimensions <json>] [--tags <json>]`,
-  or `cawplan metrics ingest --items <json array>` for a batch.
+- Maps to cawplan CLI: `cawplan metrics ingest --product_id <product_id> --domain <domain> --metric <metric> --value <n> [--dimensions <json>] [--tags <json>]`,
+  or `cawplan metrics ingest --product_id <product_id> --items <json array>` for a batch.
+  `--product_id` fills `dimensions.product` on items that do not set it (an item naming a different
+  product is rejected); every item must end up with a product.
 
 #### Query events back out
 - Endpoint: `GET /api/v1/public/openapi/key-metrics/query`
-- Query params: `domain` (required), `metric` (optional, narrows to one metric),
+- Query params: `domain` (optional, defaults to `default` -- the domain of the predefined charts),
+  `metric` (optional, narrows to one metric),
   `start`/`end` (required, RFC3339, exclusive upper bound), `granularity`
   (`raw`|`minute`|`hour`|`day`, default `raw`), `tag` (repeatable
   `<key>:<value>` filter, or the equivalent `tag.<key>=<value>` form),
@@ -1002,7 +1017,7 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}`
 - Path params: `product_id`, `requirement_id`
 - Response: single `QARequirement` in `data` — five fields, `summary` (`null` if unset), optional `url` (portal deep-link path, often `null`), `knowledge_document` (see below), and metadata (`id`, `module_tree_node_id`, `review_status`, `ticket_id`, etc.)
-- `knowledge_document` (same shape in all three Requirement reads): the Requirement's Markdown document `{dataset_id, id, display_id, name, redirect_url, status}` — `dataset_id` + `id` are the path ids for `knowledge documents get` / `update`. Absent (the key is missing, not `null`) for a Requirement with no document. `documents get` with a wrong `document_id` returns `code: "SUCCESS"` and `data.status: "not_found"` with no `content`. `status` is **not** an availability signal (it can stay `indexing` while content is already readable/writable); this subobject returned by Get Requirement may omit `display_id` / `redirect_url`.
+- `knowledge_document` (same shape in all three Requirement reads): the Requirement's Markdown document `{dataset_id, id, display_id, name, browse_url, redirect_url, status}` — `browse_url` is the document's portal Browse path (e.g. `/browse/knowledge/KBD-01956`) and exists **only inside `knowledge_document`** (the Requirement's top-level `redirect_url` is the Requirement's own Browse path, a different link); `dataset_id` + `id` are the path ids for `knowledge documents get` / `update`. Absent (the key is missing, not `null`) for a Requirement with no document. `documents get` with a wrong `document_id` returns `code: "SUCCESS"` and `data.status: "not_found"` with no `content`. `status` is **not** an availability signal (it can stay `indexing` while content is already readable/writable); this subobject returned by Get Requirement may omit `display_id` / `browse_url` / `redirect_url`.
 - Notes: primary path when the caller already has `product_id + requirement_id`, including old Portal URLs, hot handoff, and later refreshes. Use `data` directly; no list filter. `404` → Requirement missing or deleted. RBAC: `qa_insights.view`.
 - Maps to cawplan CLI: `cawplan qa-insights requirements get {product_id} {requirement_id}`
 
@@ -1026,7 +1041,7 @@ Module tree and Requirement archive for Test Suites. **Public Open API only** �
 ### List TestPoints (read — probe, incremental, UNKNOWN reconcile)
 - Endpoint: `GET /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints`
 - Path params: `product_id`, `requirement_id`
-- Response: `test_points[]` for the requirement, stable order by `sort_order` (backend-assigned). Each item includes `id`, `requirement_id`, `title`, `tags[]`, nullable `category_code`, `group`, `priority`, `is_edited`, `created_by`, `created_at`, `updated_at`.
+- Response: `test_points[]` for the requirement, stable order by `sort_order` (backend-assigned). Each item includes `id`, `requirement_id`, `title`, `tags[]`, nullable `category_code`, `group`, integer `group_order`, `sort_order`, `priority`, `is_edited`, `created_by`, `created_at`, `updated_at`.
 - Notes:
     - **No sequence number in response** — caller computes N / N.M from `group` + return order (empty `group` → "未分组", last). See `cawplan-testpoint-generate` A2_SPEC §4.4.
     - Used before generate (first vs incremental, stubs), and after ambiguous POST (count reconcile). `cawplan-testpoint-generate` does **not** use PATCH/DELETE on archived rows.
@@ -1074,14 +1089,16 @@ Contract version: `qa-testpoint-category/v1`. `category_code` is a nullable enum
 ### Batch Create TestPoints (write — archive drafts)
 - Endpoint: `POST /api/v1/public/openapi/product/{product_id}/qa/requirements/{requirement_id}/testpoints/batch`
 - Path params: `product_id`, `requirement_id` (**do not include in body**)
-- Body: `{ "test_points": [ { "title", "tags", "group", "priority", "is_edited", "is_ai_generated", "category_code" }, ... ] }` — skill/agent supply only the five caller keys `title`, `tags`, `group`, `priority`, `is_edited`; CLI injects `is_ai_generated: true` and nullable `category_code` on each element before POST
+- Body: `{ "test_points": [ { "title", "tags", "group", "group_order", "priority", "is_edited", "is_ai_generated", "category_code" }, ... ] }` — skill/agent supply `title`, `tags`, `group`, `priority`, `is_edited`; Review archive projection also supplies integer `group_order`. CLI injects `is_ai_generated: true` and nullable `category_code`; supplied or derived batch-relative `group_order` is resolved against a fresh BE list before POST
 - Notes:
-    - Each item (caller): **only** `title`, `tags`, `group`, `priority`, `is_edited`. `tags` may be `[]`; `group` may be empty (display as 未分组). `priority` is required and must be one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`.
-    - CLI POST payload: each item also carries `is_ai_generated: true` and `category_code` (a valid V1 code or explicit `null`; both are inside the object, not at batch top level).
+    - Each item (caller): **only** `title`, `tags`, `group`, `priority`, `is_edited`, and optional batch-relative `group_order`. `tags` may be `[]`; `group` may be empty (display as 未分组). `priority` is required and must be one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`.
+    - CLI POST payload: each item also carries `group_order`, `is_ai_generated: true` and `category_code` (a valid V1 code or explicit `null`; all are inside the object, not at batch top level).
+    - Before every archive (including `--dry-run`), CLI GETs this Requirement's latest test points. Existing normalized groups keep their BE `group_order` (including historical `0`); new groups receive `max(existing group_order) + 1`, then successive numbers in final Review-relative order. An empty requirement starts at **1**. Gaps are preserved; group count is not used as the next number. A missing field on every caller row gets batch first-appearance relative ordering; when supplied, every row must have a non-negative safe integer consistent within its group. Supplied values describe relative order for new groups, not permission to overwrite an existing group's BE number. No test-point array reordering occurs.
+    - Review computes relative group positions from the latest visible State, excluding archived rows and groups with no surviving rows. A deleted row still visible for Undo may establish a surviving group's display position. Save success stores BE-returned numbers on archived rows; later saves and newly-created Reviews always query BE again. Failure to read, malformed historical orders, or inconsistent numbers within the same existing group blocks POST. Historical duplicate numbers across different groups are preserved, not repaired here. The read/POST pair is not an atomic allocation across clients; concurrent saves ultimately require BE transactional allocation.
     - Old clients may omit `category_code`; the server stores it as `null`. Explicit `null` is also valid. Unknown codes are rejected as invalid input.
     - **Do not send**: `id`, `sort_order`, `product_id`, `requirement_id`, review fields, or display sequence N/N.M.
-    - Array order = display order = backend `sort_order`. Batch is all-or-nothing (no partial success).
-    - Response on `code: SUCCESS`: `data.test_points[]` — same length as POST array; each item echoes `title`, `tags`, nullable `category_code`, `group`, `priority`, `is_edited` from the request plus server-assigned `id`, `requirement_id`, `created_by`, `created_at`, `updated_at` (same shape as List TestPoints rows).
+    - Array order still determines backend `sort_order`; the CLI never reorders rows. Group display follows `group_order`, and row order within each group remains unchanged. Batch is all-or-nothing (no partial success).
+    - Response on `code: SUCCESS`: `data.test_points[]` — same length as POST array; each item echoes `title`, `tags`, nullable `category_code`, `group`, `group_order`, `priority`, `is_edited` from the request plus server-assigned `sort_order`, `id`, `requirement_id`, `created_by`, `created_at`, `updated_at` (same shape as List TestPoints rows).
     - **`cawplan-testpoint-generate` counts shown to SQA**: **only** in post-POST success receipt (`已归档 N 条…`, N = `body.test_points.length`). **Do not** output `共 N 条草稿`, `本轮新增 M 条`, `其余 K 条为已存`, or any other row-count summary after tables; do not put counts in archive prompts or §8.4 read-back — agents cannot reliably count table rows in chat. Incremental display uses per-row `已存`/`新增` status column only (optional non-numeric footer allowed).
     - **`cawplan-testpoint-generate` success receipt**: agent stores returned `id`s in session stubs only; tells SQA a one-line count confirmation (e.g. `已归档 N 条到 Requirement〔标题〕下`, N = POST length) — **does not** list per-row `id`s or titles, **does not** re-generate or summarize titles after POST, **does not** post-hoc apologize for miscounts; appends Requirement `url` from refresh **only when non-empty** — **never** mentions missing `url` (no "未返回 url"/"无法附链接").
 - Maps to cawplan CLI: `cawplan qa-insights testpoints archive {product_id} {requirement_id} --body-file <path>`

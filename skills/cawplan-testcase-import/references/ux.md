@@ -11,6 +11,9 @@
 | `INLINE` / `REQUIREMENT` | 已展开用例 / 从测试点生成 |
 | `CREATE`/`SKIP`/`FAIL` | 新建 / 跳过（已存在）/ 无法导入 |
 | `MAPPING_EXISTS`/`REFS_EXISTS` | 已有映射 / 已导入过 |
+| `CONTENT_UNCHANGED` | 内容未变（已有映射） |
+| 旧映射失效（`unlink preview` 的 `summary.stale`） | 旧用例已在 TestRail 删除，但 CawPlan 仍保留关联 |
+| 框 Stale-mapping | 重导被旧映射挡住时的非强制 Ask；见 `§StaleMappingHint` |
 | `to_create`/`to_skip`/`to_fail` | 将新建 / 将跳过 / 将失败 |
 | `section_creates` | 将新建分组目录 |
 | `suite_id` | 用例集（Suite）；展示时 ID 须 `§TestRailLinks` 超链接 |
@@ -98,6 +101,7 @@ Markdown：`[{name}（ID [{id}](url)）](url)` · Case：`[C{case_id}](case_url)
 | Steps-confirm | Step 0.6 全标题或 REQUIREMENT（0 条已展开），且未 Intent/`§ConfirmState` 放行 | **先去展开步骤（推荐）** / Expand steps first (recommended) · **不展开，继续导入** / Continue without steps · **先不导入** / Not now |
 | 3 Suite | 见 `§SuiteConfirm` | 见 `§SuiteConfirm` |
 | 3.5 Section 归属 | 见 `§SectionConfirm`（紧跟框 3 之后） | 见 `§SectionConfirm` |
+| Stale-mapping | `import-rules §StaleMappingCheck` 探测到 `stale>0`（先于框 4） | **去解绑旧映射（推荐）** / Unlink stale mappings first (recommended) · **仍按当前预览继续** / Continue as previewed · **先不导入** / Not now |
 | 4 执行闸 | preview OK | 确认导入 / Confirm import · 先不导入 / Not now |
 | 5 失败 | `to_fail>0` | 查看明细 / View details · 修正重预览 / Fix & re-preview · 先不 / Not now |
 | 6 异步交付 | execute 返回 Job | **先不等，稍后查（推荐）** / Don't wait · **等到完成** / Wait until done · **查一次进度** / Check progress once |
@@ -109,6 +113,7 @@ Version 不再是弹窗（无编号），见 `§VersionConfirm`。
 
 > 将导入到用例集 **[{suite_name}（ID [{suite_id}](suite_url)）](suite_url)** · 目标版本 **{version_name 或"未指定"}** · 新建 **{to_create}** · 跳过 **{to_skip}**；已存在不覆盖。有 `section_creates` 时追加目录数。`to_create>50` → `§AsyncEstimate`。
 > 选了「导入到已有 Section」时追加一行：挂靠目录 **{parent_section_name}（ID [{parent_section_id}](section_url)）**。
+> 用户在框 Stale-mapping 选了「仍按当前预览继续」时追加一行：其中 **{stale}** 个测试点的旧映射已失效，将继续跳过（`§StaleMappingHint`）。
 
 ## §SuiteConfirm
 
@@ -242,6 +247,25 @@ eta_max = ceil(eta_min * 1.3)
 ## §AsyncTimeout
 
 > 导入仍在进行（已等待 {elapsed}s）。建议先不等；说「**查导入状态**」即可，**请勿重复确认导入**。
+
+## §StaleMappingHint（框 Stale-mapping · 先于框 4）
+
+**性质**：**非强制**——用户可选「仍按当前预览继续」。Ask 失败或被忽略时不得静默跳过，须显式给出选项。
+
+**框上正文（SHALL）**：
+
+> 有 **{stale}** 个测试点被「跳过」，原因是 CawPlan 里仍保留着旧用例的关联，而这些旧用例**已在 TestRail 删除**。  
+> 继续导入也不会为它们新建用例。需要先解绑这些旧关联。
+
+**选项后的引导话术**：
+
+- **去解绑旧映射**：说明本次导入不会继续；请执行 `/cawplan-testrail-link` 解绑旧映射（只清除 CawPlan 的关联，**不会修改或删除 TestRail 上的任何用例**）。解绑后：
+  - 若要由本 Skill 新建用例 → 重新说「导入」，会重新预览；
+  - 若你已经在 TestRail 里手工重新导入了用例 → 用 `/cawplan-testrail-link` 回链，**不要**再导入一次，以免重复。
+- **仍按当前预览继续**：回到框 4，流程不变；框 4 正文追加一句「其中 {stale} 个测试点的旧映射已失效，将继续跳过」。
+- **先不导入**：结束，预览约 1h 有效。
+
+**禁止**：在本 Skill 内解绑或回链；Read `cawplan-testrail-link` Skill；展示 `preview_id` / `mapping_id`。
 
 ## §Preview
 

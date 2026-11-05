@@ -307,6 +307,17 @@ export function extractUserMessage(text: string): string | null {
   return null;
 }
 
+// Claude desktop prepends attached files/folders to the typed text as `@"<path>"` lines.
+const LEADING_ATTACHMENT_MENTIONS_RE = /^(?:[ \t]*(?:@"[^"\n]*"[ \t]*)+(?:\n|$))+/;
+
+/**
+ * Drop leading `@"<path>"` attachment lines so the typed text that follows is kept.
+ * A turn that only attaches files collapses to "" and is skipped by the caller.
+ */
+export function stripAttachmentMentions(text: string): string {
+  return text.replace(LEADING_ATTACHMENT_MENTIONS_RE, "").trim();
+}
+
 /**
  * Build a flat [{role, time, text}] message list from Claude Code JSONL events,
  * including both user input and assistant text output (no tool_use blocks).
@@ -616,14 +627,15 @@ export function collectClaudeCodeSession(
         .filter((b) => b["type"] === "text")
         .map((b) => String(b["text"] ?? ""))
         .filter(Boolean);
-      if (textParts.length) text = textParts.join("\n").trim();
+      // Worktree/attachment turns arrive as blocks, so unwrap slash commands here too.
+      if (textParts.length) text = extractUserMessage(stripHarnessBlocks(textParts.join("\n")))?.trim() ?? null;
     }
-    if (text) text = stripHarnessBlocks(text);
+    if (text) text = stripAttachmentMentions(stripHarnessBlocks(text));
     if (!text || text.length < 0) continue;
     if (/\[Request interrupted/.test(text)) continue;
     if (isInjectedHumanInput(text)) continue;
     if (/^(git |npm |npx |cawplan |cd |ls |cat |echo )/.test(text)) continue;
-    if (/^@"/.test(text) || /^file:\//.test(text)) continue;
+    if (/^file:\//.test(text)) continue;
     if (text.length > (opts?.maxTurnLength ?? 1500)) continue;
     if (/[@%$]\s*(npm|npx|node|tsc|cawplan|git)\b/.test(text)) continue;
     const key = text.slice(0, 120);

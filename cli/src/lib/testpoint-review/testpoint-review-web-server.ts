@@ -7,7 +7,7 @@ import {
   checkUnresolvedFeedback,
   markTestPointsArchived,
   testPointsPendingArchive,
-  toArchiveSubmissionItem,
+  toArchiveSubmissionItems,
 } from "./archive-submission.js";
 import { reviewPhase } from "./review-phase.js";
 import { loadReviewState, saveReviewState } from "./store.js";
@@ -531,7 +531,7 @@ async function saveToCawPlan(
     return { status: 200, body: { archived_count: 0, outcome: "NOOP" } };
   }
 
-  const body = { test_points: pending.map(toArchiveSubmissionItem) };
+  const body = { test_points: toArchiveSubmissionItems(reviewState) };
   const batchSize = pending.length;
 
   let envelope: QAInsightsWriteEnvelope;
@@ -584,7 +584,7 @@ async function saveToCawPlan(
     };
   }
 
-  const { archivedCount } = markTestPointsArchived(reviewState, pending.map((tp) => tp.id));
+  const { archivedCount } = markTestPointsArchived(reviewState, pending.map((tp) => tp.id), envelope.api?.data);
   reviewState.count_before += batchSize;
   saveReviewState(reviewState);
 

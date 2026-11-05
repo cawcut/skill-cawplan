@@ -65,7 +65,7 @@ Link **不提供「新增 Suite」**；仅选已有 Suite。
 ```
 preview(无 parent_section_id)
   → to_link>0 或 (already_linked>0 且无 conflict) ? 进 Step 4 展示
-  → conflict>0 ? 停止（不 retry）
+  → conflict>0 ? 停止（不 retry）→ 见 §ConflictResolution
   → 满足 retry 条件 且 尚未带 parent ?
       sections list（按 suite 缓存）
       → 全树匹配：用户话术目录名 / requirement.summary / ticket display_id
@@ -79,9 +79,50 @@ preview(无 parent_section_id)
 - `to_link===0` 且 `refs_missing_in_testrail` ≈ 全部已知测试点；或
 - `summary.scanned_case_count === 0`
 
-**禁止**：`conflicts>0` 时 AutoScan retry。
+**禁止**：`conflicts>0` 时 AutoScan retry。冲突的处理见 §ConflictResolution，**不是**换目录重试。
 
 确认后存 `confirmed_parent_section_id` / `confirmed_parent_section_name`（可空 = 根级模糊）。
+
+## §ConflictResolution（preview 出现 conflict>0）
+
+> 解绑 CLI 与展示见 `unlink-cases.md`；本节只定义**何时进入、如何分流**。
+
+先按 `conflicts[].message` 分流（原文见 `ux.md §ConflictMessages`）：
+
+| 冲突类型 | 处理 |
+|----------|------|
+| `TestRail case is already mapped to a different test point` | **不**进入解绑。列冲突表，请用户核对 CSV 中 TestPointId |
+| `another TestRail case in this preview claims the same test point and case identity` | **不**进入解绑。请用户保留一条 refs |
+| `TestRail case does not match the case already mapped for this test point` | 进入下方「旧映射判定」 |
+
+**旧映射判定**（同一 `product_id` / `requirement_id` / `suite_id`，复用 `§ConfirmState`）：
+
+```
+unlink preview --scope STALE_ONLY
+  ├─ stale 数 = 冲突数       → §StaleRelinkFlow（一键清理）
+  ├─ 0 < stale 数 < 冲突数   → 展示「N 条旧用例已失效可解绑，M 条旧用例仍存在」；
+  │                            仅对失效部分给出解绑选项；存活部分说明原因，不自动处理
+  └─ stale 数 = 0            → 说明旧用例仍存在（或暂时无法确认），不解绑；给出两个出口：
+                               ① 去 TestRail 确认/处理旧用例后重新预览
+                               ② 用户明确要求「换绑」时，按 unlink-cases.md §SelectedUnlink
+```
+
+**禁止**：根据冲突里的 `existing_case_id` 自行判断旧用例是否失效；失效状态只来自 `unlink preview` 的 `case_state`。
+
+## §StaleRelinkFlow（删除后重新导入 · 一键清理）
+
+目标：典型场景下用户只做两次明确确认（先解绑、再链接），中间不需要重复提供任何参数。
+
+1. 展示 `ux.md §PreviewUnlink`，说明将解绑 **N** 条已失效旧映射、不会修改 TestRail、解绑后自动重新预览。
+2. 框 A-unlink-confirm。用户确认 → `unlink execute --preview-id … --confirm`。
+3. **立即**重新执行本文件 `§PreviewCLI` 的 `link cases preview`（Suite / Section 沿用 `§ConfirmState`，**不重新** AutoScan 选目录）。
+4. 判断：
+   - `conflict=0` 且 `to_link>0` → 按原 Step 4–6：展示 preview，框 A-confirm，`link cases execute`。
+   - `conflict>0` → 停止，展示剩余冲突；**不**再次自动解绑，**不**重复弹解绑确认。
+   - `to_link=0` 且无冲突 → 说明当前扫描范围内没有可链接的新用例，引导检查 TestRail 导入与 Refs 映射。
+5. link execute 完成后，`ux.md §ResultCases` 末尾补一句解绑摘要（「已先解绑 N 条失效旧映射」）。
+
+解绑与 link 是两次独立写操作，各自需要用户确认；**不得**合并为一次确认或跳过重新 preview。
 
 ## §MatchingRules（BE v2 · SHALL）
 
@@ -152,7 +193,7 @@ cawplan qa-insights testrail link cases execute <product_id> \
 ```
 
 - 无 `--confirm` → `CONFIRMATION_REQUIRED`
-- `conflicts` 非空 → `CONFLICT_BLOCKS_EXECUTE`
+- `conflicts` 非空 → `CONFLICT_BLOCKS_EXECUTE`（先按 `§ConflictResolution` 处理冲突，再重新 preview）
 - `to_link=0` → **不调用** execute
 - 成功 → `ux.md §ResultCases`
 

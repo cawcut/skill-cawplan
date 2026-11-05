@@ -30,6 +30,9 @@ jobs:
       - name: Validate skills
         run: bash scripts/validate-skills.sh
 
+      - name: Test capability registry
+        run: python3 -m unittest scripts/tests/test_capabilities.py
+
       - name: Test public content audit
         run: python3 -m unittest discover -s scripts/tests -p "test_public_content_audit.py"
 

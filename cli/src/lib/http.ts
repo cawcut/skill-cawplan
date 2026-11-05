@@ -6,6 +6,7 @@ import {
   withAccessTokenIdentity,
   type Credentials,
 } from "./credentials.js";
+import { OAUTH_INVALID_OR_EXPIRED_CODE } from "./oauth.js";
 
 export class ApiError extends Error {
   constructor(
@@ -54,6 +55,8 @@ function normalizePath(path: string): string {
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 }
 
+const REVOKE_TIMEOUT_MS = 5000;
+
 async function refreshAccessToken(
   refreshToken: string,
 ): Promise<{ accessToken: string; refreshToken: string; expire: number }> {
@@ -71,8 +74,9 @@ async function refreshAccessToken(
     throw new ApiError("Token expired, run: cawplan auth login", res.status, data);
   }
 
-  // BE response: { code, data: { access_token, expire } }
-  // refresh_token is slid server-side; the same token remains valid.
+  // BE response: { code, data: { access_token, expire, refresh_token? } }
+  // A server that rotates refresh tokens returns a new refresh_token, which
+  // replaces the old one; a server that slides the TTL in place omits it.
   const payload = (data.data ?? data) as Record<string, unknown>;
   if (!payload.access_token || typeof payload.expire !== "number") {
     const message = responseMessage(data);
@@ -82,11 +86,20 @@ async function refreshAccessToken(
     throw new ApiError("Token refresh failed: unexpected response", res.status, data);
   }
 
+  const rotated = typeof payload.refresh_token === "string" ? payload.refresh_token.trim() : "";
   return {
     accessToken: payload.access_token as string,
-    refreshToken,           // unchanged — server slides TTL in place
+    refreshToken: rotated || refreshToken,
     expire: payload.expire as number,
   };
+}
+
+function isRejectedRefreshToken(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false;
+  if (err.status === 401) return true;
+  const body = err.body;
+  return typeof body === "object" && body !== null
+    && (body as Record<string, unknown>).code === OAUTH_INVALID_OR_EXPIRED_CODE;
 }
 
 async function refreshStoredAccessToken(
@@ -96,9 +109,23 @@ async function refreshStoredAccessToken(
     throw new ApiError("Session expired. Run: cawplan auth login", 401);
   }
 
-  const refreshed = await refreshAccessToken(credentials.refreshToken);
+  let base = credentials;
+  let refreshed: Awaited<ReturnType<typeof refreshAccessToken>>;
+  try {
+    refreshed = await refreshAccessToken(credentials.refreshToken);
+  } catch (err) {
+    // With server-side rotation, a concurrent cawplan process may have used
+    // the same refresh token first and stored its successor. Retry once with
+    // whatever is on disk now; otherwise surface the original error.
+    if (!isRejectedRefreshToken(err)) throw err;
+    const latest = await readCredentials().catch(() => null);
+    if (!latest?.refreshToken || latest.refreshToken === credentials.refreshToken) throw err;
+    base = latest;
+    refreshed = await refreshAccessToken(latest.refreshToken);
+  }
+
   const nextCredentials = withAccessTokenIdentity({
-    ...credentials,
+    ...base,
     accessToken: refreshed.accessToken,
     refreshToken: refreshed.refreshToken,
     expire: refreshed.expire,
@@ -108,6 +135,28 @@ async function refreshStoredAccessToken(
     accessToken: refreshed.accessToken,
     credentials: nextCredentials,
   };
+}
+
+/**
+ * Revoke a refresh token server-side (RFC 7009, used by `auth logout`).
+ * Best-effort: never throws, so sign-out still clears local credentials when
+ * the server is unreachable or predates the revoke endpoint (404).
+ */
+export async function revokeRefreshToken(refreshToken: string): Promise<boolean> {
+  try {
+    const baseUrl = normalizeBaseUrl(getBaseUrl());
+    const res = await fetch(`${baseUrl}/api/v1/cli/oauth/revoke`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      signal: AbortSignal.timeout(REVOKE_TIMEOUT_MS),
+    });
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+    return data.code === "SUCCESS";
+  } catch {
+    return false;
+  }
 }
 
 async function resolveAuthContext(): Promise<AuthContext | null> {
