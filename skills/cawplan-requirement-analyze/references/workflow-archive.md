@@ -224,7 +224,11 @@ The command POSTs directly — it does **not** look for duplicates first. Preven
 
 **After the call**: branch on `outcome` (see **Command outcomes**) and update session state per step 10 (**Pending write**). On `SUCCESS` → **Confirmation**.
 
-**本步完成标准**（POST / PATCH / 11b-MD 通用）：`SUCCESS` 后本轮**最终回复**已包含 `output-confirmation.md` §6 成功回执（需求 `REQ-xxxxx`、Knowledge Doc Link、Test Suite Link；`browse_url` / `redirect_url` 为空的按 §6 省略）。生成回执前先 Read 该文件，并按其规则执行 `cawplan config env` 拼接链接。收尾摘要不能替代回执。
+**本步完成标准**（POST / PATCH / 11b-MD 通用）：`SUCCESS` 后按顺序执行：
+1. Read `output-confirmation.md`，并执行 `cawplan config env` 拼接链接。
+2. 在**正式回复正文**输出 §6 成功回执（需求 `REQ-xxxxx`、Knowledge Doc Link、Test Suite Link；链接取数位置与缺失处理见 §6「字段位置」）。
+
+回执写在思考里不算输出；最终回复本身必须包含回执，不得用 recap / wrap-up 或「上面的回执」代替。
 
 #### 11b. Update a bound Requirement (11b-MD / 11b-PATCH)
 

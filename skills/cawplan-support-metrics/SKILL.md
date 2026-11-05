@@ -43,7 +43,7 @@ Route the request to one of these modes:
 
 - **Prepare exporter**: inspect the supplied Apps Script or sheet layout, then configure or narrowly patch the bundled exporter. Never add direct CawPlan HTTP calls.
 - **Validate / dry-run**: validate the file, resolve and confirm product IDs, reject duplicate identities or unsupported vocabulary, and show totals without writing.
-- **Import**: only after the user has seen and approved the dry-run, upload canonical items in bounded batches through `cawplan metrics ingest`.
+- **Import**: only after the user has seen and approved the dry-run, upload canonical items in bounded batches through `cawplan metrics ingest`. The caller must be an admin or hold product edit permission on every product in the batch; a 403 means stop and tell the user, do not retry.
 - **Reconcile**: query the exact imported range and dimensions, check `truncated`, and compare CawPlan totals with the export.
 - **Correct**: never overwrite or delete a prior point. Preview an additive correction delta and write it only after explicit approval.
 

@@ -527,6 +527,8 @@ Review 页面：[打开最新版本](<review_url>)
 
 这样确保 archived 状态、排除 deleted、未处理反馈拦截、重复提交保护等逻辑始终只有一套（页面侧 `/api/save-to-cawplan`），不产生 Chat / 页面两条归档路径。
 
+**分组顺序与增量保存**：Review 按当前可见测试点中 Group 首次出现的顺序生成本批相对 `group_order`，archived 行和整组已删除的 Group 不占位置；删除行若仍决定存活 Group 的页面位置，则保留该分组位置。每次 `testpoints archive`（含页面保存、CLI 保存和 dry-run）会在 POST 前查询该 Requirement 的最新测试点：已有 Group 沿用 BE 的实际整数序号（历史 `0` 也保留）；新 Group 按本批最终相对顺序从全需求 `max(group_order) + 1` 续号，空需求从 **1** 开始。空 Group 同样按 BE 实际值复用或续号。不能按历史 Group 数量续号，也不能在新 Round / 新 Review 中重置序号。成功保存时记录 BE 返回的序号，但下一次保存仍重新查询，不用缓存替代查询。查询失败、返回缺少有效序号或同组历史序号不一致时停止提交；不同历史 Group 已有重号不在本流程中重写。客户端查询与 POST 之间仍有并发窗口，最终并发唯一分配须由 BE 事务保证。CLI 不改变测试点数组顺序，`sort_order` 继续由 BE 分配。详见 `references/CAWPLAN_OPEN_API.md` §15。
+
 **保存前置条件**：Questions 阶段没有 Save 入口（服务端同样拒绝）；Review 阶段若仍有未被 Ask AI 消费的测试点 Comment，Save 同样被拒并提示先 Ask AI，没有强制入口；被拦截的 Save 不触发 Human Input 收集。仅 Edit / Delete / Add 可直接保存。详见 `references/round-flow.md` §5。
 
 **成功回执自动触发，不需要 SQA 回报**：SQA 在页面点击 Save to CawPlan 成功后，页面会关闭本地 Server；Agent 刚才那条挂起的 `open` 调用随之结束。按 §7.1 从任务 output file 确认事件为 `save_completed` 后，读取一次最终 Review State，取得本轮新增的 `archived: true` 条目数，**自动**在 Chat 输出成功回执（§9.5 格式，逐字文案与追加条件均保留不变）；禁止输出“正在优化”、调用 `request-optimize` 或进入 §8，也不需要 SQA 再回 Chat 说一遍"保存好了"。

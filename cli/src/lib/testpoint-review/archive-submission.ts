@@ -1,4 +1,5 @@
 import { reviewPhase } from "./review-phase.js";
+import { normalizeField } from "../qa-insights/normalize.js";
 import type { ReviewState, TestPoint } from "./types.js";
 
 export type ArchiveSubmissionItem = {
@@ -7,6 +8,7 @@ export type ArchiveSubmissionItem = {
   group: string;
   priority: string;
   is_edited: boolean;
+  group_order?: number;
 };
 
 function isEligible(testPoint: TestPoint): boolean {
@@ -31,6 +33,26 @@ export function toArchiveSubmissionItem(testPoint: TestPoint): ArchiveSubmission
     priority: testPoint.current.priority,
     is_edited: testPoint.status !== "unchanged",
   };
+}
+
+/** Build relative group ordering, including positions established by deleted rows
+ * that remain visible for Undo. Entirely deleted/archived groups are not numbered.
+ * testpoints archive resolves these positions against a fresh BE list before POST.
+ * Row order is deliberately unchanged so backend sort_order retains its semantics.
+ */
+export function toArchiveSubmissionItems(reviewState: ReviewState): ArchiveSubmissionItem[] {
+  const pending = testPointsPendingArchive(reviewState);
+  const activeGroups = new Set(pending.map((tp) => normalizeField(tp.current.group)));
+  const orders = new Map<string, number>();
+  for (const tp of reviewState.test_points) {
+    if (tp.archived) continue;
+    const group = normalizeField(tp.current.group);
+    if (activeGroups.has(group) && !orders.has(group)) orders.set(group, orders.size + 1);
+  }
+  return pending.map((tp) => ({
+    ...toArchiveSubmissionItem(tp),
+    group_order: orders.get(normalizeField(tp.current.group))!,
+  }));
 }
 
 export type UnresolvedFeedbackCheck = {
@@ -73,12 +95,17 @@ export type MarkArchivedResult = {
  * (persists across Round switches per plan step 16.5) so they disappear from the page —
  * not shown, not locked, just gone. Everything else keeps reviewing normally.
  */
-export function markTestPointsArchived(reviewState: ReviewState, ids: string[]): MarkArchivedResult {
+export function markTestPointsArchived(reviewState: ReviewState, ids: string[], apiData?: unknown): MarkArchivedResult {
   const idSet = new Set(ids);
+  const returned = (apiData as {test_points?: unknown} | undefined)?.test_points;
+  const returnedById = new Map(Array.isArray(returned) && returned.length === ids.length
+    ? ids.map((id, index) => [id, returned[index]]) : []);
   let archivedCount = 0;
   for (const testPoint of reviewState.test_points) {
     if (idSet.has(testPoint.id) && testPoint.archived !== true) {
       testPoint.archived = true;
+      const order = returnedById.get(testPoint.id)?.group_order;
+      if (Number.isSafeInteger(order) && order >= 0) testPoint.group_order = order;
       archivedCount += 1;
     }
   }

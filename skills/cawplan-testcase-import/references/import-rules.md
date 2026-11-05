@@ -13,7 +13,7 @@
 | 只跳过不覆盖 | 无强制更新；`SKIP` 不 update |
 | refs 幂等 | `cawplan:req_*;cawplan:tp_*;cawplan:case_*` 完整命中才 SKIP |
 
-**错 Suite 重导**：映射按 `product_id`+`case_id`/refs，**不会因换 Suite 自动迁移**；已有映射仍 `SKIP`。
+**错 Suite 重导**：映射按 `product_id`+`case_id`/refs，**不会因换 Suite 自动迁移**；已有映射仍 `SKIP`。若旧用例已在 TestRail 删除、映射却还在，重导同样被 `SKIP` 而不会新建——见 `§StaleMappingCheck`。
 
 ## §StepsCheck（Step 0.6 · preview / `mappings get` 前）
 
@@ -249,3 +249,37 @@ Preview 响应：`to_fail>0` 不得 execute；`section_creates` 需在框 4 一�
 | Public Open API | ❌ 用 internal `qa-insights testrail` |
 | `sections list` + `parent_section_id` 挂靠已有 Section | ✅ 已实现（框 3.5，见 §Section） |
 | 新增 Suite（`add_suite` 代理） | ✅ 已实现（框 3「新增」分支，见 §Suite） |
+
+## §StaleMappingCheck（旧映射探测 · 框 Stale-mapping）
+
+**背景**：CawPlan 映射在 TestRail 删除用例后不会自动清理。重导时，旧映射仍命中 → 该测试点被 `SKIP`，新用例不会创建，用户看到「跳过」却不知原因。
+
+**触发条件（须同时满足）**：
+
+1. `import preview` 成功，且 `to_skip>0`。
+2. 至少一条 `SKIP` 行的 `skip_reason` 为 `MAPPING_EXISTS` 或 `CONTENT_UNCHANGED`（由 CawPlan 映射命中）。`REFS_EXISTS` 来自 TestRail 当前 refs，用例仍在，**不触发**。
+3. 满足其一：
+   - 用户本轮提到「删了 / 删除 / 重导 / 重新导入 / 导错目录 / 放错 Suite」之类；
+   - `to_create=0`（用户预期导入，却什么都不会新建）。
+4. 能确定 `requirement_id`：`REQUIREMENT` 源用该需求；`INLINE` 取 `SKIP` 行涉及的用例自带 `requirement_id`（去重，**最多检查 3 个需求**，超出则不探测）；取不到 → 不探测。
+
+**探测（只读）**：
+
+```bash
+cawplan qa-insights testrail link cases unlink preview <product_id> --requirement-id <requirement_id>
+```
+
+- **不传** `--suite-id`：旧映射记录的是旧 Suite，而本次导入的目标 Suite 是新的，传了会漏掉。
+- **不传** `--scope`：默认 `STALE_ONLY`，只统计旧用例已失效的映射。
+- 同一 preview、同一需求只探测一次；换 Suite / 重新 preview 后可再探测。
+- 探测以任何错误失败（含 `PREVIEW_TOO_LARGE`、`TESTRAIL_UNAVAILABLE`、`PRODUCT_TESTRAIL_URL_MISSING`）→ **静默跳过**，继续原导入流程，不向用户暴露。
+
+**判定**：只看返回的 `summary.stale`（即 `case_state` 为 `STALE_DELETED` / `STALE_NOT_FOUND`）。`stale=0` → 不提示。**禁止**根据 SKIP 行的 `existing_case_id` 自行推断旧用例是否已删除。
+
+**`stale>0`** → 在框 4 **之前**弹框 Stale-mapping（`ux.md §StaleMappingHint`）。多个需求时汇总总数。
+
+**边界（SHALL）**：
+
+- 本 Skill **不**执行 `unlink execute` / `link … execute`，**不** Read `cawplan-testrail-link`，**不**代用户解绑；只给引导话术。
+- 用户选「仍按当前预览继续」→ 回到框 4，流程不变（`SKIP` 行照常跳过）；框 4 正文追加一句旧映射提示。
+- 用户选「去解绑」→ 结束本轮导入，给出引导话术；之后须**新 preview** 才能导入。

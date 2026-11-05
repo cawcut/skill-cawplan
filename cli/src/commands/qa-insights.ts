@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { readFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { cawplanRequest } from "../lib/http.js";
+import { resolveTestPointGroupOrders } from "../lib/qa-insights/testpoint-group-order.js";
 import { parseApiEnvelope, batchReturnedCount } from "../lib/qa-insights/api-codes.js";
 import {
   BodyValidationError,
@@ -16,6 +17,8 @@ import {
   buildTestrailLinkCasesPreviewBody,
   buildTestrailLinkExecuteBody,
   buildTestrailLinkPlansPreviewBody,
+  buildTestrailUnlinkCasesPreviewBody,
+  buildTestrailUnlinkExecuteBody,
   buildTestrailPlanExecuteBody,
   buildTestrailPlanPreviewBody,
   buildTestrailPlanRulesBody,
@@ -26,6 +29,7 @@ import {
   mergeTestrailImportPreviewBody,
   mergeTestrailLinkCasesPreviewBody,
   mergeTestrailLinkPlansPreviewBody,
+  mergeTestrailUnlinkCasesPreviewBody,
   mergeTestrailDefectDraftBody,
   mergeTestrailPlanPreviewBody,
   requiredPositiveInteger,
@@ -61,6 +65,7 @@ import type {
   TestrailLinkCasesPreviewInput,
   TestrailLinkPlansPreviewInput,
   TestrailPlanPreviewInput,
+  TestrailUnlinkCasesPreviewInput,
 } from "../lib/qa-insights/types.js";
 
 /**
@@ -72,8 +77,8 @@ import type {
  * - `requirements create` issues a plain POST with NO pre-flight GET. A1 step 11
  *   routes a first-time archive straight to 11a, and de-duplication is the
  *   skill's Table B decision plus `requirements reconcile` — not a CLI guard.
- * - `testpoints archive` judges success purely from the POST envelope; it does
- *   not GET afterwards (A2 §8.5).
+ * - `testpoints archive` reads existing group orders before POST, then judges
+ *   success purely from the POST envelope; it does not GET afterwards (A2 §8.5).
  * - No reconcile path ever re-POSTs. UNKNOWN means the outcome is genuinely
  *   unknown, and a blind retry is how duplicates get created.
  */
@@ -753,10 +758,25 @@ export async function runTestPointsArchive(
   };
   const emit = emitter(deps);
 
-  let body: { test_points: unknown[] };
+  let body: ReturnType<typeof buildTestPointBatchBody>;
   try {
     const input = await readJsonInput(opts.bodyFile, opts.body, command);
     body = buildTestPointBatchBody(input);
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  // Resolve against BE on every save, including new Reviews and dry runs. Never
+  // fall back to restarting numbering if the read fails: no write has happened.
+  const read = await performRead({
+    request: requester(deps),
+    path: `${API_BASE}/${productId}/qa/requirements/${requirementId}/testpoints`,
+    command,
+    meta,
+  });
+  if (read.envelope) return emit({...read.envelope, outcome: "FAILURE"});
+  try {
+    body = {test_points: resolveTestPointGroupOrders(body.test_points, read.data)};
   } catch (err) {
     return emit(validationEnvelope(command, meta, err));
   }
@@ -880,6 +900,16 @@ export async function runTestPointsReconcile(
 // ---------------------------------------------------------------------------
 // TestRail integration (T2) — A1 import
 // ---------------------------------------------------------------------------
+
+/** Commander accumulator for repeatable string options (`--x a --x b`). */
+function collectRepeatable(value: string, previous: string[] | undefined): string[] {
+  return [...(previous ?? []), value];
+}
+
+/** Commander accumulator for repeatable numeric options; invalid numbers fail later in body validation. */
+function collectRepeatableNumber(value: string, previous: number[] | undefined): number[] {
+  return [...(previous ?? []), Number(value)];
+}
 
 function testrailApiPath(productId: string, suffix: string): string {
   return `${API_BASE}/${productId}/qa/testrail${suffix}`;
@@ -1348,6 +1378,128 @@ export async function runTestrailLinkCasesExecute(
   const envelope = await performTestrailPost({
     request: requester(deps),
     path: testrailApiPath(productId, "/link/cases/execute"),
+    body,
+    command,
+    meta,
+    isWrite: true,
+  });
+  return emit(envelope);
+}
+
+export interface TestrailUnlinkCasesPreviewOptions extends TestrailUnlinkCasesPreviewInput {
+  bodyFile?: string;
+  body?: string;
+  dryRun?: boolean;
+}
+
+export async function runTestrailLinkCasesUnlinkPreview(
+  productId: string,
+  opts: TestrailUnlinkCasesPreviewOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail link cases unlink preview";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    dry_run: Boolean(opts.dryRun),
+    requirement_id: opts.requirementId,
+    suite_id: opts.suiteId,
+  };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    const parsed = await readOptionalJsonInput(
+      opts.bodyFile,
+      opts.body,
+      "testrail link cases unlink preview",
+    );
+    body =
+      parsed === undefined
+        ? buildTestrailUnlinkCasesPreviewBody(opts)
+        : mergeTestrailUnlinkCasesPreviewBody(parsed, opts);
+    if (typeof body.suite_id === "number") meta.suite_id = body.suite_id;
+    if (typeof body.scope === "string") meta.scope = body.scope;
+    const source = body.source as Record<string, unknown> | undefined;
+    const requirementId = source?.requirement_id;
+    if (typeof requirementId === "string") meta.requirement_id = requirementId;
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  // Preview never writes mappings (it only reads TestRail), so it is not a write call.
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/link/cases/unlink/preview"),
+    body,
+    command,
+    meta,
+    isWrite: false,
+  });
+  const previewData = envelope.api?.data as { preview_id?: string; previewId?: string } | undefined;
+  const previewId = previewData?.preview_id ?? previewData?.previewId;
+  if (previewId) meta.preview_id = previewId;
+  return emit(envelope);
+}
+
+export interface TestrailUnlinkCasesExecuteOptions {
+  previewId: string;
+  confirm?: boolean;
+  confirmAliveCases?: boolean;
+  dryRun?: boolean;
+}
+
+export async function runTestrailLinkCasesUnlinkExecute(
+  productId: string,
+  opts: TestrailUnlinkCasesExecuteOptions,
+  deps?: CommandDeps,
+): Promise<void> {
+  const command = "qa-insights testrail link cases unlink execute";
+  const meta: QAInsightsMeta = {
+    product_id: productId,
+    preview_id: opts.previewId,
+    dry_run: Boolean(opts.dryRun),
+  };
+  const emit = emitter(deps);
+
+  let body: Record<string, unknown>;
+  try {
+    body = buildTestrailUnlinkExecuteBody(
+      opts.previewId,
+      Boolean(opts.confirm),
+      Boolean(opts.confirmAliveCases),
+    );
+  } catch (err) {
+    return emit(validationEnvelope(command, meta, err));
+  }
+
+  if (opts.dryRun) {
+    return emit(buildEnvelope({ outcome: "SUCCESS", command, meta, post_body: body }));
+  }
+
+  if (!opts.confirm) {
+    return emit(
+      buildEnvelope({
+        outcome: "FAILURE",
+        command,
+        meta,
+        post_body: body,
+        error: {
+          type: "validation",
+          message:
+            "testrail link cases unlink execute requires --confirm (safety gate; preview must be reviewed first)",
+          api_code: "CONFIRMATION_REQUIRED",
+        },
+      }),
+    );
+  }
+
+  const envelope = await performTestrailPost({
+    request: requester(deps),
+    path: testrailApiPath(productId, "/link/cases/unlink/execute"),
     body,
     command,
     meta,
@@ -2597,6 +2749,56 @@ export function registerQAInsightsCommand(program: Command): void {
     .option("--confirm", "Required safety gate — must be set to execute")
     .option("--dry-run", "Print request body without calling API")
     .action((productId: string, opts) => runTestrailLinkCasesExecute(productId, opts));
+
+  const testrailLinkCasesUnlink = testrailLinkCases
+    .command("unlink")
+    .description("Unlink (soft-delete) stale or wrong CawPlan case mappings so cases can be re-linked");
+  testrailLinkCasesUnlink
+    .command("preview <product_id>")
+    .description(
+      "Preview which case mappings of a requirement would be unlinked (no mapping writes; checks TestRail case state)",
+    )
+    .option("--body-file <path>", "Full unlink preview request JSON")
+    .option("--body <json>", "Inline unlink preview request JSON")
+    .option("--requirement-id <id>", "CawPlan Requirement unique_id (source.type=REQUIREMENT)")
+    .option("--suite-id <n>", "Only consider mappings recorded under this TestRail suite", (v: string) =>
+      Number(v),
+    )
+    .option(
+      "--scope <scope>",
+      "STALE_ONLY (default: only cases already deleted in TestRail) | SELECTED | ALL_IN_REQUIREMENT",
+    )
+    .option(
+      "--test-point-id <id>",
+      "SELECTED only: test point to unlink (repeatable)",
+      collectRepeatable,
+    )
+    .option(
+      "--case-id <n>",
+      "SELECTED only: TestRail case id to unlink (repeatable)",
+      collectRepeatableNumber,
+    )
+    .option("--mapping-id <id>", "SELECTED only: mapping id to unlink (repeatable)", collectRepeatable)
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, opts) =>
+      runTestrailLinkCasesUnlinkPreview(productId, {
+        ...opts,
+        testPointIds: opts.testPointId,
+        caseIds: opts.caseId,
+        mappingIds: opts.mappingId,
+      }),
+    );
+  testrailLinkCasesUnlink
+    .command("execute <product_id>")
+    .description("Execute a confirmed unlink preview (soft-deletes CawPlan mappings only; TestRail is untouched)")
+    .requiredOption("--preview-id <id>", "preview_id from unlink preview response")
+    .option("--confirm", "Required safety gate — must be set to execute")
+    .option(
+      "--confirm-alive-cases",
+      "Required when the preview reports alive_selected > 0 (unlinks cases that still exist in TestRail)",
+    )
+    .option("--dry-run", "Print request body without calling API")
+    .action((productId: string, opts) => runTestrailLinkCasesUnlinkExecute(productId, opts));
 
   const testrailLinkPlans = testrailLink
     .command("plans")

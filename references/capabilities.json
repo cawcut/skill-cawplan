@@ -1,0 +1,511 @@
+{
+  "description": "Source of truth for the capabilities skills may call. Skills name a capability; the agent resolves it to the cawplan CLI or the CawPlan MCP server. Edit this file, then run: python3 scripts/capabilities.py render",
+  "capabilities": {
+    "backlog.create": {
+      "summary": "Create a ticket in a product's backlog. description is the title; remarks is the HTML body.",
+      "write": true,
+      "cli": {
+        "command": "tickets create-backlog",
+        "args": {
+          "product_id": "<product_id>",
+          "description": "--description <text>",
+          "remarks": "--remarks <html>",
+          "type": "--type <type>",
+          "priority": "--priority <p>",
+          "assignee_ids": "--assignees <csv>",
+          "label_ids": "--label_ids <csv>",
+          "parent_id": "--parent_id <id>"
+        }
+      },
+      "mcp": {
+        "tool": "create_backlog_ticket",
+        "args": {
+          "product_id": "product_id",
+          "description": "body.description",
+          "remarks": "body.remarks",
+          "type": "body.type",
+          "priority": "body.priority",
+          "assignee_ids": "body.assignee_ids (array of strings)",
+          "label_ids": "body.label_ids (array of strings)",
+          "parent_id": "body.parent_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "description": "Login fails on Safari",
+        "type": "BUGFIX"
+      }
+    },
+    "backlog.get": {
+      "summary": "Get one backlog ticket's full detail. ticket_id is the ticket unique ID (resolve a display ID with tickets.search first).",
+      "write": false,
+      "cli": {
+        "command": "backlog get",
+        "args": {
+          "product_id": "<product_id>",
+          "ticket_id": "<ticket_id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_backlog_ticket",
+        "args": {
+          "product_id": "product_id",
+          "ticket_id": "ticket_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "ticket_id": "<ticket_unique_id>"
+      }
+    },
+    "backlog.list": {
+      "summary": "List a product's backlog tickets (tickets not planned into a version). Paginated.",
+      "write": false,
+      "cli": {
+        "command": "backlog list",
+        "args": {
+          "product_id": "<product_id>",
+          "page_size": "--page_size <n>",
+          "page_num": "--page_num <n>"
+        }
+      },
+      "mcp": {
+        "tool": "list_backlog_tickets",
+        "args": {
+          "product_id": "product_id",
+          "page_size": "page_size",
+          "page_num": "page_num"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "page_size": 20
+      }
+    },
+    "knowledge.datasets.list": {
+      "summary": "List knowledge datasets visible to the caller, optionally narrowed to one product.",
+      "write": false,
+      "cli": {
+        "command": "knowledge datasets list",
+        "args": {
+          "product_id": "--product <id>"
+        }
+      },
+      "mcp": {
+        "tool": "list_knowledge_datasets",
+        "args": {
+          "product_id": "product_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>"
+      }
+    },
+    "knowledge.documents.get": {
+      "summary": "Get the full content of one knowledge document (knowledge search returns passages only).",
+      "write": false,
+      "cli": {
+        "command": "knowledge documents get",
+        "args": {
+          "dataset_id": "--dataset <id>",
+          "document_id": "--document <id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_knowledge_document",
+        "args": {
+          "dataset_id": "dataset_id",
+          "document_id": "document_id"
+        }
+      },
+      "example": {
+        "dataset_id": "<dataset_id>",
+        "document_id": "<document_id>"
+      }
+    },
+    "knowledge.documents.list": {
+      "summary": "List the documents in one knowledge dataset.",
+      "write": false,
+      "cli": {
+        "command": "knowledge documents list",
+        "args": {
+          "dataset_id": "--dataset <id>",
+          "keyword": "--keyword <text>"
+        }
+      },
+      "mcp": {
+        "tool": "list_knowledge_documents",
+        "args": {
+          "dataset_id": "dataset_id",
+          "keyword": "keyword"
+        }
+      },
+      "example": {
+        "dataset_id": "<dataset_id>"
+      }
+    },
+    "labels.list": {
+      "summary": "List ticket labels; resolve label names to label IDs.",
+      "write": false,
+      "cli": {
+        "command": "labels list",
+        "args": {
+          "search": "--search <q>",
+          "product_id": "--product_id <id>",
+          "page_size": "--page_size <n>",
+          "page_num": "--page_num <n>"
+        }
+      },
+      "mcp": {
+        "tool": "list_labels",
+        "args": {
+          "search": "search",
+          "product_id": "product_id",
+          "page_size": "page_size",
+          "page_num": "page_num"
+        }
+      },
+      "example": {
+        "search": "Bugfix"
+      }
+    },
+    "metrics.domains": {
+      "summary": "List key-metric domains and their metrics. MCP only: on the CLI route pick the domain from the metrics skill instead.",
+      "write": false,
+      "mcp": {
+        "tool": "list_key_metric_domains",
+        "args": {
+          "start": "start",
+          "end": "end"
+        }
+      },
+      "example": {}
+    },
+    "metrics.query": {
+      "summary": "Query business key metrics for one domain over a time window (RFC3339 start inclusive, end exclusive).",
+      "write": false,
+      "cli": {
+        "command": "metrics query",
+        "args": {
+          "domain": "--domain <domain>",
+          "metric": "--metric <metric>",
+          "start": "--start <iso>",
+          "end": "--end <iso>",
+          "granularity": "--granularity <g>",
+          "group_by": "--group_by <keys>",
+          "product_id": "--product_id <id>",
+          "limit": "--limit <n>"
+        }
+      },
+      "mcp": {
+        "tool": "query_key_metrics",
+        "args": {
+          "domain": "domain",
+          "metric": "metric",
+          "start": "start",
+          "end": "end",
+          "granularity": "granularity",
+          "group_by": "group_by (array of strings)",
+          "product_id": "product_id",
+          "limit": "limit"
+        }
+      },
+      "example": {
+        "domain": "cawplan_ticket",
+        "start": "2026-10-28T00:00:00Z",
+        "end": "2026-11-04T00:00:00Z",
+        "granularity": "day"
+      }
+    },
+    "product_lines.list": {
+      "summary": "List product lines; resolve a product line name to product_line_id.",
+      "write": false,
+      "cli": {
+        "command": "product-lines list",
+        "args": {
+          "page_size": "--page_size <n>",
+          "page_num": "--page_num <n>"
+        }
+      },
+      "mcp": {
+        "tool": "list_product_lines",
+        "args": {
+          "page_size": "page_size",
+          "page_num": "page_num"
+        }
+      },
+      "example": {
+        "page_size": 50
+      }
+    },
+    "products.analytics": {
+      "summary": "Get one product's AI-categorized feedback analytics over a time range, optionally for one version.",
+      "write": false,
+      "cli": {
+        "command": "analytics get",
+        "args": {
+          "product_id": "<product_id>",
+          "time_range": "--time_range <range>",
+          "start": "--start <date>",
+          "end": "--end <date>",
+          "version": "--version <v>"
+        }
+      },
+      "mcp": {
+        "tool": "get_product_analytics",
+        "args": {
+          "product_id": "product_id",
+          "time_range": "time_range",
+          "start": "start",
+          "end": "end",
+          "version": "version"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "time_range": "1m"
+      }
+    },
+    "products.list": {
+      "summary": "List products visible to the caller; resolve a product name to product_id.",
+      "write": false,
+      "cli": {
+        "command": "products list",
+        "args": {
+          "search": "--search <q>",
+          "product_line_id": "--product_line_id <id>",
+          "page_size": "--page_size <n>",
+          "page_num": "--page_num <n>"
+        }
+      },
+      "mcp": {
+        "tool": "list_products",
+        "args": {
+          "search": "search",
+          "product_line_id": "product_line_id",
+          "page_size": "page_size",
+          "page_num": "page_num"
+        }
+      },
+      "example": {
+        "search": "Access"
+      }
+    },
+    "products.report": {
+      "summary": "Get a product's activity report for a date range (YYYY-MM-DD), optionally for one version.",
+      "write": false,
+      "cli": {
+        "command": "product-activity get",
+        "args": {
+          "product_id": "--product_id <id>",
+          "start_date": "--start <date>",
+          "end_date": "--end <date>",
+          "version_id": "--version_id <id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_product_report",
+        "args": {
+          "product_id": "product_id",
+          "start_date": "start_date",
+          "end_date": "end_date",
+          "version_id": "version_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "start_date": "2026-10-28",
+        "end_date": "2026-11-04"
+      }
+    },
+    "ticket_statuses.list": {
+      "summary": "List one product line's ticket workflow statuses in order, including custom statuses.",
+      "write": false,
+      "cli": {
+        "command": "product-lines statuses",
+        "args": {
+          "product_line_id": "<product_line_id>"
+        }
+      },
+      "mcp": {
+        "tool": "list_ticket_statuses",
+        "args": {
+          "product_line_id": "product_line_id"
+        }
+      },
+      "example": {
+        "product_line_id": "<product_line_id>"
+      }
+    },
+    "tickets.search": {
+      "summary": "Find tickets by display ID, unique ID or filters. Returns full ticket fields, including description (title), remarks (body) and progress_comment.",
+      "write": false,
+      "cli": {
+        "command": "tickets search",
+        "args": {
+          "display_ids": "--display_ids <csv>",
+          "unique_ids": "--unique_ids <csv>"
+        }
+      },
+      "mcp": {
+        "tool": "search_tickets",
+        "args": {
+          "display_ids": "body.display_ids (array of strings)",
+          "unique_ids": "body.unique_ids (array of strings)"
+        }
+      },
+      "example": {
+        "display_ids": [
+          "CWP-123",
+          "CAW-456"
+        ]
+      }
+    },
+    "todos.list": {
+      "summary": "List one user's open work: assigned tickets and critical issues.",
+      "write": false,
+      "cli": {
+        "command": "todos user",
+        "args": {
+          "user_id": "<user_id>",
+          "ticket_status": "--ticket_status <csv>",
+          "issue_status": "--issue_status <csv>"
+        }
+      },
+      "mcp": {
+        "tool": "list_user_todos",
+        "args": {
+          "user_id": "user_id",
+          "ticket_status": "ticket_status (comma-separated)",
+          "issue_status": "issue_status (comma-separated)"
+        }
+      },
+      "example": {
+        "user_id": "<user_id>"
+      }
+    },
+    "users.me": {
+      "summary": "Get the signed-in user (resolve \"me\" to user_id). MCP only: on the CLI route read the `User ID:` line of the CLI auth status command instead.",
+      "write": false,
+      "mcp": {
+        "tool": "get_current_user",
+        "args": {}
+      },
+      "example": {}
+    },
+    "users.search": {
+      "summary": "Find users by exact email or by keyword over name and email; resolve a person to user_id.",
+      "write": false,
+      "cli": {
+        "command": "users query",
+        "args": {
+          "email": "--email <email>",
+          "keyword": "--keyword <q>",
+          "page_size": "--page_size <n>",
+          "page_num": "--page_num <n>"
+        }
+      },
+      "mcp": {
+        "tool": "search_users",
+        "args": {
+          "email": "body.email",
+          "keyword": "body.keyword",
+          "page_size": "body.page_size",
+          "page_num": "body.page_num"
+        }
+      },
+      "example": {
+        "keyword": "alice"
+      }
+    },
+    "versions.create": {
+      "summary": "Create a version in a product.",
+      "write": true,
+      "cli": {
+        "command": "versions create",
+        "args": {
+          "product_id": "<product_id>",
+          "name": "--name <version>",
+          "description": "--description <text>",
+          "major_id": "--major_id <id>"
+        }
+      },
+      "mcp": {
+        "tool": "create_version",
+        "args": {
+          "product_id": "product_id",
+          "name": "body.name",
+          "description": "body.description",
+          "major_id": "body.major_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "name": "1.2.0"
+      }
+    },
+    "versions.get": {
+      "summary": "Get one version's detail (status, dates, completion, risk).",
+      "write": false,
+      "cli": {
+        "command": "versions get",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_version",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>"
+      }
+    },
+    "versions.list": {
+      "summary": "List one product's versions; resolve a version name to version_id.",
+      "write": false,
+      "cli": {
+        "command": "versions list",
+        "args": {
+          "product_id": "<product_id>"
+        }
+      },
+      "mcp": {
+        "tool": "list_versions",
+        "args": {
+          "product_id": "product_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>"
+      }
+    },
+    "versions.releases": {
+      "summary": "Get a version's release history.",
+      "write": false,
+      "cli": {
+        "command": "releases list",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_version_releases",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>"
+      }
+    }
+  }
+}

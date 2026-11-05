@@ -17,6 +17,7 @@ import {
   runOAuthLogin,
   startDeviceLogin,
 } from "../lib/oauth.js";
+import { revokeRefreshToken } from "../lib/http.js";
 import { success, error, info } from "../lib/output.js";
 import { getConfigPath, readUserConfig } from "../lib/user-config.js";
 
@@ -133,8 +134,14 @@ export function registerAuthCommand(program: Command): void {
 
   auth
     .command("logout")
-    .description("Remove stored credentials")
+    .description("Revoke the session server-side and remove stored credentials")
     .action(async () => {
+      // Best-effort: an unreadable credentials file or a failed revoke must
+      // not stop the local sign-out.
+      const creds = await readCredentials().catch(() => null);
+      if (creds?.refreshToken) {
+        await revokeRefreshToken(creds.refreshToken);
+      }
       await deleteCredentials();
       await deletePendingLogin();
       success("Logged out.");

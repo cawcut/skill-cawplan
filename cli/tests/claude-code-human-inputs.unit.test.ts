@@ -107,4 +107,45 @@ describe("collectClaudeCodeSession human_inputs", () => {
     const result = collectClaudeCodeSession(path, "cawcut", "s1", "2026-09-22");
     expect(result.human_inputs?.map((h) => h.content)).toEqual(["review the test points"]);
   });
+
+  test("keeps typed text that follows desktop @\"path\" attachment lines", () => {
+    const dir = makeDir();
+    const path = join(dir, "session.jsonl");
+    const user = (ts: string, content: unknown) => ({
+      type: "user",
+      timestamp: ts,
+      cwd: "/repo",
+      origin: { kind: "human" },
+      message: { role: "user", content },
+    });
+    writeJsonl(path, [
+      user("2026-10-29T01:00:00.000Z", [
+        { type: "text", text: "<system-reminder>Worktree notice.</system-reminder>" },
+        {
+          type: "text",
+          text: '@"/home/dev/Docs/QA Insight"\n/cawplan-requirement-analyze rework the QA insight UX\nticket: https://app.cawplan.com/issue/CWP-25488',
+        },
+      ]),
+      user("2026-10-29T01:05:00.000Z", '@"/tmp/a.pdf" @"/tmp/b.png"\n@"/tmp/c"\nwhat does form-action mean here'),
+      // Attachment with no typed text is still not a human input.
+      user("2026-10-29T01:10:00.000Z", [{ type: "text", text: '@"/tmp/only-a-file.png"' }]),
+      user("2026-10-29T01:15:00.000Z", 'compare @"/tmp/a.pdf" with the spec'),
+      // Slash-command wrapper inside a block list (worktree reminder prepended).
+      user("2026-10-29T01:20:00.000Z", [
+        { type: "text", text: "<system-reminder>Worktree notice.</system-reminder>" },
+        {
+          type: "text",
+          text: "<command-message>cawplan-requirement-analyze</command-message>\n<command-name>/cawplan-requirement-analyze</command-name>\n<command-args>reorganize the member page requirement</command-args>",
+        },
+      ]),
+    ]);
+
+    const result = collectClaudeCodeSession(path, "cawcut", "s1", "2026-10-29");
+    expect(result.human_inputs?.map((h) => h.content)).toEqual([
+      "/cawplan-requirement-analyze rework the QA insight UX\nticket: https://app.cawplan.com/issue/CWP-25488",
+      "what does form-action mean here",
+      'compare @"/tmp/a.pdf" with the spec',
+      "reorganize the member page requirement",
+    ]);
+  });
 });

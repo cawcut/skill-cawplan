@@ -34,8 +34,14 @@ it's no longer available through this skill/CLI rather than guessing at a substi
 
 ## Workflow A — Metrics query
 
-Every domain is prefixed `cawplan_`. Business domains and their metric names are open-ended (new
-ones get added over time), but the common ones today — and, critically, **which metrics inside
+The `cawplan_` prefix belongs only to CawPlan's own internal domains (written by its services).
+Data reported from outside uses no such prefix: the predefined Dashboard chart metrics (for example
+`subscriptions_revenue_by_plan_amount`, tag `plan`) and any point written without a domain live in
+the `default` domain — the full list is in `docs/usage-metrics.md` ("预设图表"). If a user names a
+domain like `predefined_subscriptions` or `cawplan_predefined_subscriptions`, tell them the
+predefined charts use the `default` domain and omit `--domain`; never ask them to add a `cawplan_`
+prefix. Business domains and their metric names are
+open-ended (new ones get added over time), but the common ones today — and, critically, **which metrics inside
 each domain actually have a producer writing to them right now** vs. which are defined but still
 empty (a query against an empty one returns zero rows, which looks identical to "no data in this
 range," not "this isn't wired yet" — don't guess past this list without checking):
@@ -88,7 +94,7 @@ If the user names a metric that doesn't obviously map to one of these, ask rathe
 4. Run the query:
    ```bash
    cawplan metrics query \
-     --domain <domain> [--metric <metric>] \
+     [--domain <domain>] [--metric <metric>] \
      --start <iso> --end <iso> \
      --granularity day \
      [--tag <key:value> ...] \
@@ -111,17 +117,48 @@ backfill or correct history in bulk (the ingest endpoint validates and rejects o
 item in a batch; it isn't a bulk-load tool).
 
 ```bash
-cawplan metrics ingest --domain <domain> --metric <metric> --value 1 \
-  [--dimensions '{"product":"<product_id>"}'] \
-  [--tags '{"from_plan":"basic","to_plan":"pro"}']
+cawplan metrics ingest --product_id <product_id> [--domain <domain>] --metric <metric> --value 1 \
+  [--tags '{"plan":"enterprise"}']
 ```
+
+### Ask before writing (every time)
+
+A written point cannot be edited or deleted, so never write on a guess. Before the command, make
+sure each of these is known; **ask the user for any that is missing** instead of choosing a value:
+
+1. **Which product to report to.** Always ask, even when the request looks complete. Never infer it
+   from the working directory, the previous question, or the "closest" product name. Resolve the
+   name the user gives with `cawplan products list --search "<name>"`: accept an exact
+   (case-insensitive) match, a unique prefix, or a candidate the user explicitly confirms; if it is
+   absent or ambiguous, list the candidates and ask. Use the product's unique id as `--product_id`.
+2. **The metric** and its value (and whether the value is a `value` or a `count`). Keep the number
+   as given: a "$2000" is `2000`, the store keeps no currency — say so.
+3. **The tags, with their keys.** If the user gives a tag value without a key (for example "Tag: The
+   Enterprise Plan"), ask for the key — do not invent one such as `plan`. For a predefined chart
+   metric the breakdown tag is part of that chart's contract, so confirm it with the user.
+4. **The domain is optional** and defaults to `default`, the domain of the predefined charts: omit
+   `--domain` for those metrics (look the metric up in `docs/usage-metrics.md`, "预设图表", to
+   confirm it and its tag key). Do not make up a `cawplan_*` or `predefined_*` domain — `cawplan_*`
+   belongs to CawPlan's own producers (`cawplan_ticket`, `cawplan_qa_insight`, ...). Pass a domain
+   only when the user names one that is not `cawplan_`-prefixed.
+
+Then show the user the complete point — **product (name and id), domain, metric, value, tags,
+timestamp** — and write only after they confirm it. "Looks right / go ahead" counts; a silent
+assumption does not.
+
+A product is **required** by the server: every point must name the product it reports for
+(`--product_id`, or `dimensions.product` on each item of an `--items` batch). Only an admin, or a
+user with product edit permission on every product in the batch, may ingest; otherwise the server
+answers 403 and writes nothing (the shared global API key is always rejected — a personal API key
+or CLI login is needed). On a 403, tell the user they need product edit permission on that product
+instead of retrying.
 
 The server records the uploader on every point in a reserved `ingested_by` tag (the caller's user
 id). Never send `ingested_by` (or `workspace_id`) yourself — it is overwritten. For QA points that
 belong to a module, put the module in `--tags '{"module_id":"<node_id>"}'`.
 
-Confirm the `domain`/`metric` pair and any dimensions/tags with the user before writing — there is
-no undo for a written point (see `references/CAWPLAN_OPEN_API.md` §7).
+After a successful write, report the product, domain, metric, value and tags that were stored, and
+that the point cannot be edited or deleted (see `references/CAWPLAN_OPEN_API.md` §7).
 
 ## Output
 
