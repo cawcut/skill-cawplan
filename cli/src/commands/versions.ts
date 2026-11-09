@@ -1,6 +1,73 @@
 import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
 import { buildQueryFromFlags } from "../lib/cache.js";
+import { requestTicketStats } from "../lib/ticket-insights.js";
+
+type Request = typeof cawplanRequest;
+type StatsRequest = typeof requestTicketStats;
+
+interface StatsGroup {
+  count?: number;
+  values?: { value?: string }[];
+}
+
+/**
+ * Version-wide ticket counts by status category. Unlike `detail.data.progress`
+ * (top-level tickets only), `tickets stats` counts sub-issues too, so these
+ * numbers are the real workload of the version.
+ */
+export async function fetchVersionTicketProgress(
+  productId: string,
+  versionId: string,
+  stats: StatsRequest = requestTicketStats,
+  today: Date = new Date(),
+): Promise<Record<string, unknown>> {
+  const endDate = today.toISOString().slice(0, 10);
+  try {
+    const result = (await stats({
+      query: { start_date: "2000-01-01", end_date: endDate },
+      body: { product_ids: [productId], version_ids: [versionId], group_by: ["status_category"] },
+    })) as { data?: { groups?: StatsGroup[] } };
+    const statusCounts: Record<string, number> = {};
+    let total = 0;
+    for (const group of result?.data?.groups ?? []) {
+      const category = group.values?.[0]?.value ?? "UNKNOWN";
+      const count = group.count ?? 0;
+      statusCounts[category] = (statusCounts[category] ?? 0) + count;
+      total += count;
+    }
+    const open = total - (statusCounts.CANCELED ?? 0);
+    const complete = statusCounts.COMPLETE ?? 0;
+    return {
+      includes_sub_issues: true,
+      total,
+      status_counts: statusCounts,
+      complete_percent: open > 0 ? Math.round((complete / open) * 1000) / 10 : 0,
+    };
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function trackVersion(
+  productId: string,
+  versionId: string,
+  deps: { request?: Request; stats?: StatsRequest } = {},
+): Promise<Record<string, unknown>> {
+  const request = deps.request ?? cawplanRequest;
+  const [detail, release, ticketProgress] = await Promise.all([
+    request({
+      method: "GET",
+      path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}`,
+    }),
+    request({
+      method: "GET",
+      path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/release`,
+    }),
+    fetchVersionTicketProgress(productId, versionId, deps.stats),
+  ]);
+  return { detail, release, ticket_progress: ticketProgress };
+}
 
 export function registerVersionsCommand(program: Command): void {
   const versions = program.command("versions").description("Manage versions");
@@ -56,19 +123,12 @@ export function registerVersionsCommand(program: Command): void {
 
   versions
     .command("track <product_id> <version_id>")
-    .description("Show release progress: ticket completion, risk, target release dates")
+    .description(
+      "Show release progress: ticket completion, risk, target release dates (ticket_progress counts sub-issues)",
+    )
     .action(async (productId: string, versionId: string) => {
-      const [detail, release] = await Promise.all([
-        cawplanRequest({
-          method: "GET",
-          path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}`,
-        }),
-        cawplanRequest({
-          method: "GET",
-          path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/release`,
-        }),
-      ]);
-      console.log(JSON.stringify({ detail, release }, null, 2));
+      const result = await trackVersion(productId, versionId);
+      console.log(JSON.stringify(result, null, 2));
     });
 
   // Releases subcommand lives naturally alongside versions

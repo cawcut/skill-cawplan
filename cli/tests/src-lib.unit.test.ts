@@ -31,6 +31,7 @@ import {
   runOAuthLogin,
   startDeviceLogin,
   startOAuthLogin,
+  userCodeMessage,
 } from "../src/lib/oauth";
 import { getAuthState } from "../src/lib/auth-state";
 import { buildScopedCacheKey, getCache, getCacheScope, setCache } from "../src/lib/cache";
@@ -941,6 +942,8 @@ describe("src lib oauth", () => {
     expect(parsed.searchParams.get("client")).toBe("cawplan-cli");
     expect(parsed.searchParams.get("code")).toBe("code-123");
     expect([...parsed.searchParams.keys()].sort()).toEqual(["client", "code"]);
+
+    // The user code is never in the link; the user types it from the terminal.
   });
 
   test("opens OAuth URL on Windows without routing ampersands through cmd", () => {
@@ -1010,6 +1013,7 @@ describe("src lib oauth", () => {
           data: {
             code: "browser-code",
             token: "private-token",
+            user_code: "BCDF-GHJK",
             expires_in: 300,
             interval: 2,
           },
@@ -1019,12 +1023,44 @@ describe("src lib oauth", () => {
     };
 
     await expect(startOAuthLogin()).resolves.toEqual({
+      mode: "",
       code: "browser-code",
       token: "private-token",
+      userCode: "BCDF-GHJK",
       expiresIn: 300,
       interval: 2,
     });
-    expect(calls).toEqual([JSON.stringify({ client: "cawplan-cli" })]);
+    expect(calls).toEqual([JSON.stringify({ client: "cawplan-cli", displays_user_code: true })]);
+  });
+
+  test("tolerates a server that predates the user code", async () => {
+    await writeProtoConfig();
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({ code: "SUCCESS", data: { code: "browser-code", token: "private-token" } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+
+    await expect(startOAuthLogin()).resolves.toMatchObject({ code: "browser-code", userCode: "" });
+  });
+
+  test("browser login prints the user code to type on the consent page", async () => {
+    await writeProtoConfig();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let callCount = 0;
+    globalThis.fetch = async () => {
+      callCount += 1;
+      const body = callCount === 1
+        ? { code: "SUCCESS", data: { code: "browser-code", token: "private-token", user_code: "BCDF-GHJK", expires_in: 300, interval: 1 } }
+        : { code: "SUCCESS", data: { access_token: "access", refresh_token: "refresh", expire: 1770000000 } };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    };
+
+    await runOAuthLogin({ openBrowser: async () => undefined, pollIntervalMs: 1, pollingTimeoutMs: 1000 });
+
+    expect(consoleError).toHaveBeenCalledWith(userCodeMessage("BCDF-GHJK"));
+    expect(userCodeMessage("BCDF-GHJK")).toContain("enter: BCDF-GHJK");
+    consoleError.mockRestore();
   });
 
   test("polls OAuth exchange until browser consent completes", async () => {
@@ -1055,6 +1091,7 @@ describe("src lib oauth", () => {
       accessToken: "access",
       refreshToken: "refresh",
       expire: 1770000000,
+      apiBase: protoEnvironment.apiBase,
     });
     expect(calls).toEqual([
       JSON.stringify({ token: "private-token" }),
@@ -1073,7 +1110,7 @@ describe("src lib oauth device-auth", () => {
 
   const startBody = {
     code: "SUCCESS",
-    data: { code: "browser-code", token: "private-token", expires_in: 300, interval: 1 },
+    data: { code: "browser-code", token: "private-token", user_code: "BCDF-GHJK", expires_in: 300, interval: 1 },
   };
   const tokensBody = {
     code: "SUCCESS",
@@ -1093,6 +1130,9 @@ describe("src lib oauth device-auth", () => {
     expect(urls).toHaveLength(1);
     expect(urls[0]).toMatch(/\/api\/v1\/cli\/oauth\/start$/);
     expect(pending.verificationUrl).toBe(buildConsentUrl("browser-code"));
+    expect(new URL(pending.verificationUrl).searchParams.has("user_code")).toBe(false);
+    expect(pending.verificationUrl).not.toContain("BCDF");
+    expect(pending.userCode).toBe("BCDF-GHJK");
     expect(pending.expiresAt).toBe(1_000_000_000 + 300);
     expect(getPendingLoginPath()).toBe(join(tmpDir, "pending-login.json"));
     await expect(readPendingLogin()).resolves.toEqual(pending);
@@ -1132,7 +1172,7 @@ describe("src lib oauth device-auth", () => {
 
     await expect(completeDeviceLogin({ waitMs: 1000, pollIntervalMs: 1 })).resolves.toEqual({
       status: "success",
-      credentials: { accessToken: "access", refreshToken: "refresh", expire: 1770000000 },
+      credentials: { accessToken: "access", refreshToken: "refresh", expire: 1770000000, apiBase: protoEnvironment.apiBase },
     });
     await expect(readPendingLogin()).resolves.toBeNull();
   });
@@ -1230,7 +1270,8 @@ describe("src lib oauth device-auth", () => {
       await expect(readPendingLogin()).resolves.not.toBeNull();
       const output = consoleLog.mock.calls.map((call) => String(call[0])).join("\n");
       expect(output).toContain("Using device-auth login: coding agent detected (CLAUDECODE)");
-      expect(output).toContain("If you are an AI agent: show the URL below to the user");
+      expect(output).toContain("If you are an AI agent: show the URL and the sign-in code below to the user");
+      expect(output).toContain(userCodeMessage("BCDF-GHJK"));
       expect(output).toContain(buildConsentUrl("browser-code"));
       expect(output).toContain("After approving, run: cawplan auth login --device-auth --complete");
     } finally {
@@ -1295,6 +1336,7 @@ describe("src lib http", () => {
       accessToken: "old-access",
       refreshToken: "refresh-token",
       expire: Math.floor(Date.now() / 1000) + 3600,
+      apiBase: protoEnvironment.apiBase,
     });
 
     const calls: Array<{ url: string; authorization?: string; body?: string }> = [];

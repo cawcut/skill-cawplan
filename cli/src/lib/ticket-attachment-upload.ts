@@ -1,8 +1,7 @@
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { sensitivePathMessage, sensitivePathReason } from "./attachment-path-policy.js";
+import { openUploadFile, type OpenedUploadFile, type UploadScope } from "./attachment-path-policy.js";
 import { displayImageSize, readImageSize } from "./image-dimensions.js";
 import { cawplanRequest } from "./http.js";
 import type { TicketAttachmentType } from "./ticket-attachments.js";
@@ -168,20 +167,22 @@ export async function requestTicketAttachmentUploadUrl(
 }
 
 /**
- * Stream a local file to a presigned S3 PUT URL. No Authorization header: S3
- * rejects a second auth mechanism and the CawPlan token must not leak to S3.
+ * Stream the first `bytes` of an open local file to a presigned S3 PUT URL.
+ * No Authorization header: S3 rejects a second auth mechanism and the
+ * CawPlan token must not leak to S3.
  */
 export async function putFileToSignedUrl(
   uploadUrl: string,
-  filePath: string,
+  file: FileHandle,
   bytes: number,
   contentType: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
+  const stream = file.createReadStream({ start: 0, end: bytes - 1, autoClose: false });
   const res = await fetchImpl(uploadUrl, {
     method: "PUT",
     headers: { "content-type": contentType, "content-length": String(bytes) },
-    body: Readable.toWeb(createReadStream(filePath)) as unknown as BodyInit,
+    body: Readable.toWeb(stream) as unknown as BodyInit,
     duplex: "half",
   } as RequestInit);
   if (!res.ok) {
@@ -199,19 +200,31 @@ export interface LocalUploadFile {
 }
 
 export interface UploadOptions {
+  /** Refuse files outside this scope; undefined only with --allow-outside-cwd. */
+  scope?: UploadScope;
   concurrency?: number;
   fetchImpl?: typeof fetch;
   onProgress?: (msg: string) => void;
 }
 
-/** Size of a local file that may be uploaded; throws for credential files, non-regular and empty files. */
-export async function checkUploadFile(filePath: string): Promise<number> {
-  const sensitive = sensitivePathReason(filePath);
-  if (sensitive) throw new Error(sensitivePathMessage(sensitive));
-  const info = await stat(filePath);
-  if (!info.isFile()) throw new Error("not a regular file");
-  if (info.size === 0) throw new Error("file is empty");
-  return info.size;
+/**
+ * Open a local file that may be uploaded (see openUploadFile); throws for
+ * credential files, files outside `scope`, non-regular and empty files.
+ */
+export async function openAttachmentFile(filePath: string, scope: UploadScope | undefined): Promise<OpenedUploadFile> {
+  const opened = await openUploadFile(filePath, scope);
+  if (opened.bytes === 0) {
+    await opened.handle.close();
+    throw new Error("file is empty");
+  }
+  return opened;
+}
+
+/** Size of a local file that may be uploaded (see openAttachmentFile). */
+export async function checkUploadFile(filePath: string, scope: UploadScope | undefined): Promise<number> {
+  const { handle, bytes } = await openAttachmentFile(filePath, scope);
+  await handle.close();
+  return bytes;
 }
 
 /** Upload files to a version ticket's attachment storage, a few at a time. */
@@ -229,12 +242,14 @@ export async function uploadTicketAttachmentFiles(
     for (let i = next++; i < files.length; i = next++) {
       const file = files[i]!;
       const filename = file.filename ?? path.basename(file.path);
+      let opened: OpenedUploadFile | undefined;
       try {
-        const bytes = await checkUploadFile(file.path);
+        opened = await openAttachmentFile(file.path, options.scope);
+        const { bytes } = opened;
         const target = await requestTicketAttachmentUploadUrl(ticket, { filename, contentLength: bytes });
         const contentType = target.content_type || mimeTypeForFilename(filename);
-        await putFileToSignedUrl(target.upload_url, file.path, bytes, contentType, options.fetchImpl);
-        const size = target.type === "image" ? await readImageSize(file.path) : undefined;
+        await putFileToSignedUrl(target.upload_url, opened.handle, bytes, contentType, options.fetchImpl);
+        const size = target.type === "image" ? await readImageSize(opened.realPath) : undefined;
         const uploaded = {
           path: file.path,
           filename: target.filename || filename,
@@ -249,6 +264,8 @@ export async function uploadTicketAttachmentFiles(
       } catch (err) {
         results[i] = { path: file.path, filename, error: err instanceof Error ? err.message : String(err) };
         options.onProgress?.(`Failed ${++done}/${files.length}: ${filename}`);
+      } finally {
+        await opened?.handle.close();
       }
     }
   };

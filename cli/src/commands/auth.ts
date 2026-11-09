@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import {
+  credentialApiBase,
   readCredentials,
   writeCredentials,
   deleteCredentials,
@@ -13,9 +14,12 @@ import {
   currentLoginEnvironment,
   deletePendingLogin,
   detectDeviceAuthReason,
+  detectRemoteLoginReason,
   formatOAuthValidity,
+  runLoopbackLogin,
   runOAuthLogin,
   startDeviceLogin,
+  userCodeMessage,
 } from "../lib/oauth.js";
 import { revokeRefreshToken } from "../lib/http.js";
 import { success, error, info } from "../lib/output.js";
@@ -26,7 +30,10 @@ export function registerAuthCommand(program: Command): void {
 
   auth
     .command("login")
-    .description("Log in via browser (OAuth2); switches to device-auth automatically for coding agents and non-interactive shells")
+    .description(
+      "Log in via browser (OAuth2). On this machine the browser returns to the CLI; over SSH, without a display, or with " +
+        "--no-browser you type a code shown here instead. Switches to device-auth automatically for coding agents and non-interactive shells",
+    )
     .option(
       "--device-auth",
       "Do not open a browser: print a verification URL to approve on any device, then exit (for agents, SSH, sandboxes)",
@@ -37,11 +44,18 @@ export function registerAuthCommand(program: Command): void {
       "With --complete: how long to wait for approval before exiting with status 2",
       String(DEVICE_LOGIN_DEFAULT_WAIT_MS / 1000),
     )
-    .option("--browser", "Force the browser flow even when no interactive terminal or a coding agent is detected")
+    .option(
+      "--browser",
+      "Force the local browser flow even when a coding agent, no interactive terminal, or a remote session is detected",
+    )
+    .option(
+      "--no-browser",
+      "Do not open a browser: print a URL to open on any device and a code to enter there, then wait for approval",
+    )
     .action(async (opts: { deviceAuth?: boolean; complete?: boolean; browser?: boolean; wait: string }) => {
       try {
-        if (opts.browser && (opts.deviceAuth || opts.complete)) {
-          throw new Error("--browser cannot be combined with --device-auth or --complete");
+        if (opts.browser !== undefined && (opts.deviceAuth || opts.complete)) {
+          throw new Error("--browser and --no-browser cannot be combined with --device-auth or --complete");
         }
         if (opts.complete) {
           const waitSeconds = Number(opts.wait);
@@ -52,6 +66,9 @@ export function registerAuthCommand(program: Command): void {
           if (result.status === "pending") {
             const remaining = result.pending.expiresAt - Math.floor(Date.now() / 1000);
             info(`Still waiting for approval at:\n  ${result.pending.verificationUrl}`);
+            if (result.pending.userCode) {
+              info(userCodeMessage(result.pending.userCode));
+            }
             info(`The login expires in ${formatRemaining(remaining)}. Re-run: cawplan auth login --device-auth --complete`);
             process.exit(2);
           }
@@ -59,7 +76,7 @@ export function registerAuthCommand(program: Command): void {
           return;
         }
 
-        const autoReason = opts.deviceAuth || opts.browser
+        const autoReason = opts.deviceAuth || opts.browser !== undefined
           ? null
           : detectDeviceAuthReason(currentLoginEnvironment());
         if (opts.deviceAuth || autoReason) {
@@ -67,17 +84,33 @@ export function registerAuthCommand(program: Command): void {
           const validity = formatRemaining(pending.expiresAt - Math.floor(Date.now() / 1000));
           if (autoReason) {
             success(`Using device-auth login: ${autoReason}. To open a local browser instead, run: cawplan auth login --browser`);
-            success("If you are an AI agent: show the URL below to the user, wait until they confirm approval, then run the command on the last line.");
+            success("If you are an AI agent: show the URL and the sign-in code below to the user, wait until they confirm approval, then run the command on the last line.");
           }
           success("Open this URL on any device where you are signed in to CawPlan, and approve the login:");
           success(`  ${pending.verificationUrl}`);
-          success(`Code: ${pending.code}`);
+          if (pending.userCode) {
+            success(userCodeMessage(pending.userCode));
+          } else {
+            success(`Code: ${pending.code}`);
+          }
           success(`This verification is valid for ${validity}.`);
           success("After approving, run: cawplan auth login --device-auth --complete");
           return;
         }
 
-        await saveLogin(await runOAuthLogin());
+        // The loopback flow needs a browser on this machine; otherwise the
+        // user approves elsewhere and types the code this CLI prints.
+        const remoteReason = opts.browser === false
+          ? "--no-browser"
+          : opts.browser
+            ? null
+            : detectRemoteLoginReason(process.env);
+        if (remoteReason) {
+          info(`Using sign-in code login: ${remoteReason}.`);
+          await saveLogin(await runOAuthLogin({ skipBrowser: true }));
+          return;
+        }
+        await saveLogin(await runLoopbackLogin());
       } catch (err_) {
         error(String(err_ instanceof Error ? err_.message : err_));
         process.exit(1);
@@ -94,7 +127,10 @@ export function registerAuthCommand(program: Command): void {
       let oauthLine: string;
       let activeLine: string;
 
-      if (creds?.accessToken) {
+      if (state.envMismatch) {
+        oauthLine = `OAuth:   credentials were issued for ${state.envMismatch.issuedFor}, ` +
+          `but the active environment uses ${state.envMismatch.active}. Run: cawplan auth login`;
+      } else if (creds?.accessToken) {
         const expired = isAccessTokenExpired(creds);
         if (expired && creds.refreshToken) {
           const expiry = new Date((creds.expire ?? 0) * 1000).toISOString();
@@ -140,7 +176,8 @@ export function registerAuthCommand(program: Command): void {
       // not stop the local sign-out.
       const creds = await readCredentials().catch(() => null);
       if (creds?.refreshToken) {
-        await revokeRefreshToken(creds.refreshToken);
+        // Revoke against the environment that issued the token, not the active one.
+        await revokeRefreshToken(creds.refreshToken, credentialApiBase(creds));
       }
       await deleteCredentials();
       await deletePendingLogin();

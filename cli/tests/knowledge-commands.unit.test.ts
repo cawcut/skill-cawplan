@@ -1,5 +1,5 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os, { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { Command } from "commander";
@@ -25,6 +25,7 @@ describe("knowledge commands (document modules)", () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "knowledge-cmd-test-"));
+    vi.spyOn(process, "cwd").mockReturnValue(tmpDir);
     request = vi.spyOn(http, "cawplanRequest");
     vi.spyOn(console, "log").mockImplementation(() => {});
     errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -145,6 +146,70 @@ describe("knowledge commands (document modules)", () => {
 
     const call = request.mock.calls[0][0] as { body: Record<string, unknown> };
     expect(call.body).not.toHaveProperty("module_id");
+  });
+
+  describe("local file policy (CWP-26673)", () => {
+    let home: string;
+    let key: string;
+    beforeEach(() => {
+      home = join(tmpDir, "home");
+      key = join(home, ".ssh", "id_rsa");
+      mkdirSync(join(home, ".ssh"), { recursive: true });
+      // Assemble the synthetic header at runtime to keep secret scanners useful.
+      writeFileSync(key, ["-----BEGIN OPENSSH ", "PRIVATE KEY-----"].join(""), "utf8");
+      vi.spyOn(os, "homedir").mockReturnValue(home);
+      request.mockResolvedValue({ code: "SUCCESS", msg: "success", data: { job_id: "job-1" } });
+    });
+
+    const refusedOutput = () => JSON.parse(errorSpy.mock.calls.at(-1)![0] as string) as {
+      code: string;
+      data: { refused: Array<{ file: string; msg: string }> };
+    };
+
+    test.each([
+      ["upload --file", ["documents", "upload", "--dataset", DATASET, "--force", "--no-wait", "--file"]],
+      ["upload --text-file", ["documents", "upload", "--dataset", DATASET, "--force", "--text-file"]],
+      ["update --file", ["documents", "update", "--dataset", DATASET, "--document", DOCUMENT, "--no-wait", "--file"]],
+      ["update --text-file", ["documents", "update", "--dataset", DATASET, "--document", DOCUMENT, "--text-file"]],
+    ])("%s refuses ~/.ssh/id_rsa even with --allow-outside-cwd", async (_name, args) => {
+      await run([...args, key, "--allow-outside-cwd"]);
+      expect(request).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+      expect(refusedOutput()).toMatchObject({
+        code: "ERROR",
+        data: { refused: [{ file: key, msg: "refused: credential file (~/.ssh) is never uploaded" }] },
+      });
+    });
+
+    test("refuses files outside the cwd unless --allow-outside-cwd, and uploads nothing of the batch", async () => {
+      const outside = join(home, "Documents", "notes.md");
+      mkdirSync(join(home, "Documents"), { recursive: true });
+      writeFileSync(outside, "# private", "utf8");
+      vi.spyOn(process, "cwd").mockReturnValue(join(tmpDir, "work"));
+      mkdirSync(join(tmpDir, "work"));
+      writeFileSync(join(tmpDir, "work", "a.md"), "# a", "utf8");
+
+      await run(["documents", "upload", "--dataset", DATASET, "--force", "--text-file", join(tmpDir, "work", "a.md"), "--text-file", outside]);
+      expect(request).not.toHaveBeenCalled();
+      expect(refusedOutput().data.refused.map((r) => r.file)).toEqual([outside]);
+
+      process.exitCode = undefined;
+      await run(["documents", "upload", "--dataset", DATASET, "--force", "--text-file", outside, "--allow-outside-cwd"]);
+      expect(request).toHaveBeenCalledTimes(1);
+      expect((request.mock.calls[0][0] as { body: { text: string } }).body.text).toBe("# private");
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    test("a cwd of $HOME confines nothing", async () => {
+      const doc = join(home, "Documents", "notes.md");
+      mkdirSync(join(home, "Documents"), { recursive: true });
+      writeFileSync(doc, "# private", "utf8");
+      vi.spyOn(process, "cwd").mockReturnValue(home);
+
+      await run(["documents", "update", "--dataset", DATASET, "--document", DOCUMENT, "--text-file", doc]);
+      expect(request).not.toHaveBeenCalled();
+      expect(refusedOutput().data.refused[0]!.msg).toMatch(/is your home directory or above it/);
+    });
   });
 
   test("documents set-module --module PUTs the module id", async () => {

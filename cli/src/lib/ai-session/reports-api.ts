@@ -2,6 +2,7 @@ import {cawplanRequest} from "../http.js";
 import {extractDataObject, extractList} from "../ai-session/helpers.js";
 import type {AiSessionReportItem} from "../ai-session/types.js";
 import type {DailyApiJson} from "../collect/types.js";
+import {redactSecretsDeep} from "../collect/redact.js";
 
 const MAX_SESSION_ID_LENGTH = 64;
 
@@ -29,13 +30,23 @@ function normalizeSessionIdsForUpload(payload: DailyApiJson): DailyApiJson {
     };
 }
 
+/** Upload body: session IDs fitted to the server and secrets masked in every text field. */
+export function buildDailyReportUploadBody(payload: DailyApiJson): {body: DailyApiJson; redactions: number} {
+    // The service persists session IDs in varchar(64). Preserve the trailing
+    // identifier portion when collector-specific prefixes make an ID longer.
+    const {value, count} = redactSecretsDeep(normalizeSessionIdsForUpload(payload));
+    return {body: value, redactions: count};
+}
+
 export async function uploadDailyReport(payload: DailyApiJson): Promise<unknown> {
+    const {body, redactions} = buildDailyReportUploadBody(payload);
+    if (redactions > 0) {
+        console.error(`Redacted ${redactions} secret-like value(s) from the report before upload.`);
+    }
     return cawplanRequest({
         method: "POST",
         path: "/api/v1/public/openapi/ai-session-usage/reports",
-        // The service persists session IDs in varchar(64). Preserve the trailing
-        // identifier portion when collector-specific prefixes make an ID longer.
-        body: normalizeSessionIdsForUpload(payload),
+        body,
     });
 }
 

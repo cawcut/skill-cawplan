@@ -2,6 +2,7 @@ import {cawplanRequest} from "../http.js";
 import {extractDataObject, extractList} from "../ai-session/helpers.js";
 import type {QaDailyApiJson} from "../collect/qa-types.js";
 import {toQaUploadPayload} from "../collect/aggregators/qa-daily.js";
+import {redactSecretsDeep} from "../collect/redact.js";
 import type {QaSessionReportItem} from "./types.js";
 
 const QA_REPORTS_PATH = "/api/v1/public/openapi/qa-session-usage/reports";
@@ -11,10 +12,14 @@ export async function uploadQaDailyReport(payload: QaDailyApiJson): Promise<unkn
     if (upload.sessions.length === 0) {
         return {skipped: true, message: "No QA sessions to upload."};
     }
+    const {value: body, count: redactions} = redactSecretsDeep(upload);
+    if (redactions > 0) {
+        console.error(`Redacted ${redactions} secret-like value(s) from the report before upload.`);
+    }
     return cawplanRequest({
         method: "POST",
         path: QA_REPORTS_PATH,
-        body: upload,
+        body,
     });
 }
 

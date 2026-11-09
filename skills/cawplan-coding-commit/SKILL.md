@@ -47,7 +47,7 @@ Examples:
 
 If the user provides a single-day argument, resolve it before Step 1 and use that date in every command below. If the user provides a month-missing argument, skip the single-day workflow and follow **Month-missing workflow** below. If the user provides an unsupported argument, ask for a valid date or month instead of guessing.
 
-Always present the AI-summarized review before uploading. Proceed only when explicit user approval covers the reviewed report content and exact dates. If approval is missing, ask and wait. Do not ask again when that exact write was already explicitly approved.
+Always present the AI-summarized review before uploading. The review is a summary, but the upload is not: the report carries the raw conversation text (prompts, assistant replies, raw blocks, tool output), file paths and working directories. The CLI masks secret-shaped values (API keys, tokens, JWTs, private keys, `password=`-style pairs) before sending; everything else is uploaded as written. Say this to the user when asking for approval. Proceed only when explicit user approval covers the reviewed report content and exact dates. If approval is missing, ask and wait. Do not ask again when that exact write was already explicitly approved.
 
 ## Permission Minimization
 
@@ -155,6 +155,7 @@ Confirm that explicit user approval covers this reviewed report and date before 
 ```bash
 cawplan session report --file "$report_file"
 ```
+If the CLI prints `Redacted N secret-like value(s)`, pass that line on to the user.
 
 **Step 7 — Other dates require their own authorization:**
 
@@ -207,6 +208,7 @@ Before asking for upload confirmation, include these sections:
 - Session review: for each important session, include title/name, agent, time range, cost, repo/files changed, and 1-2 sentences describing what work happened. Do not list only title/time/cost.
 - Human input highlights: summarize notable `human_inputs` by category (`decision`, `direction`, `correction`, `planning`) and include representative prompts when useful.
 - Data quality notes: mention missing/estimated costs, API warnings, sessions without cost, or empty models.
+- Upload contents: state plainly that the raw conversation text, file paths and `cwd` in `$report_file` are uploaded as-is after secret redaction, and that the user can open `$report_file` to check or edit them before approving.
 
 Use a compact table for numbers if useful, but always include the narrative summary and session review text.
 

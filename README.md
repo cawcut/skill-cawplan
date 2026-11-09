@@ -70,5 +70,7 @@ Use `/cawplan-ticket-context` before or during ticket work so the next `/cawplan
 - `Not authenticated` → run `cawplan auth login`
 - `Session expired` → run `cawplan auth login`
 - Browser did not open → copy the printed URL and open it manually
-- No browser on this machine (SSH, sandbox, agent) → `cawplan auth login --device-auth`, approve the printed URL on any device, then `cawplan auth login --device-auth --complete`
+- On your own computer, `cawplan auth login` opens the browser and the browser returns to the CLI by itself; no code is typed
+- Browser on another device (SSH, Codespaces, no display) → `cawplan auth login` switches to a sign-in code automatically; force it with `cawplan auth login --no-browser`, open the printed URL on any device and enter the code the CLI shows
+- Agent or sandbox that cannot wait → `cawplan auth login --device-auth`, approve the printed URL on any device, then `cawplan auth login --device-auth --complete`
 

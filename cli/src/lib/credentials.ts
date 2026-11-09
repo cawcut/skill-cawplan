@@ -1,6 +1,8 @@
 import { chmod, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { normalizeApiBase } from "./config.js";
+import { getBuiltinDefaultApiBase } from "./products.js";
 
 export interface Credentials {
   accessToken?: string;
@@ -11,6 +13,8 @@ export interface Credentials {
   email?: string;
   /** User unique_id of the authenticated user (from OAuth access token) */
   user_id?: string;
+  /** API base the tokens were issued by; missing on files written before it was recorded */
+  apiBase?: string;
 }
 
 const CREDENTIALS_MODE = 0o600;
@@ -27,6 +31,14 @@ export function isAccessTokenExpired(
 ): boolean {
   if (credentials.expire == null) return true;
   return credentials.expire <= nowSeconds;
+}
+
+/**
+ * API base the stored tokens were issued by. Files written before the field
+ * existed only ever came from the built-in default (prd) environment.
+ */
+export function credentialApiBase(credentials: Credentials): string {
+  return normalizeApiBase(credentials.apiBase ?? getBuiltinDefaultApiBase());
 }
 
 function decodeAccessToken(token?: string): Record<string, unknown> | null {
@@ -74,6 +86,7 @@ export async function readCredentials(): Promise<Credentials | null> {
       accessToken: parsed.accessToken,
       refreshToken: parsed.refreshToken,
       expire: parsed.expire,
+      ...(typeof parsed.apiBase === "string" && parsed.apiBase.trim() ? { apiBase: parsed.apiBase } : {}),
     });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {

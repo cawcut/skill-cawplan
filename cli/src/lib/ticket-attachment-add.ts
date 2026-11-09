@@ -1,6 +1,6 @@
 import { stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { isInsideBase, sensitivePathReason } from "./attachment-path-policy.js";
+import { isInsideBase, outsideScopeMessage, sensitivePathReason, uploadPathRefusal, uploadScope } from "./attachment-path-policy.js";
 import { ApiError, cawplanRequest } from "./http.js";
 import {
   uploadTicketAttachmentFiles,
@@ -21,7 +21,7 @@ import {
 } from "./ticket-html-report.js";
 import { buildContent, renderMarkdown, type ContentSource } from "./ticket-attachment-source.js";
 
-export interface AddAttachmentsOptions extends UploadOptions {
+export interface AddAttachmentsOptions extends Omit<UploadOptions, "scope"> {
   source: ContentSource;
   /** Markdown shown before the content; local references resolve against the current directory. */
   note?: string;
@@ -36,6 +36,12 @@ export interface AddAttachmentsOptions extends UploadOptions {
    * current directory for --note). Credential files stay refused.
    */
   allowOutsideBase?: boolean;
+  /**
+   * Let the source (--file paths, the --dir / --md-file / --html-file /
+   * --base-dir path) and the files it references come from outside the
+   * current directory / git repository. Credential files stay refused.
+   */
+  allowOutsideCwd?: boolean;
   dryRun?: boolean;
   htmlOut?: string;
   /** Re-read + re-merge attempts when the ticket changed concurrently (409). */
@@ -66,9 +72,15 @@ export interface AddAttachmentsSummary {
 export interface BlockedFile {
   path: string;
   refs: string[];
-  /** outside_base: outside the base directory without --allow-outside-base; sensitive: a credential file. */
-  reason: "outside_base" | "sensitive";
-  /** For sensitive: the matched location, e.g. `~/.ssh`. */
+  /**
+   * outside_base: outside the base directory without --allow-outside-base;
+   * outside_cwd: outside the current directory / git repository without --allow-outside-cwd;
+   * broad_cwd: the current directory / git repository is $HOME or above it, so it confines
+   * nothing, and --allow-outside-cwd was not given;
+   * sensitive: a credential file.
+   */
+  reason: "outside_base" | "outside_cwd" | "broad_cwd" | "sensitive";
+  /** For sensitive: the matched location, e.g. `~/.ssh`; for outside_cwd / broad_cwd: the workspace root. */
   detail?: string;
 }
 
@@ -127,9 +139,15 @@ export async function addTicketAttachments(
     options.source.kind === "files"
       ? { kind: "files", paths: options.source.paths.map((p) => path.resolve(p)) }
       : { kind: options.source.kind, path: path.resolve(options.source.path) };
-  const built = await buildContent(source);
+  const scope = options.allowOutsideCwd ? undefined : uploadScope();
   const singleFile = source.kind === "html" || source.kind === "md";
   const baseDir = options.baseDir && singleFile ? path.resolve(options.baseDir) : undefined;
+  // The document itself (its text goes into the ticket) and the directories references resolve in.
+  for (const p of source.kind === "files" ? [] : [source.path, ...(baseDir ? [baseDir] : [])]) {
+    const refusal = uploadPathRefusal(p, scope);
+    if (refusal) throw new Error(`${p}: ${refusal}`);
+  }
+  const built = await buildContent(source);
   // --dir sections resolve against their own folder but may reference anything under the --dir root.
   const root =
     source.kind === "files" ? undefined : source.kind === "dir" ? source.path : (baseDir ?? path.dirname(source.path));
@@ -153,7 +171,9 @@ export async function addTicketAttachments(
     const sensitive = sensitivePathReason(f.path);
     if (sensitive) blocked.push({ path: f.path, refs: f.refs, reason: "sensitive", detail: sensitive });
     else if (outside.has(f.path) && !options.allowOutsideBase) blocked.push({ path: f.path, refs: f.refs, reason: "outside_base" });
-    else allowed.push(f);
+    else if (scope && outsideScopeMessage(f.path, scope)) {
+      blocked.push({ path: f.path, refs: f.refs, reason: scope.tooBroad ? "broad_cwd" : "outside_cwd", detail: scope.workspace });
+    } else allowed.push(f);
   }
   const files = await Promise.all(
     allowed.map(async (f) => ({
@@ -179,7 +199,7 @@ export async function addTicketAttachments(
   };
   if (summary.missing.length > 0 || summary.blocked.length > 0 || options.dryRun) return summary;
 
-  const { uploaded, failed } = await uploadTicketAttachmentFiles(ticket, files, options);
+  const { uploaded, failed } = await uploadTicketAttachmentFiles(ticket, files, { ...options, scope });
   summary.uploaded = uploaded.map(({ html: _html, ...rest }) => rest);
   summary.failed = failed;
   if (failed.length > 0) return summary;
