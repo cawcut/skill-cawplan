@@ -17,8 +17,12 @@ Counting and change-history work runs on the CawPlan backend. The CLI only maps 
 | Counts by priority / status / status category / UX / assignee / label / version | `cawplan tickets stats --group_by <dims> [tickets search filters]` | paging `tickets search` and counting |
 | Status / UX / priority / assignee changes in a window, for many tickets | `cawplan tickets changes --start_date <d> --end_date <d> <scope> --fields <f> [--actor_ids ...] [--new_status_categories ...]` | one `tickets history` call per ticket |
 | Counts of those changes | `cawplan tickets changes ... --group_by actor,new_status_category` | counting events yourself |
-| Ticket rows to display | `cawplan tickets search` (paged), or the `tickets` map returned by `tickets changes` | — |
+| Ticket rows to display | `cawplan tickets search --view compact` (50 rows per page by default; paged), or the `tickets` map returned by `tickets changes` | full-field 20-row pages (the server default) |
 
+- `tickets search --view compact` keeps list fields only (IDs, description, status and category,
+  priority, UX, product/version, label, reporter and assignee names, timestamps) on one JSON line, so a
+  50-row page (the compact default) stays around 25KB. Use `tickets get` when a ticket's remarks, analysis or
+  comments are needed.
 - When the question only needs counts, call `tickets stats` first. Do not page `tickets search`
   to count, and do not page it before trying `tickets stats`.
 - `tickets stats` needs the same date window as `tickets search`: pass

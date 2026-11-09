@@ -7,6 +7,12 @@ import { resolveProductId, resolveVersionId, resolveUserIds } from "../lib/resol
 import { resolveTicketIdArg } from "../lib/resolve-ticket-id.js";
 import { normalizeTicketDetailFieldsCsv } from "../lib/ticket-detail-fields.js";
 import {
+  COMPACT_TICKET_PAGE_SIZE,
+  compactTicketSearchResult,
+  isTicketSearchView,
+  TICKET_SEARCH_VIEWS,
+} from "../lib/ticket-list-compact.js";
+import {
   TICKET_ATTACHMENT_TYPES,
   defaultAttachmentOutDir,
   downloadTicketAttachments,
@@ -488,15 +494,26 @@ export function registerTicketsCommand(program: Command): void {
   addTicketFilterOptions(tickets.command("search").description("Search tickets"))
     .option("--page_size <n>", "Page size")
     .option("--page_num <n>", "Page number")
+    .option(
+      "--view <mode>",
+      `Row view: ${TICKET_SEARCH_VIEWS.join("|")} (default full). compact prints one-line JSON with list fields only (drops remarks, analysis, comments, links and user objects; use tickets get for details) and defaults page size to ${COMPACT_TICKET_PAGE_SIZE}`,
+    )
     .action(async (opts) => {
       const windowError = validateTicketFilterWindow(opts, "tickets search");
       if (windowError) {
         console.error(windowError);
         process.exit(1);
       }
+      const view = opts.view ?? "full";
+      if (!isTicketSearchView(view)) {
+        console.error(`Invalid --view: ${view} (allowed: ${TICKET_SEARCH_VIEWS.join(", ")})`);
+        process.exit(1);
+      }
+      const compact = view === "compact";
 
       const flags = buildTicketFilterQuery(opts);
       if (opts.page_size) flags.page_size = opts.page_size;
+      else if (compact) flags.page_size = String(COMPACT_TICKET_PAGE_SIZE);
       if (opts.page_num) flags.page_num = opts.page_num;
       const query = buildQueryFromFlags(flags, [...TICKET_FILTER_QUERY_KEYS, "page_size", "page_num"]);
       const body = buildTicketFilterBody(opts);
@@ -507,6 +524,10 @@ export function registerTicketsCommand(program: Command): void {
         query,
         body,
       });
+      if (compact) {
+        console.log(JSON.stringify(compactTicketSearchResult(result)));
+        return;
+      }
       console.log(JSON.stringify(result, null, 2));
     });
 
