@@ -6,9 +6,12 @@ import {dispatchTestPointReviewRequest} from "../src/lib/testpoint-review/testpo
 import type {ArchiveTestPointsFn, ReconcileTestPointsFn} from "../src/lib/testpoint-review/testpoint-review-web-server.js";
 import {createFixtureReviewState} from "../src/lib/testpoint-review/fixtures.js";
 import {createReviewStateFromInput} from "../src/lib/testpoint-review/create-review.js";
-import {reviewFilePath, saveReviewState} from "../src/lib/testpoint-review/store.js";
+import {loadReviewState, reviewFilePath, saveReviewState} from "../src/lib/testpoint-review/store.js";
+import {runTestPointsArchive} from "../src/commands/qa-insights.js";
+import {applyAiOptimization} from "../src/lib/testpoint-review/optimize-apply.js";
+import {testPointReviewHtml} from "../src/lib/testpoint-review/testpoint-review-html.js";
 import type {ReviewState} from "../src/lib/testpoint-review/types.js";
-import type {QAInsightsWriteEnvelope} from "../src/lib/qa-insights/types.js";
+import type {QAInsightsWriteEnvelope, TestPointDraft} from "../src/lib/qa-insights/types.js";
 
 const TOKEN = "test-token";
 
@@ -71,6 +74,128 @@ describe("dispatchTestPointReviewRequest /api/save-to-cawplan (design §4/§4.1,
         if (originalEnv === undefined) delete process.env.CAWPLAN_TESTPOINT_REVIEW_PATH;
         else process.env.CAWPLAN_TESTPOINT_REVIEW_PATH = originalEnv;
         rmSync(dir, {recursive: true, force: true});
+    });
+
+    test.each(["initial", "page edits", "AI optimization", "reordered state", "filtered rows", "deleted first row"])(
+        "POST group_order matches the final Review after %s; row order is unchanged",
+        async (stage) => {
+            state = createReviewStateFromInput({
+                productId: "prod_1", requirementId: "req_1",
+                testPoints: ["A", "B", "A", "B", "C"].map((group, i) => ({
+                    title: `point ${i}`, group, tags: [], priority: "HIGH",
+                })),
+            });
+            if (stage === "page edits") {
+                for (const tp of state.test_points) {
+                    const group = tp.current.group === "A" ? "B" : tp.current.group === "B" ? "A" : "C";
+                    const edit = await dispatchTestPointReviewRequest(
+                        req("POST", `/api/test-points/${tp.id}`), JSON.stringify({group}), TOKEN, {reviewState: state},
+                    );
+                    expect(edit.status).toBe(200);
+                }
+            } else if (stage === "AI optimization") {
+                state = applyAiOptimization(state, {
+                    modified: state.test_points.map((tp) => ({
+                        id: tp.id,
+                        fields: {...tp.current, group: tp.current.group === "A" ? "B" : tp.current.group === "B" ? "A" : "C"},
+                    })),
+                    questions: {retained_ids: [], added: []},
+                }).reviewState;
+            } else if (stage === "reordered state") {
+                const [a1, b1, a2, b2, c1] = state.test_points;
+                state.test_points = [b1, a1, b2, a2, c1];
+            } else if (stage === "filtered rows") {
+                const template = state.test_points[0];
+                state.test_points.unshift(
+                    {...template, id: "archived", archived: true, current: {...template.current, group: "Archived"}},
+                    {...template, id: "deleted", status: "deleted", current: {...template.current, group: "Deleted"}},
+                );
+            } else if (stage === "deleted first row") {
+                state.test_points[0].status = "deleted";
+            }
+            saveReviewState(state);
+            state = loadReviewState(state.review_id);
+            const expectedTitles = state.test_points.filter((tp) => !tp.archived && tp.status !== "deleted").map((tp) => tp.current.title);
+            const expectedGroups = ["initial", "filtered rows", "deleted first row"].includes(stage) ? ["A", "B", "C"] : ["B", "A", "C"];
+            const html = testPointReviewHtml(state, TOKEN);
+            expect([...html.matchAll(/<h2>\d+\. ([ABC])<\/h2>/g)].map((match) => match[1])).toEqual(expectedGroups);
+
+            const request = vi.fn(async (options: {body?: unknown; method?: string}) => ({
+                code: "SUCCESS", data: {test_points: options.method === "POST"
+                    ? (options.body as {test_points: TestPointDraft[]}).test_points : []},
+            }));
+            const archiveTestPoints: ArchiveTestPointsFn = async (productId, requirementId, body) => {
+                let envelope: QAInsightsWriteEnvelope | undefined;
+                await runTestPointsArchive(productId, requirementId, {body: JSON.stringify(body)}, {
+                    request: request as never, emit: (result) => { envelope = result; },
+                });
+                return envelope!;
+            };
+            const result = await dispatchTestPointReviewRequest(
+                req("POST", "/api/save-to-cawplan"), "{}", TOKEN, {reviewState: state, archiveTestPoints},
+            );
+            expect(result.status).toBe(200);
+            expect(result.body).toMatchObject({outcome: "SUCCESS", archived_count: expectedTitles.length});
+            expect(request).toHaveBeenCalledTimes(2);
+            const sent = request.mock.calls[1][0].body as {test_points: TestPointDraft[]};
+            expect(sent.test_points.map((tp) => tp.group_order)).toEqual(
+                stage === "deleted first row" ? [2, 1, 2, 3] : [1, 2, 1, 2, 3],
+            );
+            expect(sent.test_points.map((tp) => tp.title)).toEqual(expectedTitles);
+            expect(sent.test_points.every((tp) => !("sort_order" in tp))).toBe(true);
+            const orderedGroups = [...new Map(sent.test_points.map((tp) => [tp.group, tp.group_order]))]
+                .sort((a, b) => a[1] - b[1]).map(([group]) => group);
+            expect(orderedGroups).toEqual(expectedGroups);
+        },
+    );
+
+    test("multiple saves and a new Review reuse BE orders, including external additions", async () => {
+        let existing: TestPointDraft[] = [];
+        const requests: string[] = [];
+        const archiveTestPoints: ArchiveTestPointsFn = async (productId, requirementId, body) => {
+            let result: QAInsightsWriteEnvelope | undefined;
+            await runTestPointsArchive(productId, requirementId, {body: JSON.stringify(body)}, {
+                request: (async (options: {method?: string; body?: {test_points: TestPointDraft[]}}) => {
+                    requests.push(options.method ?? "GET");
+                    if (options.method !== "POST") return {code: "SUCCESS", data: {test_points: existing}};
+                    const added = options.body!.test_points;
+                    existing = [...existing, ...added];
+                    return {code: "SUCCESS", data: {test_points: added}};
+                }) as never,
+                emit: (envelope) => {result = envelope;},
+            });
+            return result!;
+        };
+        const create = (groups: string[]) => createReviewStateFromInput({
+            productId: "prod_1", requirementId: "req_1",
+            testPoints: groups.map((group) => ({title: group, group, tags: [], priority: "HIGH"})),
+        });
+        const save = async () => {
+            const result = await dispatchTestPointReviewRequest(req("POST", "/api/save-to-cawplan"), "{}", TOKEN,
+                {reviewState: state, archiveTestPoints});
+            expect(result.status).toBe(200);
+            state = loadReviewState(state.review_id);
+        };
+        state = create(["A", "B", "C"]);
+        await save();
+        expect(state.test_points.map((tp) => tp.group_order)).toEqual([1, 2, 3]);
+        state = applyAiOptimization(state, {
+            added: ["D", "E", "B"].map((group) => ({title: group, group, tags: [], priority: "HIGH"})),
+            questions: {retained_ids: [], added: []},
+        }).reviewState;
+        await save();
+        expect(existing.map((p) => p.group_order)).toEqual([1, 2, 3, 4, 5, 2]);
+        expect(state.test_points.filter((tp) => tp.current.group === "B").map((tp) => tp.group_order)).toEqual([2, 2]);
+        // A new Review does not need a cached copy of the old groups.
+        state = create(["F", "A"]);
+        await save();
+        expect(existing.slice(-2).map((p) => p.group_order)).toEqual([6, 1]);
+        // Another client creates a group after this Review has been prepared.
+        state = create(["G", "A"]);
+        existing.push({...existing[0], group: "external", group_order: 20});
+        await save();
+        expect(existing.slice(-2).map((p) => p.group_order)).toEqual([21, 1]);
+        expect(requests).toEqual(["GET", "POST", "GET", "POST", "GET", "POST", "GET", "POST"]);
     });
 
     test("submits all non-deleted, non-archived test points and marks them archived on SUCCESS", async () => {

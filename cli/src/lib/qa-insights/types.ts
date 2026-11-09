@@ -93,8 +93,8 @@ export interface RequirementRow extends Partial<RequirementFiveFields> {
  */
 export const IS_AI_GENERATED = true as const;
 
-/** Skill-supplied keys per test-point item (before CLI injects `is_ai_generated` and `category_code`). */
-export const TESTPOINT_CALLER_KEYS = ["title", "tags", "group", "priority", "is_edited"] as const;
+/** Review supplies group_order; legacy callers may omit it for first-appearance numbering. */
+export const TESTPOINT_CALLER_KEYS = ["title", "tags", "group", "priority", "is_edited", "group_order"] as const;
 
 /** Stable machine categories accepted by the TestPoint API payload. */
 export const TESTPOINT_CATEGORY_CODES = [
@@ -134,18 +134,20 @@ export const TESTPOINT_PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as con
 
 export type TestPointPriority = (typeof TESTPOINT_PRIORITIES)[number];
 
-/** One test-point item as sent to the API (five caller keys + two CLI-injected fields). */
+/** One test-point item as sent to the API (group_order is computed if omitted). */
 export interface TestPointDraft {
   title: string;
   tags: string[];
   group: string;
+  /** Final BE-wide integer on POST; existing historical zeroes are preserved. */
+  group_order: number;
   priority: TestPointPriority;
   is_edited: boolean;
   is_ai_generated: typeof IS_AI_GENERATED;
   category_code: TestPointCategoryCode | null;
 }
 
-/** @deprecated Use TESTPOINT_CALLER_KEYS — legacy alias for the five-key caller contract. */
+/** @deprecated Use TESTPOINT_CALLER_KEYS. */
 export const TESTPOINT_BODY_KEYS = TESTPOINT_CALLER_KEYS;
 
 /**
@@ -201,6 +203,7 @@ export interface QAInsightsMeta {
   created_plan_mapping_ids?: string[];
   job_id?: string;
   preview_id?: string;
+  scope?: string;
   dry_run: boolean;
 }
 
@@ -355,6 +358,20 @@ export interface TestrailLinkCasesPreviewInput {
   suiteId?: number;
   requirementId?: string;
   parentSectionId?: number;
+}
+
+/** Which case mappings `link cases unlink preview` considers for removal. */
+export type TestrailUnlinkScope = "STALE_ONLY" | "SELECTED" | "ALL_IN_REQUIREMENT";
+
+/** `POST .../qa/testrail/link/cases/unlink/preview` — Workflow C (stale/wrong mapping cleanup). */
+export interface TestrailUnlinkCasesPreviewInput {
+  requirementId?: string;
+  suiteId?: number;
+  scope?: TestrailUnlinkScope | string;
+  /** Selectors, only valid with scope=SELECTED. Arrays or comma-separated strings. */
+  testPointIds?: string[] | string;
+  caseIds?: Array<number | string> | string;
+  mappingIds?: string[] | string;
 }
 
 /** One Ticket ↔ TestRail Plan/Run binding for link plans preview. */

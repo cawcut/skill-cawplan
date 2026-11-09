@@ -43,6 +43,8 @@ export type TestPoint = {
   ai_status: "none" | "modified" | "added";
   comments: TestPointComment[];
   archived?: boolean;
+  /** BE-returned group order after a successful save; never a substitute for a fresh BE read. */
+  group_order?: number;
 };
 
 export type DeletedTombstone = {

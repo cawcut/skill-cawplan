@@ -1462,7 +1462,37 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
 
       function autoGrow(el) {
         el.style.height = "auto";
-        el.style.height = el.scrollHeight + "px";
+        // Empty fields use rows=1. Measuring their placeholder at a temporary
+        // narrow width can otherwise pin hundreds of pixels into inline height.
+        if (el.value.length === 0) return;
+        var style = getComputedStyle(el);
+        if (el.clientWidth <= parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)) return;
+        el.style.height = (el.scrollHeight + el.offsetHeight - el.clientHeight) + "px";
+      }
+
+      function wireQuestionAnswerSizes() {
+        var wraps = document.querySelectorAll(".question-input-wrap");
+        if (!wraps.length) return;
+        function growAll() {
+          wraps.forEach(function (wrap) { autoGrow(wrap.querySelector("textarea")); });
+        }
+        if (typeof ResizeObserver === "undefined") {
+          requestAnimationFrame(growAll);
+          window.addEventListener("resize", growAll);
+          return;
+        }
+        var widths = new WeakMap();
+        var observer = new ResizeObserver(function (entries) {
+          entries.forEach(function (entry) {
+            var width = entry.contentRect.width;
+            // Always process the first notification; ignore height-only changes
+            // caused by autoGrow itself to avoid a resize feedback loop.
+            if (widths.get(entry.target) === width) return;
+            widths.set(entry.target, width);
+            autoGrow(entry.target.querySelector("textarea"));
+          });
+        });
+        wraps.forEach(function (wrap) { observer.observe(wrap); });
       }
 
       function wireQuestionAnswers() {
@@ -2087,6 +2117,7 @@ export function testPointReviewHtml(state?: ReviewState, token = ""): string {
       document.querySelectorAll(".ai-status-label").forEach(wireOriginalCompareToggle);
       document.querySelectorAll("tr.comment-row").forEach(wireCommentForm);
       wireQuestionAnswers();
+      wireQuestionAnswerSizes();
       wireQuestionLifecycleFlush();
       wireAddTestPointPanel();
       focusNewlyAddedRow();

@@ -218,6 +218,10 @@ export function rewriteLocalRefs(html: string, baseDir: string, uploaded: Map<st
     if (ref.element === "img" && file.type === "image") {
       let next = setAttr(attrs, "src", file.url);
       next = setAttr(next, "alt", file.filename, true);
+      // Keep an author-chosen size; otherwise cap it like a direct upload.
+      if (file.width && file.height && attr(next, "width") === undefined && attr(next, "height") === undefined) {
+        next = setAttr(setAttr(next, "width", String(file.width)), "height", String(file.height));
+      }
       return serializeOpenTag("img", next, selfClosing ?? false);
     }
     if (ref.element === "data-src" && tag) {

@@ -12,7 +12,7 @@ import {
   checkUnresolvedFeedback,
   markTestPointsArchived,
   testPointsPendingArchive,
-  toArchiveSubmissionItem,
+  toArchiveSubmissionItems,
 } from "../lib/testpoint-review/archive-submission.js";
 import { loadReviewState, saveReviewState } from "../lib/testpoint-review/store.js";
 import {
@@ -255,11 +255,16 @@ export function registerTestPointReviewCommand(program: Command): void {
           return;
         }
 
-        const body = { test_points: pending.map(toArchiveSubmissionItem) };
+        const body = { test_points: toArchiveSubmissionItems(state) };
         const batchSize = pending.length;
 
         if (opts.dryRun) {
-          console.log(JSON.stringify({ review_id: state.review_id, post_body: body }, null, 2));
+          await runTestPointsArchive(opts.productId, opts.requirementId, {body: JSON.stringify(body), dryRun: true}, {
+            emit: (result) => {
+              console.log(JSON.stringify({review_id: state.review_id, ...result}, null, 2));
+              if (result.outcome !== "SUCCESS") process.exitCode = 1;
+            },
+          });
           return;
         }
 
@@ -323,6 +328,7 @@ export function registerTestPointReviewCommand(program: Command): void {
         const { reviewState: nextState, archivedCount } = markTestPointsArchived(
           state,
           pending.map((tp) => tp.id),
+          envelope.api?.data,
         );
         nextState.count_before += batchSize;
         saveReviewState(nextState);

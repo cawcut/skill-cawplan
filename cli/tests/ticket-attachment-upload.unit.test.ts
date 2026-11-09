@@ -76,6 +76,18 @@ function mockBackend(
   return { spy, puts };
 }
 
+/** Smallest PNG prefix the size reader accepts: signature + IHDR. */
+function pngHeader(width: number, height: number): Buffer {
+  const buf = Buffer.alloc(33);
+  buf.writeUInt32BE(0x89504e47, 0);
+  buf.writeUInt32BE(0x0d0a1a0a, 4);
+  buf.writeUInt32BE(13, 8);
+  buf.write("IHDR", 12, "ascii");
+  buf.writeUInt32BE(width, 16);
+  buf.writeUInt32BE(height, 20);
+  return buf;
+}
+
 function okFetch() {
   return vi.fn(async () => new Response(null, { status: 200 })) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
 }
@@ -84,6 +96,9 @@ describe("renderAttachmentHtml", () => {
   test("uses the editor attachment shapes", () => {
     const base = { url: `${CDN}/a.png`, bytes: 2048 };
     expect(renderAttachmentHtml({ ...base, filename: "a.png", type: "image" })).toBe(`<img src="${CDN}/a.png" alt="a.png">`);
+    expect(renderAttachmentHtml({ ...base, filename: "a.png", type: "image", width: 800, height: 500 })).toBe(
+      `<img src="${CDN}/a.png" alt="a.png" width="800" height="500">`,
+    );
     expect(renderAttachmentHtml({ ...base, url: `${CDN}/r.mov`, filename: "r.mov", type: "video" })).toBe(
       `<div data-type="video-attachment" class="video-attachment" data-src="${CDN}/r.mov" data-filename="r.mov" ` +
         `data-mime="video/quicktime"><span class="video-filename">r.mov</span></div>`,
@@ -188,6 +203,22 @@ describe("local reference rewriting", () => {
     expect(out).toContain(`<img src="https://cdn.example.com/remote.png">`);
   });
 
+  test("adds the uploaded display size unless the author sized the image", () => {
+    const html = `<img src="shots/b.png">\n<img src="./shots/case%201.png" width="320">`;
+    const sized = { bytes: 10, type: "image" as const, html: "", width: 800, height: 500 };
+    const b = path.join(dir, "shots", "b.png");
+    const c = path.join(dir, "shots", "case 1.png");
+    const out = rewriteLocalRefs(
+      html,
+      dir,
+      new Map([
+        [b, { ...sized, path: b, filename: "b.png", key: "k1", url: `${CDN}/b.png` }],
+        [c, { ...sized, path: c, filename: "case 1.png", key: "k2", url: `${CDN}/c.png` }],
+      ]),
+    );
+    expect(out).toBe(`<img src="${CDN}/b.png" alt="b.png" width="800" height="500">\n<img src="${CDN}/c.png" width="320" alt="case 1.png">`);
+  });
+
   test("extractReportBody keeps only body content", () => {
     const doc = `<!doctype html><html><head><title>T</title><style>p{}</style></head><body><p>hi</p><script>x()</script></body></html>`;
     expect(extractReportBody(doc)).toBe("<p>hi</p>");
@@ -226,6 +257,26 @@ describe("uploadTicketAttachmentFiles", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("embeds images scaled down to 360px wide", async () => {
+    mockBackend();
+    writeFileSync(path.join(dir, "wide.png"), pngHeader(2880, 1800));
+    writeFileSync(path.join(dir, "small.png"), pngHeader(300, 200));
+
+    const result = await uploadTicketAttachmentFiles(
+      TICKET,
+      [{ path: path.join(dir, "wide.png") }, { path: path.join(dir, "small.png") }],
+      { fetchImpl: okFetch(), concurrency: 1 },
+    );
+
+    expect(result.uploaded.map((u) => [u.filename, u.width, u.height])).toEqual([
+      ["wide.png", 360, 225],
+      ["small.png", 300, 200],
+    ]);
+    expect(result.uploaded[0]!.html).toBe(
+      `<img src="https://cdn-attachment.example.com/attachments/ws/2026/10/k1.png" alt="wide.png" width="360" height="225">`,
+    );
+  });
+
   test("PUTs bytes to the presigned URL without Authorization and reports failures", async () => {
     mockBackend();
     writeFileSync(path.join(dir, "a.png"), "12345");
@@ -246,6 +297,7 @@ describe("uploadTicketAttachmentFiles", () => {
       ["nope.png", true],
     ]);
 
+    expect(result.uploaded[0]).not.toHaveProperty("width");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, init] = fetchImpl.mock.calls[0]! as [string, RequestInit];
     expect(url).toContain("X-Amz-Signature=put");

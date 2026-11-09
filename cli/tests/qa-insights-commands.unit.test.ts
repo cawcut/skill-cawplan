@@ -31,13 +31,16 @@ interface Call {
 }
 
 /** Records every request so tests can assert which calls were (not) made. */
-function harness(responses: unknown[] | ((call: Call) => unknown)) {
+function harness(responses: unknown[] | ((call: Call) => unknown), existingPoints?: unknown[]) {
   const calls: Call[] = [];
   let index = 0;
   const envelopes: QAInsightsWriteEnvelope[] = [];
 
   const request = async (options: Call) => {
     calls.push(options);
+    if (existingPoints !== undefined && (options.method ?? "GET") === "GET" && options.path.endsWith("/testpoints")) {
+      return ok({test_points: existingPoints});
+    }
     if (typeof responses === "function") return responses(options);
     const next = responses[index++];
     if (next instanceof Error) throw next;
@@ -463,7 +466,11 @@ describe("A1-TA-1 / P2 / P13 requirements reconcile — read-only Table A", () =
   });
 });
 
-describe("A2-§9.5 / A2-§8.5 / P7 testpoints archive — POST only, no follow-up GET", () => {
+function archiveHarness(responses: unknown[] | ((call: Call) => unknown), existing: unknown[] = []) {
+  return harness(responses, existing);
+}
+
+describe("A2-§9.5 / A2-§8.5 / P7 testpoints archive — preflight GET, POST, no follow-up GET", () => {
   const batch = {
     test_points: [
       { title: "第一条", tags: ["异常"], group: "注册", priority: "HIGH", is_edited: false },
@@ -471,26 +478,26 @@ describe("A2-§9.5 / A2-§8.5 / P7 testpoints archive — POST only, no follow-u
     ],
   };
 
-  test("P7 success is judged from the POST envelope with no GET", async () => {
-    const h = harness([ok({ test_points: [{ id: "tp-1" }, { id: "tp-2" }] })]);
+  test("P7 success is judged from the POST envelope after preflight GET", async () => {
+    const h = archiveHarness([ok({ test_points: [{ id: "tp-1" }, { id: "tp-2" }] })]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
-    expect(h.gets()).toHaveLength(0);
+    expect(h.gets()).toHaveLength(1);
     expect(h.writes()).toHaveLength(1);
     expect(h.envelope.outcome).toBe("SUCCESS");
   });
   test("A2-§9.5 returned length shorter than posted is a FAILURE", async () => {
-    const h = harness([ok({ test_points: [{ id: "tp-1" }] })]);
+    const h = archiveHarness([ok({ test_points: [{ id: "tp-1" }] })]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
     expect(h.envelope.outcome).toBe("FAILURE");
     expect(h.envelope.error?.message).toMatch(/all-or-nothing/);
   });
   test("A2-§9.5 SUCCESS without a test_points array is a FAILURE", async () => {
-    const h = harness([ok({})]);
+    const h = archiveHarness([ok({})]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
     expect(h.envelope.outcome).toBe("FAILURE");
   });
   test("P10 an item carrying id fails validation with no request", async () => {
-    const h = harness([]);
+    const h = archiveHarness([]);
     await runTestPointsArchive(
       PRODUCT,
       REQUIREMENT,
@@ -501,32 +508,33 @@ describe("A2-§9.5 / A2-§8.5 / P7 testpoints archive — POST only, no follow-u
     expect(h.envelope.error?.type).toBe("validation");
   });
   test("A2-§9-is is_edited is passed through untouched; is_ai_generated injected", async () => {
-    const h = harness([ok({ test_points: [{ id: "1" }, { id: "2" }] })]);
+    const h = archiveHarness([ok({ test_points: [{ id: "1" }, { id: "2" }] })]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
-    const sent = h.calls[0].body as { test_points: { is_edited: boolean; is_ai_generated: boolean }[] };
+    const sent = h.writes()[0].body as { test_points: { is_edited: boolean; is_ai_generated: boolean }[] };
     expect(sent.test_points.map((p) => p.is_edited)).toEqual([false, true]);
     expect(sent.test_points.every((p) => p.is_ai_generated === true)).toBe(true);
   });
-  test("P9 batch 5xx yields UNKNOWN and does not GET or re-POST", async () => {
-    const h = harness([new ApiError("API error 500", 500, {})]);
+  test("P9 batch 5xx yields UNKNOWN and does not GET again or re-POST", async () => {
+    const h = archiveHarness([new ApiError("API error 500", 500, {})]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
     expect(h.envelope.outcome).toBe("UNKNOWN");
-    expect(h.calls).toHaveLength(1);
-    expect(h.gets()).toHaveLength(0);
+    expect(h.calls).toHaveLength(2);
+    expect(h.gets()).toHaveLength(1);
   });
   test("§6 not-found envelope maps to not_found (measured OQ-B shape)", async () => {
-    const h = harness([{ code: "FAILURE_INVALID_INPUT", data: {}, msg: "requirement not found" }]);
+    const h = archiveHarness([{ code: "FAILURE_INVALID_INPUT", data: {}, msg: "requirement not found" }]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
     expect(h.envelope.error?.type).toBe("not_found");
   });
-  test("A2-§9-body --dry-run sends nothing", async () => {
-    const h = harness([]);
+  test("A2-§9-body --dry-run reads existing orders without writing", async () => {
+    const h = archiveHarness([]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch), dryRun: true }, h.deps);
-    expect(h.calls).toHaveLength(0);
+    expect(h.calls).toHaveLength(1);
+    expect(h.writes()).toHaveLength(0);
     expect(h.envelope.outcome).toBe("SUCCESS");
   });
   test("CATEGORY-V1-22 dry-run shows final category_code values", async () => {
-    const h = harness([]);
+    const h = archiveHarness([]);
     await runTestPointsArchive(
       PRODUCT,
       REQUIREMENT,
@@ -534,37 +542,39 @@ describe("A2-§9.5 / A2-§8.5 / P7 testpoints archive — POST only, no follow-u
       h.deps,
     );
     const dryRunBody = h.envelope.post_body as {
-      test_points: Array<{ category_code: string | null }>;
+      test_points: Array<{ category_code: string | null; group_order: number }>;
     };
     expect(dryRunBody.test_points.map((point) => point.category_code))
       .toEqual(["EXCEPTION", null]);
+    expect(dryRunBody.test_points.map((point) => point.group_order)).toEqual([1, 2]);
   });
   test("CATEGORY-V1-23 actual POST sends the same category_code values as dry-run", async () => {
-    const h = harness([ok({ test_points: [{ id: "1" }, { id: "2" }] })]);
+    const h = archiveHarness([ok({ test_points: [{ id: "1" }, { id: "2" }] })]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
-    const sent = h.calls[0].body as {
-      test_points: Array<{ category_code: string | null }>;
+    const sent = h.writes()[0].body as {
+      test_points: Array<{ category_code: string | null; group_order: number }>;
     };
     expect(sent.test_points.map((point) => point.category_code))
       .toEqual(["EXCEPTION", null]);
+    expect(sent.test_points.map((point) => point.group_order)).toEqual([1, 2]);
   });
   test("CATEGORY-V1-24 category injection preserves tag content and order", async () => {
     const tags = ["异常", "补充标签", "正向"];
     const taggedBatch = {
       test_points: [{ ...batch.test_points[0], tags }],
     };
-    const h = harness([ok({ test_points: [{ id: "1" }] })]);
+    const h = archiveHarness([ok({ test_points: [{ id: "1" }] })]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(taggedBatch) }, h.deps);
-    const sent = h.calls[0].body as {
+    const sent = h.writes()[0].body as {
       test_points: Array<{ tags: string[]; category_code: string | null }>;
     };
     expect(sent.test_points[0].tags).toEqual(tags);
     expect(sent.test_points[0].category_code).toBe("EXCEPTION");
   });
   test("CATEGORY-V1-25 is_ai_generated injection remains unchanged", async () => {
-    const h = harness([ok({ test_points: [{ id: "1" }, { id: "2" }] })]);
+    const h = archiveHarness([ok({ test_points: [{ id: "1" }, { id: "2" }] })]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
-    const sent = h.calls[0].body as {
+    const sent = h.writes()[0].body as {
       test_points: Array<{ is_ai_generated: boolean; category_code: string | null }>;
     };
     expect(sent.test_points.every((point) => point.is_ai_generated === true)).toBe(true);

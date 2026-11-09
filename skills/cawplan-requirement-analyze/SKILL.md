@@ -193,6 +193,7 @@ Before archive Confirmation: on each new user message, read `references/output-c
 
 ## Rules (hot path — full rules in `references/rules-global.md`)
 
+- **写入成功必须输出回执**：POST / PATCH / 11b-MD 返回 `SUCCESS` 后，下一步先 Read `references/output-confirmation.md` 并执行 `cawplan config env`，再在**正式回复正文**输出 §6 回执（含 Knowledge Doc Link / Test Suite Link）。回执不得只写在思考里；最终回复本身必须包含回执，不得用 recap / wrap-up 或「上面的回执」代替。
 - **Trigger boundary**: this skill is for SQA requirement analysis and QA Insights archiving — not for loading a ticket into a coding session. If the user only pasted a CawPlan issue URL with no analysis intent, stop and use `cawplan-ticket-context` instead. Ticket links are **material** here only when the user also wants five-field analysis or archive.
 - **跨 skill 接力（入站 / 出站）**:
   - **入站**（来自「生成测试点」或「生成用例」框，且会话已有五字段草稿）：**跳过 step 1–6**，直接从 step 7（Resolve product）/ 归档闸 step 11 继续；**不得**从头重分析（措辞漂移会破坏 reconcile / snapshot diff）。入站（`resume_intent`）本身即保存意图；**不在入站前**向 SQA 重复五字段尾巴里的保存引导。

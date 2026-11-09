@@ -343,12 +343,12 @@ describe("qa-testpoint-category/v1 mapping and injection contract", () => {
     })).toThrow(/category_code/);
   });
 
-  test("CATEGORY-V1-21 keeps caller keys strictly at five", () => {
-    expect(TESTPOINT_CALLER_KEYS).toEqual(["title", "tags", "group", "priority", "is_edited"]);
+  test("caller keys allow explicit Review group_order", () => {
+    expect(TESTPOINT_CALLER_KEYS).toEqual(["title", "tags", "group", "priority", "is_edited", "group_order"]);
   });
 });
 
-describe("A2-§9-body / P10 testpoint batch — caller five keys; CLI injects is_ai_generated per item", () => {
+describe("A2-§9-body / P10 testpoint batch — optional group_order; CLI injects is_ai_generated per item", () => {
   const point = {
     title: "用户名含特殊字符应被拦截",
     tags: ["异常"],
@@ -361,7 +361,7 @@ describe("A2-§9-body / P10 testpoint batch — caller five keys; CLI injects is
     const body = buildTestPointBatchBody({ test_points: [point] });
     expect(body.test_points).toHaveLength(1);
     expect(Object.keys(body.test_points[0]).sort()).toEqual(
-      ["category_code", "group", "is_ai_generated", "is_edited", "priority", "tags", "title"],
+      ["category_code", "group", "group_order", "is_ai_generated", "is_edited", "priority", "tags", "title"],
     );
     expect(body.test_points[0].is_ai_generated).toBe(IS_AI_GENERATED);
     expect(body.test_points[0].category_code).toBe("EXCEPTION");
@@ -369,6 +369,53 @@ describe("A2-§9-body / P10 testpoint batch — caller five keys; CLI injects is
   test("A2-§9-body priority is passed through, never inferred", () => {
     const body = buildTestPointBatchBody({ test_points: [{ ...point, priority: "CRITICAL" }] });
     expect(body.test_points[0].priority).toBe("CRITICAL");
+  });
+  test("group_order is a 1-based integer by first appearance, including repeated and empty groups", () => {
+    const groups = ["B", "A", "B", "", "A", "", "C"];
+    const body = buildTestPointBatchBody({
+      test_points: groups.map((group, index) => ({ ...point, group, title: `point ${index}` })),
+    });
+    expect(body.test_points.map((p) => p.group_order)).toEqual([1, 2, 1, 3, 2, 3, 4]);
+    expect(body.test_points.every((p) => Number.isInteger(p.group_order))).toBe(true);
+    expect(body.test_points.map((p) => p.title)).toEqual(groups.map((_, i) => `point ${i}`));
+    expect(body.test_points.every((p) => !("sort_order" in p))).toBe(true);
+  });
+  test("group_order uses the same trimmed group names as the POST payload", () => {
+    const body = buildTestPointBatchBody({
+      test_points: [" A ", "B", "A", "  ", ""].map((group) => ({ ...point, group })),
+    });
+    expect(body.test_points.map((p) => p.group_order)).toEqual([1, 2, 1, 3, 3]);
+  });
+  test("group_order is recomputed for every batch rather than retaining an earlier order", () => {
+    const batch = (groups: string[]) => ({test_points: groups.map((group) => ({ ...point, group }))});
+    buildTestPointBatchBody(batch(["A", "B"]));
+    const body = buildTestPointBatchBody(batch(["B", "A", "B"]));
+    expect(body.test_points.map(({group, group_order}) => [group, group_order]))
+      .toEqual([["B", 1], ["A", 2], ["B", 1]]);
+  });
+  test("explicit Review group_order survives validation without changing row order", () => {
+    const body = buildTestPointBatchBody({test_points: [
+      {...point, group: "B", group_order: 2},
+      {...point, group: "A", group_order: 1},
+      {...point, group: "B", group_order: 2},
+    ]});
+    expect(body.test_points.map((p) => p.group_order)).toEqual([2, 1, 2]);
+    expect(body.test_points.map((p) => p.group)).toEqual(["B", "A", "B"]);
+  });
+  test.each([-1, 1.5, "1", null, true, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects invalid group_order %s", (group_order) => {
+      expect(() => buildTestPointBatchBody({test_points: [{...point, group_order}]})).toThrow(/group_order/);
+    },
+  );
+  test("rejects inconsistent group_order within one group", () => {
+    expect(() => buildTestPointBatchBody({test_points: [
+      {...point, group_order: 1}, {...point, group_order: 2},
+    ]})).toThrow(/test_points\[1\].group_order.*same/);
+  });
+  test("rejects partially supplied group_order instead of mixing numbering sources", () => {
+    expect(() => buildTestPointBatchBody({test_points: [
+      {...point, group_order: 1}, {...point, group: "B"},
+    ]})).toThrow(/test_points\[1\].group_order/);
   });
   test("A2-§9-body missing priority is a hard failure", () => {
     const { priority, ...withoutPriority } = point;

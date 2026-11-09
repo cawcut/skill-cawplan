@@ -39,6 +39,7 @@ import {
   type TestrailLinkCasesPreviewInput,
   type TestrailLinkPlanBindingInput,
   type TestrailLinkPlansPreviewInput,
+  type TestrailUnlinkCasesPreviewInput,
   type RiskAssessmentComputeInput,
   type RiskAssessmentSaveBody,
   type RiskLevel,
@@ -145,8 +146,11 @@ export function validateRequirementPatchBody(input: unknown): Record<string, unk
 /**
  * Build the batch body for `testpoints archive`.
  *
- * Each item must carry only the five allowed caller keys. The CLI injects
- * `is_ai_generated` and `category_code`. Extra keys (id, sort_order,
+ * The CLI injects `is_ai_generated` and `category_code`. Review supplies the
+ * relative integer `group_order`; legacy callers may omit it on every row.
+ * In that case group order is derived from first appearance in the batch,
+ * without reordering rows (the server still assigns sort_order from array order).
+ * Extra keys (id, sort_order,
  * requirement_id, …) are a hard failure rather than being stripped: an `id`
  * in a create batch usually means the caller is re-posting an already-archived
  * row, which is a real bug worth surfacing (A2 §9 / P10).
@@ -162,6 +166,8 @@ export function buildTestPointBatchBody(input: unknown): { test_points: TestPoin
   }
 
   const allowed = new Set<string>(TESTPOINT_CALLER_KEYS);
+  const groupOrders = new Map<string, number>();
+  const hasGroupOrder = raw.some((item) => item && typeof item === "object" && "group_order" in item);
   const testPoints = raw.map((item, index) => {
     const point = assertPlainObject(item, `test_points[${index}]`);
 
@@ -202,10 +208,24 @@ export function buildTestPointBatchBody(input: unknown): { test_points: TestPoin
       );
     }
 
+    const group = normalizeField(point.group);
+    if (hasGroupOrder) {
+      if (typeof point.group_order !== "number" || !Number.isSafeInteger(point.group_order) || point.group_order < 0) {
+        throw new BodyValidationError(`test_points[${index}].group_order must be a non-negative integer on every item when supplied`);
+      }
+      if (groupOrders.has(group) && groupOrders.get(group) !== point.group_order) {
+        throw new BodyValidationError(`test_points[${index}].group_order must be the same for all items in group ${JSON.stringify(group)}`);
+      }
+      groupOrders.set(group, point.group_order);
+    } else if (!groupOrders.has(group)) {
+      groupOrders.set(group, groupOrders.size + 1);
+    }
+
     return {
       title,
       tags,
-      group: normalizeField(point.group),
+      group,
+      group_order: groupOrders.get(group)!,
       priority: priority as TestPointDraft["priority"],
       is_edited: point.is_edited === true,
       is_ai_generated: IS_AI_GENERATED,
@@ -1000,6 +1020,102 @@ export function mergeTestrailLinkCasesPreviewBody(
       flags.parentSectionId ??
       valueByNames<number>(fromFile, "parent_section_id", "parentSectionId"),
   });
+}
+
+const UNLINK_SCOPES = ["STALE_ONLY", "SELECTED", "ALL_IN_REQUIREMENT"] as const;
+
+function optionalSelectorStrings(value: unknown, label: string): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  const raw = typeof value === "string" ? value.split(",") : value;
+  if (!Array.isArray(raw)) {
+    throw new BodyValidationError(`${label} must be an array or comma-separated string`);
+  }
+  const values = raw.map((item, index) => {
+    const normalized = optionalString(item);
+    if (!normalized) throw new BodyValidationError(`${label}[${index}] must be a non-empty string`);
+    return normalized;
+  });
+  return values.length > 0 ? values : undefined;
+}
+
+function optionalSelectorIntegers(value: unknown, label: string): number[] | undefined {
+  const values = parseIntegerArray(value, label);
+  return values && values.length > 0 ? values : undefined;
+}
+
+export function buildTestrailUnlinkCasesPreviewBody(
+  input: TestrailUnlinkCasesPreviewInput,
+): Record<string, unknown> {
+  const requirementId = optionalString(input.requirementId);
+  if (!requirementId) {
+    throw new BodyValidationError("testrail link cases unlink preview requires --requirement-id");
+  }
+  const scope = (optionalString(input.scope) ?? "STALE_ONLY").toUpperCase();
+  if (!(UNLINK_SCOPES as readonly string[]).includes(scope)) {
+    throw new BodyValidationError(`--scope must be one of ${UNLINK_SCOPES.join(", ")}`);
+  }
+  const testPointIds = optionalSelectorStrings(input.testPointIds, "test_point_ids");
+  const caseIds = optionalSelectorIntegers(input.caseIds, "case_ids");
+  const mappingIds = optionalSelectorStrings(input.mappingIds, "mapping_ids");
+  const hasSelector = Boolean(testPointIds || caseIds || mappingIds);
+  if (scope === "SELECTED" && !hasSelector) {
+    throw new BodyValidationError(
+      "SELECTION_REQUIRED: --scope SELECTED needs at least one of --test-point-id, --case-id, --mapping-id",
+    );
+  }
+  if (scope !== "SELECTED" && hasSelector) {
+    throw new BodyValidationError(
+      `--test-point-id/--case-id/--mapping-id are only valid with --scope SELECTED (got ${scope})`,
+    );
+  }
+  const body: Record<string, unknown> = {
+    source: { type: "REQUIREMENT", requirement_id: requirementId },
+    scope,
+  };
+  const suiteId = optionalInteger(input.suiteId, "suite_id");
+  if (suiteId !== undefined) body.suite_id = suiteId;
+  if (testPointIds) body.test_point_ids = testPointIds;
+  if (caseIds) body.case_ids = caseIds;
+  if (mappingIds) body.mapping_ids = mappingIds;
+  return body;
+}
+
+export function mergeTestrailUnlinkCasesPreviewBody(
+  parsed: unknown,
+  flags: Partial<TestrailUnlinkCasesPreviewInput>,
+): Record<string, unknown> {
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new BodyValidationError("testrail link cases unlink preview body must be a JSON object");
+  }
+  const fromFile = parsed as Record<string, unknown>;
+  const source = (fromFile.source as Record<string, unknown> | undefined) ?? {};
+  const nonEmpty = <T>(flag: T[] | string | undefined): boolean =>
+    flag !== undefined && (typeof flag === "string" ? flag.length > 0 : flag.length > 0);
+  return buildTestrailUnlinkCasesPreviewBody({
+    requirementId:
+      flags.requirementId ?? valueByNames<string>(source, "requirement_id", "requirementId"),
+    suiteId: flags.suiteId ?? valueByNames<number>(fromFile, "suite_id", "suiteId"),
+    scope: flags.scope ?? valueByNames<string>(fromFile, "scope", "scope"),
+    testPointIds: nonEmpty(flags.testPointIds)
+      ? flags.testPointIds
+      : valueByNames<string[]>(fromFile, "test_point_ids", "testPointIds"),
+    caseIds: nonEmpty(flags.caseIds)
+      ? flags.caseIds
+      : valueByNames<number[]>(fromFile, "case_ids", "caseIds"),
+    mappingIds: nonEmpty(flags.mappingIds)
+      ? flags.mappingIds
+      : valueByNames<string[]>(fromFile, "mapping_ids", "mappingIds"),
+  });
+}
+
+export function buildTestrailUnlinkExecuteBody(
+  previewId: string,
+  confirm: boolean,
+  confirmAliveCases: boolean,
+): Record<string, unknown> {
+  const id = optionalString(previewId);
+  if (!id) throw new BodyValidationError("--preview-id is required");
+  return { preview_id: id, confirm, confirm_alive_cases: confirmAliveCases };
 }
 
 export function buildTestrailLinkExecuteBody(
