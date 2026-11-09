@@ -1,9 +1,10 @@
 import { Command } from "commander";
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { select } from "@inquirer/prompts";
 import { cawplanRequest } from "../lib/http.js";
+import { readUploadFile, uploadPathRefusal, uploadScope, type UploadScope } from "../lib/attachment-path-policy.js";
 import { listCawplanProducts } from "../lib/product-catalog.js";
 import { getCache, setCache, buildScopedCacheKey } from "../lib/cache.js";
 import { assertInteractiveTerminal, TTY_CANCEL_MESSAGE, ttyKeysHelpTip, withTtyShortcuts } from "../lib/tty-prompt.js";
@@ -21,6 +22,31 @@ import { markdownToPlainText } from "../lib/knowledge/plaintext.js";
 
 function collect(value: string, prev: string[]): string[] {
   return prev.concat([value]);
+}
+
+const ALLOW_OUTSIDE_CWD_HELP =
+  "Allow --file/--text-file paths outside the current directory / git repository (always needed when that " +
+  "is your home directory or above it); credential files are always refused";
+
+/**
+ * Check every local path before anything is sent; prints the refusals and
+ * returns false when any path may not be uploaded (see attachment-path-policy).
+ */
+function checkKnowledgeUploadPaths(paths: string[], scope: UploadScope | undefined): boolean {
+  const refused = paths.flatMap((file) => {
+    const msg = uploadPathRefusal(file, scope);
+    return msg ? [{ file, msg }] : [];
+  });
+  if (refused.length === 0) return true;
+  console.error(
+    stringifyKnowledgeOutput(
+      { code: "ERROR", data: { refused }, msg: `refused ${refused.length} local file(s); nothing was uploaded` },
+      null,
+      2,
+    ),
+  );
+  process.exitCode = 1;
+  return false;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -831,6 +857,7 @@ export function registerKnowledgeCommand(program: Command): void {
       "product_modules node id to create every uploaded document under (see: cawplan knowledge datasets " +
         "modules --product <id>). Must belong to the dataset's owner product (datasets create --owner-product).",
     )
+    .option("--allow-outside-cwd", ALLOW_OUTSIDE_CWD_HELP)
     .action(async (opts) => {
       const files = opts.file as string[];
       const textFiles = opts.textFile as string[];
@@ -851,6 +878,8 @@ export function registerKnowledgeCommand(program: Command): void {
         process.exitCode = 1;
         return;
       }
+      const scope = opts.allowOutsideCwd ? undefined : uploadScope();
+      if (!checkKnowledgeUploadPaths([...files, ...textFiles], scope)) return;
 
       if (files.length > 0) {
         const submissions: Array<Record<string, unknown>> = [];
@@ -868,7 +897,13 @@ export function registerKnowledgeCommand(program: Command): void {
               continue;
             }
           }
-          const bytes = readFileSync(filePath);
+          let bytes: Buffer;
+          try {
+            bytes = await readUploadFile(filePath, scope);
+          } catch (err) {
+            submissions.push({ file: filePath, code: "ERROR", msg: err instanceof Error ? err.message : String(err) });
+            continue;
+          }
           const formData = new FormData();
           formData.append("file", new Blob([new Uint8Array(bytes)]), name);
           // Dify requires indexing_technique on the resulting create-by-text call; it's only
@@ -927,7 +962,14 @@ export function registerKnowledgeCommand(program: Command): void {
             continue;
           }
         }
-        const body: Record<string, unknown> = { name, text: readFileSync(filePath, "utf8") };
+        let text: string;
+        try {
+          text = (await readUploadFile(filePath, scope)).toString("utf8");
+        } catch (err) {
+          results.push({ file: filePath, code: "ERROR", msg: err instanceof Error ? err.message : String(err) });
+          continue;
+        }
+        const body: Record<string, unknown> = { name, text };
         if (opts.module) body.module_id = opts.module;
         try {
           const result = await cawplanRequest({
@@ -960,6 +1002,7 @@ export function registerKnowledgeCommand(program: Command): void {
     )
     .option("--poll-interval <seconds>", "Seconds between job-status polls when waiting on a --file update", "3")
     .option("--poll-timeout <seconds>", "Give up polling after this many seconds", "180")
+    .option("--allow-outside-cwd", ALLOW_OUTSIDE_CWD_HELP)
     .action(async (opts) => {
       const hasFile = Boolean(opts.file);
       const hasTextFile = Boolean(opts.textFile);
@@ -978,9 +1021,22 @@ export function registerKnowledgeCommand(program: Command): void {
         process.exitCode = 1;
         return;
       }
+      const scope = opts.allowOutsideCwd ? undefined : uploadScope();
+      const localPath = (hasFile ? opts.file : opts.textFile) as string;
+      if (!checkKnowledgeUploadPaths([localPath], scope)) return;
+      let content: Buffer;
+      try {
+        content = await readUploadFile(localPath, scope);
+      } catch (err) {
+        console.error(
+          stringifyKnowledgeOutput({ code: "ERROR", data: null, msg: err instanceof Error ? err.message : String(err) }, null, 2),
+        );
+        process.exitCode = 1;
+        return;
+      }
 
       if (hasFile) {
-        const bytes = readFileSync(opts.file);
+        const bytes = content;
         const formData = new FormData();
         formData.append("file", new Blob([new Uint8Array(bytes)]), basename(opts.file));
         const fileData: Record<string, unknown> = {};
@@ -1016,7 +1072,7 @@ export function registerKnowledgeCommand(program: Command): void {
 
       const body: Record<string, unknown> = {};
       if (hasTextFile) {
-        body.text = readFileSync(opts.textFile, "utf8");
+        body.text = content.toString("utf8");
       }
 
       const result = await cawplanRequest({

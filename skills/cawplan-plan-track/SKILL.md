@@ -65,12 +65,19 @@ If no exact or unique short-form product match exists, list any candidates (name
    cawplan versions track <product_id> <version_id>
    ```
    This returns:
-   - `detail.data.progress` — `complete_percent`, `status_counts` (COMPLETE / UNSTARTED / STARTED / TESTING / CANCELED)
+   - `detail.data.progress` — `complete_percent`, `status_counts` (COMPLETE / UNSTARTED / STARTED / TESTING / CANCELED). **These count top-level tickets only; sub-tickets are not included.** Never report them as the version's completion or total.
+   - `ticket_progress` — `total`, `status_counts` and `complete_percent` **including sub-tickets** (`includes_sub_issues: true`). Use these for the version's completion and ticket totals. `complete_percent` is `COMPLETE / (total - CANCELED)`.
    - `detail.data.risk` — LOW / MEDIUM / HIGH
    - `detail.data.risk_reason`
    - `detail.data.extra.target_release` — channel name and `release_at` timestamp
    - `detail.data.status` — NOT_STARTED / INPROGRESS / RELEASED
    - `release.data` — release history events (status changes, risk changes)
+
+3a. **Fallback for sub-ticket-inclusive counts** — only when step 3's output has no `ticket_progress` (older CLI) or `ticket_progress.error` is set:
+   ```bash
+   cawplan tickets stats --version_ids <version_id> --start_date 2000-01-01 --end_date <today> --group_by status_category
+   ```
+   `total` is the ticket count including sub-tickets; each group's `count` is one status category (`COMPLETE`, `UNSTARTED`, `STARTED`, `TESTING`, `CANCELED`, …). Compute completion as `COMPLETE count / (total - CANCELED count)`: canceled tickets are not remaining work and must not lower the percent. If this command is also unavailable, page step 5's search to `total` and count by `status_display.category` (`references/QUERY_RESILIENCE.md`). Never fall back to `progress.status_counts` for the totals.
 
 4. **Resolve the product line's status keys** (needed by every step below except a plain progress check — run this once, before step 5):
    ```bash
@@ -93,7 +100,7 @@ If no exact or unique short-form product match exists, list any candidates (name
    ```
    Page while `page_num * page_size < total`. Search returns the full ticket shape needed here, including `description`, `labels`, `status_display`, `priority`, `assignees`, `updated_at`, `version_id`, and `parent_id`. Steps 5a and 8-13 filter this shared dataset; steps 6-7 deliberately issue label-filtered searches so their category selection is enforced by the API.
 
-   **This set includes sub-issues** (`parent_id` set) alongside top-level tickets. Keep sub-issues in every list below (steps 6-13) — a CRITICAL sub-issue bug is still a real, independently labeled/prioritized/assigned ticket someone needs to see. But don't be surprised if a ticket *count* you report (e.g. "31 unstarted tickets") looks larger than what `versions get`'s `progress.status_counts` shows for the same version — that field counts top-level tickets only, so the two numbers aren't measuring the same set and shouldn't be presented as if they must reconcile.
+   **This set includes sub-issues** (`parent_id` set) alongside top-level tickets. Keep sub-issues in every list below (steps 6-13) — a CRITICAL sub-issue bug is still a real, independently labeled/prioritized/assigned ticket someone needs to see. Counts you report must come from this set or from `ticket_progress` (step 3a when it is missing), which both include sub-issues; they should reconcile with each other. Do not use `versions track`'s `progress.status_counts` for counts — it covers top-level tickets only and will under-report.
 
 5a. **Open Tickets** (when the user asks for current Version's Open Tickets): from step 5's
    version-filtered set, include every Ticket whose status key maps to a category other than
@@ -142,7 +149,7 @@ Write the answer by the rules in `references/QUERY_RESILIENCE.md` §5: no CLI co
 Report, scoped to what the user actually asked (don't run steps 4-13 for a plain "track this release" ask):
 
 - Version name, status, and risk level (with reason if MEDIUM or HIGH).
-- Completion: `X% complete (N done / M total)` (round `X` to a whole number).
+- Completion: `X% complete (N done / M total)` (round `X` to a whole number). `N` is the COMPLETE count and `M` is total minus CANCELED, both from `ticket_progress` (or step 3a) and including sub-tickets; do not use `progress.complete_percent` or `progress.status_counts`.
 - Target release date per channel (convert `release_at` Unix timestamp to a readable date).
 - If step 5a ran: Open Tickets — display ID, labels, priority, assignee, and verbatim `description` title,
   grouped by resolved status. Include every non-terminal category, including `TESTING`.

@@ -1,5 +1,6 @@
-import { getBaseUrl } from "./config.js";
+import { assertSecureApiBase, getBaseUrl, normalizeApiBase } from "./config.js";
 import {
+  credentialApiBase,
   readCredentials,
   writeCredentials,
   isAccessTokenExpired,
@@ -39,12 +40,16 @@ interface AuthContext {
   credentials: Credentials | null;
 }
 
-function normalizeBaseUrl(base: string): string {
-  let url = base.trim();
-  if (!url.startsWith("http://") && !url.startsWith("https://")) {
-    url = `https://${url}`;
+/** Refuses to send tokens to an environment other than the one that issued them. */
+function assertCredentialsForApiBase(credentials: Credentials, apiBase: string): void {
+  const issuer = credentialApiBase(credentials);
+  if (issuer !== apiBase) {
+    throw new ApiError(
+      `Stored credentials were issued for ${issuer}, but the active environment uses ${apiBase}. ` +
+      "Run: cawplan auth login",
+      401,
+    );
   }
-  return url.replace(/\/$/, "");
 }
 
 function normalizePath(path: string): string {
@@ -60,7 +65,7 @@ const REVOKE_TIMEOUT_MS = 5000;
 async function refreshAccessToken(
   refreshToken: string,
 ): Promise<{ accessToken: string; refreshToken: string; expire: number }> {
-  const baseUrl = normalizeBaseUrl(getBaseUrl());
+  const baseUrl = getBaseUrl();
   const url = `${baseUrl}/api/v1/cli/oauth/refresh`;
 
   const res = await fetch(url, {
@@ -108,6 +113,7 @@ async function refreshStoredAccessToken(
   if (!credentials.refreshToken) {
     throw new ApiError("Session expired. Run: cawplan auth login", 401);
   }
+  assertCredentialsForApiBase(credentials, getBaseUrl());
 
   let base = credentials;
   let refreshed: Awaited<ReturnType<typeof refreshAccessToken>>;
@@ -120,6 +126,7 @@ async function refreshStoredAccessToken(
     if (!isRejectedRefreshToken(err)) throw err;
     const latest = await readCredentials().catch(() => null);
     if (!latest?.refreshToken || latest.refreshToken === credentials.refreshToken) throw err;
+    assertCredentialsForApiBase(latest, getBaseUrl());
     base = latest;
     refreshed = await refreshAccessToken(latest.refreshToken);
   }
@@ -141,10 +148,11 @@ async function refreshStoredAccessToken(
  * Revoke a refresh token server-side (RFC 7009, used by `auth logout`).
  * Best-effort: never throws, so sign-out still clears local credentials when
  * the server is unreachable or predates the revoke endpoint (404).
+ * `apiBase` is the environment that issued the token (default: the active one).
  */
-export async function revokeRefreshToken(refreshToken: string): Promise<boolean> {
+export async function revokeRefreshToken(refreshToken: string, apiBase?: string): Promise<boolean> {
   try {
-    const baseUrl = normalizeBaseUrl(getBaseUrl());
+    const baseUrl = apiBase ? assertSecureApiBase(normalizeApiBase(apiBase)) : getBaseUrl();
     const res = await fetch(`${baseUrl}/api/v1/cli/oauth/revoke`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -162,6 +170,9 @@ export async function revokeRefreshToken(refreshToken: string): Promise<boolean>
 async function resolveAuthContext(): Promise<AuthContext | null> {
   const creds = await readCredentials();
   let refreshError: unknown;
+  if (creds?.accessToken) {
+    assertCredentialsForApiBase(creds, getBaseUrl());
+  }
 
   // Priority 1: valid access token
   if (creds?.accessToken && !isAccessTokenExpired(creds)) {
@@ -240,7 +251,7 @@ export function apiErrorDetails(err: unknown): string | undefined {
 }
 
 export async function cawplanRequest(options: RequestOptions): Promise<unknown> {
-  const baseUrl = normalizeBaseUrl(getBaseUrl());
+  const baseUrl = getBaseUrl();
   const url = new URL(`${baseUrl}${normalizePath(options.path)}`);
 
   if (options.query) {

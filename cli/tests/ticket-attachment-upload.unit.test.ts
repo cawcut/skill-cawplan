@@ -333,6 +333,8 @@ describe("addTicketAttachments", () => {
   let htmlFile: string;
   beforeEach(() => {
     dir = mkdtempSync(path.join(os.tmpdir(), "cawplan-submit-"));
+    // Run from the report directory, like an agent attaching its own output.
+    vi.spyOn(process, "cwd").mockReturnValue(dir);
     writeFileSync(path.join(dir, "a.png"), "123");
     writeFileSync(path.join(dir, "rec.mp4"), "123456");
     htmlFile = path.join(dir, "qa-results.html");

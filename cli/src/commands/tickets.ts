@@ -17,6 +17,7 @@ import {
   type TicketAttachmentScope,
 } from "../lib/ticket-attachments.js";
 import { checkUploadFile, uploadTicketAttachmentFiles } from "../lib/ticket-attachment-upload.js";
+import { outsideScopeMessage, uploadScope } from "../lib/attachment-path-policy.js";
 import { REPORT_FIELDS, REPORT_MODES, type ReportField, type ReportMode } from "../lib/ticket-html-report.js";
 import { addTicketAttachments } from "../lib/ticket-attachment-add.js";
 import type { ContentSource } from "../lib/ticket-attachment-source.js";
@@ -159,12 +160,23 @@ function registerAttachmentsCommands(parent: Command, opts: { backlog: boolean }
         "(use 'attachments add' to do both in one step).",
     )
     .requiredOption("--file <path>", "Local file to upload (repeatable)", collectRepeated, [])
+    .option(
+      "--allow-outside-cwd",
+      "Allow --file paths outside the current directory / git repository (always needed when that is " +
+        "your home directory or above it); credential files are always refused",
+    )
     .option("--concurrency <n>", "Parallel uploads", "4")
     .option("--dry-run", "Only list the files that would be uploaded and the ones refused; upload nothing")
     .action(async (...actionArgs: unknown[]) => {
       const positional = actionArgs.slice(0, positionalCount) as string[];
-      const cmdOpts = actionArgs[positionalCount] as { file: string[]; concurrency: string; dryRun?: boolean };
+      const cmdOpts = actionArgs[positionalCount] as {
+        file: string[];
+        allowOutsideCwd?: boolean;
+        concurrency: string;
+        dryRun?: boolean;
+      };
       const [productId, versionId, ticketId] = positional as [string, string, string];
+      const scope = cmdOpts.allowOutsideCwd ? undefined : uploadScope();
       if (cmdOpts.dryRun) {
         const files: Array<{ path: string; filename: string; bytes: number }> = [];
         const refused: Array<{ path: string; filename: string; error: string }> = [];
@@ -172,7 +184,8 @@ function registerAttachmentsCommands(parent: Command, opts: { backlog: boolean }
           const abs = path.resolve(f);
           const filename = path.basename(abs);
           try {
-            files.push({ path: abs, filename, bytes: await checkUploadFile(abs) });
+            const bytes = await checkUploadFile(abs, scope);
+            files.push({ path: abs, filename, bytes });
           } catch (err) {
             refused.push({ path: abs, filename, error: err instanceof Error ? err.message : String(err) });
           }
@@ -181,11 +194,21 @@ function registerAttachmentsCommands(parent: Command, opts: { backlog: boolean }
         if (refused.length > 0) process.exit(1);
         return;
       }
+      const outside = scope
+        ? cmdOpts.file.map((f) => path.resolve(f)).flatMap((abs) => {
+            const refusal = outsideScopeMessage(abs, scope);
+            return refusal ? [`${abs}: ${refusal}`] : [];
+          })
+        : [];
+      if (outside.length > 0) {
+        for (const msg of outside) console.error(`Error: ${msg}`);
+        process.exit(1);
+      }
       const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
       const result = await uploadTicketAttachmentFiles(
         { productId, versionId, ticketId: uniqueTicketId },
         cmdOpts.file.map((f) => ({ path: path.resolve(f) })),
-        { concurrency: parsePositiveInt(cmdOpts.concurrency, "--concurrency"), onProgress: (msg) => console.error(msg) },
+        { scope, concurrency: parsePositiveInt(cmdOpts.concurrency, "--concurrency"), onProgress: (msg) => console.error(msg) },
       );
       console.log(JSON.stringify({ ticket_id: uniqueTicketId, ...result }, null, 2));
       if (result.failed.length > 0) process.exit(1);
@@ -223,7 +246,12 @@ function registerAttachmentsCommands(parent: Command, opts: { backlog: boolean }
     .option(
       "--allow-outside-base",
       "Allow --dir/--md-file/--html-file/--note references outside their base directory " +
-        "(absolute paths, ../, file: URLs or symlinks leading out); credential files (~/.ssh, ~/.aws, ~/.cawplan, .env) are always refused",
+        "(absolute paths, ../, file: URLs or symlinks leading out); credential files are always refused",
+    )
+    .option(
+      "--allow-outside-cwd",
+      "Allow the source and its files to come from outside the current directory / git repository " +
+        "(always needed when that is your home directory or above it); credential files are always refused",
     )
     .option("--concurrency <n>", "Parallel uploads", "4")
     .option("--html-out <path>", "Also write the final HTML to this local file")
@@ -241,6 +269,7 @@ function registerAttachmentsCommands(parent: Command, opts: { backlog: boolean }
         blockId?: string;
         baseDir?: string;
         allowOutsideBase?: boolean;
+        allowOutsideCwd?: boolean;
         concurrency: string;
         htmlOut?: string;
         dryRun?: boolean;
@@ -281,6 +310,7 @@ function registerAttachmentsCommands(parent: Command, opts: { backlog: boolean }
           blockId: cmdOpts.blockId,
           baseDir: cmdOpts.baseDir,
           allowOutsideBase: Boolean(cmdOpts.allowOutsideBase),
+          allowOutsideCwd: Boolean(cmdOpts.allowOutsideCwd),
           htmlOut: cmdOpts.htmlOut,
           dryRun: Boolean(cmdOpts.dryRun),
           concurrency: parsePositiveInt(cmdOpts.concurrency, "--concurrency"),
@@ -300,6 +330,22 @@ function registerAttachmentsCommands(parent: Command, opts: { backlog: boolean }
         console.error(
           `Error: ${outside.length} reference(s) point outside the base directory: ${outside.map((b) => b.path).join(", ")} ` +
             "(move them under it, or pass --allow-outside-base if they are meant to be attached)",
+        );
+      }
+      const outsideCwd = summary.blocked.filter((b) => b.reason === "outside_cwd");
+      if (outsideCwd.length > 0) {
+        console.error(
+          `Error: ${outsideCwd.length} file(s) outside the current directory or git repository ` +
+            `(${outsideCwd[0]!.detail}): ${outsideCwd.map((b) => b.path).join(", ")} ` +
+            "(pass --allow-outside-cwd if they are meant to be attached)",
+        );
+      }
+      const broadCwd = summary.blocked.filter((b) => b.reason === "broad_cwd");
+      if (broadCwd.length > 0) {
+        console.error(
+          `Error: the current directory or git repository (${broadCwd[0]!.detail}) is your home directory or above it, ` +
+            `which confines nothing; refused ${broadCwd.length} file(s): ${broadCwd.map((b) => b.path).join(", ")} ` +
+            "(run from a project directory, or pass --allow-outside-cwd if they are meant to be attached)",
         );
       }
       if (summary.missing.length > 0 || summary.blocked.length > 0) process.exit(1);

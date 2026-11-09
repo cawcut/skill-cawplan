@@ -25,13 +25,28 @@ interface ProductsFile {
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
-function loadProductConfig(): ProductConfig {
+function loadBuiltinProductConfig(): ProductConfig {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const data = _require(resolve(__dirname, "../../config/products.json")) as ProductsFile;
   const product = data.products["cawplan"];
   if (!product) throw new Error("products.json: missing 'cawplan' entry");
+  return product;
+}
 
+function loadProductConfig(): ProductConfig {
+  const product = loadBuiltinProductConfig();
   return { ...product, env: { ...product.env, ...readUserConfigSync()?.environments } };
+}
+
+/**
+ * API base of the built-in default (prd) environment, ignoring user config
+ * overrides. Credentials saved before they recorded an apiBase were issued here.
+ */
+export function getBuiltinDefaultApiBase(): string {
+  const product = loadBuiltinProductConfig();
+  const envConfig = product.env[product.defaultEnv];
+  if (!envConfig) throw new Error(`products.json: unknown env '${product.defaultEnv}'`);
+  return envConfig.apiBase;
 }
 
 export function getEnvNames(): string[] {

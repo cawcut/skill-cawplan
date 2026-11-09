@@ -302,6 +302,14 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
    in one call — the CLI rejects that; run the command twice for a mixed batch. Confirm the target
    dataset and file list with the user before uploading, since this mutates the dataset.
 
+   Local paths (`upload` and `update`, `--file` and `--text-file`) must be inside the current
+   directory or its git repository (or `cawplan session temp-dir`); when the current directory is
+   `$HOME` or above it, nothing is allowed — `cd` into the project first. Pass `--allow-outside-cwd`
+   only when the user confirms those exact files. Credential files (`~/.ssh`, `~/.aws`, keychains,
+   browser profiles, shell histories, `.env`, private keys, …) are always refused. Any refusal
+   returns `{code: "ERROR", data: {refused: [...]}}` and uploads nothing; show it to the user and do
+   not work around it.
+
    To upload into a module, add `--module <module_id>` (from `datasets modules --product
    <owner_product_id>`); it applies to every `--file`/`--text-file` in that call. The module must
    belong to the dataset's owner product (`datasets create --owner-product`), otherwise the API

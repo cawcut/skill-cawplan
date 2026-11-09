@@ -10,6 +10,7 @@ import { addTicketAttachments } from "../src/lib/ticket-attachment-add.js";
 let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(path.join(os.tmpdir(), "cawplan-source-"));
+  vi.spyOn(process, "cwd").mockReturnValue(dir);
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -182,6 +183,7 @@ describe("plain files and notes", () => {
         note: "Crash log from **build 42**",
         field: "comment",
         mode: "append",
+        allowOutsideCwd: true,
         fetchImpl: vi.fn(async () => new Response(null, { status: 200 })) as unknown as typeof fetch,
       },
     );
