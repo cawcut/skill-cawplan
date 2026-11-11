@@ -51,9 +51,20 @@ export function latestCawplanVersion(): Promise<string> {
     return commandOutput(npmCommand(), ["view", "cawplan", "version"]);
 }
 
-export function runCawplanUpgrade(): Promise<void> {
+const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/** Args for installing one exact, already-resolved version (never a moving tag like "latest"). */
+export function buildUpgradeArgs(version: string): string[] {
+    const pinned = version.trim();
+    if (!SEMVER_RE.test(pinned)) {
+        throw new Error(`Refusing to install unpinned or malformed cawplan version: ${JSON.stringify(version)}`);
+    }
+    return ["install", "-g", `cawplan@${pinned}`];
+}
+
+export function runCawplanUpgrade(version: string): Promise<void> {
     return new Promise((resolve, reject) => {
-        const child = spawn(npmCommand(), ["install", "-g", "cawplan@latest"], {
+        const child = spawn(npmCommand(), buildUpgradeArgs(version), {
             stdio: "inherit",
         });
 

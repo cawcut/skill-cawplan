@@ -8,6 +8,12 @@ Shared rules for skills that read many tickets, page through results, or need pe
 They keep a query going after a rejected command, keep results complete when the data is large,
 and keep internal details out of the answer.
 
+Commands below are written in `cawplan` CLI form. A skill that uses `references/CAPABILITIES.md`
+may be on the MCP route instead: there, call the matching capability with the same arguments
+(`tickets search` is `tickets.search`, `tickets stats` is `tickets.stats`, `tickets changes` is
+`tickets.changes`, `tickets history` is `tickets.history`), and follow `next_cursor` yourself where
+this file says the CLI pages for you.
+
 ## 1. Let the backend aggregate
 
 Counting and change-history work runs on the CawPlan backend. The CLI only maps flags and pages.
@@ -19,10 +25,13 @@ Counting and change-history work runs on the CawPlan backend. The CLI only maps 
 | Counts of those changes | `cawplan tickets changes ... --group_by actor,new_status_category` | counting events yourself |
 | Ticket rows to display | `cawplan tickets search --view compact` (50 rows per page by default; paged), or the `tickets` map returned by `tickets changes` | full-field 20-row pages (the server default) |
 
-- `tickets search --view compact` keeps list fields only (IDs, description, status and category,
-  priority, UX, product/version, label, reporter and assignee names, timestamps) on one JSON line, so a
-  50-row page (the compact default) stays around 25KB. Use `tickets get` when a ticket's remarks, analysis or
-  comments are needed.
+- `tickets search --view compact` (capability `tickets.search` with `view` = `compact`, on either route)
+  keeps list fields only: IDs, description, status and `status_display`, priority, UX, product/version,
+  parent, labels (`name`, `behavior`), assignees (`user_id` and name), `qa_assignee_ids`
+  (present only when a QA owner is set), `reporter_id`, module, timestamps. A 50-row page stays around
+  25-60KB. Use `tickets get` when a ticket's remarks, analysis or comments are needed. Older CLI releases
+  printed a reduced compact row (label and assignee names only, no IDs); if a row has `labels` as plain
+  strings, treat `qa_assignee_ids` as unknown, not empty.
 - When the question only needs counts, call `tickets stats` first. Do not page `tickets search`
   to count, and do not page it before trying `tickets stats`.
 - `tickets stats` needs the same date window as `tickets search`: pass
@@ -49,7 +58,7 @@ Counting and change-history work runs on the CawPlan backend. The CLI only maps 
 - Without `--group_by`, the CLI follows the cursor for up to 20 pages. If the result has
   `truncated: true`, either narrow the scope/window or continue with `--cursor <next_cursor>`.
   Never present a truncated result as complete.
-- Both commands need cawplan CLI 0.0.59 or later. Command details: `references/CAWPLAN_OPEN_API.md`
+- Both commands need cawplan CLI 0.0.59 or later. Arguments per route: `references/CAPABILITIES.md`
   ("Ticket Stats", "Ticket Changes").
 
 ### Reopens

@@ -63,7 +63,7 @@ Present exactly these five fields, in this order, as **section headings** (not a
 
 Pick rows that apply; do not paste the whole table. Material facts stay **without** markers.
 
-**为什么表内必须照抄原句**（勿误读为「内容准入门槛」）：原因是**执行侧的归档去重** —— `reconcile` strong match 与 `requirements update` 的 snapshot diff 都是 **trim 后逐字节精确比对**，同义改写会让同一条需求在服务端对不上，导致误判 `no_match`（重复建单）或误报变更键。它约束的是**措辞**，从不构成「无措辞可写就别写」的理由（判据 1 白名单九项均已有跨场景措辞）。
+**为什么表内必须照抄原句**（勿误读为「内容准入门槛」）：原因是**执行侧的归档去重** —— `reconcile` strong match 与 `qa.requirements.update` 的 snapshot diff（MCP 路由在 workflow-archive 10b / 11b-PATCH 中手工执行同一规则）都是 **trim 后逐字节精确比对**，同义改写会让同一条需求在服务端对不上，导致误判 `no_match`（重复建单）或误报变更键。它约束的是**措辞**，从不构成「无措辞可写就别写」的理由（判据 1 白名单九项均已有跨场景措辞）。
 
 **表外句式模板（仅限 `（界面推断）`）**：截图能强暗示的 UI 状态远多于表内那一行，表内无对应行时按此模板自拟：
 

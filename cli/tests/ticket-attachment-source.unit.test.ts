@@ -27,7 +27,7 @@ const rel = (p: string) => path.relative(dir, p);
 describe("renderMarkdown", () => {
   test("renders images, links and raw HTML", () => {
     const html = renderMarkdown("# T\n\n![](<shots/case 1.png>) [rec](rec/录屏.mp4)\n\n<video src=\"a.mp4\"></video>");
-    expect(html).toContain(`<img src="shots/case%201.png" alt="">`);
+    expect(html).toContain(`<img src="shots/case%201.png" alt="" />`);
     expect(html).toContain(`<a href="rec/%E5%BD%95%E5%B1%8F.mp4">rec</a>`);
     expect(html).toContain(`<video src="a.mp4"></video>`);
   });
@@ -65,7 +65,7 @@ describe("buildDirectoryContent", () => {
 
     const [intro, login, logout, other] = fragments.map((f) => f.html);
     expect(intro).toContain("<table>");
-    expect(intro).toContain(`<img src="overview.png" alt="">`);
+    expect(intro).toContain(`<img src="overview.png" alt="" />`);
     expect(login!.indexOf("<h3>case-2-login</h3>")).toBe(0);
     expect(login!.indexOf("Steps: open the page.")).toBeLessThan(login!.indexOf("Second note."));
     // 2.png is already referenced by the notes, so only 1.png and the recording are appended.

@@ -78,7 +78,7 @@ Portal 富文本渲染器**不折叠**标签间空白；块级标签之间的 `\
 3. **禁止**空块：不写 `<p></p>`、`<br><br>`、连续 `<br>`、仅含空白的 `<p> </p>`。
 4. **段内换行**：同一段落内用单个 `<br>`，**禁止**拆成多个 `<p>` 造成双空行（❌ `<p>A</p><p>B</p>` → ✅ `<p>A<br>B</p>` 或两条 `<li>`）。
 5. **列表优先**：多行并列内容用 `<ul>/<ol>/<li>`，不用多个 `<p>` 堆叠。
-6. **落库前校验**：`node scripts/validate_report_details.js --body-file report-body.json`；仅压紧换行可用 `--minify -o report-body.json`（**不**补全链接文案）。完整单行示例见 `html-example.md`。
+6. **落库前校验**：`node scripts/validate_report_details.js --body-file report-body.json`（本地脚本，需 shell；无 shell 见 `§Gates`）；仅压紧换行可用 `--minify -o report-body.json`（**不**补全链接文案）。完整单行示例见 `html-example.md`。
 
 ```html
 <!-- 正确：meta 与正文无空行间隔；Test Summary 每项独立 <p> + strong -->
@@ -121,7 +121,7 @@ Portal 富文本渲染器**不折叠**标签间空白；块级标签之间的 `\
 node scripts/validate_report_details.js --body-file report-body.json
 ```
 
-失败→**停步退回** Step 5 补全，**禁止**进入 Step 6 预览或 Step 7 落库。校验项（脚本强制，非口头自审）：
+失败→**停步退回** Step 5 补全，**禁止**进入 Step 6 预览或 Step 7 落库。两条路由都在本地写 `report-body.json` 并跑此脚本（MCP 路由也一样，只要有 shell）。**无 shell**（只能走 MCP）→脚本无法运行→停在 Step 5，告知用户落库前校验需要可运行 `node` 的环境；**禁止**人工自审代替、**禁止**进入 Step 6/7。校验项（脚本强制，非口头自审）：
 
 | code | 条件 | 处理 |
 |------|------|------|
@@ -142,14 +142,18 @@ node scripts/validate_report_details.js --body-file report-body.json
 
 ## §Upsert
 
-```bash
-cawplan qa-reports list-version <product_id> <version_id>
-# ticket_id==anchor：0→create，1→update，>1→停步
-cawplan qa-reports create <pid> <vid> --body-file report-body.json
-cawplan qa-reports update <pid> <vid> <qa_report_id> --body-file report-body.json
-```
+1. capability `qa_reports.list`：`product_id`、`version_id`（按 `total` 翻页取全）。按 `ticket_id==anchor` 过滤：0→create，1→update，>1→停步。
+2. 0 条→capability `qa_reports.create`（write）：`product_id`、`version_id`，body=`report-body.json`。
+3. 1 条→capability `qa_reports.update`（write）：`product_id`、`version_id`、`qa_report_id`，body=`report-body.json`。
 
-Body 字段：`topic`、`type=sqa`、`details`（meta+compact HTML，见 `§HTML` · `html-example.md`）、`result`、`status`、`ticket_id`=anchor、`links`（`string[]`）、`date_start`。长 HTML **必须** `--body-file`；写入前 **必须** `validate_report_details.js` 通过。PUT 全量替换，保留 `display_id`。403→权限不足。
+两个写 capability 都只在 Step 7 落库闸用户确认后调用。body 传法按路由：
+
+- **CLI 路由**：`body_file`=`report-body.json`（长 HTML **必须**走文件，不用 `body` 内联）。
+- **MCP 路由**：无 `body_file`；把**已通过校验**的 `report-body.json` 内容（若跑过 `--minify -o`，用压紧后的版本）原样作为 `body` JSON 对象传入，不改字段、不重新排版。无 shell 时流程已在 Step 5 校验闸停步（见 `§Gates`），不会走到这里。
+
+两条路由返回都是普通 `{code, msg, data}` 信封，从 `data` 读（`unique_id`、`display_id` 等）。
+
+Body 字段：`topic`、`type=sqa`、`details`（meta+compact HTML，见 `§HTML` · `html-example.md`）、`result`、`status`、`ticket_id`=anchor、`links`（`string[]`）、`date_start`。写入前 **必须** `validate_report_details.js` 通过。PUT 全量替换，保留 `display_id`。403→权限不足。
 
 ## §Result
 
@@ -157,4 +161,4 @@ Body 字段：`topic`、`type=sqa`、`details`（meta+compact HTML，见 `§HTML
 
 ## §Errors
 
-版本不匹配→换版本/取消；403→开权限；summary 失败→`--refresh`/取消；落库失败→list-version 对账。
+版本不匹配→换版本/取消；403→开权限；summary 失败→带 `refresh`=true 重试/取消；落库失败→capability `qa_reports.list` 对账。

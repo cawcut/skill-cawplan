@@ -1,6 +1,7 @@
+import {ensurePrivateDir} from "./private-fs.js";
 import {execFile} from "node:child_process";
 import {createHash, randomBytes, timingSafeEqual} from "node:crypto";
-import {chmod, mkdir, readFile, unlink, writeFile} from "node:fs/promises";
+import {chmod, readFile, unlink, writeFile} from "node:fs/promises";
 import {createServer, type ServerResponse} from "node:http";
 import {createRequire} from "node:module";
 import {dirname, join} from "node:path";
@@ -750,7 +751,7 @@ export async function readPendingLogin(): Promise<PendingDeviceLogin | null> {
 
 async function writePendingLogin(pending: PendingDeviceLogin): Promise<void> {
     const path = getPendingLoginPath();
-    await mkdir(dirname(path), {recursive: true});
+    await ensurePrivateDir(dirname(path));
     await writeFile(path, `${JSON.stringify(pending, null, 2)}\n`, {encoding: "utf8", mode: PENDING_LOGIN_MODE});
     await chmod(path, PENDING_LOGIN_MODE);
 }

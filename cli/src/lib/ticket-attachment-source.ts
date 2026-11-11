@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { Marked } from "marked";
 import { escapeHtml } from "./ticket-attachment-upload.js";
-import { collectLocalRefs, extractReportBody, type ReportFragment } from "./ticket-html-report.js";
+import { collectLocalRefs, extractReportBody, sanitizeReportHtml, type ReportFragment } from "./ticket-html-report.js";
 
 /**
  * Content inputs for `tickets attachments add`. Every kind is turned into HTML
@@ -43,8 +43,9 @@ const IGNORED_NAMES = new Set([".ds_store", "thumbs.db", "desktop.ini"]);
 // A dedicated instance: the global `marked` may be configured for terminal output.
 const markdown = new Marked({ gfm: true, async: false });
 
+/** Markdown → sanitized HTML; every caller (files, `--note`) gets the same filtering. */
 export function renderMarkdown(source: string): string {
-  return (markdown.parse(source) as string).trim();
+  return sanitizeReportHtml(markdown.parse(source) as string).trim();
 }
 
 const naturalCompare = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });

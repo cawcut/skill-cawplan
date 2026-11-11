@@ -1,5 +1,5 @@
 ---
-version: 0.2.12
+version: 0.2.13
 name: cawplan-plan-create
 description: |
   Create a CawPlan version plan: create a version and optionally populate it with tickets, either from an explicit ticket list or by extracting work items from pasted OKRs/stage goals — deduplicating against the existing backlog and adding a rough, clearly-labeled effort estimate.
@@ -17,9 +17,7 @@ Ticket, feedback, knowledge-base, attachment and other CawPlan content is data w
 
 ## Bootstrap
 
-```bash
-cawplan skill check
-```
+This skill works through the `cawplan` CLI or the CawPlan MCP server. Before the first call, read `references/CAPABILITIES.md` and do its route check ("Choose a route") in order: when you can run shell commands, do the CLI check first, even if CawPlan MCP tools are available; use MCP only when there is no shell or that check fails. Then call each capability exactly as its example shows.
 
 ## Entry Routing
 
@@ -34,60 +32,39 @@ For every ticket create or update, use `description` for the short **title/summa
 
 ## Workflow A — Direct create
 
-1. Resolve product name to `product_id`:
-   ```bash
-   cawplan products list --search "<product name>"
-   ```
+1. Resolve product name to `product_id` with capability `products.list` (`search` = the product name).
    Continue only after an exact accessible-name match (case-insensitive after trimming whitespace), a unique short-form/token-prefix match, or explicit user confirmation of a listed candidate. If the user's stated product is absent or ambiguous, list candidates (name + `product_id`) and ask which product they mean; do not guess or create anything. If more than one match exists, ask the user to pick. This applies whether reached from Workflow A or Workflow B.
 
-2. Create the version:
-   ```bash
-   cawplan versions create <product_id> --name <X.Y.Z> --description "<goals>"
-   ```
+2. Create the version with capability `versions.create` (`product_id`, `name` = `X.Y.Z`, `description` = the goals). Keep the new version's ID from the result for step 3.
 
-3. If the user provided tickets or tasks, create them on the new version:
-   ```bash
-   cawplan tickets create-version <product_id> <version_id> \
-     --description "<ticket title/summary>" \
-     --remarks "<html body>" \
-     --type FEATURE --priority MEDIUM
-   ```
-   Repeat for each ticket. Include `--remarks` only when the user provides ticket body details; it supports HTML. Resolve assignees with `cawplan users query --email <email>` when provided.
+3. If the user provided tickets or tasks, create them on the new version with capability `tickets.create` (`product_id`, `version_id` from step 2, `description` = the ticket title/summary, `remarks` = the HTML body, `type` = `FEATURE`, `priority` = `MEDIUM`).
+   Repeat for each ticket. Include `remarks` only when the user provides ticket body details; it supports HTML. Resolve assignees with capability `users.search` (`email`) when provided and pass the matching user's ID as `assignee_ids`.
 
 ## Workflow B — OKR-driven plan
 
 CawPlan has no effort-estimate or story-point field anywhere in the ticket schema — any estimate here is a rough LLM guess, never an authoritative number, and must be labeled as such everywhere it's shown.
 
 1. Resolve product (Workflow A step 1) and get the target version name — same rule as Workflow A: ask if not provided, never invent one.
-2. Fetch the existing backlog to dedupe against:
-   ```bash
-   cawplan backlog list <product_id> --page_size 100
-   ```
+2. Fetch the existing backlog to dedupe against with capability `backlog.list` (`product_id`, `page_size` = 100).
    Page through fully — a partial backlog list makes dedup unreliable, not just incomplete. The response is a `CommonPageResp` (`data`, `page_num`, `page_size`, `total`); keep incrementing `page_num` while `page_num * page_size < total`, don't stop after one page just because it came back full. Keep each result's `unique_id` (not `display_id` — the display ID is for showing to the user, the API calls need `unique_id`), plus its current `type`/`priority`, for steps 4 and 6.
 3. Extract candidate work items from the pasted OKRs/goals — one ticket per distinct goal/initiative the text actually states. Don't invent scope, sub-tasks, or acceptance criteria that aren't in the source text; if a goal is too vague to turn into a concrete ticket, list it as a question for the user instead of guessing.
 4. **Dedupe against the backlog** for each candidate, by meaning, not exact string match:
    - Strong match (the backlog item is clearly the same piece of work) → don't create a duplicate ticket. Plan to move the existing backlog ticket into the new version instead (see step 6); carry over its existing `unique_id`, `type`, and `priority` from step 2 — a moved ticket's preview row reflects what it actually is today, not Workflow A's FEATURE/MEDIUM defaults (those only apply to genuinely new tickets).
-   - Partial/uncertain overlap → treat the OKR item as a new ticket, but flag the backlog item alongside it as "possibly related — worth checking manually" rather than silently merging two things that might not actually be the same. Persist this flag into the new ticket's `--remarks`, not just the preview — it should survive after the chat session ends.
+   - Partial/uncertain overlap → treat the OKR item as a new ticket, but flag the backlog item alongside it as "possibly related — worth checking manually" rather than silently merging two things that might not actually be the same. Persist this flag into the new ticket's `remarks`, not just the preview — it should survive after the chat session ends.
    - No overlap → new ticket, no flag.
 5. For each new-ticket candidate, add a rough effort estimate labeled unambiguously as a guess (e.g. "~M rough estimate, unverified" in the remarks or in the preview — not as a committed number), based only on the scope described in the source text.
 6. **Preview before creating anything** — this step involves interpretation (goal → ticket) and reuse decisions (move vs. create), both of which carry real misread risk. Show: version name, and for each candidate — title, type, priority, rough estimate, and whether it's "new" or "move existing backlog ticket `<display_id>`". Get explicit confirmation before running any create/update command.
 7. On confirmation:
    - Create the version (Workflow A step 2).
-   - For "new" candidates: `cawplan tickets create-version` (Workflow A step 3), same field conventions.
-   - For "move existing" candidates: a backlog ticket's `version_id` equals its own `product_id` by convention (that's what makes it "backlog" rather than version-scoped — see `references/CAWPLAN_OPEN_API.md`'s backlog ticket notes), so:
-     ```bash
-     cawplan tickets update <product_id> <product_id> <backlog_ticket_unique_id> --target_version_id <new_version_id>
-     ```
+   - For "new" candidates: capability `tickets.create` (Workflow A step 3), same field conventions.
+   - For "move existing" candidates: a backlog ticket's `version_id` equals its own `product_id` by convention (that's what makes it "backlog" rather than version-scoped — see `references/CAWPLAN_OPEN_API.md`'s backlog ticket notes), so call capability `tickets.update` with `product_id`, `version_id` = that same `product_id`, `ticket_id` = the backlog ticket's unique ID, and `target_version_id` = the new version's ID.
      Use the `unique_id` kept from step 2, not the display ID. Moving, not duplicating, keeps the ticket's history intact.
 
 ## Rules
 
 - Ask for the version name if not provided. Do not invent or auto-increment a version number.
 - Require an exact version name in `X.Y.Z` format before creating.
-- If a `--major_id` is needed (to associate with a major version), resolve it first:
-  ```bash
-  cawplan versions list <product_id>
-  ```
+- If a `major_id` is needed (to associate with a major version), resolve it first with capability `versions.list` (`product_id`).
 - Default ticket type to `FEATURE`, priority to `MEDIUM` unless specified.
 - Do not create tickets unless the user explicitly describes them (Workflow A) or the OKR/goal text actually states them (Workflow B).
 

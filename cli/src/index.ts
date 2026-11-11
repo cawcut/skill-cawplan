@@ -2,7 +2,7 @@
 
 import {Command} from "commander";
 import {createRequire} from "node:module";
-import {ApiError} from "./lib/http.js";
+import {ApiError, normalizePath} from "./lib/http.js";
 import {registerAuthCommand} from "./commands/auth.js";
 import {registerProductsCommand} from "./commands/products.js";
 import {registerVersionsCommand} from "./commands/versions.js";
@@ -91,7 +91,7 @@ program
             baseUrl = `https://${baseUrl}`;
         }
         baseUrl = baseUrl.replace(/\/$/, "");
-        const normalizedPath = path.trim().startsWith("/") ? path.trim() : `/${path.trim()}`;
+        const normalizedPath = normalizePath(path);
         const debugUrl = new URL(`${baseUrl}${normalizedPath}`);
         if (query) {
             for (const [key, value] of Object.entries(query)) {

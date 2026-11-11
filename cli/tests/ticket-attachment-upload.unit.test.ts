@@ -1,3 +1,4 @@
+import { renderMarkdown } from "../src/lib/ticket-attachment-source.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -391,5 +392,61 @@ describe("addTicketAttachments", () => {
     expect(value).toContain(`data-type="video-attachment"`);
     expect(value.endsWith("<!-- /cawplan-report:qa-results -->")).toBe(true);
     expect(readFileSync(htmlOut, "utf8")).toBe(value.slice("<p>earlier</p><!-- cawplan-report:qa-results -->".length, -"<!-- /cawplan-report:qa-results -->".length));
+  });
+});
+
+describe("sanitizeReportHtml", () => {
+  const clean = (h: string) => extractReportBody(`<body>${h}</body>`);
+  const active = /<\s*(script|iframe|object|embed|svg|form|input)\b|\son[a-z]+\s*=|javascript:|data:text/i;
+
+  test.each([
+    `<p>a</p><script>alert(1)</script>`,
+    `<img src="x" onerror="alert(1)">`,
+    `<a href="javascript:alert(1)">x</a>`,
+    `<a href="  JaVa&#10;script:alert(1)">x</a>`,
+    `<a href="java&#115cript:alert(1)">x</a>`,
+    `<a href="javascript&colon;alert(1)">x</a>`,
+    `<svg><a xlink:href="javascript&colon;alert(1)">x</a></svg>`,
+    `<scr<script></script>ipt>alert(1)</script>`,
+    `<iframe src="https://evil"></iframe>`,
+    `<object data="x"></object><embed src="y">`,
+    `<form action="/x"><input name="a"></form>`,
+    `<img/onerror=alert(1) src=x>`,
+    `<a href="data:text/html,<script>x</script>">x</a>`,
+    `<div data-type="video-attachment" data-src="javascript:alert(1)"></div>`,
+    `<video src="x" poster="javascript:alert(1)"></video>`,
+  ])("neutralizes %s", (input) => {
+    expect(clean(input)).not.toMatch(active);
+  });
+
+  test("drops script content instead of unwrapping it", () => {
+    expect(clean(`<p>ok</p><script>alert(1)</script>`)).toBe("<p>ok</p>");
+    expect(clean(`<scr<script></script>ipt>alert(1)</script>`)).not.toContain("<script");
+  });
+
+  test("keeps safe markup, remote urls, image data urls and local refs", () => {
+    const out = clean(
+      `<p class="a"><a href="https://x.test/a?b=1">l</a> <img src="data:image/png;base64,AAA" alt="i"><img src="./shots/a.png"><img src="C:\\shots\\b.png"><img src="file:///tmp/c.png"> <video src="rec/a.mp4" controls></video></p>` +
+        `<span data-type="zip-attachment" class="zip-attachment" data-src="log.txt" data-filename="log.txt" data-file-size="10"></span>`,
+    );
+    for (const want of [
+      `href="https://x.test/a?b=1"`, `src="data:image/png;base64,AAA"`, `src="./shots/a.png"`, `src="C:\\shots\\b.png"`,
+      `src="file:///tmp/c.png"`, `<video src="rec/a.mp4" controls`, `data-src="log.txt"`, `data-file-size="10"`, `class="a"`,
+    ]) expect(out).toContain(want);
+  });
+
+  test("keeps in-report fragment links working under a namespaced id", () => {
+    const out = clean(`<a href="#case-1">Case 1</a><h2 id="case-1">Case 1</h2><a name="top"></a><a href="#">x</a>`);
+    expect(out).toBe(
+      `<a href="#user-content-case-1">Case 1</a><h2 id="user-content-case-1">Case 1</h2><a name="user-content-top"></a><a href="#">x</a>`,
+    );
+    // Sanitizing twice must not double-prefix.
+    expect(extractReportBody(`<body>${out}</body>`)).toBe(out);
+  });
+
+  test("renderMarkdown sanitizes --note input", () => {
+    const html = renderMarkdown(`hi <img src="https://example.test/x" onerror="alert(1)">`);
+    expect(html).toContain(`src="https://example.test/x"`);
+    expect(html).not.toMatch(active);
   });
 });

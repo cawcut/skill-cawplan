@@ -20,7 +20,7 @@ export function registerUpgradeCommand(program: Command): void {
                 }
 
                 console.error(`Upgrading cawplan from ${currentVersion} to ${latestVersion}...`);
-                await runCawplanUpgrade();
+                await runCawplanUpgrade(latestVersion);
                 console.error(`cawplan upgrade completed: ${currentVersion} -> ${latestVersion}.`);
             } catch (err) {
                 console.error(`Error: ${(err as Error).message}`);

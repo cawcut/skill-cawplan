@@ -1,5 +1,5 @@
 ---
-version: 0.2.12
+version: 0.2.13
 name: cawplan-testrail-link
 description: |
   Manually link existing TestRail Cases or Plans/Runs back to CawPlan mappings after QA hand-imported or hand-created TestRail artifacts; also unlink stale or wrong case mappings (case deleted in TestRail, wrong suite) so they can be re-linked.

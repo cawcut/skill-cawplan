@@ -99,14 +99,13 @@ async function ensureLatestCawplan(): Promise<void> {
         currentVersion = await currentCawplanVersion();
         latestVersion = await latestCawplanVersion();
     } catch {
-        console.error("Unable to check latest cawplan version. Upgrading...");
-        await runCawplanUpgrade();
+        console.error("Unable to check latest cawplan version; skipping CLI upgrade (cannot pin a version).");
         return;
     }
 
     if (!isNewerVersion(latestVersion, currentVersion)) return;
     console.error(`cawplan ${latestVersion} is available (current: ${currentVersion}). Upgrading...`);
-    await runCawplanUpgrade();
+    await runCawplanUpgrade(latestVersion);
 }
 
 async function ensureAuthenticated(): Promise<void> {

@@ -21,6 +21,18 @@ cawplan auth status
 cawplan products list --search "UniFi Access"
 ```
 
+## Use with MCP (no CLI)
+
+Agents without a shell (for example Claude on the web) can use the CawPlan MCP
+server instead of the CLI; the skills pick the route themselves.
+
+- URL: `https://api.cawplan.com/core-product/api/v1/public/openapi/mcp` (streamable HTTP)
+- Sign-in: OAuth in the browser, no API key
+- Claude Code: `claude mcp add --transport http cawplan https://api.cawplan.com/core-product/api/v1/public/openapi/mcp`, then `/mcp` to sign in
+
+Setup for Claude, Codex, Cursor and other clients, what still needs the CLI,
+and troubleshooting: [INSTALL.md](INSTALL.md#mcp-server-no-cli).
+
 ## Skills
 
 | # | Skill | Invoke | Description |

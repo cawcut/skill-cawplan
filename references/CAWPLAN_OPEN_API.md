@@ -202,18 +202,20 @@
 ### Create Version Ticket (Issue / Sub-issue)
 - Endpoint: `POST /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets`
 - Body (required): `description` (ticket title/summary; not the web page description body)
-- Body (optional): `remarks` (ticket page body; HTML supported), `type` (`FEATURE`/`BUGFIX` — legacy; when omitted it is derived from `label_ids`), `priority` (`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`), `status` (per-product-line status key), `assignee_ids[]`, `parent_id` (set this to make the ticket a sub-issue), `label_ids[]`, `reporter_id`, `due_date` (`YYYY-MM-DD`), `comment`
+- Body (optional): `remarks` (ticket page body; HTML supported), `type` (`FEATURE`/`BUGFIX` — legacy; when omitted it is derived from `label_ids`), `priority` (`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`), `status` (per-product-line status key), `assignee_ids[]`, `parent_id` (set this to make the ticket a sub-issue), `label_ids[]`, `module_id` (a node id of the product's module tree, `GET /api/v1/public/openapi/product/{product_id}/module-tree`; the response carries `module_id` and `module_name`), `reporter_id`, `due_date` (`YYYY-MM-DD`), `comment`
 - Notes:
     - The web page description body is stored as `remarks`; set it with CLI `--remarks "<html>"`.
     - **`priority` and `status` are optional and defaulted server-side**: when omitted (or empty) the backend stores `priority = MEDIUM` and `status =` the product line's configured default status (or its first active status). An adapter that only carries a "todo" intent (Clawcode/Linear `createIssue`) can leave both unset and still get a well-formed ticket — no empty-string fields are persisted. A provided `status` is still validated against the product line.
     - When `parent_id` is set the new ticket becomes a sub-issue. Sub-issues must share the same `product_line` as the parent and the parent chain depth is capped at 5.
     - CLI `--parent_id` accepts a unique ID or a display ID (e.g. `CWP-14556`); display IDs are resolved via Search Tickets before the create call.
     - Activity is recorded with actor resolved from product owner / PM / first assignee (or `public-api-user` fallback).
+- `module_id` must be a live module of the ticket's own product; otherwise the call fails with INVALID_INPUT (`invalid module_id`) and nothing is written. On update, omitting it keeps the module and sending `null` or `""` clears it (the CLI has no clear flag; use `cawplan api PUT`).
+- CLI `--module <name_or_id>` (create-version, create-backlog, update) takes a module name, a full path (`Parent / Child`) or an id and resolves it to `module_id` through the module tree; an ambiguous or unknown name is rejected before any ticket is written. `tickets batch-create --tickets` passes ticket objects through unchanged, so give `module_id` there as an id.
 - Maps to cawplan CLI: `cawplan tickets create`.
 
 ### Update Version Ticket (transition / progress / fields)
 - Endpoint: `PUT /api/v1/public/openapi/product/{product_id}/versions/{version_id}/tickets/{ticket_id}`
-- Body (all optional, sparse update): `status`, `priority`, `version_id` (move ticket to another version), `description`, `remarks`, `comment`, `progress_comment`, `root_cause`, `solution`, `assignee_ids[]`, `parent_id`, `label_ids[]`, `due_date`, `manual_progress`, `links[]`, `fix_versions[]`, `api_status`, `notifiers`
+- Body (all optional, sparse update): `status`, `priority`, `version_id` (move ticket to another version), `description`, `remarks`, `comment`, `progress_comment`, `root_cause`, `solution`, `assignee_ids[]`, `parent_id`, `label_ids[]`, `module_id`, `due_date`, `manual_progress`, `links[]`, `fix_versions[]`, `api_status`, `notifiers`
 - Notes:
     - `description` updates the ticket title/summary field. It does **not** update the web page description body; that body is stored as `remarks` and accepts HTML.
     - `version_id` updates the ticket's target version. CLI supports this through `cawplan tickets update ... --target_version_id <id>` or `--target-ver <name>`.

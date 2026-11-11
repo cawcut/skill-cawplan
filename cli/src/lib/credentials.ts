@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { ensurePrivateDir } from "./private-fs.js";
+import { chmod, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { normalizeApiBase } from "./config.js";
@@ -99,7 +100,7 @@ export async function readCredentials(): Promise<Credentials | null> {
 export async function writeCredentials(creds: Credentials): Promise<void> {
   const credentialsPath = getCredentialsPath();
   const payloadCreds = withAccessTokenIdentity(creds);
-  await mkdir(dirname(credentialsPath), { recursive: true });
+  await ensurePrivateDir(dirname(credentialsPath));
   const payload = `${JSON.stringify(payloadCreds, null, 2)}\n`;
   await writeFile(credentialsPath, payload, { encoding: "utf8", mode: CREDENTIALS_MODE });
   await chmod(credentialsPath, CREDENTIALS_MODE);

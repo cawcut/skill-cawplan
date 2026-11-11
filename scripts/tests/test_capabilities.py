@@ -37,7 +37,7 @@ class CapabilityRegistryTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.write("references/capabilities.json", json.dumps(REGISTRY))
-        self.write("references/mcp-tools.json", json.dumps({"tools": ["search_tickets", "get_ticket"]}))
+        self.write("references/mcp-tools.json", json.dumps({"tools": ["search_tickets"]}))
         self.write("cli/src/commands/tickets.ts", CLI_SOURCE)
         self.write("skills/cawplan-example/SKILL.md", SKILL)
         self.run_cli("render")
@@ -94,6 +94,10 @@ class CapabilityRegistryTests(unittest.TestCase):
         self.write("references/mcp-tools.json", json.dumps({"tools": ["get_ticket"]}))
         self.assert_error("MCP tool 'search_tickets' is not in")
 
+    def test_every_mcp_tool_needs_a_capability(self):
+        self.write("references/mcp-tools.json", json.dumps({"tools": ["search_tickets", "get_ticket"]}))
+        self.assert_error("MCP tool 'get_ticket' in references/mcp-tools.json has no capability")
+
     def test_cli_command_and_options_must_exist(self):
         self.write("cli/src/commands/tickets.ts", 'program.command("tickets");\ntickets.command("search");\n')
         self.assert_error("CLI option '--display_ids' not found")
@@ -119,6 +123,7 @@ class CapabilityRegistryTests(unittest.TestCase):
             "example": {"ticket_id": "t1", "product_id": "p1"},
         }
         self.write("references/capabilities.json", json.dumps(registry))
+        self.write("references/mcp-tools.json", json.dumps({"tools": ["search_tickets", "get_ticket"]}))
         self.write(
             "cli/src/commands/knowledge.ts",
             'const knowledge = program.command("knowledge");\nconst documents = knowledge.command("documents");\n'
@@ -139,6 +144,35 @@ class CapabilityRegistryTests(unittest.TestCase):
             "cawplan tickets create-backlog p1 --description 'Login fails on Safari'",
             capabilities.cli_example(cli, example),
         )
+
+    def test_cli_example_renders_switches_and_json(self):
+        cli = {
+            "command": "qa-insights risk-assessment save",
+            "args": {"product_id": "<product_id>", "body": "--body <json>", "confirm": "--confirm", "dry_run": "--dry-run"},
+        }
+        example = {"product_id": "p1", "body": {"risk_level": "LOW", "reasons": ["ok"]}, "confirm": True, "dry_run": False}
+        self.assertEqual(
+            """cawplan qa-insights risk-assessment save p1 --body '{"risk_level":"LOW","reasons":["ok"]}' --confirm""",
+            capabilities.cli_example(cli, example),
+        )
+
+    def test_route_only_example_argument(self):
+        registry = json.loads(json.dumps(REGISTRY))
+        cap = registry["capabilities"]["tickets.search"]
+        cap["cli"]["args"]["refresh"] = "--refresh"
+        cap["example"] = {"display_ids": ["CWP-1"], "refresh": True}
+        self.write("references/capabilities.json", json.dumps(registry))
+        self.write("cli/src/commands/tickets.ts", CLI_SOURCE + 'tickets.command("search").option("--refresh", "Refresh");\n')
+        self.run_cli("render")
+        self.assert_error("example argument 'refresh' has no mcp mapping")
+        cap["route_only"] = ["refresh"]
+        self.write("references/capabilities.json", json.dumps(registry))
+        self.run_cli("render")
+        self.assertEqual([], self.errors())
+        cap["route_only"] = ["missing"]
+        self.write("references/capabilities.json", json.dumps(registry))
+        self.run_cli("render")
+        self.assert_error("route_only argument 'missing' has no mapping")
 
     def test_sync_mcp_reads_tool_names(self):
         core = self.root / "core-product"
