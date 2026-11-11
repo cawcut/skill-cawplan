@@ -31,13 +31,13 @@ const FULL_ROW = {
 };
 
 describe("compactTicketRow", () => {
-  test("keeps list fields and flattens labels, assignees and status category", () => {
-    expect(compactTicketRow(FULL_ROW)).toEqual({
+  test("keeps the server compact field set", () => {
+    expect(compactTicketRow({ ...FULL_ROW, qa_assignee_ids: ["q1"], module_id: "m1", module_name: "Login" })).toEqual({
       unique_id: FULL_ROW.unique_id,
       display_id: "CAWP-25684",
       description: "Default ticket page size",
       status: "NOT_STARTED",
-      status_category: "UNSTARTED",
+      status_display: { category: "UNSTARTED", display_name: "Not Started" },
       priority: "HIGH",
       ux: "PENDING",
       product_id: FULL_ROW.product_id,
@@ -47,9 +47,14 @@ describe("compactTicketRow", () => {
       is_backlog: false,
       created_at: 1793084471,
       updated_at: 1793584023,
-      labels: ["Bugfix"],
-      reporter: "Grace Hopper",
-      assignees: ["Ada Lovelace"],
+      qa_assignee_ids: ["q1"],
+      module_id: "m1",
+      module_name: "Login",
+      labels: [{ name: "Bugfix", behavior: "BUGFIX" }],
+      assignees: [
+        { user_id: "u1", first_name: "Ada", last_name: "Lovelace" },
+        { user_id: "u2", first_name: "", last_name: "" },
+      ],
     });
   });
 
@@ -71,7 +76,7 @@ describe("compactTicketSearchResult", () => {
     expect(result).toMatchObject({ code: "SUCCESS", msg: "success", page_num: 1, page_size: 50, total: 1391 });
     const [row] = result.data as Record<string, unknown>[];
     expect(row).not.toHaveProperty("remarks");
-    expect(row.reporter).toBe("Grace Hopper");
+    expect(row).not.toHaveProperty("reporter");
     expect(row.display_id).toBe("CAWP-25684");
   });
 

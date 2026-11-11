@@ -6,21 +6,21 @@
 
 | 输入 | 处理 |
 |------|------|
-| Ticket URL | 提取 `product_id`、`version_id`、`ticket_id`（或 `display_id`→`search --display_ids`） |
-| display_id + 版本名 | `products list` / `versions list` 反查 |
+| Ticket URL | 提取 `product_id`、`version_id`、`ticket_id`（或 `display_id`→capability `tickets.search`（`display_ids`）） |
+| display_id + 版本名 | capability `products.list`（`search`）/ capability `versions.list`（`product_id`）反查 |
 | `report_mode` | 显式 PROGRESS/COMPLETION；缺省 anchor 已完成→建议 COMPLETION |
 
 缺上下文→`publish §Gates` 索取。多匹配停步。落库 `ticket_id`=anchor.`unique_id`。
 
 Step 0 缓存：`portal_base`、`major_version_id`、`product_id`、`version_id`。Step 1 写 `anchor_detail_cache`（热接力复用）。
 
+`portal_base`：CLI 路由用 capability `config.env`（Portal host）。capability `config.env` 仅 CLI：MCP 路由取用户给的 Portal 链接的 origin（如 `https://app.cawplan.com`）；用户未给链接→向用户索取，**禁止**猜测 host。
+
 ## §Anchor Step 1
 
 同 anchor+version 且未要求刷新→复用 `anchor_detail_cache`，跳过 get。
 
-```bash
-cawplan tickets get <product_id> <version_id> <anchor_id>
-```
+capability `tickets.get`：`product_id`、`version_id`、`ticket_id`=anchor `unique_id`。
 
 404 / version 不匹配→停止。`parent_id` 任意。
 
@@ -28,7 +28,7 @@ cawplan tickets get <product_id> <version_id> <anchor_id>
 
 warning（不阻断）：`ANCHOR_IS_BUGFIX`；`SIBLING_REPORTS_EXIST`。
 
-Notes 父单：优先 `data.parent`；仅 `parent` 缺失且有 `parent_id`→**1 次** `get(parent_id)`。**禁止**再调 `tickets list`、`relate list`。
+Notes 父单：优先 `data.parent`；仅 `parent` 缺失且有 `parent_id`→**1 次** capability `tickets.get`（`ticket_id`=`parent_id`）。**禁止**再调 `tickets list` 类列表查询、capability `tickets.relations`（`relate list`）。
 
 ## §Subtree Step 1b（本地，无额外 API）
 
@@ -46,22 +46,20 @@ D4+ 不纳入；`deeper_excluded` 仅预览可选展示。open=非完成态（`p
 
 ## §Relation Step 2
 
-仅读 `anchor_detail_cache.relations`。禁止 `relate list`。
+仅读 `anchor_detail_cache.relations`。禁止 capability `tickets.relations`（`relate list`）。
 
 | 类型 | 默认 | 过滤 |
 |------|------|------|
 | related / blocked_by / blocking | ✅ | `ticket.version_id==目标 version` |
 | duplicate | ❌ | — |
 
-跨 version 静默排除。`scope_ids = anchor ∪ D1–D3 ∪ confirmed_relations`（execution、coverage、R1–R8）。**Verification 分桶**另用 `verification_ids = D1 ∪ D2 ∪ D3`（**不含 anchor**、不含 relation）。缺字段罕见时再单条 get。
+跨 version 静默排除。`scope_ids = anchor ∪ D1–D3 ∪ confirmed_relations`（execution、coverage、R1–R8）。**Verification 分桶**另用 `verification_ids = D1 ∪ D2 ∪ D3`（**不含 anchor**、不含 relation）。缺字段罕见时再单条 capability `tickets.get`。
 
 ## §Execution Step 4
 
-每个 `ticket_id ∈ scope_ids` **串行**：
+每个 `ticket_id ∈ scope_ids` **串行**调用 capability `qa.testrail.execution.summary`：`product_id`、`version_id`、`ticket_id`=该票 `unique_id`、`refresh`=true。
 
-```bash
-cawplan qa-insights testrail execution summary <pid> <vid> --ticket-id <id> --refresh
-```
+读 `aggregated`、`runs[]`：CLI 路由返回包在 `api` 里（`{outcome, command, meta, api}`），从 `api.data` 读；MCP 路由直接是 `{code, msg, data}`，从 `data` 读。
 
 单票 `executed/total`；coverage=`Σexecuted/Σtotal`；pass_quality=`(passed+auto_passed+passed_with_issue)/executed`。仅 Manual Run；`total=0`→0/0。汇总 failed/blocked/passed_with_issue、未关闭 BUGFIX（R1/R4）。Coverage% 写入 Test Summary；**禁止**在 Test Approach 追加近似覆盖率脚注。
 
@@ -69,9 +67,9 @@ cawplan qa-insights testrail execution summary <pid> <vid> --ticket-id <id> --re
 
 **feature_name**：① Requirement→`summary`；② `description` 首行≤120；③ `{display_id} {title}`。
 
-**RequirementLookup**（anchor + D1–D3）：`qa-insights module-tree get <product_id>` + `requirements?module_tree_node_id=`；按 ticket `unique_id` 过滤。
+**RequirementLookup**（anchor + D1–D3）：capability `qa.module_tree.get`（`product_id`）+ capability `qa.requirements.list`（`product_id`、`module_tree_node_id`）；按 ticket `unique_id` 过滤。
 
-**TestPoints**（COMPLETION）：`testpoints list`；按 `group` 聚类→`key_test_points` 1–5（核心优先）；PROGRESS 不产出。
+**TestPoints**（COMPLETION）：capability `qa.requirements.testpoints.list`（`product_id`、`requirement_id`）；按 `group` 聚类→`key_test_points` 1–5（核心优先）；PROGRESS 不产出。
 
 ## §ModeMatrix（PROGRESS vs COMPLETION 唯一表）
 
@@ -105,7 +103,7 @@ PROGRESS：`verified_passed` 仍可分桶供 R1–R8/coverage，但**不得**进
 
 **模块 fallback**：① Requirement.module_tree 名 → ② 祖先 FEATURE description≤60 → ③ Unscoped。正文仅可读模块名。
 
-**history（默认不拉）**：仅 REOPEN/BLOCKED 或 CRITICAL/HIGH BUGFIX 或同模块 BUGFIX≥3；上限 20 票→`ISSUE_SUMMARY_HISTORY_CAP`。子任务>80→B/C 仅 Top2→`ISSUE_SUMMARY_LARGE_SCOPE`。
+**history（默认不拉；capability `tickets.history`：`product_id`、`version_id`、`ticket_id`）**：仅 REOPEN/BLOCKED 或 CRITICAL/HIGH BUGFIX 或同模块 BUGFIX≥3；上限 20 票→`ISSUE_SUMMARY_HISTORY_CAP`。子任务>80→B/C 仅 Top2→`ISSUE_SUMMARY_LARGE_SCOPE`。
 
 **易损分（内部，不写 details）**：`bugfix×2 + critical_high×3 + reopen×4 + open_bugfix×1 + (failed+pwi)×1.5`
 

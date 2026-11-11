@@ -1,5 +1,5 @@
 {
-  "source": "CawPlan backend internal/handler/mcpserver/tools.go @ 096d6119",
+  "source": "CawPlan backend internal/handler/mcpserver/tools.go @ 4aff8012",
   "refresh": "python3 scripts/capabilities.py sync-mcp --core-product <path to the CawPlan backend checkout>",
   "tools": [
     "list_products",
@@ -32,6 +32,32 @@
     "create_version",
     "create_backlog_ticket",
     "create_ticket",
-    "update_ticket"
+    "update_ticket",
+    "get_ticket_relations",
+    "get_product_overview",
+    "get_product_module_tree",
+    "list_qa_reports",
+    "get_qa_report",
+    "list_qa_requirements",
+    "get_qa_requirement",
+    "list_qa_test_points",
+    "get_qa_risk_assessment",
+    "get_qa_risk_rules",
+    "get_testrail_execution_summary",
+    "get_testrail_execution_failures",
+    "get_testrail_mappings",
+    "list_ticket_attachments",
+    "list_backlog_ticket_attachments",
+    "resolve_qa_requirement",
+    "list_requirement_test_points",
+    "create_qa_requirement",
+    "update_qa_requirement",
+    "batch_create_test_points",
+    "compute_qa_risk_assessment",
+    "save_qa_risk_assessment",
+    "create_qa_report",
+    "update_qa_report",
+    "ingest_key_metrics",
+    "update_knowledge_document"
   ]
 }

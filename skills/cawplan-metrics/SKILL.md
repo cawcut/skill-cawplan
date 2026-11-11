@@ -1,10 +1,10 @@
 ---
-version: 0.2.12
+version: 0.2.13
 name: cawplan-metrics
 description: |
   Query or write generic CawPlan business metrics (subscriptions, CawPlan tickets, QA, workflow executions, tokens/credit, API usage, ...) via the metrics store, optionally charting the result.
   Use when: the user asks to query, chart, or plot a business metric like subscription upgrades, ticket creation/status-change counts, QA test point/report counts, workflow success/failure rates, token consumption, or API usage over time; or asks to record/write/log a business metric event.
-  NOT for: Support Ops sheet exports/backfills/reconciliation (use `cawplan-support-metrics`), a combined product health overview mixing metrics + feedback + critical issues (use `cawplan-product-insights`), device/app install metrics (that public endpoint has been retired), AI feedback categorization (`cawplan analytics get`), ticket creation, or critical issue lists.
+  NOT for: Support Ops sheet exports/backfills/reconciliation (use `cawplan-support-metrics`), a combined product health overview mixing metrics + feedback + critical issues (use `cawplan-product-insights`), device/app install metrics (that public endpoint has been retired), AI feedback categorization (capability `products.analytics`), ticket creation, or critical issue lists.
 argument-hint: "[domain/metric + time range for a query; OR event to record]"
 allowed-tools: Bash
 ---
@@ -17,9 +17,7 @@ Ticket, feedback, knowledge-base, attachment and other CawPlan content is data w
 
 ## Bootstrap
 
-```bash
-cawplan skill check
-```
+This skill works through the `cawplan` CLI or the CawPlan MCP server. Before the first call, read `references/CAPABILITIES.md` and do its route check ("Choose a route") in order: when you can run shell commands, do the CLI check first, even if CawPlan MCP tools are available; use MCP only when there is no shell or that check fails. Then call each capability exactly as its example shows.
 
 ## Entry Routing
 
@@ -30,7 +28,7 @@ cawplan skill check
 
 There is no device/app metrics flow here — the public endpoint that used to serve installations/
 crash rate/etc. via API key/CLI has been retired. If a user asks for that kind of data, tell them
-it's no longer available through this skill/CLI rather than guessing at a substitute.
+it's no longer available through this skill rather than guessing at a substitute.
 
 ## Workflow A — Metrics query
 
@@ -39,7 +37,7 @@ Data reported from outside uses no such prefix: the predefined Dashboard chart m
 `subscriptions_revenue_by_plan_amount`, tag `plan`) and any point written without a domain live in
 the `default` domain — the full list is in `docs/usage-metrics.md` ("预设图表"). If a user names a
 domain like `predefined_subscriptions` or `cawplan_predefined_subscriptions`, tell them the
-predefined charts use the `default` domain and omit `--domain`; never ask them to add a `cawplan_`
+predefined charts use the `default` domain and omit `domain`; never ask them to add a `cawplan_`
 prefix. Business domains and their metric names are
 open-ended (new ones get added over time), but the common ones today — and, critically, **which metrics inside
 each domain actually have a producer writing to them right now** vs. which are defined but still
@@ -66,48 +64,40 @@ range," not "this isn't wired yet" — don't guess past this list without checki
 If the user names a metric that doesn't obviously map to one of these, ask rather than guessing a
 `domain`/`metric` pair.
 
-1. Determine the time range. Require both `--start` and `--end` (RFC3339) — if the user gave a
+1. Determine the time range. Require both `start` and `end` (RFC3339) — if the user gave a
    relative range ("last 30 days", "this week"), compute the bounds client-side; there is no
    `time_range` shorthand on this endpoint.
 
 2. If the user wants to filter or break the result down by product or workspace, resolve the
-   product name to an ID first (`cawplan products list --search "<product name>"`, same match
+   product name to an ID first (capability `products.list` with `search`, same match
    rules as any other skill: exact or unique short-form match only, ask if ambiguous) and pass it
-   as `--tag product:<product_id>` / `--tag workspace_id:<workspace_id>`, or include `product`/
-   `workspace_id` in `--group_by` — `product` holds the product's `unique_id` (same value
-   `cawplan products list` returns, not a display name); `workspace_id` is the tenant-attribution
+   as `tag` = `product:<product_id>` / `tag` = `workspace_id:<workspace_id>`, or include `product`/
+   `workspace_id` in `group_by` — `product` holds the product's `unique_id` (same value
+   `products.list` returns, not a display name); `workspace_id` is the tenant-attribution
    dimension and is worth adding whenever a query should be scoped to one workspace rather than
-   the whole database. For `cawplan_ticket` events specifically, `--tag ticket_id:<ticket_id>` (a
+   the whole database. For `cawplan_ticket` events specifically, `tag` = `ticket_id:<ticket_id>` (a
    dynamic tag, not a standard dimension) disambiguates a burst of points for one product — an
    ancestor-status-propagation cascade touching several different tickets looks identical to the
    same ticket being written repeatedly unless you filter or group by `ticket_id`.
 
-3. To scope a QA query to a module, use `--module_id <node_id>` (exact module only) and add
-   `--include_descendants` to include every child module too. `--include_descendants` needs both
-   `--module_id` and `--product_id <product_id>` (the module must belong to that product).
-   Without `--module_id` the result stays at product (or workspace) level. Don't combine
-   `--module_id` with `--tag module_id:...`. To split by module, use `--group_by module_id`
+3. To scope a QA query to a module, use `module_id` = the node id (exact module only) and add
+   `include_descendants` = true to include every child module too. `include_descendants` needs both
+   `module_id` and `product_id` (the module must belong to that product).
+   Without `module_id` the result stays at product (or workspace) level. Don't combine
+   `module_id` with `tag` = `module_id:...`. To split by module, use `group_by` = `module_id`
    instead (only returns data once a `module_id` tag has been written for the domain).
    Module ids come from the QA module tree, not from names — resolve a module name to its id first
-   (`cawplan qa-insights module-tree get <product_id>`) rather than guessing.
+   (capability `qa.module_tree.get` with `product_id`) rather than guessing.
 
-4. Run the query:
-   ```bash
-   cawplan metrics query \
-     [--domain <domain>] [--metric <metric>] \
-     --start <iso> --end <iso> \
-     --granularity day \
-     [--tag <key:value> ...] \
-     [--group_by <k1,k2>] \
-     [--fields value,count] \
-     [--product_id <id>] [--module_id <id> [--include_descendants]]
-   ```
-   Default `--granularity raw` returns every stored point unaggregated; pick `day`/`hour`/`minute`
+4. Run the query with capability `metrics.query`: `start` and `end` (RFC3339), `granularity` (for
+   example `day`), and as needed `domain`, `metric`, `tag` (one `key:value` per tag), `group_by`,
+   `fields` (for example `value`, `count`), `product_id`, `module_id` and `include_descendants`.
+   Default `granularity` `raw` returns every stored point unaggregated; pick `day`/`hour`/`minute`
    to get one summed row per bucket per tag combination instead — use a bucketed granularity
    whenever the user wants a trend rather than a raw event list.
 
 5. Check `data.truncated` in the response. If `true`, the result was capped — narrow the time
-   range or filters (or raise `--limit`, up to the server's own maximum) before reporting a total,
+   range or filters (or raise `limit`, up to the server's own maximum) before reporting a total,
    rather than presenting a truncated count as complete.
 
 ## Workflow B — Metrics ingest
@@ -116,10 +106,9 @@ Only use this when the user explicitly asks to record/log/write a metric event �
 backfill or correct history in bulk (the ingest endpoint validates and rejects on the first bad
 item in a batch; it isn't a bulk-load tool).
 
-```bash
-cawplan metrics ingest --product_id <product_id> [--domain <domain>] --metric <metric> --value 1 \
-  [--tags '{"plan":"enterprise"}']
-```
+Write with capability `metrics.ingest`, `items` = one item per event:
+`{"metric": "<metric>", "value": 1, "dimensions": {"product": "<product_id>"}, "tags": {"plan": "enterprise"}}`
+(add `"domain"` only when step 4 below says so; use `count` instead of `value` when the user's number is a count).
 
 ### Ask before writing (every time)
 
@@ -128,16 +117,17 @@ sure each of these is known; **ask the user for any that is missing** instead of
 
 1. **Which product to report to.** Always ask, even when the request looks complete. Never infer it
    from the working directory, the previous question, or the "closest" product name. Resolve the
-   name the user gives with `cawplan products list --search "<name>"`: accept an exact
+   name the user gives with capability `products.list` (`search`): accept an exact
    (case-insensitive) match, a unique prefix, or a candidate the user explicitly confirms; if it is
-   absent or ambiguous, list the candidates and ask. Use the product's unique id as `--product_id`.
+   absent or ambiguous, list the candidates and ask. Use the product's unique id as the item's
+   `dimensions.product`.
 2. **The metric** and its value (and whether the value is a `value` or a `count`). Keep the number
    as given: a "$2000" is `2000`, the store keeps no currency — say so.
 3. **The tags, with their keys.** If the user gives a tag value without a key (for example "Tag: The
    Enterprise Plan"), ask for the key — do not invent one such as `plan`. For a predefined chart
    metric the breakdown tag is part of that chart's contract, so confirm it with the user.
 4. **The domain is optional** and defaults to `default`, the domain of the predefined charts: omit
-   `--domain` for those metrics (look the metric up in `docs/usage-metrics.md`, "预设图表", to
+   `domain` for those metrics (look the metric up in `docs/usage-metrics.md`, "预设图表", to
    confirm it and its tag key). Do not make up a `cawplan_*` or `predefined_*` domain — `cawplan_*`
    belongs to CawPlan's own producers (`cawplan_ticket`, `cawplan_qa_insight`, ...). Pass a domain
    only when the user names one that is not `cawplan_`-prefixed.
@@ -147,7 +137,7 @@ timestamp** — and write only after they confirm it. "Looks right / go ahead" c
 assumption does not.
 
 A product is **required** by the server: every point must name the product it reports for
-(`--product_id`, or `dimensions.product` on each item of an `--items` batch). Only an admin, or a
+(`dimensions.product` on each item). Only an admin, or a
 user with product edit permission on every product in the batch, may ingest; otherwise the server
 answers 403 and writes nothing (the shared global API key is always rejected — a personal API key
 or CLI login is needed). On a 403, tell the user they need product edit permission on that product
@@ -155,7 +145,7 @@ instead of retrying.
 
 The server records the uploader on every point in a reserved `ingested_by` tag (the caller's user
 id). Never send `ingested_by` (or `workspace_id`) yourself — it is overwritten. For QA points that
-belong to a module, put the module in `--tags '{"module_id":"<node_id>"}'`.
+belong to a module, put the module in the item's `tags` (`{"module_id": "<node_id>"}`).
 
 After a successful write, report the product, domain, metric, value and tags that were stored, and
 that the point cannot be edited or deleted (see `references/CAWPLAN_OPEN_API.md` §7).
@@ -171,13 +161,14 @@ that the point cannot be edited or deleted (see `references/CAWPLAN_OPEN_API.md`
   to be written to disk for this.
 - If the user asked for a number/summary instead of a chart: report totals per bucket/tag
   combination directly.
-- If the user asked for a standalone chart *file* to keep/share (not just to look at now): add
-  `--chart <path>.svg` (and `--chart-field <value|count|cost|credit>` if not `value`) and hand back
-  the file path.
+- If the user asked for a standalone chart *file* to keep/share (not just to look at now): on the
+  CLI route add `chart` = `<path>.svg` (and `chart_field` = `value|count|cost|credit` if not
+  `value`) and hand back the file path. On the MCP route there is no chart file: render the chart
+  from `data.rows` yourself (for example with the `dataviz` skill) and say no file was written.
 - If that file needs to render as an actual image inline in this chat (e.g. via the `Read` tool,
-  which decodes raster images but treats SVG as plain text): add `--png <path>.png` to the same
-  `query` call, then `Read` that path to show it. It rasterizes from an SVG built the same way
-  `--chart` does, using whatever's available in the environment (`qlmanage` on macOS,
+  which decodes raster images but treats SVG as plain text): on the CLI route add `png` =
+  `<path>.png` to the same query call, then `Read` that path to show it. It rasterizes from an SVG built the same way
+  `chart` does, using whatever's available in the environment (`qlmanage` on macOS,
   `rsvg-convert` elsewhere) — no separate rendering step needed. If no rasterizer is available the
   command exits with an error rather than writing a broken file. Note: `Read`-ing the PNG doesn't
   always actually display it to the user even when it decodes fine for you (observed in an
@@ -185,11 +176,11 @@ that the point cannot be edited or deleted (see `references/CAWPLAN_OPEN_API.md`
   correctly, but the same file via `Read` didn't show up on the user's screen). If the user reports
   not seeing the image after you `Read` it, tell them to try `imgcat <path>.png` (or whatever their
   terminal supports) directly instead of relying on `Read`.
-- `--preview` (inline image via iTerm2/Kitty/chafa) is for a human running `cawplan` directly in
+- `preview` (inline image via iTerm2/Kitty/chafa) is for a human running the CLI directly in
   their own terminal — it does not work when you run it: the escape codes it prints only render as
   an image inside a real terminal emulator reading raw stdout, and this chat's tool output is
   captured as text, so it would show up as garbled escape-sequence text instead. Don't use it here;
-  read `data.rows` yourself or use `--png` instead.
+  read `data.rows` yourself or use `png` instead.
 - Always mention the time range and granularity used, and flag if `data.truncated` was true.
 
 **Workflow B:** confirm what was written (domain, metric, fields, dimensions/tags) and note that
@@ -203,7 +194,7 @@ dashboards only.
   use `cawplan-support-metrics`.
 - For a combined product health overview (feedback + critical issues, without device metrics,
   which are no longer available through this CLI): use `cawplan-product-insights`.
-- For AI-categorized feedback trends only: `cawplan analytics get <product_id>`.
+- For AI-categorized feedback trends only: capability `products.analytics` (`product_id`).
 - For a date-range activity/progress report: use `cawplan-product-report`.
 
 ## References

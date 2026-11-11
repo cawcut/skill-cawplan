@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
 import { getCache, setCache, buildScopedCacheKey, buildQueryFromFlags, csvToArray } from "../lib/cache.js";
 import { resolveApiPath } from "../lib/products.js";
-import { resolveProductId, resolveVersionId, resolveUserIds } from "../lib/resolve.js";
+import { resolveProductId, resolveVersionId, resolveUserIds, resolveModuleId } from "../lib/resolve.js";
 import { resolveTicketIdArg } from "../lib/resolve-ticket-id.js";
 import { normalizeTicketDetailFieldsCsv } from "../lib/ticket-detail-fields.js";
 import {
@@ -613,6 +613,7 @@ export function registerTicketsCommand(program: Command): void {
     .option("--assignee <csv>", "Assignee emails (CSV) — resolved to IDs automatically")
     .option("--parent_id <id>", "Parent ticket unique ID or display ID (e.g. CWP-14556) — creates a sub-ticket")
     .option("--label_ids <csv>", "Label IDs (CSV)")
+    .option("--module <name_or_id>", "Module of the product's module tree: name, full path (\"Parent / Child\") or module id — resolved to module_id automatically")
     .option("--reporter_id <id>", "Reporter user ID")
     .option("--reporter <email>", "Reporter email — resolved to user ID automatically")
     .option("--due_date <date>", "Due date YYYY-MM-DD")
@@ -659,6 +660,7 @@ export function registerTicketsCommand(program: Command): void {
 
       const labelIds = csvToArray(opts.label_ids);
       if (labelIds) body.label_ids = labelIds;
+      if (opts.module) body.module_id = await resolveModuleId(productId, opts.module);
 
       const result = await cawplanRequest({
         method: "POST",
@@ -681,6 +683,7 @@ export function registerTicketsCommand(program: Command): void {
     .option("--assignee <csv>", "Assignee emails (CSV) — resolved to IDs automatically")
     .option("--parent_id <id>", "Parent ticket unique ID or display ID (e.g. CWP-14556) — creates a sub-ticket")
     .option("--label_ids <csv>", "Label IDs (CSV)")
+    .option("--module <name_or_id>", "Module of the product's module tree: name, full path (\"Parent / Child\") or module id — resolved to module_id automatically")
     .option("--reporter_id <id>", "Reporter user ID")
     .option("--reporter <email>", "Reporter email — resolved to user ID automatically")
     .option("--due_date <date>", "Due date YYYY-MM-DD")
@@ -718,6 +721,7 @@ export function registerTicketsCommand(program: Command): void {
 
       const labelIds = csvToArray(opts.label_ids);
       if (labelIds) body.label_ids = labelIds;
+      if (opts.module) body.module_id = await resolveModuleId(productId, opts.module);
 
       const result = await cawplanRequest({
         method: "POST",
@@ -744,6 +748,7 @@ export function registerTicketsCommand(program: Command): void {
     .option("--due_date <date>", "Due date YYYY-MM-DD")
     .option("--assignees <csv>", "Assignee IDs (CSV)")
     .option("--label_ids <csv>", "Label IDs (CSV)")
+    .option("--module <name_or_id>", "Module of the product's module tree: name, full path (\"Parent / Child\") or module id — resolved to module_id automatically")
     .option("--expected_version <n>", "Optimistic lock version")
     .action(async (productId: string, versionId: string, ticketId: string, opts) => {
       const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
@@ -765,6 +770,7 @@ export function registerTicketsCommand(program: Command): void {
       if (assignees) body.assignee_ids = assignees;
       const labelIds = csvToArray(opts.label_ids);
       if (labelIds) body.label_ids = labelIds;
+      if (opts.module) body.module_id = await resolveModuleId(productId, opts.module);
       const hasExpectedVersion = opts.expected_version !== undefined;
       if (hasExpectedVersion) body.version = Number(opts.expected_version);
 

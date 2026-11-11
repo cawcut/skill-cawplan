@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { ensurePrivateDir } from "./private-fs.js";
+import { chmod, readFile, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
@@ -109,7 +110,7 @@ export async function readUserConfig(): Promise<UserConfig | null> {
 export async function writeUserConfig(config: UserConfig): Promise<void> {
   const configPath = getConfigPath();
   const normalizedConfig = normalizeConfig(config);
-  await mkdir(dirname(configPath), { recursive: true });
+  await ensurePrivateDir(dirname(configPath));
   const payload = `${JSON.stringify(normalizedConfig, null, 2)}\n`;
   await writeFile(configPath, payload, { encoding: "utf8", mode: CONFIG_MODE });
   await chmod(configPath, CONFIG_MODE);

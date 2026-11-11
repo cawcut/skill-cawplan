@@ -1,3 +1,4 @@
+import { resolveApiPath } from "./products.js";
 import { assertSecureApiBase, getBaseUrl, normalizeApiBase } from "./config.js";
 import {
   credentialApiBase,
@@ -52,12 +53,35 @@ function assertCredentialsForApiBase(credentials: Credentials, apiBase: string):
   }
 }
 
-function normalizePath(path: string): string {
+/**
+ * Validates a request path and keeps it inside the /api/v1/ tree of the configured base URL.
+ * Rejects full URLs, dot segments (raw or percent-encoded), backslashes, control characters and
+ * embedded query/fragment markers (query params must go through `query`).
+ */
+export function normalizePath(path: string): string {
   const trimmed = path.trim();
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
     throw new Error("path must be relative, not a full URL");
   }
-  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  const normalized = resolveApiPath(trimmed);
+  if (/[?#\\\u0000-\u001f\u007f]/.test(normalized)) {
+    throw new Error(`API path contains forbidden characters: ${path}`);
+  }
+  for (const segment of normalized.split("/")) {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      throw new Error(`API path contains invalid percent-encoding: ${path}`);
+    }
+    if (decoded === "." || decoded === ".." || decoded.includes("/") || decoded.includes("\\")) {
+      throw new Error(`API path must not contain dot or encoded separator segments: ${path}`);
+    }
+  }
+  if (normalized.includes("//")) {
+    throw new Error(`API path must not contain empty segments: ${path}`);
+  }
+  return normalized;
 }
 
 const REVOKE_TIMEOUT_MS = 5000;

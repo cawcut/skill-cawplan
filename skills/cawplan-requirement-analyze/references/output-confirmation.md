@@ -17,6 +17,8 @@
 
 ### §6 成功回执（`outcome: SUCCESS` 的 POST / PATCH）
 
+**路由说明**：本节的 `api.data` 是 CLI 路由写入响应的位置；MCP 路由对应响应信封的 `data`（`outcome: SUCCESS` 即 `code == "SUCCESS"`）。两个 Portal 链接只能在 CLI 路由生成（需 capability `config.env`）；MCP 路由用下方「MCP 路由」变体。
+
 向 SQA 逐字呈现（`需求` = API `summary`，**勿**拼接五字段；`关联工单` 有无都显示；**跟随会话语言**二选一，不同时输出）：
 
 **新建（POST）**：
@@ -53,7 +55,21 @@ Saved successfully.
 
 `Test Suite Link` 是原 Requirement 链接的展示名称，仍用于后续测试点 / 测试用例生成与测试点归档；Knowledge Doc Link 用于查看和维护需求 MD 文档，不替换后续流程的 Requirement 引用。仅调整展示名称与提示，不修改内部字段、接口参数、会话绑定或链接解析规则。
 
-两个链接只在最终回执展示层生成，共用同一次环境识别及 URL 拼接规则：静默执行 `cawplan config env`，读取其 `Portal` 值作为当前环境 Host。对非空相对路径统一使用 `Host.replace(/\/+$/, "") + "/" + path.replace(/^\/+/, "")` 拼接，确保连接处恰好一个 `/`；Knowledge Doc Link 的 `path` 取 `api.data.knowledge_document.browse_url`，Test Suite Link 的 `path` 仍取 `api.data.redirect_url`。不得使用或回退到 `api.data.url`；`redirect_url` 缺失或为空时省略该链接及其说明，也不提示缺失。不要修改 API 返回对象，不把拼接结果传给 `cawplan api`。
+两个链接只在最终回执展示层生成，共用同一次环境识别及 URL 拼接规则：CLI 路由静默调用 capability `config.env`，读取其 `Portal` 值作为当前环境 Host。对非空相对路径统一使用 `Host.replace(/\/+$/, "") + "/" + path.replace(/^\/+/, "")` 拼接，确保连接处恰好一个 `/`；Knowledge Doc Link 的 `path` 取 `api.data.knowledge_document.browse_url`，Test Suite Link 的 `path` 仍取 `api.data.redirect_url`。不得使用或回退到 `api.data.url`；`redirect_url` 缺失或为空时省略该链接及其说明，也不提示缺失。不要修改 API 返回对象，不把拼接结果用于任何原始 HTTP / API 请求。
+
+**MCP 路由（无 `config.env`）**：**不得猜测或硬编码 Portal Host**，也不输出相对路径当链接。回执其余行不变，把 `Knowledge Doc` / `Test Suite` 两行（及 POST 缺文档时的补充行）换成下面两行（逐字，填入需求 `display_id`，如 `REQ-00115`，取自写入响应或绑定的 Requirement 数据的 `display_id`；缺失则省略第一行；**跟随会话语言**二选一，不同时输出）：
+
+```text
+- **需求编号:{display_id}**
+- 当前环境无法生成 Portal 链接（Knowledge Doc Link / Test Suite Link 暂不可用），可在 CawPlan 中按需求编号查找。
+```
+
+```text
+- Requirement ID: {display_id}
+- Portal links aren't available in this environment (Knowledge Doc Link / Test Suite Link), look the requirement up in CawPlan by its ID.
+```
+
+本节及下文 reconcile、需求文档更新回执中凡要求展示两个链接之处，MCP 路由一律按此变体输出。
 
 **§6 末尾引导（可选追加）** — 满足**全部**条件时，在成功回执**最后**另起一行逐字追加（不弹框、不追问、**仅本轮一次**；**跟随会话语言**二选一，不同时输出）：
 
@@ -82,25 +98,27 @@ Saved successfully.
 
 ### reconcile 绑定（`patch_already_applied`）— 已知例外，文案未改本轮
 
-- State that the prior write outcome was unclear but the server already has a matching Requirement (`requirements reconcile` returned `patch_already_applied`).
+- State that the prior write outcome was unclear but the server already has a matching Requirement (capability `qa.requirements.reconcile` returned `patch_already_applied`; on the MCP route, the 10b look-up found the changed keys already at their desired values).
 - Report bound `id`, product, module-tree node, `summary`, and `review_status` from the list row.
 - Clear `pending_write` and UNKNOWN.
 
 ### 保存失败（POST `FAILURE`）
 
-逐字（`{错误信息}` = `error.message` 原文；**勿**标 outcome / FAILURE / api.code；**跟随会话语言**二选一，不同时输出）：
+逐字（`{错误信息}` = CLI 路由 `error.message` 原文，MCP 路由响应 `msg` 原文；**勿**标 outcome / FAILURE / api.code / code；**跟随会话语言**二选一，不同时输出）：
 
 > 没能保存。原因:{错误信息}。需求草稿还在,改完可以再存一次。
 > Couldn't save. Reason: {错误信息}. The requirement draft is still here — you can try saving again after making changes.
 
-### 需求文档更新（11b-MD，`knowledge documents update`）
+### 需求文档更新（11b-MD，capability `knowledge.documents.update`）
 
-**成功**（回读 `cmp` 一致后）：沿用 §6「更新（PATCH）」模板，首行 `已更新成功。` / `Updated successfully.`；`需求` 取 `summary_snapshot`（无则 `requirement_data.summary`），`关联工单` 取 `ticket_id_snapshot`，`Knowledge Doc Link` 取 `requirement_data.knowledge_document.browse_url`（若有），`Test Suite Link` 取 `requirement_data.redirect_url`（顶层）（两个链接及说明按 §6 展示层规则输出；缺失则省略对应链接及说明，`产品` / `模块` 行取不到则省略）。**不展示**临时目录路径。
+**成功**（回读比对一致后：CLI 路由 `cmp`，MCP 路由逐字比对）：沿用 §6「更新（PATCH）」模板，首行 `已更新成功。` / `Updated successfully.`；`需求` 取 `summary_snapshot`（无则 `requirement_data.summary`），`关联工单` 取 `ticket_id_snapshot`，`Knowledge Doc Link` 取 `requirement_data.knowledge_document.browse_url`（若有），`Test Suite Link` 取 `requirement_data.redirect_url`（顶层）（两个链接及说明按 §6 展示层规则输出；缺失则省略对应链接及说明，`产品` / `模块` 行取不到则省略）。**不展示**临时目录路径。
 
 **最终失败**（重试一次后仍写入失败或回读不一致）：逐字（`{错误信息}` = 命令 `msg` 原文，回读不一致时写“写入后读回的内容与预期不一致”；**跟随会话语言**二选一，不同时输出）：
 
 > 没能更新需求文档。原因:{错误信息}。你确认的修改还保留在 {临时目录路径}。
 > Couldn't update the requirement document. Reason: {错误信息}. Your confirmed edit is kept at {临时目录路径}.
+
+MCP 路由没有临时目录：把「保留在 {临时目录路径}」换成「保留在本会话中」，英文换成 "is kept in this conversation"，其余逐字不变。
 
 **读取失败 / 无文档 / 内容为空**：逐字输出统一提示：`需求文档暂未就绪。新建需求可能需要稍等片刻；历史需求若长期为空，可能未关联文档。请稍后重试。` / `The requirement document isn't ready yet. A newly created requirement may need a moment; for an older requirement that stays empty, no document may be linked. Please try again later.`（命令返回了 `msg` 时在其后附上）。
 

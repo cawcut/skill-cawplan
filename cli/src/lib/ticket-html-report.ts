@@ -1,4 +1,5 @@
 import { statSync } from "node:fs";
+import sanitizeHtml from "sanitize-html";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { escapeHtml, renderAttachmentHtml, type UploadedAttachment } from "./ticket-attachment-upload.js";
@@ -169,16 +170,73 @@ function transformLocalRefs(html: string, baseDir: string, replace: Replacer): s
   return out;
 }
 
-/** Use the <body> content of a full HTML document and drop <script>/<style>. */
+/** Rich-text shapes the CawPlan editor stores (see renderAttachmentHtml) plus what `marked` emits. */
+const ALLOWED_TAGS = [
+  "p", "br", "hr", "div", "span", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "code",
+  "ul", "ol", "li", "strong", "b", "em", "i", "u", "s", "del", "ins", "mark", "sub", "sup", "small", "kbd",
+  "a", "img", "video", "source", "figure", "figcaption",
+  "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col",
+];
+const ATTACHMENT_ATTRS = ["class", "data-type", "data-src", "data-filename", "data-mime", "data-file-size"];
+// A Windows drive path ("C:\\shots\\a.png") parses as a one-letter scheme; letting it through is
+// harmless and keeps local references resolvable for upload.
+const DRIVE_LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
+const LINK_SCHEMES = ["http", "https", "mailto", "file", ...DRIVE_LETTERS];
+
+/**
+ * Report anchors keep working, but under a fixed prefix (as GitHub does) so user content cannot
+ * clobber ids/names the CawPlan page itself relies on. Idempotent: already-prefixed values are kept.
+ */
+export const USER_ID_PREFIX = "user-content-";
+const prefixed = (v: string) => (v.startsWith(USER_ID_PREFIX) ? v : USER_ID_PREFIX + v);
+
+const namespaceIds: sanitizeHtml.Transformer = (tagName, attribs) => {
+  const out = { ...attribs };
+  if (out.id) out.id = prefixed(out.id);
+  if (tagName === "a" && out.name) out.name = prefixed(out.name);
+  if (tagName === "a" && out.href && out.href.length > 1 && out.href.startsWith("#")) {
+    out.href = `#${prefixed(out.href.slice(1))}`;
+  }
+  return { tagName, attribs: out };
+};
+
+const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: ALLOWED_TAGS,
+  transformTags: { "*": namespaceIds },
+  allowedAttributes: {
+    "*": [...ATTACHMENT_ATTRS, "id"],
+    a: ["href", "title", "name", "target", "rel"],
+    img: ["src", "alt", "title", "width", "height"],
+    video: ["src", "poster", "controls", "width", "height", "preload", "muted", "loop"],
+    source: ["src", "type"],
+    th: ["align", "colspan", "rowspan", "scope"],
+    td: ["align", "colspan", "rowspan"],
+    ol: ["start"],
+    col: ["span"],
+  },
+  allowedSchemes: LINK_SCHEMES,
+  allowedSchemesByTag: { img: [...LINK_SCHEMES, "data"] },
+  allowedSchemesAppliedToAttributes: ["href", "src", "poster", "data-src", "cite"],
+  allowProtocolRelative: false,
+  disallowedTagsMode: "discard",
+  // Dropped together with their content, not just unwrapped.
+  nonTextTags: ["script", "style", "textarea", "option", "noscript", "title", "iframe", "object", "embed", "template", "svg", "math", "head"],
+};
+
+/**
+ * Allowlist-sanitizes agent-authored report HTML before it is stored as ticket rich text.
+ * Parsing (with browser-compatible entity decoding) is done by sanitize-html/htmlparser2, so
+ * encoded schemes, reassembled tags and event handlers cannot slip through a regex gap.
+ */
+export function sanitizeReportHtml(html: string): string {
+  return sanitizeHtml(html, SANITIZE_OPTIONS);
+}
+
+/** Use the <body> content of a full HTML document and sanitize it (no active content survives). */
 export function extractReportBody(html: string): string {
   const body = /<body\b[^>]*>([\s\S]*?)<\/body\s*>/i.exec(html);
-  const content = body ? body[1]! : html.replace(/<!doctype[^>]*>/i, "").replace(/<\/?(html|head)\b[^>]*>/gi, "");
-  return content
-    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, "")
-    .replace(/<style\b[\s\S]*?<\/style\s*>/gi, "")
-    .replace(/<title\b[\s\S]*?<\/title\s*>/gi, "")
-    .replace(/<(meta|link)\b[^>]*>/gi, "")
-    .trim();
+  const content = body ? body[1]! : html;
+  return sanitizeReportHtml(content).trim();
 }
 
 export interface CollectedRefs {

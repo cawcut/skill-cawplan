@@ -1,6 +1,6 @@
 # Round 流程细节（两阶段 Review）
 
-SKILL.md §7/§8/§9 的细节补充。**阶段由 Review State 决定，Chat 不判断、不维护**：`open_questions` 中只要有一条 `round_answer_baseline` 为空（新提出、尚未被 AI 消费）→ **Questions 阶段**；否则（无问题，或问题都已被上一轮 AI 消费）→ **Review 阶段**。
+SKILL.md §7/§8/§9 的细节补充，仅适用于 CLI 路由（Review 页面由 CLI 在本机提供，MCP 路由没有）。**阶段由 Review State 决定，Chat 不判断、不维护**：`open_questions` 中只要有一条 `round_answer_baseline` 为空（新提出、尚未被 AI 消费）→ **Questions 阶段**；否则（无问题，或问题都已被上一轮 AI 消费）→ **Review 阶段**。
 
 ## 1. 两阶段页面
 
@@ -28,18 +28,18 @@ SKILL.md §7/§8/§9 的细节补充。**阶段由 Review State 决定，Chat �
 
 ## 3. 答案驱动轮（Questions 阶段 Continue 之后的 AI 规则）
 
-`show` 读到的 State 中，`open_questions` 里 `answer` 非空且 `round_answer_baseline` 为空的问题 = 本轮新答案（包括 Ignore）。
+capability `qa.testpoint_review.show` 读到的 State 中，`open_questions` 里 `answer` 非空且 `round_answer_baseline` 为空的问题 = 本轮新答案（包括 Ignore）。
 
 - `retained_ids` **只保留仍未回答（`answer` 为 `null`）的问题**。已回答/已 Ignore 的不得保留，也不得换措辞重复提出。
 - 答案若只确定了方向，可据此生成或修改测试点；Ignore 视为 SQA 明确不关心，按默认方向处理，不再追问。
 - **尽量**不改动 SQA 此前已编辑/确认的测试点，除非答案直接影响它（这是 prompt 约束，非程序校验）。
 - 尽量把疑问合并在一轮提出，**避免连续多轮 Questions**；新问题只针对答案揭示的新缺口。
-- 若本轮输出**没有新问题**（即将进入 Review 阶段）：先按 `references/review-checklist.md` 复查整体覆盖，再写 `apply-optimization`。
+- 若本轮输出**没有新问题**（即将进入 Review 阶段）：先按 `references/review-checklist.md` 复查整体覆盖，再调用 capability `qa.testpoint_review.apply_optimization` 写入。
 - `questions` 字段依旧必填：`{"retained_ids": [...], "added": [...]}`。
 
 ## 4. 变更标签跨轮累积
 
-页面上的「新增 / 已修改」标签由 `apply-optimization` 计算，Chat 不参与。规则：标签在 SQA **实际看过一次 Review 阶段页面**后才清算；连续的 Questions 轮 SQA 看不到测试点，所以标签累积（AI 新增的行保持「新增」，被改过的保持「已修改」），避免 SQA 在回到 Review 页时看不到前几轮的改动。
+页面上的「新增 / 已修改」标签由 capability `qa.testpoint_review.apply_optimization` 计算，Chat 不参与。规则：标签在 SQA **实际看过一次 Review 阶段页面**后才清算；连续的 Questions 轮 SQA 看不到测试点，所以标签累积（AI 新增的行保持「新增」，被改过的保持「已修改」），避免 SQA 在回到 Review 页时看不到前几轮的改动。
 
 - 判据：Review State 的 `last_viewed_review_round`，服务端在渲染未锁定的 Review 阶段页面时写入；Chat 与 Agent **不得**为此 GET 页面（也不要用脚本探测页面）。
 - 从未看过 Review 页时，下一轮只标本轮变化（不累积）。

@@ -1,8 +1,88 @@
 {
   "description": "Source of truth for the capabilities skills may call. Skills name a capability; the agent resolves it to the cawplan CLI or the CawPlan MCP server. Edit this file, then run: python3 scripts/capabilities.py render",
   "capabilities": {
+    "activities.query": {
+      "summary": "Query the CawPlan activity feed (release, issue, ticket, version, product and user events), filtered by actor user_id and/or product_id over a relative time_range such as 1d, 1w, 1m, 3m, 6m or 1y. Paginated (page_size at most 100).",
+      "write": false,
+      "cli": {
+        "command": "activities query",
+        "args": {
+          "time_range": "--time_range <range>",
+          "user_id": "--user_id <id>",
+          "product_id": "--product_id <id>",
+          "activity_types": "--activity_types <csv>",
+          "page_size": "--page_size <n>",
+          "page_num": "--page_num <n>"
+        }
+      },
+      "mcp": {
+        "tool": "query_activities",
+        "args": {
+          "time_range": "time_range",
+          "user_id": "body.user_id",
+          "product_id": "body.product_id",
+          "activity_types": "body.activity_types (array of RELEASE, ISSUE, TICKET, VERSION, PRODUCT, USER)",
+          "page_size": "page_size",
+          "page_num": "page_num"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "time_range": "1w",
+        "activity_types": [
+          "TICKET"
+        ],
+        "page_size": 50
+      }
+    },
+    "backlog.attachments.download": {
+      "summary": "Download a backlog ticket's attachments to a local directory, optionally only some types or keys. CLI only (writes local files); on MCP, list the attachments and give the user the download URLs.",
+      "write": false,
+      "cli": {
+        "command": "backlog attachments download",
+        "args": {
+          "product_id": "<product_id>",
+          "ticket_id": "<ticket_id>",
+          "type": "--type <csv>",
+          "key": "--key <key>",
+          "out": "--out <dir>",
+          "expires_in": "--expires_in <seconds>"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "ticket_id": "<ticket_id>",
+        "type": [
+          "image"
+        ]
+      }
+    },
+    "backlog.attachments.list": {
+      "summary": "List the files attached to a backlog ticket's rich-text fields, each with a short-lived presigned download URL (expires_in seconds, default 900, max 3600).",
+      "write": false,
+      "cli": {
+        "command": "backlog attachments list",
+        "args": {
+          "product_id": "<product_id>",
+          "ticket_id": "<ticket_id>",
+          "expires_in": "--expires_in <seconds>"
+        }
+      },
+      "mcp": {
+        "tool": "list_backlog_ticket_attachments",
+        "args": {
+          "product_id": "product_id",
+          "ticket_id": "ticket_id",
+          "expires_in": "expires_in"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "ticket_id": "<ticket_id>"
+      }
+    },
     "backlog.create": {
-      "summary": "Create a ticket in a product's backlog. description is the title; remarks is the HTML body.",
+      "summary": "Create a ticket in a product's backlog. description is the title; remarks is the HTML body. module_id: the CLI takes a module name, full path \"Parent / Child\" or id and resolves it; on MCP pass the module id (resolve a name with qa.module_tree.get first).",
       "write": true,
       "cli": {
         "command": "tickets create-backlog",
@@ -14,7 +94,9 @@
           "priority": "--priority <p>",
           "assignee_ids": "--assignees <csv>",
           "label_ids": "--label_ids <csv>",
-          "parent_id": "--parent_id <id>"
+          "module_id": "--module <name_or_id>",
+          "parent_id": "--parent_id <id>",
+          "reporter_id": "--reporter_id <id>"
         }
       },
       "mcp": {
@@ -27,7 +109,9 @@
           "priority": "body.priority",
           "assignee_ids": "body.assignee_ids (array of strings)",
           "label_ids": "body.label_ids (array of strings)",
-          "parent_id": "body.parent_id"
+          "parent_id": "body.parent_id",
+          "reporter_id": "body.reporter_id",
+          "module_id": "body.module_id"
         }
       },
       "example": {
@@ -82,19 +166,99 @@
         "page_size": 20
       }
     },
+    "config.env": {
+      "summary": "Show the CLI's current CawPlan environment as plain text lines (Environment, API, Portal); the Portal line is the host used to build links. CLI only.",
+      "write": false,
+      "cli": {
+        "command": "config env",
+        "args": {}
+      },
+      "example": {}
+    },
+    "critical.search": {
+      "summary": "Search critical issues across products. Give a time window (time_range, or start_date with end_date); the other filters narrow it. Paginated.",
+      "write": false,
+      "cli": {
+        "command": "critical search",
+        "args": {
+          "time_range": "--time_range <range>",
+          "start_date": "--start_date <date>",
+          "end_date": "--end_date <date>",
+          "status": "--status <csv>",
+          "issue_types": "--issue_types <csv>",
+          "product_line_ids": "--product_line_ids <csv>",
+          "product_ids": "--product_ids <csv>",
+          "search": "--search <q>",
+          "page_size": "--page_size <n>",
+          "page_num": "--page_num <n>"
+        }
+      },
+      "mcp": {
+        "tool": "search_critical_issues",
+        "args": {
+          "time_range": "time_range",
+          "start_date": "start_date",
+          "end_date": "end_date",
+          "status": "body.status (array of strings)",
+          "issue_types": "body.issue_types (array of strings)",
+          "product_line_ids": "body.product_line_ids (array of strings)",
+          "product_ids": "body.product_ids (array of strings)",
+          "search": "body.search",
+          "page_size": "page_size",
+          "page_num": "page_num"
+        }
+      },
+      "example": {
+        "product_ids": [
+          "<product_id>"
+        ],
+        "time_range": "3m",
+        "status": [
+          "INVESTIGATING"
+        ]
+      }
+    },
+    "knowledge.browse": {
+      "summary": "Interactive terminal browser (dataset, document, heading tree). Never run it as an agent: it needs a real terminal. Give the user the CLI example to run themselves. CLI only.",
+      "write": false,
+      "cli": {
+        "command": "knowledge browse",
+        "args": {}
+      },
+      "example": {}
+    },
+    "knowledge.datasets.create": {
+      "summary": "Create a knowledge dataset. owner_product_id makes that product the owner (required for its modules); product_ids only links the dataset for product-scoped search (CLI: repeat --product). CLI only.",
+      "write": true,
+      "cli": {
+        "command": "knowledge datasets create",
+        "args": {
+          "name": "--name <name>",
+          "description": "--description <text>",
+          "permission": "--permission <level>",
+          "owner_product_id": "--owner-product <id>",
+          "product_ids": "--product <id> (repeat per product)"
+        }
+      },
+      "example": {
+        "name": "Access Card API"
+      }
+    },
     "knowledge.datasets.list": {
-      "summary": "List knowledge datasets visible to the caller, optionally narrowed to one product.",
+      "summary": "List knowledge datasets visible to the caller ({id, name, document_count}). With product_id: the datasets that product owns plus those linked to it. With product_id and module_id: only the product's owned datasets with at least one document under that module.",
       "write": false,
       "cli": {
         "command": "knowledge datasets list",
         "args": {
-          "product_id": "--product <id>"
+          "product_id": "--product <id>",
+          "module_id": "--module <id>"
         }
       },
       "mcp": {
         "tool": "list_knowledge_datasets",
         "args": {
-          "product_id": "product_id"
+          "product_id": "product_id",
+          "module_id": "module_id"
         }
       },
       "example": {
@@ -102,13 +266,20 @@
       }
     },
     "knowledge.documents.get": {
-      "summary": "Get the full content of one knowledge document (knowledge search returns passages only).",
+      "summary": "Get the raw content of one knowledge document (knowledge.search returns passages only). CLI-only options: outline (heading tree with per-heading preview, no content), section (complete content of the headings whose title contains the text), grep + context (matching lines with context), output (also save the full content to a file), refresh (bypass the local cache), no_interactive (plain JSON output even at a terminal). On MCP the full content is returned; find headings and sections in it yourself.",
       "write": false,
       "cli": {
         "command": "knowledge documents get",
         "args": {
           "dataset_id": "--dataset <id>",
-          "document_id": "--document <id>"
+          "document_id": "--document <id>",
+          "outline": "--outline",
+          "section": "--section <heading>",
+          "grep": "--grep <pattern>",
+          "context": "--context <n>",
+          "output": "--output <path>",
+          "refresh": "--refresh",
+          "no_interactive": "--no-interactive"
         }
       },
       "mcp": {
@@ -121,6 +292,24 @@
       "example": {
         "dataset_id": "<dataset_id>",
         "document_id": "<document_id>"
+      },
+      "route_only": [
+        "no_interactive"
+      ]
+    },
+    "knowledge.documents.job_status": {
+      "summary": "Check an asynchronous upload or update job. CLI only.",
+      "write": false,
+      "cli": {
+        "command": "knowledge documents job-status",
+        "args": {
+          "dataset_id": "--dataset <id>",
+          "job_id": "--job <id>"
+        }
+      },
+      "example": {
+        "dataset_id": "<dataset_id>",
+        "job_id": "<job_id>"
       }
     },
     "knowledge.documents.list": {
@@ -130,18 +319,142 @@
         "command": "knowledge documents list",
         "args": {
           "dataset_id": "--dataset <id>",
-          "keyword": "--keyword <text>"
+          "keyword": "--keyword <text>",
+          "page": "--page <n>",
+          "limit": "--limit <n>"
         }
       },
       "mcp": {
         "tool": "list_knowledge_documents",
         "args": {
           "dataset_id": "dataset_id",
-          "keyword": "keyword"
+          "keyword": "keyword",
+          "page": "page",
+          "limit": "limit"
         }
       },
       "example": {
         "dataset_id": "<dataset_id>"
+      }
+    },
+    "knowledge.documents.set_module": {
+      "summary": "Move a document under a module (module_id) or out of its module (clear); pass exactly one. CLI only.",
+      "write": true,
+      "cli": {
+        "command": "knowledge documents set-module",
+        "args": {
+          "dataset_id": "--dataset <id>",
+          "document_id": "--document <id>",
+          "module_id": "--module <id>",
+          "clear": "--clear"
+        }
+      },
+      "example": {
+        "dataset_id": "<dataset_id>",
+        "document_id": "<document_id>",
+        "module_id": "<module_id>"
+      }
+    },
+    "knowledge.documents.update": {
+      "summary": "Replace an existing document's content. CLI route: from a local file (file) or local text file (text_file). MCP route: from inline text (text); the document is re-indexed.",
+      "write": true,
+      "cli": {
+        "command": "knowledge documents update",
+        "args": {
+          "dataset_id": "--dataset <id>",
+          "document_id": "--document <id>",
+          "file": "--file <path>",
+          "text_file": "--text-file <path>"
+        }
+      },
+      "example": {
+        "dataset_id": "<dataset_id>",
+        "document_id": "<document_id>",
+        "text_file": "./api.md",
+        "text": "# API\n..."
+      },
+      "mcp": {
+        "tool": "update_knowledge_document",
+        "args": {
+          "dataset_id": "dataset_id",
+          "document_id": "document_id",
+          "text": "body.text"
+        }
+      },
+      "route_only": [
+        "file",
+        "text_file",
+        "text"
+      ]
+    },
+    "knowledge.documents.upload": {
+      "summary": "Upload local files (files, repeat --file) or local text files (text_files, repeat --text-file) into a dataset, optionally under a module of the dataset's owner product. Do not mix files and text_files in one call. File uploads are asynchronous; the CLI waits unless no_wait is set. CLI only (needs local files).",
+      "write": true,
+      "cli": {
+        "command": "knowledge documents upload",
+        "args": {
+          "dataset_id": "--dataset <id>",
+          "files": "--file <path>",
+          "text_files": "--text-file <path>",
+          "module_id": "--module <id>",
+          "no_wait": "--no-wait"
+        }
+      },
+      "example": {
+        "dataset_id": "<dataset_id>",
+        "files": "./api.md"
+      }
+    },
+    "knowledge.modules.create": {
+      "summary": "Create a module (parent_id for a sub-module; at most 5 levels) in a product's module tree. CLI only.",
+      "write": true,
+      "cli": {
+        "command": "knowledge modules create",
+        "args": {
+          "product_id": "--product <id>",
+          "name": "--name <name>",
+          "parent_id": "--parent <id>"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "name": "Card APIs"
+      }
+    },
+    "knowledge.modules.list": {
+      "summary": "List a product's module tree; each node's knowledge lists the datasets with at least one document under it. CLI only for now.",
+      "write": false,
+      "cli": {
+        "command": "knowledge datasets modules",
+        "args": {
+          "product_id": "--product <id>"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>"
+      }
+    },
+    "knowledge.search": {
+      "summary": "Semantic search over knowledge datasets; returns ranked passages, not whole documents. Searches every accessible dataset unless dataset_ids narrows it (CLI: repeat --dataset per id).",
+      "write": false,
+      "cli": {
+        "command": "knowledge search",
+        "args": {
+          "query": "--query <text>",
+          "dataset_ids": "--dataset <id> (repeat per dataset)",
+          "product_id": "--product_id <id>"
+        }
+      },
+      "mcp": {
+        "tool": "search_knowledge",
+        "args": {
+          "query": "body.query",
+          "dataset_ids": "body.dataset_ids (array of strings)",
+          "product_id": "body.product_id"
+        }
+      },
+      "example": {
+        "query": "NFC card fetch API"
       }
     },
     "labels.list": {
@@ -181,8 +494,40 @@
       },
       "example": {}
     },
+    "metrics.ingest": {
+      "summary": "Record business key-metric events (all or nothing: one invalid item rejects the batch). Each item: domain (default `default`), metric, at least one of value/count/cost/credit, dimensions.product (the product unique id), optional tags and timestamp. CLI-only: product_id fills dimensions.product on every item; on MCP set it on each item yourself.",
+      "write": true,
+      "cli": {
+        "command": "metrics ingest",
+        "args": {
+          "items": "--items <json>",
+          "product_id": "--product_id <id>"
+        }
+      },
+      "mcp": {
+        "tool": "ingest_key_metrics",
+        "args": {
+          "items": "body.items (array of objects)"
+        }
+      },
+      "route_only": [
+        "product_id"
+      ],
+      "example": {
+        "items": [
+          {
+            "domain": "support",
+            "metric": "ticket_closed",
+            "count": 1,
+            "dimensions": {
+              "product": "<product_id>"
+            }
+          }
+        ]
+      }
+    },
     "metrics.query": {
-      "summary": "Query business key metrics for one domain over a time window (RFC3339 start inclusive, end exclusive).",
+      "summary": "Query business key metrics for one domain over a time window (RFC3339 start inclusive, end exclusive). tag filters by key:value (repeat the CLI option once per tag); include_descendants needs module_id and product_id. CLI-only: chart and png write an SVG/PNG chart file (chart_field picks the plotted field); preview prints a terminal image and is for people running the CLI themselves.",
       "write": false,
       "cli": {
         "command": "metrics query",
@@ -194,7 +539,15 @@
           "granularity": "--granularity <g>",
           "group_by": "--group_by <keys>",
           "product_id": "--product_id <id>",
-          "limit": "--limit <n>"
+          "limit": "--limit <n>",
+          "tag": "--tag <key:value>",
+          "fields": "--fields <keys>",
+          "module_id": "--module_id <id>",
+          "include_descendants": "--include_descendants",
+          "chart": "--chart <path>",
+          "chart_field": "--chart-field <field>",
+          "png": "--png <path>",
+          "preview": "--preview"
         }
       },
       "mcp": {
@@ -207,7 +560,11 @@
           "granularity": "granularity",
           "group_by": "group_by (array of strings)",
           "product_id": "product_id",
-          "limit": "limit"
+          "limit": "limit",
+          "tag": "tag (array of strings, each key:value)",
+          "fields": "fields (array of strings)",
+          "module_id": "module_id",
+          "include_descendants": "include_descendants (boolean)"
         }
       },
       "example": {
@@ -215,7 +572,13 @@
         "start": "2026-10-28T00:00:00Z",
         "end": "2026-11-04T00:00:00Z",
         "granularity": "day"
-      }
+      },
+      "route_only": [
+        "chart",
+        "chart_field",
+        "png",
+        "preview"
+      ]
     },
     "product_lines.list": {
       "summary": "List product lines; resolve a product line name to product_line_id.",
@@ -267,7 +630,7 @@
       }
     },
     "products.list": {
-      "summary": "List products visible to the caller; resolve a product name to product_id.",
+      "summary": "List products visible to the caller; resolve a product name to product_id. MCP only: view=compact drops description, icon, links, knowledge datasets and member rosters; use it whenever you list more than a few products, and read one product's members (members.qas, members.designers, ...) with the default full view.",
       "write": false,
       "cli": {
         "command": "products list",
@@ -284,11 +647,31 @@
           "search": "search",
           "product_line_id": "product_line_id",
           "page_size": "page_size",
-          "page_num": "page_num"
+          "page_num": "page_num",
+          "view": "view"
         }
       },
       "example": {
         "search": "Access"
+      }
+    },
+    "products.overview": {
+      "summary": "Get one product's overview (name and description background).",
+      "write": false,
+      "cli": {
+        "command": "products overview",
+        "args": {
+          "product_id": "<product_id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_product_overview",
+        "args": {
+          "product_id": "product_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>"
       }
     },
     "products.report": {
@@ -318,6 +701,699 @@
         "end_date": "2026-11-04"
       }
     },
+    "qa.module_tree.get": {
+      "summary": "Get a product's module tree; its node IDs scope QA requirements and test points. MCP only: expand = requirements or approvers adds that data to each node. CLI route: the result is wrapped as {outcome, command, meta, data}; read the payload from `data` (outcome is SUCCESS or FAILURE).",
+      "write": false,
+      "cli": {
+        "command": "qa-insights module-tree get",
+        "args": {
+          "product_id": "<product_id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_product_module_tree",
+        "args": {
+          "product_id": "product_id",
+          "expand": "expand"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>"
+      }
+    },
+    "qa.requirements.create": {
+      "summary": "Create a structured QA requirement under a module-tree node (body: module_tree_node_id, summary, entry_trigger, function_description, normal_expectation, constraints, out_of_scope, related_tickets, ...). CLI route: the result is wrapped as {outcome, command, meta, api, post_body|patch_body}; read the Open API envelope from `api`. outcome is SUCCESS, FAILURE, NOOP (nothing to change) or UNKNOWN (the write may or may not have happened: do not retry it, check with a read first). CLI-only: dry_run prints the body without sending it. CLI-only: body_file passes the same JSON from a file instead of body; prefer it for long JSON and where quoted arguments are rejected.",
+      "write": true,
+      "cli": {
+        "command": "qa-insights requirements create",
+        "args": {
+          "product_id": "<product_id>",
+          "body": "--body <json>",
+          "dry_run": "--dry-run",
+          "body_file": "--body-file <path>"
+        }
+      },
+      "mcp": {
+        "tool": "create_qa_requirement",
+        "args": {
+          "product_id": "product_id",
+          "body": "body (object)"
+        }
+      },
+      "route_only": [
+        "dry_run",
+        "body_file"
+      ],
+      "example": {
+        "product_id": "<product_id>",
+        "body": {
+          "module_tree_node_id": "<node_id>",
+          "summary": "Login with SSO"
+        }
+      }
+    },
+    "qa.requirements.get": {
+      "summary": "Get one QA requirement by its ID. CLI route: the result is wrapped as {outcome, command, meta, data}; read the payload from `data` (outcome is SUCCESS or FAILURE).",
+      "write": false,
+      "cli": {
+        "command": "qa-insights requirements get",
+        "args": {
+          "product_id": "<product_id>",
+          "requirement_id": "<requirement_id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_qa_requirement",
+        "args": {
+          "product_id": "product_id",
+          "requirement_id": "requirement_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "requirement_id": "<requirement_id>"
+      }
+    },
+    "qa.requirements.list": {
+      "summary": "List QA requirements under a module-tree node (module_tree_node_id; the CLI requires it). MCP only: version_id, review_status, search and paging narrow the list, and module_tree_node_id may be omitted. CLI route: the result is wrapped as {outcome, command, meta, data}; read the payload from `data` (outcome is SUCCESS or FAILURE).",
+      "write": false,
+      "cli": {
+        "command": "qa-insights requirements list",
+        "args": {
+          "product_id": "<product_id>",
+          "module_tree_node_id": "--module-tree-node-id <id>"
+        }
+      },
+      "mcp": {
+        "tool": "list_qa_requirements",
+        "args": {
+          "product_id": "product_id",
+          "module_tree_node_id": "module_tree_node_id",
+          "version_id": "version_id",
+          "review_status": "review_status",
+          "search": "search",
+          "page_num": "page_num",
+          "page_size": "page_size"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "module_tree_node_id": "<module_tree_node_id>"
+      }
+    },
+    "qa.requirements.reconcile": {
+      "summary": "Read-only check after a requirement create or update returned outcome UNKNOWN: finds whether the write landed, from local probe files. CLI only. On MCP no write returns UNKNOWN; if a call fails without a clear answer, look for the record with qa.requirements.list or qa.requirements.get before retrying.",
+      "write": false,
+      "cli": {
+        "command": "qa-insights requirements reconcile",
+        "args": {
+          "product_id": "<product_id>",
+          "module_tree_node_id": "--module-tree-node-id <id>",
+          "probe_file": "--probe-file <path>",
+          "target_requirement_id": "--target-requirement-id <id>",
+          "intended_patch_file": "--intended-patch-file <path>",
+          "operation": "--operation <op>"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "module_tree_node_id": "<node_id>",
+        "probe_file": "./probe.json",
+        "operation": "POST"
+      }
+    },
+    "qa.requirements.resolve": {
+      "summary": "Get a QA requirement by its display ID (for example REQ-00115) without knowing the product. The CLI also accepts a Browse URL; on MCP pass the display ID (take it from the URL first). CLI route: the result is wrapped as {outcome, command, meta, data}; read the payload from `data` (outcome is SUCCESS or FAILURE).",
+      "write": false,
+      "cli": {
+        "command": "qa-insights requirements resolve",
+        "args": {
+          "display_id": "<display_id_or_browse_url>"
+        }
+      },
+      "mcp": {
+        "tool": "resolve_qa_requirement",
+        "args": {
+          "display_id": "display_id"
+        }
+      },
+      "example": {
+        "display_id": "REQ-00115"
+      }
+    },
+    "qa.requirements.testpoints.list": {
+      "summary": "List the test points of one QA requirement. CLI route: the result is wrapped as {outcome, command, meta, data}; read the payload from `data` (outcome is SUCCESS or FAILURE).",
+      "write": false,
+      "cli": {
+        "command": "qa-insights testpoints list",
+        "args": {
+          "product_id": "<product_id>",
+          "requirement_id": "<requirement_id>"
+        }
+      },
+      "mcp": {
+        "tool": "list_requirement_test_points",
+        "args": {
+          "product_id": "product_id",
+          "requirement_id": "requirement_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "requirement_id": "<requirement_id>"
+      }
+    },
+    "qa.requirements.update": {
+      "summary": "Update a QA requirement's structured fields. CLI route: pass desired (the full desired state) and snapshot (the values last written to CawPlan); the CLI sends only the keys that changed, outcome NOOP means nothing changed. MCP route: get the requirement first, stop and ask the user if a key you are changing differs from your snapshot, then send only the changed keys as desired. CLI route: the result is wrapped as {outcome, command, meta, api, post_body|patch_body}; read the Open API envelope from `api`. outcome is SUCCESS, FAILURE, NOOP (nothing to change) or UNKNOWN (the write may or may not have happened: do not retry it, check with a read first). CLI-only: dry_run prints the patch body without sending it. CLI-only: desired_file and snapshot_file pass the same JSON from files.",
+      "write": true,
+      "cli": {
+        "command": "qa-insights requirements update",
+        "args": {
+          "product_id": "<product_id>",
+          "requirement_id": "<requirement_id>",
+          "desired": "--desired <json>",
+          "snapshot": "--snapshot <json>",
+          "dry_run": "--dry-run",
+          "desired_file": "--desired-file <path>",
+          "snapshot_file": "--snapshot-file <path>"
+        }
+      },
+      "mcp": {
+        "tool": "update_qa_requirement",
+        "args": {
+          "product_id": "product_id",
+          "requirement_id": "requirement_id",
+          "desired": "body (object)"
+        }
+      },
+      "route_only": [
+        "snapshot",
+        "dry_run",
+        "desired_file",
+        "snapshot_file"
+      ],
+      "example": {
+        "product_id": "<product_id>",
+        "requirement_id": "<requirement_id>",
+        "desired": {
+          "summary": "Login with SSO and MFA"
+        },
+        "snapshot": {
+          "summary": "Login with SSO"
+        }
+      }
+    },
+    "qa.risk_assessment.compute": {
+      "summary": "Compute a version's QA release risk assessment with the rule engine, without saving it; optionally scoped to one ticket or plan mappings. refresh_execution refreshes TestRail execution data first: the CLI does this by default (no_refresh_execution turns it off), on MCP pass refresh_execution=true. Needs QA Insights edit permission. CLI route: the result is wrapped as {outcome, command, meta, api}; read the Open API envelope {code, msg, data} from `api` (outcome is SUCCESS or FAILURE).",
+      "write": false,
+      "cli": {
+        "command": "qa-insights risk-assessment compute",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "refresh_execution": "--refresh-execution",
+          "no_refresh_execution": "--no-refresh-execution",
+          "ticket_id": "--ticket-id <id>",
+          "plan_mapping_ids": "--plan-mapping-ids <ids>"
+        }
+      },
+      "mcp": {
+        "tool": "compute_qa_risk_assessment",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "refresh_execution": "body.refresh_execution (boolean)",
+          "ticket_id": "body.ticket_id",
+          "plan_mapping_ids": "body.plan_mapping_ids (array of strings)"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "refresh_execution": true
+      }
+    },
+    "qa.risk_assessment.get": {
+      "summary": "Get the saved QA release risk assessment of a version. It reads the stored result and does not recompute it. CLI route: the result is wrapped as {outcome, command, meta, api}; read the Open API envelope {code, msg, data} from `api` (outcome is SUCCESS or FAILURE).",
+      "write": false,
+      "cli": {
+        "command": "qa-insights risk-assessment get",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_qa_risk_assessment",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>"
+      }
+    },
+    "qa.risk_assessment.save": {
+      "summary": "Save a reviewed QA release risk assessment as the version's latest one (body: risk_level, reasons, note, ai_summary, override_rule_engine); each call adds a record, and the server writes an AI summary when ai_summary is omitted. CLI route: run it first with dry_run (prints the body, writes nothing), show the result to the user, and only after their confirmation run it again with confirm, the CLI's safety switch; never pass confirm on the first call. CLI route: the result is wrapped as {outcome, command, meta, api}; read the Open API envelope {code, msg, data} from `api` (outcome is SUCCESS or FAILURE). CLI-only: body_file passes the same JSON from a file instead of body; prefer it for long JSON and where quoted arguments are rejected. A dry_run call does not reach the server: it returns {outcome, command, meta, post_body} with no api.",
+      "write": true,
+      "cli": {
+        "command": "qa-insights risk-assessment save",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "body": "--body <json>",
+          "confirm": "--confirm",
+          "dry_run": "--dry-run",
+          "body_file": "--body-file <path>"
+        }
+      },
+      "mcp": {
+        "tool": "save_qa_risk_assessment",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "body": "body (object)"
+        }
+      },
+      "route_only": [
+        "confirm",
+        "dry_run",
+        "body_file"
+      ],
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "body": {
+          "risk_level": "MEDIUM",
+          "reasons": [
+            {
+              "code": "HIGH_PLUS_TICKETS_OPEN",
+              "severity": "HIGH",
+              "message": "2 High+ tickets still open"
+            }
+          ],
+          "note": "Reviewed with QA"
+        },
+        "dry_run": true
+      }
+    },
+    "qa.risk_rules.get": {
+      "summary": "Get a product's QA risk rules. CLI route: the result is wrapped as {outcome, command, meta, api}; read the Open API envelope {code, msg, data} from `api` (outcome is SUCCESS or FAILURE).",
+      "write": false,
+      "cli": {
+        "command": "qa-insights risk-rules get",
+        "args": {
+          "product_id": "<product_id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_qa_risk_rules",
+        "args": {
+          "product_id": "product_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>"
+      }
+    },
+    "qa.testpoint_review.apply_optimization": {
+      "summary": "Apply the AI's {modified, added, questions} output to the review. Part of the local test point review page (served by the CLI on this machine). CLI only.",
+      "write": false,
+      "cli": {
+        "command": "qa-insights testpoint-review apply-optimization",
+        "args": {
+          "review_id": "--review-id <id>",
+          "output": "--output <json>",
+          "output_file": "--output-file <path>"
+        }
+      },
+      "example": {
+        "review_id": "<review_id>",
+        "output_file": "/abs/path/out.json"
+      }
+    },
+    "qa.testpoint_review.open": {
+      "summary": "Serve the review page and open it (no_browser prints the URL instead). Part of the local test point review page (served by the CLI on this machine). CLI only.",
+      "write": false,
+      "cli": {
+        "command": "qa-insights testpoint-review open",
+        "args": {
+          "review_id": "--review-id <id>",
+          "no_browser": "--no-browser"
+        }
+      },
+      "example": {
+        "review_id": "<review_id>",
+        "no_browser": true
+      }
+    },
+    "qa.testpoint_review.request_optimize": {
+      "summary": "Collect the reviewer's comments as an optimization request for the AI. Part of the local test point review page (served by the CLI on this machine). CLI only.",
+      "write": false,
+      "cli": {
+        "command": "qa-insights testpoint-review request-optimize",
+        "args": {
+          "review_id": "--review-id <id>"
+        }
+      },
+      "example": {
+        "review_id": "<review_id>"
+      }
+    },
+    "qa.testpoint_review.save": {
+      "summary": "Archive the reviewed test points to CawPlan for the requirement. dry_run prints the archive body without submitting. Part of the local test point review page (served by the CLI on this machine). CLI only.",
+      "write": true,
+      "cli": {
+        "command": "qa-insights testpoint-review save",
+        "args": {
+          "review_id": "--review-id <id>",
+          "product_id": "--product-id <id>",
+          "requirement_id": "--requirement-id <id>",
+          "dry_run": "--dry-run"
+        }
+      },
+      "example": {
+        "review_id": "<review_id>",
+        "product_id": "<product_id>",
+        "requirement_id": "<requirement_id>"
+      }
+    },
+    "qa.testpoint_review.show": {
+      "summary": "Show the current review state (test points, comments, decisions). Part of the local test point review page (served by the CLI on this machine). CLI only.",
+      "write": false,
+      "cli": {
+        "command": "qa-insights testpoint-review show",
+        "args": {
+          "review_id": "--review-id <id>"
+        }
+      },
+      "example": {
+        "review_id": "<review_id>"
+      }
+    },
+    "qa.testpoint_review.start": {
+      "summary": "Start a local test point review for a requirement from test points, the requirement snapshot and open questions (inline JSON or files); returns a review id. Part of the local test point review page (served by the CLI on this machine). CLI only.",
+      "write": false,
+      "cli": {
+        "command": "qa-insights testpoint-review start",
+        "args": {
+          "product_id": "--product-id <id>",
+          "requirement_id": "--requirement-id <id>",
+          "lang": "--lang <lang>",
+          "test_points": "--test-points <json>",
+          "test_points_file": "--test-points-file <path>",
+          "requirement": "--requirement <json>",
+          "requirement_file": "--requirement-file <path>",
+          "open_questions": "--open-questions <json>",
+          "open_questions_file": "--open-questions-file <path>"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "requirement_id": "<requirement_id>",
+        "test_points_file": "./tp.json",
+        "requirement_file": "./req.json"
+      }
+    },
+    "qa.testpoints.archive": {
+      "summary": "Create several test points under one QA requirement (body: {test_points: [...]}). CLI route: the result is wrapped as {outcome, command, meta, api, post_body|patch_body}; read the Open API envelope from `api`. outcome is SUCCESS, FAILURE, NOOP (nothing to change) or UNKNOWN (the write may or may not have happened: do not retry it, check with a read first). CLI-only: body_file passes the same JSON from a file instead of body; prefer it for long JSON and where quoted arguments are rejected.",
+      "write": true,
+      "cli": {
+        "command": "qa-insights testpoints archive",
+        "args": {
+          "product_id": "<product_id>",
+          "requirement_id": "<requirement_id>",
+          "body": "--body <json>",
+          "dry_run": "--dry-run",
+          "body_file": "--body-file <path>"
+        }
+      },
+      "mcp": {
+        "tool": "batch_create_test_points",
+        "args": {
+          "product_id": "product_id",
+          "requirement_id": "requirement_id",
+          "body": "body (object)"
+        }
+      },
+      "route_only": [
+        "dry_run",
+        "body_file"
+      ],
+      "example": {
+        "product_id": "<product_id>",
+        "requirement_id": "<requirement_id>",
+        "body": {
+          "test_points": [
+            {
+              "title": "SSO login succeeds"
+            }
+          ]
+        }
+      }
+    },
+    "qa.testpoints.list": {
+      "summary": "List a product's QA test points, optionally narrowed by requirement, module-tree node, approval status, priority, assignee or keyword. Paginated. MCP only: this is the product-level list; the CLI's per-requirement test point list returns a different shape and is not a capability.",
+      "write": false,
+      "cli": null,
+      "mcp": {
+        "tool": "list_qa_test_points",
+        "args": {
+          "product_id": "product_id",
+          "requirement_id": "requirement_id",
+          "module_tree_node_id": "module_tree_node_id",
+          "approval_status": "approval_status",
+          "priority": "priority",
+          "assignee_user_id": "assignee_user_id",
+          "search": "search",
+          "page_num": "page_num",
+          "page_size": "page_size"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "requirement_id": "<requirement_id>"
+      }
+    },
+    "qa.testrail.execution.failures": {
+      "summary": "List the failed and blocked TestRail execution results of a version, optionally for one run. Paginated with limit and offset. include_flaky computes is_flaky and consecutive_failures from TestRail history (slower). CLI route: the result is wrapped as {outcome, command, meta, api}; read the Open API envelope {code, msg, data} from `api` (outcome is SUCCESS or FAILURE).",
+      "write": false,
+      "cli": {
+        "command": "qa-insights testrail execution failures",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "run_id": "--run-id <n>",
+          "include_flaky": "--include-flaky",
+          "limit": "--limit <n>",
+          "offset": "--offset <n>"
+        }
+      },
+      "mcp": {
+        "tool": "get_testrail_execution_failures",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "run_id": "run_id (integer)",
+          "include_flaky": "include_flaky (boolean)",
+          "limit": "limit (integer)",
+          "offset": "offset (integer)"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "run_id": 1234
+      }
+    },
+    "qa.testrail.execution.summary": {
+      "summary": "Get the TestRail execution summary of a version, optionally scoped to one ticket or to plan mappings. refresh bypasses the execution cache and refreshes TestRail status metadata. CLI route: the result is wrapped as {outcome, command, meta, api}; read the Open API envelope {code, msg, data} from `api` (outcome is SUCCESS or FAILURE).",
+      "write": false,
+      "cli": {
+        "command": "qa-insights testrail execution summary",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "refresh": "--refresh",
+          "ticket_id": "--ticket-id <id>",
+          "plan_mapping_id": "--plan-mapping-id <id>",
+          "plan_mapping_ids": "--plan-mapping-ids <ids>",
+          "include_zero_statuses": "--include-zero-statuses"
+        }
+      },
+      "mcp": {
+        "tool": "get_testrail_execution_summary",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "refresh": "refresh (boolean)",
+          "ticket_id": "ticket_id",
+          "plan_mapping_id": "plan_mapping_id",
+          "plan_mapping_ids": "plan_mapping_ids (array of strings)",
+          "include_zero_statuses": "include_zero_statuses (boolean)"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "refresh": true
+      }
+    },
+    "qa.testrail.mappings.get": {
+      "summary": "Get a product's TestRail mappings. CLI route: the result is wrapped as {outcome, command, meta, api}; read the Open API envelope {code, msg, data} from `api` (outcome is SUCCESS or FAILURE).",
+      "write": false,
+      "cli": {
+        "command": "qa-insights testrail mappings get",
+        "args": {
+          "product_id": "<product_id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_testrail_mappings",
+        "args": {
+          "product_id": "product_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>"
+      }
+    },
+    "qa_reports.create": {
+      "summary": "Create a QA report for a product version (body: topic, type, result, status, date_start, date_end, details, ticket_id, module_id, links, ...). CLI-only: body_file passes the same JSON from a file instead of body; prefer it for long JSON and where quoted arguments are rejected.",
+      "write": true,
+      "cli": {
+        "command": "qa-reports create",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "body": "--body <json>",
+          "body_file": "--body-file <path>"
+        }
+      },
+      "mcp": {
+        "tool": "create_qa_report",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "body": "body (object)"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "body": {
+          "topic": "Login SQA",
+          "type": "sqa",
+          "result": "pass"
+        }
+      },
+      "route_only": [
+        "body_file"
+      ]
+    },
+    "qa_reports.get": {
+      "summary": "Get one QA report of a version by its ID.",
+      "write": false,
+      "cli": {
+        "command": "qa-reports get",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "qa_report_id": "<qa_report_id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_qa_report",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "qa_report_id": "qa_report_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "qa_report_id": "<qa_report_id>"
+      }
+    },
+    "qa_reports.list": {
+      "summary": "List the QA reports of one product version, optionally filtered by type (sqa, aqa, stress, performance, smoke), result (pass, pass_with_issues, failed) or status. Paginated.",
+      "write": false,
+      "cli": {
+        "command": "qa-reports list-version",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "type": "--type <type>",
+          "result": "--result <r>",
+          "status": "--status <s>",
+          "page_size": "--page_size <n>",
+          "page_num": "--page_num <n>"
+        }
+      },
+      "mcp": {
+        "tool": "list_qa_reports",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "type": "type",
+          "result": "result",
+          "status": "status",
+          "page_size": "page_size",
+          "page_num": "page_num"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "type": "sqa"
+      }
+    },
+    "qa_reports.update": {
+      "summary": "Update an existing QA report (same body fields as qa_reports.create). CLI-only: body_file passes the same JSON from a file instead of body; prefer it for long JSON and where quoted arguments are rejected.",
+      "write": true,
+      "cli": {
+        "command": "qa-reports update",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "qa_report_id": "<qa_report_id>",
+          "body": "--body <json>",
+          "body_file": "--body-file <path>"
+        }
+      },
+      "mcp": {
+        "tool": "update_qa_report",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "qa_report_id": "qa_report_id",
+          "body": "body (object)"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "qa_report_id": "<qa_report_id>",
+        "body": {
+          "result": "pass_with_issues"
+        }
+      },
+      "route_only": [
+        "body_file"
+      ]
+    },
+    "session.temp_dir": {
+      "summary": "Print the CLI's scratch directory for temporary files. It is a fixed directory shared by CLI sessions, so create a uniquely named subdirectory or file in it. CLI only.",
+      "write": false,
+      "cli": {
+        "command": "session temp-dir",
+        "args": {}
+      },
+      "example": {}
+    },
     "ticket_statuses.list": {
       "summary": "List one product line's ticket workflow statuses in order, including custom statuses.",
       "write": false,
@@ -337,21 +1413,349 @@
         "product_line_id": "<product_line_id>"
       }
     },
+    "tickets.attachments.add": {
+      "summary": "Upload local files (file, dir, md_file or html_file) and embed them, with an optional note, into one field of a version ticket (field, default progress_comment) in a single update. CLI only (reads local files). dry_run lists the files and missing references without uploading or updating. mode is append (default) or replace; block_id picks the report block to replace; base_dir, allow_outside_base and allow_outside_cwd control which local files may be referenced.",
+      "write": true,
+      "cli": {
+        "command": "tickets attachments add",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "ticket_id": "<ticket_id>",
+          "file": "--file <path>",
+          "dir": "--dir <path>",
+          "md_file": "--md-file <path>",
+          "html_file": "--html-file <path>",
+          "note": "--note <markdown>",
+          "field": "--field <field>",
+          "dry_run": "--dry-run",
+          "mode": "--mode <mode>",
+          "block_id": "--block-id <id>",
+          "base_dir": "--base-dir <dir>",
+          "allow_outside_base": "--allow-outside-base",
+          "allow_outside_cwd": "--allow-outside-cwd"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "ticket_id": "<ticket_id>",
+        "dir": "./qa-results",
+        "dry_run": true
+      }
+    },
+    "tickets.attachments.download": {
+      "summary": "Download a version ticket's attachments to a local directory, optionally only some types or keys. CLI only (writes local files); on MCP, list the attachments and give the user the download URLs.",
+      "write": false,
+      "cli": {
+        "command": "tickets attachments download",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "ticket_id": "<ticket_id>",
+          "type": "--type <csv>",
+          "key": "--key <key>",
+          "out": "--out <dir>",
+          "expires_in": "--expires_in <seconds>"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "ticket_id": "<ticket_id>",
+        "type": [
+          "image",
+          "pdf"
+        ]
+      }
+    },
+    "tickets.attachments.list": {
+      "summary": "List the files attached to a version ticket's rich-text fields, each with a short-lived presigned download URL; fetch the URLs promptly. ticket_id is the ticket unique ID. Download, upload and add are separate CLI-only capabilities (tickets.attachments.download, .upload, .add).",
+      "write": false,
+      "cli": {
+        "command": "tickets attachments list",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "ticket_id": "<ticket_id>",
+          "expires_in": "--expires_in <seconds>"
+        }
+      },
+      "mcp": {
+        "tool": "list_ticket_attachments",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "ticket_id": "ticket_id",
+          "expires_in": "expires_in (integer seconds)"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "ticket_id": "<ticket_unique_id>"
+      }
+    },
+    "tickets.attachments.upload": {
+      "summary": "Upload local files as a version ticket's attachments and return their keys and URLs (does not change the ticket text). CLI only (reads local files). dry_run lists what would be uploaded.",
+      "write": true,
+      "cli": {
+        "command": "tickets attachments upload",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "ticket_id": "<ticket_id>",
+          "file": "--file <path>",
+          "dry_run": "--dry-run"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "ticket_id": "<ticket_id>",
+        "file": "./a.png"
+      }
+    },
+    "tickets.changes": {
+      "summary": "List ticket change events (status, ux, priority, assignees) in a window of at most 90 days for a scope (at least one of unique_ids, product_ids, product_line_ids, version_ids, parent_ids); at most 50 unique_ids per call. The CLI follows next_cursor for up to 20 pages; on MCP each call returns one page, so call again with cursor = next_cursor until there is none. truncated: true means the result is incomplete.",
+      "write": false,
+      "cli": {
+        "command": "tickets changes",
+        "args": {
+          "start_date": "--start_date <date>",
+          "end_date": "--end_date <date>",
+          "unique_ids": "--unique_ids <csv>",
+          "product_ids": "--product_ids <csv>",
+          "product_line_ids": "--product_line_ids <csv>",
+          "version_ids": "--version_ids <csv>",
+          "parent_ids": "--parent_ids <csv>",
+          "fields": "--fields <csv>",
+          "actor_ids": "--actor_ids <csv>",
+          "old_status_categories": "--old_status_categories <csv>",
+          "new_status_categories": "--new_status_categories <csv>",
+          "group_by": "--group_by <csv>",
+          "page_size": "--page_size <n>",
+          "cursor": "--cursor <cursor>"
+        }
+      },
+      "mcp": {
+        "tool": "ticket_changes",
+        "args": {
+          "start_date": "start_date",
+          "end_date": "end_date",
+          "unique_ids": "body.unique_ids (array of strings)",
+          "product_ids": "body.product_ids (array of strings)",
+          "product_line_ids": "body.product_line_ids (array of strings)",
+          "version_ids": "body.version_ids (array of strings)",
+          "parent_ids": "body.parent_ids (array of strings)",
+          "fields": "body.fields (array of strings)",
+          "actor_ids": "body.actor_ids (array of strings)",
+          "old_status_categories": "body.old_status_categories (array of strings)",
+          "new_status_categories": "body.new_status_categories (array of strings)",
+          "group_by": "body.group_by (array of strings)",
+          "page_size": "page_size",
+          "cursor": "cursor"
+        }
+      },
+      "example": {
+        "unique_ids": [
+          "<ticket_id>"
+        ],
+        "fields": [
+          "status"
+        ],
+        "start_date": "2026-11-01",
+        "end_date": "2026-11-04"
+      }
+    },
+    "tickets.create": {
+      "summary": "Create a ticket in a product version. description is the title; remarks is the HTML body. For a ticket outside any version use backlog.create. module_id: the CLI takes a module name, full path \"Parent / Child\" or id and resolves it; on MCP pass the module id (resolve a name with qa.module_tree.get first).",
+      "write": true,
+      "cli": {
+        "command": "tickets create-version",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "description": "--description <text>",
+          "remarks": "--remarks <html>",
+          "type": "--type <type>",
+          "priority": "--priority <p>",
+          "status": "--status <key>",
+          "assignee_ids": "--assignees <csv>",
+          "label_ids": "--label_ids <csv>",
+          "module_id": "--module <name_or_id>",
+          "parent_id": "--parent_id <id>",
+          "reporter_id": "--reporter_id <id>",
+          "due_date": "--due_date <date>",
+          "comment": "--comment <text>"
+        }
+      },
+      "mcp": {
+        "tool": "create_ticket",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "description": "body.description",
+          "remarks": "body.remarks",
+          "type": "body.type",
+          "priority": "body.priority",
+          "status": "body.status",
+          "assignee_ids": "body.assignee_ids (array of strings)",
+          "label_ids": "body.label_ids (array of strings)",
+          "parent_id": "body.parent_id",
+          "reporter_id": "body.reporter_id",
+          "due_date": "body.due_date",
+          "comment": "body.comment",
+          "module_id": "body.module_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "description": "Login fails on Safari",
+        "type": "BUGFIX"
+      }
+    },
+    "tickets.get": {
+      "summary": "Get one version ticket's full detail (labels, children, parent, relations, product line, AI sessions, QA reports). ticket_id is the ticket unique ID (resolve a display ID with tickets.search first).",
+      "write": false,
+      "cli": {
+        "command": "tickets get",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "ticket_id": "<ticket_id>",
+          "fields": "--fields <csv>"
+        }
+      },
+      "mcp": {
+        "tool": "get_ticket",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "ticket_id": "ticket_id",
+          "fields": "fields"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "ticket_id": "<ticket_unique_id>"
+      }
+    },
+    "tickets.history": {
+      "summary": "Get one version ticket's change history.",
+      "write": false,
+      "cli": {
+        "command": "tickets history",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "ticket_id": "<ticket_id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_ticket_history",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "ticket_id": "ticket_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "ticket_id": "<ticket_id>"
+      }
+    },
+    "tickets.relations": {
+      "summary": "List a ticket's relations grouped by type (blocking, blocked_by, related, duplicate), from that ticket's point of view. ticket_id is the ticket unique ID (resolve a display ID with tickets.search first).",
+      "write": false,
+      "cli": {
+        "command": "tickets relate list",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "ticket_id": "<ticket_id>"
+        }
+      },
+      "mcp": {
+        "tool": "get_ticket_relations",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "ticket_id": "ticket_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "ticket_id": "<ticket_unique_id>"
+      }
+    },
     "tickets.search": {
-      "summary": "Find tickets by display ID, unique ID or filters. Returns full ticket fields, including description (title), remarks (body) and progress_comment.",
+      "summary": "Find tickets by display ID, unique ID or filters. Returns full ticket fields, including description (title), remarks (body), progress_comment and links. A created-at window (time_range, or start_date + end_date) is required unless display_ids, unique_ids or parent_ids is set; updated_start_date/updated_end_date filter by last update. Paginated: page through using total. view=compact returns list fields only (IDs, description, status and status_display, priority, ux, product/version, parent, labels (name, behavior), assignees (user_id and name), qa_assignee_ids, module, dates) without rich text, links, relations or avatars; use tickets.get for one ticket's details. Use it whenever you list more than a few tickets: full rows are large enough to overflow a tool result. On the CLI it also prints one line per page and defaults page_size to 50; CLI releases before this change printed a reduced row without IDs.",
       "write": false,
       "cli": {
         "command": "tickets search",
         "args": {
+          "time_range": "--time_range <range>",
+          "start_date": "--start_date <date>",
+          "end_date": "--end_date <date>",
+          "updated_start_date": "--updated_start_date <date>",
+          "updated_end_date": "--updated_end_date <date>",
           "display_ids": "--display_ids <csv>",
-          "unique_ids": "--unique_ids <csv>"
+          "unique_ids": "--unique_ids <csv>",
+          "parent_ids": "--parent_ids <csv>",
+          "product_ids": "--product_ids <csv>",
+          "product_line_ids": "--product_line_ids <csv>",
+          "version_ids": "--version_ids <csv>",
+          "assignees": "--assignees <csv>",
+          "status": "--status <csv>",
+          "excluded_status": "--excluded_status <csv>",
+          "status_categories": "--status_categories <csv>",
+          "excluded_status_categories": "--excluded_status_categories <csv>",
+          "priority": "--priority <csv>",
+          "type": "--type <csv>",
+          "label_ids": "--label_ids <csv>",
+          "label_names": "--label_names <csv>",
+          "ux": "--ux <csv>",
+          "platform": "--platform <csv>",
+          "search": "--search <q>",
+          "page_size": "--page_size <n>",
+          "page_num": "--page_num <n>",
+          "view": "--view <mode>"
         }
       },
       "mcp": {
         "tool": "search_tickets",
         "args": {
+          "time_range": "time_range",
+          "start_date": "start_date",
+          "end_date": "end_date",
+          "updated_start_date": "updated_start_date",
+          "updated_end_date": "updated_end_date",
           "display_ids": "body.display_ids (array of strings)",
-          "unique_ids": "body.unique_ids (array of strings)"
+          "unique_ids": "body.unique_ids (array of strings)",
+          "parent_ids": "body.parent_ids (array of strings)",
+          "product_ids": "body.product_ids (array of strings)",
+          "product_line_ids": "body.product_line_ids (array of strings)",
+          "version_ids": "body.version_ids (array of strings)",
+          "assignees": "body.assignees (array of strings)",
+          "status": "body.status (array of strings)",
+          "excluded_status": "body.excluded_status (array of strings)",
+          "status_categories": "body.status_categories (array of strings)",
+          "excluded_status_categories": "body.excluded_status_categories (array of strings)",
+          "priority": "body.priority (array of strings)",
+          "type": "body.type (array of strings)",
+          "label_ids": "body.label_ids (array of strings)",
+          "label_names": "body.label_names (array of strings)",
+          "ux": "body.ux (array of strings)",
+          "platform": "body.platform (array of strings)",
+          "search": "body.search",
+          "page_size": "page_size",
+          "page_num": "page_num",
+          "view": "view"
         }
       },
       "example": {
@@ -359,6 +1763,135 @@
           "CWP-123",
           "CAW-456"
         ]
+      }
+    },
+    "tickets.stats": {
+      "summary": "Count tickets grouped server-side (priority, status, status_category, ux, assignee, label, type, product, version, platform; at most 2 dimensions), with the same filters as tickets.search. Result: data.total, and data.groups[] where each group has count and values[] (one {dimension, value} per group_by dimension).",
+      "write": false,
+      "cli": {
+        "command": "tickets stats",
+        "args": {
+          "time_range": "--time_range <range>",
+          "start_date": "--start_date <date>",
+          "end_date": "--end_date <date>",
+          "updated_start_date": "--updated_start_date <date>",
+          "updated_end_date": "--updated_end_date <date>",
+          "display_ids": "--display_ids <csv>",
+          "unique_ids": "--unique_ids <csv>",
+          "parent_ids": "--parent_ids <csv>",
+          "product_ids": "--product_ids <csv>",
+          "product_line_ids": "--product_line_ids <csv>",
+          "version_ids": "--version_ids <csv>",
+          "assignees": "--assignees <csv>",
+          "status": "--status <csv>",
+          "excluded_status": "--excluded_status <csv>",
+          "status_categories": "--status_categories <csv>",
+          "excluded_status_categories": "--excluded_status_categories <csv>",
+          "priority": "--priority <csv>",
+          "type": "--type <csv>",
+          "label_ids": "--label_ids <csv>",
+          "label_names": "--label_names <csv>",
+          "ux": "--ux <csv>",
+          "platform": "--platform <csv>",
+          "search": "--search <q>",
+          "group_by": "--group_by <csv>"
+        }
+      },
+      "mcp": {
+        "tool": "ticket_stats",
+        "args": {
+          "time_range": "time_range",
+          "start_date": "start_date",
+          "end_date": "end_date",
+          "updated_start_date": "updated_start_date",
+          "updated_end_date": "updated_end_date",
+          "display_ids": "body.display_ids (array of strings)",
+          "unique_ids": "body.unique_ids (array of strings)",
+          "parent_ids": "body.parent_ids (array of strings)",
+          "product_ids": "body.product_ids (array of strings)",
+          "product_line_ids": "body.product_line_ids (array of strings)",
+          "version_ids": "body.version_ids (array of strings)",
+          "assignees": "body.assignees (array of strings)",
+          "status": "body.status (array of strings)",
+          "excluded_status": "body.excluded_status (array of strings)",
+          "status_categories": "body.status_categories (array of strings)",
+          "excluded_status_categories": "body.excluded_status_categories (array of strings)",
+          "priority": "body.priority (array of strings)",
+          "type": "body.type (array of strings)",
+          "label_ids": "body.label_ids (array of strings)",
+          "label_names": "body.label_names (array of strings)",
+          "ux": "body.ux (array of strings)",
+          "platform": "body.platform (array of strings)",
+          "search": "body.search",
+          "group_by": "body.group_by (array of strings, at most 2)"
+        }
+      },
+      "example": {
+        "version_ids": [
+          "<version_id>"
+        ],
+        "start_date": "2000-01-01",
+        "end_date": "2026-11-04",
+        "group_by": [
+          "assignee"
+        ]
+      }
+    },
+    "tickets.update": {
+      "summary": "Update a version ticket's fields (status, progress_comment, priority, assignees, labels, parent, due date, title/body, BUGFIX root_cause and solution), or move it with target_version_id. ticket_id is the ticket unique ID. Pass the ticket's current version as expected_version to use the optimistic lock (0 or omitted skips the check). module_id: the CLI takes a module name, full path \"Parent / Child\" or id and resolves it; on MCP pass the module id (resolve a name with qa.module_tree.get first). On MCP, null or an empty string clears the module; omitting it keeps the module.",
+      "write": true,
+      "cli": {
+        "command": "tickets update",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "ticket_id": "<ticket_id>",
+          "status": "--status <key>",
+          "progress_comment": "--progress_comment <text>",
+          "priority": "--priority <p>",
+          "description": "--description <text>",
+          "remarks": "--remarks <html>",
+          "comment": "--comment <text>",
+          "root_cause": "--root_cause <text>",
+          "solution": "--solution <text>",
+          "parent_id": "--parent_id <id>",
+          "due_date": "--due_date <date>",
+          "assignee_ids": "--assignees <csv>",
+          "label_ids": "--label_ids <csv>",
+          "module_id": "--module <name_or_id>",
+          "target_version_id": "--target_version_id <id>",
+          "expected_version": "--expected_version <n>"
+        }
+      },
+      "mcp": {
+        "tool": "update_ticket",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "ticket_id": "ticket_id",
+          "status": "body.status",
+          "progress_comment": "body.progress_comment",
+          "priority": "body.priority",
+          "description": "body.description",
+          "remarks": "body.remarks",
+          "comment": "body.comment",
+          "root_cause": "body.root_cause",
+          "solution": "body.solution",
+          "parent_id": "body.parent_id",
+          "due_date": "body.due_date",
+          "assignee_ids": "body.assignee_ids (array of strings)",
+          "label_ids": "body.label_ids (array of strings)",
+          "target_version_id": "body.version_id",
+          "expected_version": "body.version (integer)",
+          "module_id": "body.module_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "ticket_id": "<ticket_unique_id>",
+        "status": "IN_PROGRESS",
+        "progress_comment": "Started the fix"
       }
     },
     "todos.list": {
@@ -385,8 +1918,12 @@
       }
     },
     "users.me": {
-      "summary": "Get the signed-in user (resolve \"me\" to user_id). MCP only: on the CLI route read the `User ID:` line of the CLI auth status command instead.",
+      "summary": "Get the signed-in user (resolve \"me\" to user_id): data.unique_id is the user_id, with email and name. A not-signed-in error means the route is not usable: follow \"Neither\" above instead of looking the user up by email.",
       "write": false,
+      "cli": {
+        "command": "users me",
+        "args": {}
+      },
       "mcp": {
         "tool": "get_current_user",
         "args": {}
@@ -394,7 +1931,7 @@
       "example": {}
     },
     "users.search": {
-      "summary": "Find users by exact email or by keyword over name and email; resolve a person to user_id.",
+      "summary": "Find users by exact email or by keyword over name and email; resolve a person to user_id. CLI route: do not pass page_size or page_num (the CLI sends them as strings and the server answers BAD_REQUEST); use email or keyword only.",
       "write": false,
       "cli": {
         "command": "users query",
@@ -486,7 +2023,7 @@
       }
     },
     "versions.releases": {
-      "summary": "Get a version's release history.",
+      "summary": "Get a version's release history. data is a list of version entries; the events are in each entry's release_history[].",
       "write": false,
       "cli": {
         "command": "releases list",

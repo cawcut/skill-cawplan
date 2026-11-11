@@ -8,12 +8,7 @@ Do not process ticket image attachments in A1.
 
 **Ticket lookup** (only when a ticket is provided as material):
 
-```bash
-# Single display ID
-cawplan tickets search --display_ids CAWP-04606
-# Multiple display IDs — comma-separated, no spaces
-cawplan tickets search --display_ids CAWP-13477,CAW-04560
-```
+capability `tickets.search` (`display_ids` = the ticket display ID(s), e.g. `CAWP-04606`; several IDs go in one call — `CAWP-13477,CAW-04560` comma-separated with no spaces on the CLI route, an array on the MCP route).
 
 From each ticket, use **only** `description` and `remarks` (no separate title — rely on these two). Strip HTML tags from `remarks` before analysis. Do **not** use `progress_comment`, comments, or attachments.
 
@@ -23,13 +18,8 @@ From each ticket, use **only** `description` and `remarks` (no separate title �
   - 工单响应已带 `product_id`（step 1 ticket lookup 之后）；
   - 会话已有 `product_id`（含接力入站已带）。
 - **不取数**：纯文字/截图且无 ticket、会话无 `product_id`（产品选择仍延后到保存意图 step 7）；冷交接（step 10）；接力入站且跳过 step 1–6。
-- **命令**（分析阶段允许的 product 只读 overview；与 step 7 的 `products list` 保存流程分离）：
-
-```bash
-cawplan products overview <product_id>
-```
-
-- **解析**：响应外层 `code` / `data` / `msg`（**不用** qa-insights 的 `outcome`）。**成功** = `code == "SUCCESS"` **且** `data.description` 非空；此时只认 `data.name` 与 `data.description`（均在 `data` 顶层、无嵌套），**忽略** `data` 内 `product_line` / `type` / `product_types` 等同名字段。
+- **调用**（分析阶段允许的 product 只读 overview；与 step 7 的 capability `products.list` 保存流程分离）：capability `products.overview`（`product_id`）。
+- **解析**：两条路由都是响应外层 `code` / `data` / `msg`（**不用** CLI 路由 qa-insights 的 `outcome`）。**成功** = `code == "SUCCESS"` **且** `data.description` 非空；此时只认 `data.name` 与 `data.description`（均在 `data` 顶层、无嵌套），**忽略** `data` 内 `product_line` / `type` / `product_types` 等同名字段。
 - **用法**：仅作 step 2–5「这条需求在讲什么」的背景参考；**不是第四类素材**（见 step 2）。
 - **绝不能进归档链路**：不进五字段、不进展示摘要、不进存疑清单；不进归档 body（仍仅五字段 + `summary` + `ticket_id`）；不进 `five_field_snapshot` / `summary_snapshot` / `ticket_id_snapshot` / `pending_write` probe。
 - **降级**：请求失败、`code != "SUCCESS"`、`data.description` 空或缺失 → 等同于没有这层背景；分析照常进行，不早停、不中断、不向 SQA 报错。

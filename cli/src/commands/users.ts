@@ -2,8 +2,24 @@ import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
 import { getCache, setCache, buildScopedCacheKey, buildQueryFromFlags } from "../lib/cache.js";
 
+// Not cached: the answer depends on which credentials are active, and a stale
+// identity after a re-login would attribute work to the wrong user.
+export async function getCurrentUser(): Promise<unknown> {
+  return cawplanRequest({
+    method: "GET",
+    path: "/api/v1/public/openapi/users/me",
+  });
+}
+
 export function registerUsersCommand(program: Command): void {
   const users = program.command("users").description("Manage users");
+
+  users
+    .command("me")
+    .description("Show the signed-in user (data.unique_id is your user_id)")
+    .action(async () => {
+      console.log(JSON.stringify(await getCurrentUser(), null, 2));
+    });
 
   users
     .command("list")

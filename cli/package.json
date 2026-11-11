@@ -1,6 +1,6 @@
 {
   "name": "cawplan",
-  "version": "0.0.66",
+  "version": "0.0.67",
   "description": "CawPlan CLI",
   "author": "Ubiquiti UID",
   "license": "MIT",
@@ -20,7 +20,7 @@
     "ubiquiti"
   ],
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.12"
   },
   "repository": {
     "type": "git",
@@ -44,6 +44,7 @@
     "d3-shape": "^3.2.0",
     "marked": "^15.0.12",
     "marked-terminal": "^7.3.0",
+    "sanitize-html": "^2.18.1",
     "string-width": "^7.2.0",
     "zod": "^3.24.1"
   },
@@ -52,6 +53,7 @@
     "@types/d3-scale": "^4.0.9",
     "@types/d3-shape": "^3.2.0",
     "@types/node": "^22.0.0",
+    "@types/sanitize-html": "^2.16.2",
     "esbuild": "^0.28.1",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",

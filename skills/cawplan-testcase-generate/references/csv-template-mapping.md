@@ -81,6 +81,15 @@ rm -f "$TMP_JSON"
 
 不得手写 CSV 或临时重写导出逻辑。脚本失败时如实报告 stderr，修复上游 JSON 后重试。
 
+上面的调用只需要 shell 和 Node，与 CawPlan 读取走 CLI 还是 MCP 路由无关：只要能执行 shell，两条路由都照常写文件。
+
+### 无 shell 时
+
+只能走 MCP 路由且无法执行 shell 命令时，没有可交给用户的本地文件：
+
+- 环境仍能用 Node 运行本 Skill 的 `scripts/export_to_csv.js`（例如代码执行沙箱）：照常按上面的 interim JSON 契约调用脚本，再把脚本生成的 CSV 文件内容原样放进对话里的一个 `csv` 代码块（这是展示脚本输出，不是手写或内联 CSV）。回执状态行改为 `已导出,CSV 内容见上。` / `Exported; the CSV content is shown above.`（跟随会话语言二选一），其余回执行不变。
+- 连脚本也无法运行：不导出。CSV 与 Refs 的 `content_hash` 只能由脚本生成，不得手写或在对话中拼写 CSV。如实告知 SQA 导出 CSV 需要能执行命令的环境（跟随会话语言），`cases[]` 与 Markdown 预览保持不变。
+
 ## 硬门
 
 脚本拒绝空 `testPointId`、空 `requirementId`、空 `title`、Step/Expected 数量不等，以及展开态中空 Step 或空 Expected。标题态只允许 `[]` / `[]`。不得增加模板外列、用 CaseId 当稳定主键、改写 Refs、输出 BOM 或非 CRLF 文件。

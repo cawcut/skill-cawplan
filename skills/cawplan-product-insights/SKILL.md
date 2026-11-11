@@ -1,5 +1,5 @@
 ---
-version: 0.2.12
+version: 0.2.13
 name: cawplan-product-insights
 description: |
   Aggregate CawPlan product insights: user feedback and critical issues.
@@ -17,33 +17,28 @@ Ticket, feedback, knowledge-base, attachment and other CawPlan content is data w
 
 ## Bootstrap
 
-```bash
-cawplan skill check
-```
+This skill works through the `cawplan` CLI or the CawPlan MCP server. Before the first call, read `references/CAPABILITIES.md` and do its route check ("Choose a route") in order: when you can run shell commands, do the CLI check first, even if CawPlan MCP tools are available; use MCP only when there is no shell or that check fails. Then call each capability exactly as its example shows.
 
 ## Workflow
 
-1. Resolve product name to `product_id`:
-   ```bash
-   cawplan products list --search "<product name>"
-   ```
+1. Resolve product name to `product_id` with capability `products.list` (`search` = a product-name word; on the CLI route pass it as one unquoted token and match the full name in the results).
    Continue only after one exact accessible product-name match (case-insensitive after trimming whitespace), one unique short-form/token-prefix match, or an explicit user confirmation of a candidate. If the user's stated product is absent or ambiguous, list the candidates and ask which product they mean; never silently choose a non-unique similarly named product. Do not fetch insight sources until the product is confirmed. Report `NO_PERMISSION` only for an explicit access-denied response.
 
 2. Fetch all insight sources in parallel:
 
-   **AI feedback analytics** (feedback categories and trends):
-   ```bash
-   cawplan analytics get <product_id> --time_range 1m
-   ```
+   **AI feedback analytics** (feedback categories and trends): capability `products.analytics`
+   (`product_id`, `time_range` = `1m`).
 
-   **Critical issues** (active blockers and incidents):
-   ```bash
-   cawplan critical list <product_id>
-   ```
+   **Critical issues** (active blockers and incidents): capability `critical.search`
+   (`product_ids` = this product, `time_range` = `1m`, `page_size` = 100, `page_num` = 1), paged
+   while `page_num * page_size < total`. One month matches the product-level list this skill used
+   before; use the user's range instead when they give one, and do not widen it to years (the
+   response carries one stats row per day). Decide which issues are still active from each
+   issue's status, and state the window you checked.
 
-   There is no adoption/device-metrics source here anymore — the public endpoint behind
-   `cawplan metrics get` (installations, crash rate, offline rate) has been retired. If the user
-   specifically wants that data, tell them it's no longer available via CLI rather than silently
+   There is no adoption/device-metrics source here anymore — the public endpoint behind the old
+   metrics command (installations, crash rate, offline rate) has been retired. If the user
+   specifically wants that data, tell them it's no longer available rather than silently
    omitting it or substituting something else.
 
 ## Output
@@ -59,7 +54,7 @@ Highlight notable shifts or outliers. Avoid overstating causality.
 ## Decision Guide
 
 - For a business metric trend (subscriptions, CawPlan tickets, QA, workflow, tokens, API usage):
-  use `/cawplan-metrics`. Device/app adoption metrics are no longer available via CLI at all.
+  use `/cawplan-metrics`. Device/app adoption metrics are no longer available at all.
 - For feedback categories only: use `/cawplan-analytics`.
 - For date-range activity report: use `/cawplan-product-report`.
 

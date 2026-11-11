@@ -102,6 +102,59 @@ export async function resolveVersionId(productId: string, nameOrId: string): Pro
   throw new Error(`No version found matching "${nameOrId}" for this product`);
 }
 
+// ─── Module ───────────────────────────────────────────────────────────────────
+
+interface ModuleNode {
+  id: string;
+  name: string;
+  children?: ModuleNode[];
+}
+
+/** Flatten a module tree into nodes with their " / "-joined path from the root. */
+function flattenModuleTree(nodes: ModuleNode[], parentPath = ""): Array<{ id: string; name: string; path: string }> {
+  const out: Array<{ id: string; name: string; path: string }> = [];
+  for (const node of nodes) {
+    const path = parentPath ? `${parentPath} / ${node.name}` : node.name;
+    out.push({ id: node.id, name: node.name, path });
+    out.push(...flattenModuleTree(node.children ?? [], path));
+  }
+  return out;
+}
+
+/**
+ * Resolve a module name (or pass-through if it looks like a UUID) to a module_id of the
+ * product's module tree. Matches a node name, or a full path such as "Parent / Child"
+ * (case-insensitive, spaces around "/" ignored). The tree is not cached: modules are
+ * edited freely and a stale hit would silently file a ticket under the wrong module.
+ */
+export async function resolveModuleId(productId: string, nameOrId: string): Promise<string> {
+  if (looksLikeId(nameOrId)) return nameOrId;
+
+  const result = await cawplanRequest({
+    method: "GET",
+    path: `/api/v1/public/openapi/product/${encodeURIComponent(productId)}/module-tree`,
+  });
+  const nodes = (result as { data?: { nodes?: ModuleNode[] } })?.data?.nodes ?? [];
+  const flat = flattenModuleTree(nodes);
+  if (flat.length === 0) throw new Error(`Product ${productId} has no modules`);
+
+  const normalize = (s: string) => s.split("/").map((part) => part.trim().toLowerCase()).join("/");
+  const needle = normalize(nameOrId);
+  const matches = flat.filter((m) => m.name.trim().toLowerCase() === needle || normalize(m.path) === needle);
+  if (matches.length === 1) return matches[0].id;
+
+  if (matches.length > 1) {
+    const paths = matches.map((m) => `"${m.path}" (${m.id})`).join(", ");
+    throw new Error(`Multiple modules match "${nameOrId}": ${paths}. Use the full path ("Parent / Child") or the module id.`);
+  }
+
+  const similar = flat.filter((m) => m.path.toLowerCase().includes(needle)).slice(0, 10);
+  const hint = similar.length > 0
+    ? ` Similar: ${similar.map((m) => `"${m.path}"`).join(", ")}.`
+    : ` Available top-level modules: ${nodes.map((n) => `"${n.name}"`).join(", ")}.`;
+  throw new Error(`No module found matching "${nameOrId}" for this product.${hint}`);
+}
+
 // ─── User ─────────────────────────────────────────────────────────────────────
 
 /**

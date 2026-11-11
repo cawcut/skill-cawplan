@@ -50,9 +50,9 @@ If the chosen route has no implementation for a capability (`-` below), use the 
 
 ## Call a capability
 
-- Use the exact argument spelling below (for example `--display_ids`, not `--display-ids`); each capability has a complete example for both routes.
+- Use the exact argument spelling below; some CLI options use underscores (`--display_ids`) and others hyphens (`--body-file`), so copy them as listed. Each capability has an example for both routes that shows the argument shapes; the skill's own preview and confirmation steps still apply before any write.
 - MCP route: path and query arguments are top-level; request-body fields go inside `body`.
-- Both routes return the CawPlan Open API envelope `{"code", "msg", "data"}`. Any `code` other than `SUCCESS` is an error. Read results the same way on either route.
+- Both routes return the CawPlan Open API envelope `{"code", "msg", "data"}` (list results also carry `total`, `page_num`, `page_size`). Any `code` other than `SUCCESS` is an error; on MCP an error may come back as a tool error carrying that envelope. Read results the same way on either route, except where a capability's summary says the CLI wraps the result (the `qa.*` capabilities) or prints plain text (`config.env`).
 - A capability marked **write** changes data: confirm the target and content with the user before calling it, on either route.
 
 ## Capabilities
@@ -74,13 +74,24 @@ def cli_example(cli: dict, example: dict) -> str:
         if arg not in example:
             continue
         value = example[arg]
-        value = ",".join(value) if isinstance(value, list) else str(value)
-        if re.search(r"[\s'\"$`;&|()]", value):
+        flag = spec.split()[0]
+        # A boolean switch takes no value: true renders the flag, false omits it.
+        if isinstance(value, bool) and not spec.startswith("<") and len(spec.split()) == 1:
+            if value:
+                options.append(flag)
+            continue
+        if isinstance(value, dict) or (isinstance(value, list) and not all(isinstance(v, str) for v in value)):
+            value = json.dumps(value, separators=(",", ":"))
+        elif isinstance(value, list):
+            value = ",".join(value)
+        else:
+            value = str(value)
+        if re.search(r"[\s'\"$`;&|(){}\[\]]", value):
             value = shlex.quote(value)
         if spec.startswith("<"):
             positional.append(value)
         else:
-            options += [spec.split()[0], value]
+            options += [flag, value]
     return " ".join(["cawplan", cli["command"]] + positional + options)
 
 
@@ -135,21 +146,28 @@ def resolver_skills(root: Path):
 
 def cli_command_errors(root: Path, name: str, cli: dict) -> list:
     group, *subs = cli["command"].split()
-    for src in sorted((root / CLI_COMMANDS).glob("*.ts")):
-        text = src.read_text()
-        if not re.search(rf'program\s*\.command\(\s*"{re.escape(group)}"', text):
-            continue
-        errors = []
-        # Subcommands may declare positional arguments: .command("get <product_id>").
-        for sub in subs:
-            if not re.search(rf'\.command\(\s*"{re.escape(sub)}[ "]', text):
-                errors.append(f"{name}: CLI subcommand '{cli['command']}' not found in {src.relative_to(root)}")
-        for flag in cli.get("args", {}).values():
-            opt = flag.split()[0]
-            if opt.startswith("--") and not re.search(rf'\.(?:option|requiredOption)\(\s*"{re.escape(opt)}[ ",]', text):
-                errors.append(f"{name}: CLI option '{opt}' not found in {src.relative_to(root)}")
-        return errors
-    return [f"{name}: CLI command group '{group}' not found under {CLI_COMMANDS}"]
+    # A group may be extended from several files (qa-insights testpoint-review
+    # lives in its own file), so search every file that declares it.
+    sources = [
+        src
+        for src in sorted((root / CLI_COMMANDS).glob("*.ts"))
+        if re.search(rf'program\s*\.command\(\s*"{re.escape(group)}"', src.read_text(errors="replace"))
+    ]
+    if not sources:
+        return [f"{name}: CLI command group '{group}' not found under {CLI_COMMANDS}"]
+    text = "\n".join(src.read_text(errors="replace") for src in sources)
+    where = ", ".join(str(src.relative_to(root)) for src in sources)
+    errors = []
+    # Subcommands may declare positional arguments, in a string or a template
+    # literal: .command("get <product_id>"), .command(`list ${args}`).
+    for sub in subs:
+        if not re.search(rf'\.command\(\s*["`]{re.escape(sub)}[ "`]', text):
+            errors.append(f"{name}: CLI subcommand '{cli['command']}' not found in {where}")
+    for flag in cli.get("args", {}).values():
+        opt = flag.split()[0]
+        if opt.startswith("--") and not re.search(rf'\.(?:option|requiredOption)\(\s*"{re.escape(opt)}[ ",]', text):
+            errors.append(f"{name}: CLI option '{opt}' not found in {where}")
+    return errors
 
 
 def check(root: Path) -> list:
@@ -162,10 +180,26 @@ def check(root: Path) -> list:
             errors.append(f"{name}: MCP tool '{cap['mcp']['tool']}' is not in {MCP_SNAPSHOT}")
         if cap.get("cli"):
             errors.extend(cli_command_errors(root, name, cap["cli"]))
+        # route_only lists example arguments that exist on one route only (for
+        # example a CLI safety switch); every other example argument must map
+        # on each route the capability has.
+        route_only = set(cap.get("route_only", []))
+        for arg in route_only:
+            if not any(arg in (cap.get(route) or {}).get("args", {}) for route in ("cli", "mcp")):
+                errors.append(f"{name}: route_only argument '{arg}' has no mapping on any route")
         for arg in cap.get("example", {}):
+            if arg in route_only:
+                continue
             for route in ("cli", "mcp"):
                 if cap.get(route) and arg not in cap[route].get("args", {}):
                     errors.append(f"{name}: example argument '{arg}' has no {route} mapping")
+
+    # Every MCP tool needs a capability, or skills on the MCP route can never
+    # reach it (query_activities sat unmapped this way).
+    mapped = {cap["mcp"]["tool"] for cap in registry.values() if cap.get("mcp")}
+    for tool in tools:
+        if tool not in mapped:
+            errors.append(f"MCP tool '{tool}' in {MCP_SNAPSHOT} has no capability: add one to {REGISTRY}")
 
     expected = render(registry)
     canonical = root / CANONICAL

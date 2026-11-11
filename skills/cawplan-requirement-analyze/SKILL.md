@@ -1,5 +1,5 @@
 ---
-version: 0.2.12
+version: 0.2.13
 name: cawplan-requirement-analyze
 description: |
   Analyze SQA requirement inputs into five structured fields plus a display summary, and archive a Requirement to CawPlan QA Insights.
@@ -29,23 +29,26 @@ Skill 说明与示例的语言、命令名、URL、工单号、Product info 均�
 
 ## Bootstrap
 
-```bash
-cawplan skill check
-```
+This skill works through the `cawplan` CLI or the CawPlan MCP server. Before the first call, read `references/CAPABILITIES.md` and do its route check ("Choose a route") in order: when you can run shell commands, do the CLI check first, even if CawPlan MCP tools are available; use MCP only when there is no shell or that check fails. Then call each capability exactly as its example shows.
+
+**路由差异（细节见各 reference）**：
+
+- **返回包装**：CLI 路由下 `qa.*` 读 capability 返回 `{outcome, command, meta, data}`（从 `data` 取载荷），写 capability 返回 `{outcome, command, meta, api, post_body|patch_body}`（从 `api` 取 Open API 信封，下文写作 `api.data` / `api.code` / `api.msg`）。MCP 路由一律是普通 `{code, msg, data}` 信封：下文的 `api.data` 即响应 `data`，`outcome: SUCCESS` 即 `code == "SUCCESS"`。判定规则见 `references/workflow-archive.md`「Command outcomes」。
+- **仅 CLI**：`config.env`（Portal 链接 Host）、`session.temp_dir`（临时目录：11a `body_file` 与 11b-MD 工作文件）、`qa.requirements.reconcile`（UNKNOWN 核对）。MCP 路由下各自的替代做法见 `references/output-confirmation.md` §6、`references/workflow-archive.md` 11a / 11b-MD（内联传 `body` / `text`，不用临时文件）与 10b。
 
 ## Read discipline (lazy-load)
 
 **上下文判定**：模型**无法可靠感知**静默裁剪。凡跨**用户消息**（新 invoke）且将进入 P4 / P1b / P2′ / P5 / P6，**一律 presume 所需 reference 不在上下文**，须 Read；**禁止**凭「本会话 earlier 读过」免读。
 **唯一可免读**：本 agent **同一响应内**刚通过 Read 工具载入该文件全文，且尚未结束该响应。
 **拿不准**是否仍在上下文 → 按**不在**处理，Read。
-行为上 step 6（**仅未绑定草稿**）**始终** Re-run steps 3–5（422 行）；免读只省 Read 工具，**不省**重跑行为。已绑定（有 `bound_requirement_id`）的修改不走 step 6，见 P1b。
+行为上 step 6（**仅未绑定草稿**）**始终** Re-run steps 3–5（见 Workflow「6. Revise from SQA feedback」）；免读只省 Read 工具，**不省**重跑行为。已绑定（有 `bound_requirement_id`）的修改不走 step 6，见 P1b。
 
 **禁止**在判定工作路径之前批量读取 `references/`。
 
 **Read 条件**（与上默认一致，细化路径）：
 
 1. **新 invoke** 且路径为 P3/P4/P1b/P2′/P5/P6 → **Read** 路径表所列文件（P4 等**默认必读** analysis + rules，除非满足上段「同一响应内刚 Read」）。
-2. **同一会话、同一 agent 响应内**刚 Read 过且全文仍在该响应上下文 → 可不重复 Read；仍须 Re-run 3–5 与复用首次措辞（159 行）。
+2. **同一会话、同一 agent 响应内**刚 Read 过且全文仍在该响应上下文 → 可不重复 Read；仍须 Re-run 3–5 与复用首次措辞（`references/workflow-analysis.md` step 3「同一会话内同一维度复用首次措辞」）。
 3. ~~「全文仍确定在当前上下文」由 Agent 自行认定~~ → **删除**；改用上「默认安全侧」。
 
 | 路径 | 条件 | Read（跨用户消息时 **默认必读**；仅「同一响应内刚 Read」可免） |
@@ -173,7 +176,9 @@ Detail: `references/workflow-revise.md`.
 
 **Do not** list `马上保存` as an A1 verbal trigger — that is A2/A3 框2 option label; it routes via `resume_intent` relay, not standalone A1 speech.
 
-Until save intent is triggered: **do not** call `products list`, **do not** `qa-insights module-tree get`, **do not** recommend a mount node.
+**首条消息即带保存意图**（如「分析并归档」「分析完存到 CawPlan」）：仍**先**出分析草稿（steps 2–5b），**不得**直接进 step 7；SQA 接受草稿（肯定答复、或任一保存意图词）后才进 step 7/8，此时不必再要求 SQA 说「保存到 CawPlan」；SQA 提修改 → 先走 step 6。step 8 ① 选位置框即保存确认（问句已写明选择后立即写入），不另加确认。
+
+Until save intent is triggered: **do not** call capability `products.list`, **do not** call capability `qa.module_tree.get`, **do not** recommend a mount node.
 
 Display layer: five-field tail and guidance use 「保存到 CawPlan」; recognition layer may accept legacy phrases.
 
@@ -193,7 +198,7 @@ Before archive Confirmation: on each new user message, read `references/output-c
 
 ## Rules (hot path — full rules in `references/rules-global.md`)
 
-- **写入成功必须输出回执**：POST / PATCH / 11b-MD 返回 `SUCCESS` 后，下一步先 Read `references/output-confirmation.md` 并执行 `cawplan config env`，再在**正式回复正文**输出 §6 回执（含 Knowledge Doc Link / Test Suite Link）。回执不得只写在思考里；最终回复本身必须包含回执，不得用 recap / wrap-up 或「上面的回执」代替。
+- **写入成功必须输出回执**：POST / PATCH / 11b-MD 返回 `SUCCESS` 后，下一步先 Read `references/output-confirmation.md`；CLI 路由调用 capability `config.env` 取 Portal Host，再在**正式回复正文**输出 §6 回执（含 Knowledge Doc Link / Test Suite Link）。MCP 路由没有 `config.env`：**不得猜测 Host**，按 §6「MCP 路由」变体输出（给出需求编号，不给 Portal 链接，并说明链接不可用）。回执不得只写在思考里；最终回复本身必须包含回执，不得用 recap / wrap-up 或「上面的回执」代替。
 - **Trigger boundary**: this skill is for SQA requirement analysis and QA Insights archiving — not for loading a ticket into a coding session. If the user only pasted a CawPlan issue URL with no analysis intent, stop and use `cawplan-ticket-context` instead. Ticket links are **material** here only when the user also wants five-field analysis or archive.
 - **跨 skill 接力（入站 / 出站）**:
   - **入站**（来自「生成测试点」或「生成用例」框，且会话已有五字段草稿）：**跳过 step 1–6**，直接从 step 7（Resolve product）/ 归档闸 step 11 继续；**不得**从头重分析（措辞漂移会破坏 reconcile / snapshot diff）。入站（`resume_intent`）本身即保存意图；**不在入站前**向 SQA 重复五字段尾巴里的保存引导。
@@ -202,7 +207,7 @@ Before archive Confirmation: on each new user message, read `references/output-c
   - **出站**：归档或更新 `outcome: SUCCESS` 后，若会话存在 `resume_intent`（`testpoint` | `testcase`），回写 `product_id` + `requirement_id`（= `bound_requirement_id`），**读取并清除** `resume_intent`，回到发起方 skill 从其 **§2 refresh** 续跑；**不追加** §6 测试点引导（已自动回流）；不停在本 skill 等下一条指令。
   - **归档后测试点引导**：§6 成功回执末尾可选追加一句（见 `output-confirmation.md` §6 末尾引导）；用户回「马上生成测试点」→ 读 `cawplan-testpoint-generate` skill（P2 热交接）；不接茬则不重复提示。
   - §8 选位置确认后（`location_confirmed`）→ step 11 **跳过**乙式保存/更新确认，直接写入；§8 被跳过的路径（接力已带节点、冷交接未重选位置）→ **保留** step 11 乙式确认闸。
-> **入站「跳过 step 1–6」的范围**：仅指接力入站后**首轮自动路由**至 step 7 / step 11（保存），**不是**禁止 step 6。若 SQA 在保存确认前（**未绑定草稿**）提出五字段/摘要/存疑修改 → 仍走 **step 6（P2′）**，`Re-run steps 3–5`；**不是**从素材重分析（对照 step 1 第 27 行、Rules 920「不得从头重分析」）。
+> **入站「跳过 step 1–6」的范围**：仅指接力入站后**首轮自动路由**至 step 7 / step 11（保存），**不是**禁止 step 6。若 SQA 在保存确认前（**未绑定草稿**）提出五字段/摘要/存疑修改 → 仍走 **step 6（P2′）**，`Re-run steps 3–5`；**不是**从素材重分析（对照 step 1「入口路由前置检查」与 Rules「跨 skill 接力」入站条的「不得从头重分析」）。
 
 ## References
 
@@ -213,9 +218,9 @@ Before archive Confirmation: on each new user message, read `references/output-c
 - `references/workflow-revise.md` — step 6：SQA 修订轮（须与 analysis + rules 同读）
 - `references/workflow-save.md` — steps 7–8：产品解析、已有模块树选择闭环
 - `references/workflow-archive.md` — steps 10–11、Command outcomes、Write body rules；Cold handoff；P6 reconcile
-- `references/rules-global.md` — 总则、红线 0、枚举完整性、Failures、API scope 等（全文 889–924）
+- `references/rules-global.md` — 总则、红线 0、枚举完整性、Failures、API scope 等完整规则
 - `references/output-confirmation.md` — 分析 Output 格式；归档 Confirmation 文案
 
 ### Repository references
 
-- `references/CAWPLAN_OPEN_API.md` — §15 QA Insights APIs (field/schema reference only — invoke via `cawplan qa-insights` CLI); §2 Product APIs (**Get Product Overview** → `cawplan products overview`; product resolution at save) and §4 Ticket APIs for ticket material.
+- `references/CAPABILITIES.md` — capability registry: route check, each capability's arguments and examples on both routes (`qa.*` for QA Insights, `products.overview`, `products.list` for product resolution at save, `tickets.search` for ticket material). Call APIs only through these capabilities; never send raw HTTP / API requests.

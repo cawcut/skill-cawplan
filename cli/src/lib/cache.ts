@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { ensurePrivateDirSync, PRIVATE_FILE_MODE, tightenPrivateFileSync } from "./private-fs.js";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { getBaseUrl, getCachePath, getCacheTtlMs } from "./config.js";
@@ -16,6 +17,7 @@ export function isCacheEnabled(): boolean {
 export function loadCache(): CacheStore {
   const cachePath = getCachePath();
   if (!existsSync(cachePath)) return { version: 1, entries: {} };
+  tightenPrivateFileSync(cachePath, resolve(cachePath, ".."));
   try {
     const raw = readFileSync(cachePath, "utf-8");
     const parsed = JSON.parse(raw);
@@ -31,8 +33,9 @@ export function loadCache(): CacheStore {
 export function saveCache(store: CacheStore): void {
   const cachePath = getCachePath();
   try {
-    mkdirSync(resolve(cachePath, ".."), { recursive: true });
-    writeFileSync(cachePath, JSON.stringify(store, null, 2));
+    ensurePrivateDirSync(resolve(cachePath, ".."));
+    writeFileSync(cachePath, JSON.stringify(store, null, 2), { mode: PRIVATE_FILE_MODE });
+    chmodSync(cachePath, PRIVATE_FILE_MODE);
   } catch {
     // Ignore cache write errors
   }
