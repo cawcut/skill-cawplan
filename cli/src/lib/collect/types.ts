@@ -189,4 +189,9 @@ export interface CollectOptions {
      * QA collection passes Infinity so it never drops a long turn.
      */
     maxTurnLength?: number;
+    /**
+     * Per-run override for the Cursor Dashboard usage opt-in. When omitted,
+     * the persisted `cursor_usage` config value decides (default off).
+     */
+    cursorUsage?: boolean;
 }

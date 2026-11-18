@@ -1,6 +1,6 @@
 ### 7. Resolve product
 
-**仅当「保存意图闸」已触发**后执行本步。Run this after the draft (five fields + display summary) is acceptable and **before** any QA Insights read/write calls. Read-only — no writes. Do **not** call capability `qa.module_tree.get` or any other `qa.*` capability in this step（本步只调用 capability `products.list`）。
+**仅当「Save-intent gate」已触发**后执行本步。Run this after the draft (five fields + display summary) is acceptable and **before** any QA Insights read/write calls. Read-only — no writes. Do **not** call capability `qa.module_tree.get` or any other `qa.*` capability in this step（本步只调用 capability `products.list`）。
 
 **`products.list` 调用约定**（本步所有分支通用）：
 
@@ -90,7 +90,7 @@ Keep the resolved `product_id` (and product name) in context for module-tree and
 
 **触发时机**：
 
-- **仅当**：保存意图闸已触发（step 6）、产品已确定（step 7）、进入本步时，走下方闭环。
+- **仅当**：Save-intent gate 已触发（step 6）、产品已确定（step 7）、进入本步时，走下方闭环。
 - **跳过**：会话已确定 `module_tree_node_id`（如接力入站已带）→ **直接用，不重问** → 带 `module_tree_node_id` 进入 step 11（**不设** `location_confirmed` — step 11 乙式确认闸仍执行）。
 - 本步仍在五字段尾巴之后；**不在** step 5b 出现模块树文案（见 step 5b **输出纪律**）。
 

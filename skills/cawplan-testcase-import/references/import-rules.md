@@ -23,7 +23,7 @@
 |------|------|
 | 触发时机 | Step 0/0.5 定 `source.type` 与用例集合后；**早于** Step 1 `mappings get`、convert、preview |
 | P1/P1b | 仍执行本检查（热接力 **不跳过** Step 0.6） |
-| 「已展开」单条定义 | `steps[]` 中至少一步：`content` 或 `expected` **trim 后非空**（与 A3 / `convert` 红线一致） |
+| 「已展开」单条定义 | `steps[]` 中至少一步：`content` 或 `expected` **trim 后非空**（与 `cawplan-testcase-generate` / `convert` 红线一致） |
 | INLINE | 对 interim JSON 或会话内 `cases[]` 逐条统计；`expanded_count ≥ 1` → **无感**进入 Step 1 |
 | INLINE 全标题 | `expanded_count === 0` → `ux §StepsConfirm`（除非 `§ConfirmState.steps_confirm` 已为 `continue_without_steps` 且数据源指纹未变） |
 | REQUIREMENT | 客户端无 steps → 恒为 **0 条已展开** → 同 **框 Steps-confirm** |
@@ -155,15 +155,15 @@ preview 前自检：`source.type` · **Step 0.6 已放行**（≥1 已展开 **�
 }
 ```
 
-## §Convert（A3 interim JSON → INLINE body）
+## §Convert（cawplan-testcase-generate interim JSON → INLINE body）
 
 **顺序（MUST）**：Step 0.6 **§StepsCheck**（全标题须 Steps-confirm 或已 `continue_without_steps`）→ `mappings get` → **框 3 Suite** → **框 3.5 Section 归属**（如选「已有 Section」，先 `sections list` 匹配出 ID）→ `node convert_generate_to_import.js ... --suite-id <confirmed> [--parent-section-id <confirmed>] [--version-name <v>]` → preview。`version_name` 无需等待确认，命中 Intent 或用例自带即可直接带上。
 
 禁止在框 3/3.5 确认前传入 `default_suite_id` 或静默 `parent_section_id`。
 
-**为何存在**：A3 的 `cases[]` 只在会话内存；`convert_generate_to_import.js` 固化字段映射，Agent 只落 interim JSON 再跑脚本。
+**为何存在**：`cawplan-testcase-generate` 的 `cases[]` 只在会话内存；`convert_generate_to_import.js` 固化字段映射，Agent 只落 interim JSON 再跑脚本。
 
-**输入**：与 A3 `csv-template-mapping.md` 同构的 interim JSON（camelCase）。
+**输入**：与 `cawplan-testcase-generate` `csv-template-mapping.md` 同构的 interim JSON（camelCase）。
 
 **映射规则**：（同前，略 — 见脚本与 §T1）
 
@@ -183,7 +183,7 @@ node scripts/convert_generate_to_import.js <interim_json_path> \
 1. 读取脚本在 `<out>.errors.json` 写出的结构化明细（`index`/`title`/`reason`/`message`，`STEPS_EXPECTED_LENGTH_MISMATCH` 额外带 `steps_preview`/`expected_preview`，已截断至 100 字符）；
 2. **主动向用户建议**摘除这几条、先导入其余用例：「这 N 条用例 {原因摘要} ，要不要先去掉这几条，导入其余 M 条？稍后你确认修正后我再帮你单独补导」；
 3. 用户确认后，Agent 按 `errors.json` 里的 `index` 从 interim JSON 的 `cases[]` 中移除对应条目，重新跑 `convert`（不改脚本、不加参数，纯粹是输入变干净了）；
-4. 用户若不同意摘除（要去 A3 重新生成这几条），则维持整批中断，走原路径。
+4. 用户若不同意摘除（要去 `cawplan-testcase-generate` 重新生成这几条），则维持整批中断，走原路径。
 
 **不做**：脚本不提供"自动跳过坏用例"的参数（如 `--skip-invalid`）——摘除必须经用户确认，走 Agent 编辑 interim JSON 这一步，不允许脚本静默部分放行。
 
@@ -226,7 +226,7 @@ Preview 响应：`to_fail>0` 不得 execute；`section_creates` 需在框 4 一�
 | 信号 | 含义 | 处理 |
 |------|------|------|
 | preview 阶段 `to_fail === 0`，但 execute 返回 `failed === to_create`（100% 失败），且 `failed_cases[].error` 全部是同一个 code | 大概率是系统性/BE 侧问题，而不是本批次用例数据有问题 | 不引导用户"改数据重试"；先走 `§RetrySafety` 核实副作用，再决定是否上报或重试 |
-| execute 返回的 `error` code 不在 `SKILL.md §错误` 表内 | 未知错误码，Skill 无预置处理路径 | `ux §UnknownError`；停止，不擅自重试或静默重新 preview |
+| execute 返回的 `error` code 不在 `SKILL.md §Errors` 表内 | 未知错误码，Skill 无预置处理路径 | `ux §UnknownError`；停止，不擅自重试或静默重新 preview |
 
 ## §RetrySafety（execute 失败后重试前必须核实副作用）
 
@@ -236,7 +236,7 @@ Preview 响应：`to_fail>0` 不得 execute；`section_creates` 需在框 4 一�
 
 1. `sections list <product_id> <suite_id> --refresh` 核实本次涉及的目标 Section 是否已经在 TestRail 生成；
 2. 若已生成：告知用户"目录已建好，但用例未导入成功"；后续若要重新导入，新的 preview 会在匹配到已存在同名 Section 时直接复用其 ID（不会重复创建），可以正常继续；
-3. 若未生成：说明失败发生在更早的阶段，走 `SKILL.md §错误` 对应行的常规处理即可。
+3. 若未生成：说明失败发生在更早的阶段，走 `SKILL.md §Errors` 对应行的常规处理即可。
 
 ## §BE 缺口（2026-08-20）
 

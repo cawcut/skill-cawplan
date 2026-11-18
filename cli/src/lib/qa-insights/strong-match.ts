@@ -1,13 +1,13 @@
 /**
- * Five-field strong match — the A1 reconcile dedup criterion.
+ * Five-field strong match — the requirement reconcile dedup criterion.
  *
  * Authoritative source: skills/cawplan-requirement-analyze/SKILL.md §10
  * "Field comparison — Strong match": after normalize, all five fields must be
  * string-equal field-by-field. No fuzzy or semantic matching. `summary` does
- * NOT participate (A1-FC-5).
+ * NOT participate (FC-5).
  *
  * Used by `requirements reconcile` only — `requirements create` never calls this
- * on its happy path (A1 step 11 Gate → Table B → 11a POST with no prior GET).
+ * on its happy path (cawplan-requirement-analyze step 11 Gate → Table B → 11a POST with no prior GET).
  */
 
 import { extractFiveFields } from "./normalize.js";

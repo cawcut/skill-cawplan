@@ -24,7 +24,7 @@ Generate progress reports, risk analysis, priority recommendations, and summarie
 
 ## 3. cawplan-product-insights
 
-Track product adoption, installations, user feedback, key metrics, and critical issues
+Product health overview: user feedback trends and critical issues
 
 ```text
 /cawplan-product-insights show UniFi Access product insights for last month
@@ -128,7 +128,7 @@ Product-scoped views require product-repo mappings created during the coding rep
 # Prompt quality analysis
 /cawplan-coding-insights show team prompt quality summary for last week
 /cawplan-coding-insights what categories of prompts is the team writing most
-/cawplan-coding-insights show prompt quality scores for the team this month
+/cawplan-coding-insights show prompts with low-confidence classifications this month
 /cawplan-coding-insights which product has the best prompt quality
 /cawplan-coding-insights show prompts that need review from last week
 /cawplan-coding-insights search for prompts about "door schedule" from the last month
@@ -146,3 +146,14 @@ List or download a ticket's attachments, or put local files on a ticket in one u
 
 The agent runs `cawplan tickets attachments add … --dry-run` first (`--file` / `--dir` / `--md-file` / `--html-file`), confirms the file list with you, then adds them: every file is uploaded and embedded as an editor attachment in `progress_comment` (or `--field comment|remarks`). Re-adding the same folder or document replaces its earlier block; `--file` adds a new block each time.
 
+## 10. cawplan-coding-recall
+
+Recall the team's confirmed coding experience for the product the current repository maps to, before planning a change or when stuck. Experience comes from uploaded daily reports: when a workspace admin turns Coding Experience on (Settings > Coding Insights), the server extracts candidates and a product owner confirms them before they become recallable.
+
+```text
+/cawplan-coding-recall approval resume loses form context after a retry
+/cawplan-coding-recall have we hit "OPENAPI_RBAC_SPEC_REQUIRED" before?
+/cawplan-coding-recall review pending experience for CawPlan
+```
+
+The agent runs `cawplan session recall --q "..."`; the product comes from the git remote via product-repo mappings (pass `--product-id` when the repository is not mapped or maps to several products). Owners review with `cawplan session experiences list|get|confirm|edit|reject|retire|publish`; each write is shown to you first.

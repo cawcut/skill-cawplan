@@ -102,6 +102,22 @@ opening a PR that touches a skill:
 scripts/validate-skills.sh
 ```
 
+## manifests.py
+
+Generates the skill lists in `.claude-plugin/marketplace.json`, `.codex-plugin/plugin.json`,
+`.cursor-plugin/plugin.json` and `scripts/optional-skills.json` from `cli/config/skill-roles.json`:
+every skill assigned to a role (`common` plus each role's `skills`) is a default skill, and its
+`optional` list is the optional set. Other manifest fields stay hand-maintained.
+
+```bash
+python3 scripts/manifests.py render   # after adding a skill or changing its role
+python3 scripts/manifests.py check    # run by validate-skills.sh; fails on any drift
+```
+
+`check` also fails when a `skills/cawplan-*` folder has no role and is not optional, when a role
+names a missing skill, or when a `public_skills` entry in `scripts/public-export.json` is not a
+default skill.
+
 ## optional-skills.json
 
 Only approved public skills are distributed here.

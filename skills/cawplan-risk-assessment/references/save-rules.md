@@ -1,4 +1,4 @@
-# A5 Save Rules & UX
+# Risk Assessment Save Rules & UX
 
 契约 §8.3。与 `compute-rules.md` 配合。capability 参数与示例见 `CAPABILITIES.md`。
 
@@ -139,7 +139,7 @@ capability `qa.risk_assessment.save`（**write**）：`product_id`、`version_id
 | `untested` 偏高或 `NEW_FEATURE_UNEXECUTED_RATE_HIGH` 类 reason | 可继续用 `cawplan-test-execution-progress` 查看新功能执行缺口。 |
 | 其他 | 如需 Ticket 级测试报告，使用 `cawplan-ticket-report-generate`（**非**本 Skill 的 Release Readiness）。 |
 
-**禁止**：声称本结论 = A8 QA Report 最终发版判定；禁止把 `versions.get` 的 `risk`/`risk_reason` 当作 A5 结论（只读 `release_at`/完成度除外）。
+**禁止**：声称本结论 = Ticket QA Report（`cawplan-ticket-report-generate`）最终发版判定；禁止把 `versions.get` 的 `risk`/`risk_reason` 当作发版风险结论（只读 `release_at`/完成度除外）。
 
 ---
 

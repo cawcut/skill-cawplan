@@ -1,4 +1,4 @@
-# A5 Compute Rules
+# Risk Assessment Compute Rules
 
 契约 §2.2、§8。与 `save-rules.md`、`ux.md` 配合；按步骤需要时 Read，**禁止**开场一次性 Read 全部 references。
 每个 capability 的 CLI / MCP 参数与示例见 `CAPABILITIES.md`。
@@ -21,7 +21,7 @@
 
 缺 product 或 version（且不适用当前版本规则）→ 追问门户链接或名称；多匹配停步让用户选，禁止猜测。
 
-**与 `cawplan-plan-track` 区别**：plan-track 的 `risk`/`risk_reason` 是排期维度，**不得**当作 A5 结论；但 capability `versions.get` 返回的 `release_at`、`complete_percent` 可作为只读上下文（§Enrich）。
+**与 `cawplan-plan-track` 区别**：plan-track 的 `risk`/`risk_reason` 是排期维度，**不得**当作发版风险结论；但 capability `versions.get` 返回的 `release_at`、`complete_percent` 可作为只读上下文（§Enrich）。
 本 Skill 的 `risk_level` 仅来自规则引擎 compute。
 
 ---
@@ -68,7 +68,7 @@ capability `qa.risk_assessment.get`（`product_id`、`version_id`）。只读已
 
 ## §Compute 重算风险
 
-capability `qa.testrail.execution.summary` ❌ 不是 A5 入口。A5 入口是：
+capability `qa.testrail.execution.summary` ❌ 不是发版风险评估入口。发版风险评估入口是：
 
 capability `qa.risk_assessment.compute`（`product_id`、`version_id`；可选 `ticket_id`、`plan_mapping_ids`；刷新见下表）。只计算，**不保存**。
 
@@ -148,7 +148,7 @@ capability `qa.risk_assessment.compute`（`product_id`、`version_id`；可选 `
 
 1. 从 `reasons[].evidence.caseIds`（或 `case_ids`）收集待查 case ID。
 2. 默认一次 Version 级 `qa.testrail.execution.failures`（`limit`=50）；按 case ID 过滤匹配项（列表在 `data` 中：CLI 路由 `api.data`，MCP 路由 `data`）。
-3. 若 Version 级结果未覆盖全部 case ID，且 `summary.runs` 非空：仅对**含失败**的 Run 补调并传 `run_id`（参考 A3 `execution.md §Failures`）。
+3. 若 Version 级结果未覆盖全部 case ID，且 `summary.runs` 非空：仅对**含失败**的 Run 补调并传 `run_id`（参考 `cawplan-test-execution-progress` 的 `execution.md §Failures`）。
 4. 富化表字段见 `ux.md §Enrich`；查不到的 case 保留 ID 并标注「详情未返回」。
 
 ### `versions.get` 字段
@@ -164,7 +164,7 @@ capability `qa.risk_assessment.compute`（`product_id`、`version_id`；可选 `
 | `data.progress.complete_percent` | 版本完成度 |
 | `data.progress.status_counts` | 可选：COMPLETE / 总数推算 |
 
-**禁止**展示 `data.risk` 或 `data.risk_reason` 作为 A5 依据。
+**禁止**展示 `data.risk` 或 `data.risk_reason` 作为发版风险依据。
 
 ### `tickets.search` 字段
 
@@ -190,5 +190,5 @@ capability `qa.risk_assessment.compute`（`product_id`、`version_id`；可选 `
 
 主文隐藏 `product_id`、`version_id`；用户要技术详情时再展开。
 
-**A5 的 `pass_rate`** 来自 `summary.execution.pass_rate`（`passed/executed`）；与 A3「通过质量」不同，勿混用 A3 公式。
+**发版风险的 `pass_rate`** 来自 `summary.execution.pass_rate`（`passed/executed`）；与 `cawplan-test-execution-progress`「通过质量」不同，勿混用其公式。
 **`new_feature_unexecuted_rate`** 分母为版本 Requirement 映射的全部新功能用例，与 `pass_rate` 分母不同。

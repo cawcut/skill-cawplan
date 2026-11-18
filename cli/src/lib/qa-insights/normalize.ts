@@ -13,7 +13,7 @@ import {
 
 /**
  * Placeholders meaning "material did not mention this". For `out_of_scope`,
- * these are equivalent to null/empty (A1-FC-2). English variant added for
+ * these are equivalent to null/empty (FC-2). English variant added for
  * English-session Requirements — frozen wording, see
  * skills/cawplan-requirement-analyze/references/terminology-en.md §2.
  */
@@ -23,7 +23,7 @@ const OUT_OF_SCOPE_EMPTY_PLACEHOLDERS = [
   "(Not mentioned in material)",
 ];
 
-/** Trim only. Inference markers（惯例推断）/（界面推断）are deliberately preserved (A1-FC-3). */
+/** Trim only. Inference markers（惯例推断）/（界面推断）are deliberately preserved (FC-3). */
 export function normalizeField(value: unknown): string {
   if (value === null || value === undefined) return "";
   return String(value).trim();

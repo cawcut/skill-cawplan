@@ -28,8 +28,8 @@ const validCreate = {
   summary: "视频导出参数配置",
 };
 
-describe("A1-WB-1 / P6 forbidden key — product_id belongs in the URL only", () => {
-  test("A1-WB-1 create body containing product_id is a hard failure", () => {
+describe("WB-1 / P6 forbidden key — product_id belongs in the URL only", () => {
+  test("WB-1 create body containing product_id is a hard failure", () => {
     expect(() => buildRequirementCreateBody({ ...validCreate, product_id: "019fb1ff" }))
       .toThrow(BodyValidationError);
   });
@@ -37,22 +37,22 @@ describe("A1-WB-1 / P6 forbidden key — product_id belongs in the URL only", ()
     expect(() => buildRequirementCreateBody({ ...validCreate, product_id: "019fb1ff" }))
       .toThrow(/product_id/);
   });
-  test("A1-WB-1 patch body containing product_id is a hard failure", () => {
+  test("WB-1 patch body containing product_id is a hard failure", () => {
     expect(() => validateRequirementPatchBody({ constraints: "改了", product_id: "x" }))
       .toThrow(BodyValidationError);
   });
 });
 
-describe("A1-WB-2 / P6 forbidden keys — review_status and is_edited", () => {
-  test("A1-WB-2 create body containing review_status is a hard failure", () => {
+describe("WB-2 / P6 forbidden keys — review_status and is_edited", () => {
+  test("WB-2 create body containing review_status is a hard failure", () => {
     expect(() => buildRequirementCreateBody({ ...validCreate, review_status: "PENDING" }))
       .toThrow(/review_status/);
   });
-  test("A1-WB-2 create body containing is_edited is a hard failure", () => {
+  test("WB-2 create body containing is_edited is a hard failure", () => {
     expect(() => buildRequirementCreateBody({ ...validCreate, is_edited: false }))
       .toThrow(/is_edited/);
   });
-  test("A1-WB-2 patch body containing review_status is a hard failure", () => {
+  test("WB-2 patch body containing review_status is a hard failure", () => {
     expect(() => validateRequirementPatchBody({ summary: "改了", review_status: "PENDING" }))
       .toThrow(/review_status/);
   });
@@ -93,58 +93,58 @@ describe("P6 forbidden keys — a fetched row cannot be reused as a write body",
   });
 });
 
-describe("A1-WB-3 requirement create body — required fields", () => {
-  test("A1-WB-3 valid body is accepted", () => {
+describe("WB-3 requirement create body — required fields", () => {
+  test("WB-3 valid body is accepted", () => {
     expect(() => buildRequirementCreateBody(validCreate)).not.toThrow();
   });
-  test("A1-WB-3 missing module_tree_node_id is a hard failure", () => {
+  test("WB-3 missing module_tree_node_id is a hard failure", () => {
     const { module_tree_node_id: _drop, ...rest } = validCreate;
     expect(() => buildRequirementCreateBody(rest)).toThrow(/module_tree_node_id/);
   });
-  test("A1-WB-3 empty module_tree_node_id is a hard failure", () => {
+  test("WB-3 empty module_tree_node_id is a hard failure", () => {
     expect(() => buildRequirementCreateBody({ ...validCreate, module_tree_node_id: "  " }))
       .toThrow(/module_tree_node_id/);
   });
-  test("A1-WB-3 missing constraints is a hard failure", () => {
+  test("WB-3 missing constraints is a hard failure", () => {
     expect(() => buildRequirementCreateBody({ ...validCreate, constraints: "" }))
       .toThrow(/constraints/);
   });
-  test("A1-WB-3 missing function_description is a hard failure", () => {
+  test("WB-3 missing function_description is a hard failure", () => {
     expect(() => buildRequirementCreateBody({ ...validCreate, function_description: "" }))
       .toThrow(/function_description/);
   });
-  test("A1-WB-3 empty summary is a hard failure (A1 always sends non-empty)", () => {
+  test("WB-3 empty summary is a hard failure (requirement-analyze always sends non-empty)", () => {
     expect(() => buildRequirementCreateBody({ ...validCreate, summary: "" }))
       .toThrow(/summary/);
   });
-  test("A1-WB-3 out_of_scope may be empty", () => {
+  test("WB-3 out_of_scope may be empty", () => {
     expect(() => buildRequirementCreateBody({ ...validCreate, out_of_scope: "" })).not.toThrow();
   });
-  test("A1-WB-3 out_of_scope placeholder normalizes to empty string", () => {
+  test("WB-3 out_of_scope placeholder normalizes to empty string", () => {
     const body = buildRequirementCreateBody({ ...validCreate, out_of_scope: "（素材未提及）" });
     expect(body.out_of_scope).toBe("");
   });
-  test("A1-WB-3 field values are trimmed", () => {
+  test("WB-3 field values are trimmed", () => {
     const body = buildRequirementCreateBody({ ...validCreate, constraints: "  共 11 个平台  " });
     expect(body.constraints).toBe("共 11 个平台");
   });
-  test("A1-WB-3 non-object body is rejected", () => {
+  test("WB-3 non-object body is rejected", () => {
     expect(() => buildRequirementCreateBody("not an object")).toThrow(BodyValidationError);
     expect(() => buildRequirementCreateBody(null)).toThrow(BodyValidationError);
     expect(() => buildRequirementCreateBody([])).toThrow(BodyValidationError);
   });
 });
 
-describe("A1-WB-2 optional API fields pass through untouched", () => {
-  test("A1-WB-2 reviewer_user_ids is preserved", () => {
+describe("WB-2 optional API fields pass through untouched", () => {
+  test("WB-2 reviewer_user_ids is preserved", () => {
     const body = buildRequirementCreateBody({ ...validCreate, reviewer_user_ids: ["u1", "u2"] });
     expect(body.reviewer_user_ids).toEqual(["u1", "u2"]);
   });
-  test("A1-WB-2 reviewer_group is preserved", () => {
+  test("WB-2 reviewer_group is preserved", () => {
     const body = buildRequirementCreateBody({ ...validCreate, reviewer_group: { id: "g1" } });
     expect(body.reviewer_group).toEqual({ id: "g1" });
   });
-  test("A1-WB-3 ticket_id null is preserved", () => {
+  test("WB-3 ticket_id null is preserved", () => {
     const body = buildRequirementCreateBody({ ...validCreate, ticket_id: null });
     expect(body.ticket_id).toBeNull();
   });
@@ -154,14 +154,14 @@ describe("A1-WB-2 optional API fields pass through untouched", () => {
   });
 });
 
-describe("A1-WB-4 requirement patch body validation", () => {
-  test("A1-WB-4 changed-keys body is accepted", () => {
+describe("WB-4 requirement patch body validation", () => {
+  test("WB-4 changed-keys body is accepted", () => {
     expect(() => validateRequirementPatchBody({ constraints: "改了" })).not.toThrow();
   });
-  test("A1-WB-4 empty patch body is rejected (caller must NOOP)", () => {
+  test("WB-4 empty patch body is rejected (caller must NOOP)", () => {
     expect(() => validateRequirementPatchBody({})).toThrow(/NOOP/);
   });
-  test("A1-WB-4 summary-only patch body is accepted", () => {
+  test("WB-4 summary-only patch body is accepted", () => {
     expect(() => validateRequirementPatchBody({ summary: "改了" })).not.toThrow();
   });
 });
@@ -348,7 +348,7 @@ describe("qa-testpoint-category/v1 mapping and injection contract", () => {
   });
 });
 
-describe("A2-§9-body / P10 testpoint batch — optional group_order; CLI injects is_ai_generated per item", () => {
+describe("testpoint §9-body / P10 testpoint batch — optional group_order; CLI injects is_ai_generated per item", () => {
   const point = {
     title: "用户名含特殊字符应被拦截",
     tags: ["异常"],
@@ -357,7 +357,7 @@ describe("A2-§9-body / P10 testpoint batch — optional group_order; CLI inject
     is_edited: false,
   };
 
-  test("A2-§9-body valid five-key item is accepted and injects is_ai_generated per element", () => {
+  test("testpoint §9-body valid five-key item is accepted and injects is_ai_generated per element", () => {
     const body = buildTestPointBatchBody({ test_points: [point] });
     expect(body.test_points).toHaveLength(1);
     expect(Object.keys(body.test_points[0]).sort()).toEqual(
@@ -366,7 +366,7 @@ describe("A2-§9-body / P10 testpoint batch — optional group_order; CLI inject
     expect(body.test_points[0].is_ai_generated).toBe(IS_AI_GENERATED);
     expect(body.test_points[0].category_code).toBe("EXCEPTION");
   });
-  test("A2-§9-body priority is passed through, never inferred", () => {
+  test("testpoint §9-body priority is passed through, never inferred", () => {
     const body = buildTestPointBatchBody({ test_points: [{ ...point, priority: "CRITICAL" }] });
     expect(body.test_points[0].priority).toBe("CRITICAL");
   });
@@ -417,12 +417,12 @@ describe("A2-§9-body / P10 testpoint batch — optional group_order; CLI inject
       {...point, group_order: 1}, {...point, group: "B"},
     ]})).toThrow(/test_points\[1\].group_order/);
   });
-  test("A2-§9-body missing priority is a hard failure", () => {
+  test("testpoint §9-body missing priority is a hard failure", () => {
     const { priority, ...withoutPriority } = point;
     expect(() => buildTestPointBatchBody({ test_points: [withoutPriority] }))
       .toThrow(/priority/);
   });
-  test("A2-§9-body invalid priority value is a hard failure", () => {
+  test("testpoint §9-body invalid priority value is a hard failure", () => {
     expect(() => buildTestPointBatchBody({ test_points: [{ ...point, priority: "URGENT" }] }))
       .toThrow(/priority/);
   });
@@ -447,38 +447,38 @@ describe("A2-§9-body / P10 testpoint batch — optional group_order; CLI inject
     expect(() => buildTestPointBatchBody({ test_points: [point, { ...point, id: "tp-2" }] }))
       .toThrow(/test_points\[1\]/);
   });
-  test("A2-§9-body empty title is a hard failure", () => {
+  test("testpoint §9-body empty title is a hard failure", () => {
     expect(() => buildTestPointBatchBody({ test_points: [{ ...point, title: "   " }] }))
       .toThrow(/title/);
   });
-  test("A2-§9-body empty tags array is allowed", () => {
+  test("testpoint §9-body empty tags array is allowed", () => {
     const body = buildTestPointBatchBody({ test_points: [{ ...point, tags: [] }] });
     expect(body.test_points[0].tags).toEqual([]);
     expect(body.test_points[0].category_code).toBeNull();
   });
-  test("A2-§9-body empty group is allowed (displays as 未分组)", () => {
+  test("testpoint §9-body empty group is allowed (displays as 未分组)", () => {
     const body = buildTestPointBatchBody({ test_points: [{ ...point, group: "" }] });
     expect(body.test_points[0].group).toBe("");
   });
-  test("A2-§9-body non-array tags is a hard failure", () => {
+  test("testpoint §9-body non-array tags is a hard failure", () => {
     expect(() => buildTestPointBatchBody({ test_points: [{ ...point, tags: "异常" }] }))
       .toThrow(/tags/);
   });
-  test("A2-§9-body non-boolean is_edited is a hard failure", () => {
+  test("testpoint §9-body non-boolean is_edited is a hard failure", () => {
     expect(() => buildTestPointBatchBody({ test_points: [{ ...point, is_edited: "true" }] }))
       .toThrow(/is_edited/);
   });
-  test("A2-§9-is is_edited is passed through, never inferred", () => {
+  test("testpoint §9-is is_edited is passed through, never inferred", () => {
     const body = buildTestPointBatchBody({ test_points: [{ ...point, is_edited: true }] });
     expect(body.test_points[0].is_edited).toBe(true);
   });
-  test("A2-§9-body missing test_points array is a hard failure", () => {
+  test("testpoint §9-body missing test_points array is a hard failure", () => {
     expect(() => buildTestPointBatchBody({})).toThrow(/test_points/);
   });
-  test("A2-§9-body empty test_points array is a hard failure", () => {
+  test("testpoint §9-body empty test_points array is a hard failure", () => {
     expect(() => buildTestPointBatchBody({ test_points: [] })).toThrow(/at least one/);
   });
-  test("A2-§9-body array order is preserved (order = display = sort_order)", () => {
+  test("testpoint §9-body array order is preserved (order = display = sort_order)", () => {
     const body = buildTestPointBatchBody({
       test_points: [
         { ...point, title: "第一条" },

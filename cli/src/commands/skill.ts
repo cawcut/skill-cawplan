@@ -1,11 +1,12 @@
+import {createRequire} from "node:module";
 import type {Command} from "commander";
 import {getAuthState} from "../lib/auth-state.js";
+import {isNewerVersion, latestCawplanVersion} from "../lib/cawplan-upgrade.js";
 import {
-    currentCawplanVersion,
-    isNewerVersion,
-    latestCawplanVersion,
-    runCawplanUpgrade,
-} from "../lib/cawplan-upgrade.js";
+    checkSkillCompatibility,
+    findInstalledSkillRequirements,
+    formatIncompatibility,
+} from "../lib/skill-compat.js";
 import {listInstalledSkills, runSkillsAdd, runSkillsRemove} from "../lib/skill-update.js";
 import {
     detectRoles,
@@ -92,20 +93,35 @@ async function runSkillUpdate(opts: SkillUpdateOptions): Promise<void> {
     console.error("Skill update completed. Restart the agent so the new instructions take effect.");
 }
 
-async function ensureLatestCawplan(): Promise<void> {
-    let currentVersion: string;
+const {version: CLI_VERSION} = createRequire(import.meta.url)("../../package.json") as {version: string};
+
+// Only a hint: skill check runs non-interactively from agents and must never
+// install software on its own. Upgrading is an explicit `cawplan upgrade`.
+async function hintNewerCawplan(): Promise<void> {
     let latestVersion: string;
     try {
-        currentVersion = await currentCawplanVersion();
         latestVersion = await latestCawplanVersion();
     } catch {
-        console.error("Unable to check latest cawplan version; skipping CLI upgrade (cannot pin a version).");
         return;
     }
+    if (!isNewerVersion(latestVersion, CLI_VERSION)) return;
+    // Worded unlike the incompatibility error so agents do not mistake an
+    // optional update for a required one.
+    console.error(`Optional update: cawplan ${latestVersion} is available (current: ${CLI_VERSION}).`);
+}
 
-    if (!isNewerVersion(latestVersion, currentVersion)) return;
-    console.error(`cawplan ${latestVersion} is available (current: ${currentVersion}). Upgrading...`);
-    await runCawplanUpgrade(latestVersion);
+// Distinct exit code for "installed skills need a newer CLI", which the
+// capability route rules key on (1 stays every other failure, e.g. sign-in).
+export const EXIT_CLI_TOO_OLD = 3;
+
+class CliTooOldError extends Error {}
+
+function ensureSkillCompatibility(): void {
+    const {unsatisfied, invalid} = checkSkillCompatibility(CLI_VERSION, findInstalledSkillRequirements());
+    for (const req of invalid) {
+        console.error(`Ignoring malformed min_cli_version ${JSON.stringify(req.minCliVersion)} in ${req.path}`);
+    }
+    if (unsatisfied.length > 0) throw new CliTooOldError(formatIncompatibility(CLI_VERSION, unsatisfied));
 }
 
 async function ensureAuthenticated(): Promise<void> {
@@ -119,14 +135,15 @@ export function registerSkillCommand(program: Command): void {
 
     skill
         .command("check")
-        .description("Check cawplan CLI version and authentication for skills")
+        .description("Check that the cawplan CLI satisfies installed skills (min_cli_version) and is authenticated")
         .action(async () => {
             try {
-                await ensureLatestCawplan();
+                await hintNewerCawplan();
+                ensureSkillCompatibility();
                 await ensureAuthenticated();
             } catch (err) {
                 console.error((err as Error).message);
-                process.exit(1);
+                process.exit(err instanceof CliTooOldError ? EXIT_CLI_TOO_OLD : 1);
             }
         });
 

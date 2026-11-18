@@ -12,10 +12,27 @@
 
 // Harness-written blocks that can sit anywhere in a user turn (a <system-reminder> is often
 // prepended, a queued notification can follow typed text), so they are stripped rather than
-// matched at the start of the message. Desktop apps prepend the in-app browser's open tabs as
-// <in-app-browser-context source="ambient-ui-state">, hence the optional attributes.
-const HARNESS_BLOCK_RE =
-  /<task-notification>[\s\S]*?<\/task-notification>|<system-reminder>[\s\S]*?<\/system-reminder>|<in-app-browser-context(?:\s[^>]*)?>[\s\S]*?<\/in-app-browser-context>/g;
+// matched at the start of the message. Some carry attributes (<in-app-browser-context
+// source="ambient-ui-state">, <cross-session-message from="…">), hence the optional attributes.
+const HARNESS_BLOCK_TAGS = [
+  "task-notification",
+  "system-reminder",
+  // Desktop apps: the in-app browser's open tabs, and events about other sessions.
+  "in-app-browser-context",
+  "side-sessions-event",
+  "cross-session-message",
+  // Claude Code "!" shell mode: the command the user ran locally and its output, not a prompt.
+  "bash-input",
+  "bash-stdout",
+  "bash-stderr",
+  // Codex: interrupt notice and sub-agent results sent back as user messages.
+  "turn_aborted",
+  "subagent_notification",
+];
+const HARNESS_BLOCK_RE = new RegExp(
+  HARNESS_BLOCK_TAGS.map((tag) => `<${tag}(?:\\s[^>]*)?>[\\s\\S]*?<\\/${tag}>`).join("|"),
+  "g",
+);
 
 export function stripHarnessBlocks(text: string): string {
   return text.replace(HARNESS_BLOCK_RE, "").trim();

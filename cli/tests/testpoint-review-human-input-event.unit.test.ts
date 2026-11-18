@@ -155,8 +155,11 @@ describe("TestPoint Review Human Input projection and writer", () => {
     const rows = readFileSync(path, "utf8").split(/\r?\n/).filter(Boolean).map((row) => JSON.parse(row));
     expect(rows).toHaveLength(2);
     expect(rows[0].event_id).toBe(rows[1].event_id);
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    // Windows has no POSIX mode bits; private-fs.unit.test.ts skips there too.
+    if (process.platform !== "win32") {
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(path).mode & 0o777).toBe(0o600);
+    }
   });
 
   test("legacy, empty, missing-session, and invalid baseline paths never throw", () => {

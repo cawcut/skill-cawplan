@@ -8,7 +8,7 @@
 
 1. 同会话 `cawplan-testcase-generate` 刚导出 CSV，或用户明确说「已导入 TestRail」→ 假定满足
 2. 否则直接走 preview；仅当 `scanned_case_count=0` 且 `refs_missing` 接近全部测试点时，引导检查：
-   - A3 导出 **13 列 CSV**（含 `Refs`）
+   - `cawplan-testcase-generate` 导出 **13 列 CSV**（含 `Refs`）
    - TestRail 导入映射含 `Refs` → **References**
 3. **未**走 `cawplan-testcase-import` 自动导入（或走了但 Case 无 mapping）— 本 Skill 补 mapping
 
@@ -17,11 +17,11 @@
 | 字段 | 来源（优先级） |
 |------|----------------|
 | `product_id` | 门户产品链接 · 同会话绑定 · `products list` 消歧 |
-| `requirement_id` | Test Suite Link · A3 热接力 · `requirements get` |
+| `requirement_id` | Test Suite Link · `cawplan-testcase-generate` 热接力 · `requirements get` |
 
-**热接力（P1）**：同会话 `cawplan-testcase-generate` 刚导出 CSV → 用户说「映射回」「link 导入的用例」→ 复用 `product_id` + `requirement_id`；**跳过框 A1**。
+**热接力（P1）**：同会话 `cawplan-testcase-generate` 刚导出 CSV → 用户说「映射回」「link 导入的用例」→ 复用 `product_id` + `requirement_id`；**跳过框 A-context**。
 
-缺字段 → `ux.md §Prompts` 框 A1；**禁止**无 requirement 调 preview。
+缺字段 → `ux.md §Prompts` 框 A-context；**禁止**无 requirement 调 preview。
 
 ## §Mappings（Step 2）
 
@@ -31,18 +31,18 @@ cawplan qa-insights testrail mappings get <product_id>
 
 记录：`suites[]`、`default_suite_id`、`testrail_project_url` → 写入 `ux.md §ConfirmState` 的 `testrail_origin`。
 
-## §AutoSuite（Step 2b · 框 A3 压缩）
+## §AutoSuite（Step 2b · 框 A-suite 压缩）
 
 | 条件 | 动作 |
 |------|------|
 | `suites.length === 1` | **无感采用**该 Suite；写 `confirmed_suite_id` / `confirmed_suite_name` |
-| `§Intent` 命中 suite id / URL / 名称 | 跳过框 A3 |
-| `suites.length` 为 2–4 | 框 A3 Ask 消歧 |
+| `§Intent` 命中 suite id / URL / 名称 | 跳过框 A-suite |
+| `suites.length` 为 2–4 | 框 A-suite Ask 消歧 |
 | `suites.length > 4` 或 0 匹配 | 请用户收窄（ID / URL / 名称） |
 
 **与 `cawplan-testcase-import` 刻意分叉**：Link **允许**单 Suite 无感采用；import 禁止静默 `default_suite_id`。
 
-框 A3 入参引导（仅需 Ask 时）：
+框 A-suite 入参引导（仅需 Ask 时）：
 
 > 请选择要扫描的 **TestRail 用例集（Suite）**。请提供 Suite ID、名称，或粘贴 `/suites/view/{id}` URL。
 
@@ -70,7 +70,7 @@ preview(无 parent_section_id)
       sections list（按 suite 缓存）
       → 全树匹配：用户话术目录名 / requirement.summary / ticket display_id
       → preview(带 parent_section_id)   【对用户完全无感，不展示第一次失败 preview】
-  → 仍失败 → ux.md 框 A3s（3 候选 + Other，仅 1 次）
+  → 仍失败 → ux.md 框 A-section（3 候选 + Other，仅 1 次）
 ```
 
 **Retry 条件**（须同时满足：`confirmed_parent_section_id` 为空，且 `conflict===0`）：
@@ -211,4 +211,4 @@ cawplan qa-insights testrail link cases execute <product_id> \
 |------|------|
 | `cawplan-testcase-import` | Skill 自动创建 Case + mapping |
 | **本 Skill A** | QA **手工** CSV 导入后，按 refs **补 mapping** |
-| 同 Session A3→CSV→手工导入→link | 推荐路径（AutoScan 理想路径仅 1 次确认） |
+| 同 Session `cawplan-testcase-generate`→CSV→手工导入→link | 推荐路径（AutoScan 理想路径仅 1 次确认） |

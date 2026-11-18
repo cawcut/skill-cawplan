@@ -86,7 +86,7 @@ export function describeEnvelope(envelope: ParsedEnvelope): string {
 }
 
 /**
- * Batch success check for `testpoints archive` (A2 §9.5): SUCCESS alone is not
+ * Batch success check for `testpoints archive` (cawplan-testpoint-generate §9.5): SUCCESS alone is not
  * enough — the returned test_points array must be exactly as long as the
  * request, because the batch is all-or-nothing.
  */

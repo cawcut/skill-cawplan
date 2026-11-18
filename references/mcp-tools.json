@@ -1,6 +1,6 @@
 {
-  "source": "CawPlan backend internal/handler/mcpserver/tools.go @ 4aff8012",
-  "refresh": "python3 scripts/capabilities.py sync-mcp --core-product <path to the CawPlan backend checkout>",
+  "source": "CawPlan backend internal/handler/mcpserver/tools.go @ f0b710f0",
+  "refresh": "python3 scripts/capabilities.py sync-mcp --core-product <path to the CawPlan backend checkout> [--ref origin/dev]",
   "tools": [
     "list_products",
     "list_versions",
@@ -11,6 +11,7 @@
     "ticket_changes",
     "search_critical_issues",
     "search_knowledge",
+    "search_coding_experience",
     "query_activities",
     "search_users",
     "list_product_lines",

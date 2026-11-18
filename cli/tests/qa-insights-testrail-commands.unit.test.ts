@@ -73,7 +73,7 @@ async function tempJson(name: string, value: unknown): Promise<string> {
   return file;
 }
 
-describe("A1 TestRail mappings get", () => {
+describe("TestRail mappings get", () => {
   test("GET /qa/testrail/mappings", async () => {
     const h = harness([ok({ default_suite_id: 101 })]);
     await runTestrailMappingsGet(PRODUCT, h.deps);
@@ -83,7 +83,7 @@ describe("A1 TestRail mappings get", () => {
   });
 });
 
-describe("A1 TestRail sections list (import pre-flight)", () => {
+describe("TestRail sections list (import pre-flight)", () => {
   test("GET /qa/testrail/suites/{suite_id}/sections", async () => {
     const h = harness([
       ok({
@@ -130,7 +130,7 @@ describe("A1 TestRail sections list (import pre-flight)", () => {
   });
 });
 
-describe("A1 TestRail suite-create", () => {
+describe("TestRail suite-create", () => {
   test("POST /qa/testrail/suites", async () => {
     const h = harness([
       ok({
@@ -205,7 +205,7 @@ describe("A1 TestRail suite-create", () => {
   });
 });
 
-describe("A2 TestRail plan-rules", () => {
+describe("TestRail plan-rules", () => {
   test("GET /qa/testrail/plan-rules", async () => {
     const h = harness([ok({ rules: { R1: { enabled: true } } })]);
     await runTestrailPlanRulesGet(PRODUCT, h.deps);
@@ -243,7 +243,7 @@ describe("A2 TestRail plan-rules", () => {
   });
 });
 
-describe("A2 TestRail plan preview", () => {
+describe("TestRail plan preview", () => {
   test("version-scoped preview posts plan body", async () => {
     const h = harness([
       ok({
@@ -359,7 +359,7 @@ describe("A2 TestRail plan preview", () => {
   });
 });
 
-describe("A2 TestRail plan execute", () => {
+describe("TestRail plan execute", () => {
   test("requires --confirm", async () => {
     const h = harness([]);
     await runTestrailPlanExecute(PRODUCT, { previewId: PREVIEW }, h.deps);
@@ -399,7 +399,7 @@ describe("A2 TestRail plan execute", () => {
   });
 });
 
-describe("A1 TestRail import preview", () => {
+describe("TestRail import preview", () => {
   test("REQUIREMENT posts preview body", async () => {
     const h = harness([
       ok({ preview_id: PREVIEW, summary: { total: 2, to_create: 2, to_skip: 0, to_fail: 0 } }),
@@ -499,7 +499,7 @@ describe("A1 TestRail import preview", () => {
   });
 });
 
-describe("A1 TestRail import execute", () => {
+describe("TestRail import execute", () => {
   test("requires --confirm", async () => {
     const h = harness([]);
     await runTestrailImportExecute(PRODUCT, { previewId: PREVIEW }, h.deps);
@@ -517,7 +517,7 @@ describe("A1 TestRail import execute", () => {
   });
 });
 
-describe("A2 TestRail milestone binding probe", () => {
+describe("TestRail milestone binding probe", () => {
   test("mapping-get reads version milestone binding", async () => {
     const h = harness([
       ok({
@@ -616,7 +616,7 @@ describe("A2 TestRail milestone binding probe", () => {
   });
 });
 
-describe("A3 TestRail execution progress", () => {
+describe("TestRail execution progress", () => {
   test("summary gets version execution with filters", async () => {
     const h = harness([
       ok({
@@ -713,7 +713,7 @@ describe("A3 TestRail execution progress", () => {
     expect(h.envelope.meta.offset).toBe(0);
   });
 
-  test("failures supports test_id mode for A4 cold start", async () => {
+  test("failures supports test_id mode for defect filing cold start", async () => {
     const TEST_ID = 43590750;
     const h = harness([
       ok({
@@ -782,7 +782,7 @@ describe("A3 TestRail execution progress", () => {
   });
 });
 
-describe("A4 TestRail failure-to-defect", () => {
+describe("TestRail failure-to-defect", () => {
   test("draft posts result context and captures meta", async () => {
     const h = harness([
       ok({
@@ -884,7 +884,7 @@ describe("A4 TestRail failure-to-defect", () => {
   });
 });
 
-describe("A1 TestRail jobs get", () => {
+describe("TestRail jobs get", () => {
   test("GET job by id", async () => {
     const h = harness([ok({ job_id: JOB, status: "RUNNING", progress: { total: 10, processed: 3 } })]);
     await runTestrailJobGet(PRODUCT, JOB, h.deps);

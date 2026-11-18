@@ -4,7 +4,7 @@ Accept any mix of:
 - **CawPlan ticket** — URL, `PREFIX-123` display ID, or unique ID. Extract display IDs from URLs like `/issue/CAWP-04606` before searching.
 - **Screenshots** — multimodal images only; **do not OCR**. 分析截图时除文字外也要留意控件状态与页面当前状态（如按钮置灰/禁用、输入框已填、是否正显示错误/成功态），并区分「当前正处于」和「规则上会出现」；写入五字段时用页面/规则表述，勿写来源词（step 2 No provenance）。**强推断**（UI 强暗示、可与惯例一并写入字段）→ 用 **`（界面推断）`** 写入字段（step 3 固定措辞）；**弱推断**（单帧难区分态与规则）→ **待确认** 存疑，不写进字段。If SQA provides **multiple** screenshots, **include every image** — do not analyze only the first or drop the rest.
 
-Do not process ticket image attachments in A1.
+Do not process ticket image attachments in requirement analysis.
 
 **Ticket lookup** (only when a ticket is provided as material):
 

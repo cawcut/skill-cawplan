@@ -29,7 +29,9 @@ Counting and change-history work runs on the CawPlan backend. The CLI only maps 
   keeps list fields only: IDs, description, status and `status_display`, priority, UX, product/version,
   parent, labels (`name`, `behavior`), assignees (`user_id` and name), `qa_assignee_ids`
   (present only when a QA owner is set), `reporter_id`, module, timestamps. A 50-row page stays around
-  25-60KB. Use `tickets get` when a ticket's remarks, analysis or comments are needed. Older CLI releases
+  25-60KB. Keep compact pages at `page_size` 50 or less: a 100-row compact page can exceed a hosted
+  tool-result limit (64 KiB) and be rejected. When a step needs full rows (for example `links`), use
+  `page_size` 10 or less. Use `tickets get` when a ticket's remarks, analysis or comments are needed. Older CLI releases
   printed a reduced compact row (label and assignee names only, no IDs); if a row has `labels` as plain
   strings, treat `qa_assignee_ids` as unknown, not empty.
 - When the question only needs counts, call `tickets stats` first. Do not page `tickets search`

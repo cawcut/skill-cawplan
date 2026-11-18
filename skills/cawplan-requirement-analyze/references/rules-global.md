@@ -1,11 +1,11 @@
 ## Rules
 
 - **总则 — 防漏测（本 skill 最高准则，优先于红线 0）**:
-  - 首次归档的五字段由服务端转成需求 Markdown，是下游的**根资产**：A2 生成测试点时**只读需求 Markdown**；A3 写用例时具体值**只能**来自测试点标题或需求 Markdown；A1 绑定后改需求内容，通过 capability `knowledge.documents.get` / `knowledge.documents.update` 读写该 Markdown。**存疑清单不落库**，下游看不到。
+  - 首次归档的五字段由服务端转成需求 Markdown，是下游的**根资产**：测试点生成（`cawplan-testpoint-generate`）**只读需求 Markdown**；测试用例生成（`cawplan-testcase-generate`）写用例时具体值**只能**来自测试点标题或需求 Markdown；需求分析绑定后改需求内容，通过 capability `knowledge.documents.get` / `knowledge.documents.update` 读写该 Markdown。**存疑清单不落库**，下游看不到。
   - 本准则管**维度取舍的两个方向**（判据见 step 5 **判据 1**）：
     - **禁止该写的漏写** — 存在性已确定的验证维度，不得因缺具体取值被整条删除，也不得只存在于存疑清单。
     - **约束存在性不确定的别硬写** — 存在性依赖具体产品选择的维度不进字段，走 `待确认` / `需澄清`。
-  - **上一条的边界（两方向的分界）**：「不得只存在于存疑清单」**只适用于存在性已确定**的维度。存在性本身不确定的维度**允许**只进存疑 —— 这是 A1 的能力边界，且 SQA 当场即可拍板。宁可漏一条 `待确认`，也不可把不存在的规则写成团队资产。
+  - **上一条的边界（两方向的分界）**：「不得只存在于存疑清单」**只适用于存在性已确定**的维度。存在性本身不确定的维度**允许**只进存疑 —— 这是需求分析的能力边界，且 SQA 当场即可拍板。宁可漏一条 `待确认`，也不可把不存在的规则写成团队资产。
   - 与 **红线 0** 的分工：本准则管**维度写不写**，红线 0 管**取值怎么写**。两者作用在不同轴上，不冲突。
   - 裁决顺序：**总则 > 红线 0 > 输出简洁**。
 - **红线 0 — 防臆造 + 推断可追溯可否决（表达约束；优先级次于总则 — 防漏测）**:
@@ -14,22 +14,22 @@
   - **Material facts** → normal bullets, **no** source marker. **惯例推断** → `（惯例推断）` + step 3 fixed phrasing. **界面推断** → `（界面推断）` + fixed phrasing. **Never** mix inferred and material with the same tone.
   - Before writing: would this need a **number / literal message / threshold / error code / URL**? If yes and not in material → **写方向、不写该具体值**，具体值另列 **需补充**；**维度本身不因此删除**（总则）。**Prefer fewer invented specifics** — not skipping marked baseline rows.
   - **存疑清单同样受禁臆造约束**（不止五字段）：`待确认` / `需澄清` 只陈述**待定的维度或问题本身**，**不得**替产品预设具体策略、具体文案或某一实现方向。问法要**带判断线索**（给出让 SQA 一眼能判的依据），但**不给答案** —— 两者不冲突：禁的是替产品定策略，不是禁止把判断依据说清楚。
-  - Archived five fields become team assets and feed A2 — SQA must be able to **spot and veto** inferred lines (archive read-back + markers).
+  - Archived five fields become team assets and feed test point generation — SQA must be able to **spot and veto** inferred lines (archive read-back + markers).
   - **Pair with 枚举完整性** (below): 红线 0 = do not **add** values not in material; 枚举完整性 = do not **drop** material enums that drive differentiated verification.
 - **枚举完整性 — 防信息丢失（总则 — 防漏测 的具体化）**:
   - When material **explicitly lists** an enum (platforms, ratios, resolutions, languages, states, types, …), **do not** over-abstract into a single "所选 X" / "与所选 X 一致" line if items or classes need **separate test coverage**.
   - **Retain** the full list **or** a **classification** that preserves every verification-relevant distinction (e.g. three aspect-ratio classes with **all** platforms per class in parentheses, plus **共 N 个** for completeness check — not "11 platforms, ratio follows selection").
-  - **Criterion**: would A2 need distinct test points per item or per class? → enum must stay in five fields (usually `constraints` / `normal_expectation`), not only in 存疑.
+  - **Criterion**: would test point generation need distinct test points per item or per class? → enum must stay in five fields (usually `constraints` / `normal_expectation`), not only in 存疑.
   - **Still abstract** when all items share identical behavior and no per-item/per-class tests are needed.
   - **Not** a license to dump every table cell into five fields — only enums where **different item → different expected behavior → separate verification**. Language names: list **full names** in material wording, no abbreviation.
   - **Does not change**: step 4 summary (may stay short), step 5 字段 vs 存疑分工, Field comparison / archive dedup.
 - **总判据分工（不是互斥）**: step 5 table — **同一维度**只在字段出现一次（带标记），不得再以 `待确认` 重复问同一维度；但**取值缺口**可另列 `需补充`（字段写方向、存疑只问值）。Confirm Password on page → field, not 待确认.
-- **A2 boundary**: A1 owns directional rules in five fields; A2 generates test points — do not duplicate baseline gaps as A1-style `需补充：素材未提及`.
+- **Test-point-generation boundary**: requirement analysis owns directional rules in five fields; test point generation (`cawplan-testpoint-generate`) generates test points — do not duplicate baseline gaps as requirement-analysis-style `需补充：素材未提及`.
 - **Trigger boundary**: this skill is for SQA requirement analysis and QA Insights archiving — not for loading a ticket into a coding session. If the user only pasted a CawPlan issue URL with no analysis intent, stop and use `cawplan-ticket-context` instead. Ticket links are **material** here only when the user also wants five-field analysis or archive.
 - **Display summary**: see step 4 (展示摘要 / `summary` role). Snapshots: step 10 Store (`summary_snapshot` and `ticket_id_snapshot`, each separate).
-- **A1 API scope**: all reads and writes go through named capabilities (`references/CAPABILITIES.md`) — `tickets.search` (ticket material), `products.overview`, `products.list` (save-time product resolution); `qa.module_tree.get`, `qa.requirements.resolve` / `qa.requirements.get` / `qa.requirements.list`, `qa.requirements.create` / `qa.requirements.update` / `qa.requirements.reconcile` (CLI only); for a bound Requirement's Markdown only: `knowledge.documents.get` / `knowledge.documents.update` (target = that Requirement's own `knowledge_document`); CLI-only helpers `config.env` (receipt links) and `session.temp_dir` (CLI working files: the 11a `body_file` and the 11b-MD directory). Module-tree is managed globally: this skill may only read and select existing nodes, and must never create one. Portal/Browse Requirement URLs are parse-only inputs; **forbidden**: raw HTTP / API requests or page fetches (including portal deep-link paths), on either route. **No test-point capabilities.**
+- **API scope**: all reads and writes go through named capabilities (`references/CAPABILITIES.md`) — `tickets.search` (ticket material), `products.overview`, `products.list` (save-time product resolution); `qa.module_tree.get`, `qa.requirements.resolve` / `qa.requirements.get` / `qa.requirements.list`, `qa.requirements.create` / `qa.requirements.update` / `qa.requirements.reconcile` (CLI only); for a bound Requirement's Markdown only: `knowledge.documents.get` / `knowledge.documents.update` (target = that Requirement's own `knowledge_document`); CLI-only helpers `config.env` (receipt links) and `session.temp_dir` (CLI working files: the 11a `body_file` and the 11b-MD directory). Module-tree is managed globally: this skill may only read and select existing nodes, and must never create one. Portal/Browse Requirement URLs are parse-only inputs; **forbidden**: raw HTTP / API requests or page fetches (including portal deep-link paths), on either route. **No test-point capabilities.**
 - **Failures**: for **POST** create failure, present to SQA per **Confirmation** §9（`没能保存。原因:…`）；**PATCH** update failure 见 Confirmation「更新失败」已知例外。内部仍读错误信息（CLI 路由：`error.message`，及 `api.code` / `api.msg` when present；MCP 路由：响应 `code` / `msg`）；**never claim success when `outcome` is `FAILURE` or `UNKNOWN`**（MCP 路由：`code` 非 `SUCCESS`，或调用没有拿到明确响应）. Keep the draft (five fields + display summary); do not claim saved or updated.
-- **五字段尾巴**：出稿与修订重出均只用 step 5b 固定轻量尾巴；产品 / 模块树 / 保存确认仅在保存意图触发后（step 7+）出现。用户可见引导用「保存到 CawPlan」。Step 7 **C** 分支列产品供选 ≠ A2/A3 链接解析缺 `product_id` 时的「do not scan product lists」——后者禁止猜产品；本 skill 保存流程内无 Ticket 时：SQA 点名了产品 → 按 step 7 **C** 用 `search` 解析；未点名 → **必须** 分页拉列表让 SQA 选（step 7 **D**）。
+- **五字段尾巴**：出稿与修订重出均只用 step 5b 固定轻量尾巴；产品 / 模块树 / 保存确认仅在保存意图触发后（step 7+）出现。用户可见引导用「保存到 CawPlan」。Step 7 **C** 分支列产品供选 ≠ 测试点 / 测试用例生成（`cawplan-testpoint-generate` / `cawplan-testcase-generate`）链接解析缺 `product_id` 时的「do not scan product lists」——后者禁止猜产品；本 skill 保存流程内无 Ticket 时：SQA 点名了产品 → 按 step 7 **C** 用 `search` 解析；未点名 → **必须** 分页拉列表让 SQA 选（step 7 **D**）。
 - **跨 skill 接力（入站 / 出站）**:
   - **入站**（来自「生成测试点」或「生成用例」框，且会话已有五字段草稿）：**跳过 step 1–6**，直接从 step 7（Resolve product）/ 归档闸 step 11 继续；**不得**从头重分析（措辞漂移会破坏 reconcile / snapshot diff）。入站（`resume_intent`）本身即保存意图；**不在入站前**向 SQA 重复五字段尾巴里的保存引导。
   - **入站挂载节点**：若接力已带 `module_tree_node_id`，按方案「已确定挂载节点直接用,不重问」— 跳过 §8 选位置闭环，直接进入 step 11（**保留** step 11 乙式确认闸，因无 §8 确认）。

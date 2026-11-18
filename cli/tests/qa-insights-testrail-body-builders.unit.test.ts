@@ -413,7 +413,7 @@ describe("buildTestrailPlanRulesBody", () => {
   });
 });
 
-describe("A4 defect body builders", () => {
+describe("defect body builders", () => {
   test("builds defect draft body from optional context", () => {
     expect(
       buildTestrailDefectDraftBody({

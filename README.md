@@ -1,6 +1,6 @@
 # CawPlan Skills
 
-AI agent skills and CLI tooling for CawPlan product release management workflows. Works with Claude Code, Cursor, Codex, and other agents that load Markdown-based skills.
+AI agent skills, the `cawplan` CLI and the CawPlan MCP server for CawPlan product release management workflows. Works with Claude Code, Claude, Cursor, Codex, VS Code and other agents that load Markdown-based skills or connect to MCP servers.
 
 ## Install
 
@@ -30,28 +30,64 @@ server instead of the CLI; the skills pick the route themselves.
 - Sign-in: OAuth in the browser, no API key
 - Claude Code: `claude mcp add --transport http cawplan https://api.cawplan.com/core-product/api/v1/public/openapi/mcp`, then `/mcp` to sign in
 
-Setup for Claude, Codex, Cursor and other clients, what still needs the CLI,
-and troubleshooting: [INSTALL.md](INSTALL.md#mcp-server-no-cli).
+One-click setup for Claude, Cursor, VS Code and Codex, what still needs the CLI,
+and troubleshooting: [MCP.md](MCP.md).
 
 ## Skills
 
-| # | Skill | Invoke | Description |
-|---|-------|--------|-------------|
-| 1 | `cawplan-ticket-create` | `/cawplan-ticket-create` | Create a ticket with details, assignee, and priority |
-| 2 | `cawplan-product-report` | `/cawplan-product-report` | Product status report with progress, risk, and recommendations |
-| 3 | `cawplan-product-insights` | `/cawplan-product-insights` | Product adoption, installations, user feedback, and critical issues |
-| 4 | `cawplan-plan-create` | `/cawplan-plan-create` | Create a version plan with optional tickets |
-| 5 | `cawplan-plan-track` | `/cawplan-plan-track` | Track release progress, risk, and open items |
-| 6 | `cawplan-ticket-context` | `/cawplan-ticket-context` | Load CawPlan tickets into the current coding session context for daily report linkage |
-| 7 | `cawplan-coding-commit` | `/cawplan-coding-commit` | Collect local agent data (Claude Code, Cursor, Codex) and upload a daily AI coding session report |
-| 8 | `cawplan-coding-insights` | `/cawplan-coding-insights` | AI coding cost, token, and prompt quality insights across all dimensions |
-| 9 | `cawplan-requirement-analyze` | `/cawplan-requirement-analyze` | Analyze requirement inputs into five fields and archive a Requirement to QA Insights |
-| 10 | `cawplan-testpoint-generate` | `/cawplan-testpoint-generate` | Generate test-point coverage outlines from archived Requirements and batch-archive after SQA confirmation |
-| 11 | `cawplan-testcase-generate` | `/cawplan-testcase-generate` | Expand archived test points into executable test cases and export CSV (read-only, no CawPlan write) |
-| 12 | `cawplan-my-work` | `/cawplan-my-work` | Show your own tickets and critical issues, grouped by product line/product/version |
-| 13 | `cawplan-ux-tracking` | `/cawplan-ux-tracking` | Find tickets needing UX (pending) by version, priority, or Team |
-| 14 | `cawplan-support-metrics` | `/cawplan-support-metrics` | Safely export, import, and reconcile Support Ops ticket metrics |
-| 15 | `cawplan-ticket-attachments` | `/cawplan-ticket-attachments` | List and download a ticket's attachments, or add local files / a folder / a Markdown write-up to a ticket in one update |
+`cawplan skill update` installs the skills that match your product roles; see
+[INSTALL.md](INSTALL.md#agent-skills) for the role mapping.
+
+**Everyone**
+
+| Skill | Description |
+|-------|-------------|
+| `/cawplan-ticket-create` | Create tickets from a request or from a PRD, Slack thread or meeting notes; split work into sub-tickets |
+| `/cawplan-ticket-context` | Load CawPlan tickets into the current session so the daily coding report links them |
+| `/cawplan-ticket-attachments` | List and download a ticket's attachments, or add local files, a folder or a Markdown write-up to a ticket |
+| `/cawplan-my-work` | Your tickets and critical issues, open work by priority, and your recent status changes |
+| `/cawplan-knowledge` | Browse and search the CawPlan knowledge base; create datasets and upload documents |
+
+**Product management**
+
+| Skill | Description |
+|-------|-------------|
+| `/cawplan-plan-create` | Create a version plan, optionally with tickets extracted from goals or OKRs |
+| `/cawplan-plan-track` | Track release progress, risk, open items and stale tickets for a version |
+| `/cawplan-product-report` | Product status report with progress, risk and recommendations |
+| `/cawplan-product-insights` | Product health overview: user feedback trends and critical issues |
+| `/cawplan-metrics` | Query, chart or record business metrics (subscriptions, tickets, QA, workflows, tokens, API usage) |
+| `/cawplan-risk-assessment` | Compute a version's release risk with the QA Insights rules and save the confirmed assessment |
+
+**Engineering**
+
+| Skill | Description |
+|-------|-------------|
+| `/cawplan-coding-commit` | Collect local Claude Code, Cursor and Codex sessions and upload a daily AI coding report |
+| `/cawplan-coding-insights` | AI coding cost, token, session and prompt-quality insights by member, model, agent or product |
+| `/cawplan-coding-recall` | Recall the team's confirmed coding experience for the current repository's product; owners review candidates |
+
+**QA**
+
+| Skill | Description |
+|-------|-------------|
+| `/cawplan-requirement-analyze` | Analyze requirement material into five fields and save it as a QA Insights requirement |
+| `/cawplan-testpoint-generate` | Generate test points for a saved requirement and save them after QA review |
+| `/cawplan-testcase-generate` | Expand saved test points into executable test cases and export CSV |
+| `/cawplan-testcase-import` | Import test cases from CawPlan into TestRail, with a preview first |
+| `/cawplan-testplan-layout` | Build TestRail test plans for a version or ticket from imported cases, with a preview first |
+| `/cawplan-testrail-link` | Link TestRail cases, plans or runs created by hand back to CawPlan, or unlink wrong mappings |
+| `/cawplan-test-execution-progress` | TestRail execution progress for a version or run: execution rate, pass rate, failures and per-ticket tables |
+| `/cawplan-defect-ticket` | File or link CawPlan defects from failed or blocked TestRail results |
+| `/cawplan-ticket-report-generate` | Generate and save a progress or completion QA report for a ticket and version |
+| `/cawplan-qa-commit` | Collect and upload the daily QA session report |
+
+**UX and Support**
+
+| Skill | Description |
+|-------|-------------|
+| `/cawplan-ux-tracking` | Find tickets that need UX design, by version, priority or Team |
+| `/cawplan-support-metrics` | Export, import and reconcile Support Ops ticket metrics safely |
 
 ## Quick Reference
 
@@ -67,11 +103,12 @@ and troubleshooting: [INSTALL.md](INSTALL.md#mcp-server-no-cli).
 | 8 | My session activity | `/cawplan-coding-insights show my own session activity for 2026-06-15` |
 | 9 | Analyze and archive a requirement | `/cawplan-requirement-analyze analyze this ticket CAWP-04606 into five fields` |
 | 10 | Generate test points for a requirement | `/cawplan-testpoint-generate generate test points for requirement 019fb63e-d5ad-7cb7-8b5f-761ceeb50c0a` |
-| 11 | Generate test cases and export CSV | `/cawplan-testcase-generate 按上面的生成用例` |
+| 11 | Generate test cases and export CSV | `/cawplan-testcase-generate generate test cases from the test points above` |
 | 12 | See my own tasks | `/cawplan-my-work what's on my plate for UniFi Access 4.1.10?` |
 | 13 | Find tickets needing UX | `/cawplan-ux-tracking which high-priority tickets need UX but don't have a design yet?` |
 | 14 | Import Support metrics | `/cawplan-support-metrics validate this Support Ops metrics export, dry-run only` |
 | 15 | Add files to a ticket | `/cawplan-ticket-attachments add the screenshots and logs in ./qa-results to CWP-14471` |
+| 16 | Recall team experience | `/cawplan-coding-recall approval resume loses form context after a retry` |
 
 More examples: `COOKBOOK.md`.
 
@@ -85,4 +122,11 @@ Use `/cawplan-ticket-context` before or during ticket work so the next `/cawplan
 - On your own computer, `cawplan auth login` opens the browser and the browser returns to the CLI by itself; no code is typed
 - Browser on another device (SSH, Codespaces, no display) → `cawplan auth login` switches to a sign-in code automatically; force it with `cawplan auth login --no-browser`, open the printed URL on any device and enter the code the CLI shows
 - Agent or sandbox that cannot wait → `cawplan auth login --device-auth`, approve the printed URL on any device, then `cawplan auth login --device-auth --complete`
+
+## Support, security and license
+
+- Help and bug reports: [SUPPORT.md](SUPPORT.md)
+- Report a vulnerability privately: [SECURITY.md](SECURITY.md)
+- Data handling: [PRIVACY.md](PRIVACY.md)
+- License: [MIT](LICENSE)
 

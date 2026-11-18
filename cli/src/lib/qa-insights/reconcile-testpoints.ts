@@ -1,7 +1,7 @@
 /**
- * A2 count reconcile (SKILL.md §9.4 / §10).
+ * Test-point count reconcile (cawplan-testpoint-generate SKILL.md §9.4 / §10).
  *
- * A2 uses a fundamentally different strategy from A1: test points have no
+ * Test points use a fundamentally different strategy from requirements: test points have no
  * natural identity to strong-match on, so after an UNKNOWN batch write the only
  * available signal is the row COUNT before vs after.
  *

@@ -1,5 +1,6 @@
 ---
-version: 0.2.13
+version: 0.2.14
+min_cli_version: 0.0.67
 name: cawplan-product-report
 description: |
   Generate a CawPlan status report over a date range: for a single product (progress, risk analysis, priority recommendations, summaries), for a Team (CawPlan product line), or for a named member — ticket-change-based completion, in the last two cases. Also lists product-wide open tickets by a requested label-backed category and optional title keyword, including backlog and cross-version tickets.
@@ -55,7 +56,7 @@ Use this workflow for requests such as “查看 VN Cloud 当前 Version 的 Ope
 
 2. Resolve the version. For “current Version,” use the matched product's `inprogress_version_id` and `inprogress_version_name`; if either is absent, report that the product has no current in-progress version. For a named version, use capability `versions.list` (`product_id`) and require an exact version-name match. Never borrow a version from another product.
 
-3. Fetch every ticket in that version with capability `tickets.search` (`version_ids` = this version, `start_date` 2000-01-01, `end_date` today, `page_size` = 100, `page_num` = 1), paging to `total`.
+3. Fetch every ticket in that version with capability `tickets.search` (`version_ids` = this version, `start_date` 2000-01-01, `end_date` today, `view` = `compact`, `page_size` = 50, `page_num` = 1), paging to `total`.
    Treat a ticket as open only when its inline `status_display.category` is neither `COMPLETE` nor `CANCELED`. Filter this client-side even if an `excluded_status_categories` filter (`COMPLETE`, `CANCELED`) is also supplied; do not trust a server-side exclusion as the only safeguard.
 
 4. Report the resolved Product and Version, total open count, and a status/priority breakdown. For each listed ticket, show display ID, labels, priority, status, and the verbatim `description` title. If the result is too large for a useful chat response, provide the count and breakdown first, then ask for a priority/status slice or an export; do not silently substitute another product or report a partial list as complete.
@@ -78,7 +79,7 @@ Use this workflow for requests such as “list the remaining Collage bugs for VN
    - If more than one label is a safe semantic match, select all of them. Search treats them as OR within `label_ids`, then ANDs the result with the other filters.
    - If no returned label is a safe match, show the closest returned candidates and ask the user to choose. Do not fall back to legacy `type`.
 
-4. Query all matching tickets with capability `tickets.search`. Use IDs from step 3 and add `search` only when the user supplied a separate title/text keyword such as `Collage`: `product_ids` = this product, `label_ids` = the selected label IDs, `search` = the optional keyword, `start_date` 2000-01-01, `end_date` today, `excluded_status_categories` = `COMPLETE`, `CANCELED`, `page_size` = 100, `page_num` = 1.
+4. Query all matching tickets with capability `tickets.search`. Use IDs from step 3 and add `search` only when the user supplied a separate title/text keyword such as `Collage`: `product_ids` = this product, `label_ids` = the selected label IDs, `search` = the optional keyword, `start_date` 2000-01-01, `end_date` today, `excluded_status_categories` = `COMPLETE`, `CANCELED`, `view` = `compact`, `page_size` = 50, `page_num` = 1.
    Omit `search` when there is no separate keyword. Page while `page_num * page_size < total`.
 
    `search` is a free-text match across multiple ticket fields, not a structured module filter. A ticket such as `Photo Edit ... Collage` can therefore match `Collage` without belonging to a Collage module. Do not describe keyword results as strict module membership. If the user requires a module-pure list and the API provides no dedicated module filter, disclose that limitation. Do not add a module label beside bug labels in the same `label_ids` argument as a workaround: values within `label_ids` are OR, so that would return `bug OR module`, not `bug AND module`.
@@ -112,7 +113,7 @@ There is no team-scoped activity endpoint — capability `products.report` only 
 1. Resolve the Team name to a `product_line_id`. capability `product_lines.list` has no name filter, so page through it (`page_size` = 100) and match by name client-side.
    If no name matches, ask for the correct name. If more than one matches, list the candidates (name + `product_line_id`, plus any other distinguishing field the response carries) and ask the user to pick — do not guess.
 
-2. Fetch ticket changes across the whole team — this is the ticket-change data the report is built from — with capability `tickets.search` (`product_line_ids` = this Team, `start_date` 2000-01-01, `end_date` today, `updated_start_date` = window start, `updated_end_date` = today, `page_size` = 100, `page_num` = 1):
+2. Fetch ticket changes across the whole team — this is the ticket-change data the report is built from — with capability `tickets.search` (`product_line_ids` = this Team, `start_date` 2000-01-01, `end_date` today, `updated_start_date` = window start, `updated_end_date` = today, `view` = `compact`, `page_size` = 50, `page_num` = 1):
    - **Use `updated_start_date`/`updated_end_date` for the report window, not `start_date`/`end_date`** — the latter filter ticket *creation* time, not last-changed time (see `references/CAWPLAN_OPEN_API.md`), so on their own they'd miss a ticket created earlier that was actually completed/progressed inside the window — silently understating "what changed." `start_date`/`end_date` still has to be passed (the endpoint requires a created_at window or `time_range`), so pin it to a maximal range (`2000-01-01` to today, the same workaround `cawplan-ux-tracking` uses) so it doesn't itself narrow results — `updated_start_date`/`updated_end_date` does the actual filtering.
    - **Pass `updated_end_date` = today (real "today"), not the report window's own end date** — `updated_at` is refreshed by *any* field change, not just completion, so a ticket that completed inside the window but got an unrelated edit (version transfer, priority bump, comment) after the window would have its `updated_at` pushed past the window's end and be silently dropped if `updated_end_date` were capped there (see the `updated_at`-is-not-"completed at" note in `references/CAWPLAN_OPEN_API.md`). Widening the end bound to today makes this a candidate set, not the final answer — step 2a below narrows it back down using the real completion time for anything currently done/canceled. A ticket created inside `[window_start, today]` is still caught (its `updated_at` starts equal to `created_at`), so this remains a strict superset of the old created_at-only behavior.
    - For "last N days" asks, compute `updated_start_date` (today minus N days) client-side — `time_range` only applies to the created_at pair, not the updated_at pair.
@@ -170,7 +171,7 @@ current Assignee, Reporter, or a Ticket's current status as a proxy for QA work.
    `truncated`, continue with `cursor` = `next_cursor` or split the window.
 
 3. **Fallback** (only if `tickets.changes` is unavailable, see `references/QUERY_RESILIENCE.md`):
-   build a complete candidate set exactly as in Workflow B step 2, including pagination, with capability `tickets.search` (`product_ids` = this product, `start_date` 2000-01-01, `end_date` today, `updated_start_date` = window start, `updated_end_date` = today, `page_size` = 100, `page_num` = 1).
+   build a complete candidate set exactly as in Workflow B step 2, including pagination, with capability `tickets.search` (`product_ids` = this product, `start_date` 2000-01-01, `end_date` today, `updated_start_date` = window start, `updated_end_date` = today, `view` = `compact`, `page_size` = 50, `page_num` = 1).
    (`updated_at` only identifies Tickets whose history may be relevant; its end bound stays real
    today.) For every candidate, call capability `tickets.history` (`product_id`, `version_id`, `ticket_id`)
    and keep every `UPDATED` entry whose `changed_fields.status` is present (normally `{old, new}`;
@@ -200,7 +201,7 @@ Same ticket-change approach as Workflow B, scoped to one person instead of a who
 1. Resolve the member to a `user_id` with capability `users.search`: `email` when the user gave an email, `keyword` (a name word) when the user gave a name.
    If the keyword query returns more than one person, list them (name + email) and ask which one — do not guess.
 
-2. Fetch their ticket changes in the period with capability `tickets.search` (`assignees` = the user_id, `start_date` 2000-01-01, `end_date` today, `updated_start_date` = window start, `updated_end_date` = today, `page_size` = 100, `page_num` = 1).
+2. Fetch their ticket changes in the period with capability `tickets.search` (`assignees` = the user_id, `start_date` 2000-01-01, `end_date` today, `updated_start_date` = window start, `updated_end_date` = today, `view` = `compact`, `page_size` = 50, `page_num` = 1).
    If the user also scoped to a product/version, add `product_ids` / `version_ids` (resolve the same way as Workflow A step 1). Apply the same `updated_start_date`/`updated_end_date`-over-`start_date`/`end_date` rule, widened-end-date, date-computation, and pagination rules as Workflow B step 2 — a ticket assigned to this member long ago but only completed inside the window must not be missed just because it wasn't *created* inside it.
 
 3. Verify the status changes with one bulk call per 50 candidates, as in **Workflow B step 2a** — the `updated_at`-is-not-"completed at" issue applies identically to a single member's tickets: capability `tickets.changes` (`unique_ids` = the candidate ticket IDs, `fields` = `status`, `start_date` = window start, `end_date` = window end).

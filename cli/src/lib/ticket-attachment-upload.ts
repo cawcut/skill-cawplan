@@ -10,6 +10,7 @@ import type { TicketAttachmentType } from "./ticket-attachments.js";
 export interface TicketAttachmentUploadUrl {
   key: string;
   upload_url: string;
+  validation_token?: string;
   url: string;
   filename: string;
   type: TicketAttachmentType;
@@ -249,6 +250,7 @@ export async function uploadTicketAttachmentFiles(
         const target = await requestTicketAttachmentUploadUrl(ticket, { filename, contentLength: bytes });
         const contentType = target.content_type || mimeTypeForFilename(filename);
         await putFileToSignedUrl(target.upload_url, opened.handle, bytes, contentType, options.fetchImpl);
+        if (target.validation_token) await confirmUploadedAttachment(target.validation_token);
         const size = target.type === "image" ? await readImageSize(opened.realPath) : undefined;
         const uploaded = {
           path: file.path,
@@ -278,4 +280,22 @@ export async function uploadTicketAttachmentFiles(
     else uploaded.push(r);
   }
   return { uploaded, failed };
+}
+
+/** PUT success alone must never update ticket HTML. */
+export async function confirmUploadedAttachment(token: string): Promise<void> {
+  const read = async (operation: string) => {
+    const envelope = await cawplanRequest({ method: "POST", path: `/api/v1/public/uploads/${operation}`, body: { token } }) as { code?: string; data?: { state: string; message?: string } };
+    if (envelope.code !== "SUCCESS" || !envelope.data) throw new Error("Upload validation unavailable");
+    return envelope.data;
+  };
+  let result = await read("confirm");
+  const deadline = Date.now() + 120_000;
+  while (result.state !== "READY") {
+    if (result.state === "REJECTED" || result.state === "FAILED") throw new Error(result.message || "File validation failed");
+    if (result.state !== "ISSUED" && result.state !== "VALIDATING") throw new Error("Invalid validation status");
+    if (Date.now() >= deadline) throw new Error("Upload validation timed out");
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    result = await read("status");
+  }
 }

@@ -6,7 +6,7 @@ Track source per fact (user text / ticket / screenshot; multiple screenshots by 
 
 ### 3. Produce the five-field draft
 
-**语言前置检查**：按主文件「输出语言」确定本轮语言。选定英文时，出稿前**必须 Read `references/terminology-en.md` 全文**（仅本 agent 同一响应内已 Read 全文可免重复读取）；使用其中的英文标题、推断标记与固定措辞，不得因下方中文示例改回中文。呈现前检查标题与正文、展示摘要、存疑清单及固定尾巴均使用选定语言。
+**语言前置检查**：按主文件「Output language」确定本轮语言。选定英文时，出稿前**必须 Read `references/terminology-en.md` 全文**（仅本 agent 同一响应内已 Read 全文可免重复读取）；使用其中的英文标题、推断标记与固定措辞，不得因下方中文示例改回中文。呈现前检查标题与正文、展示摘要、存疑清单及固定尾巴均使用选定语言。
 
 Present exactly these five fields, in this order, as **section headings** (not a table). **跟随会话语言**：中文会话用下方中文标题；英文会话改用 `references/terminology-en.md` 第 1 节对应的英文标题（`Function Description` / `Entry Point / Trigger Condition` / `Expected Behavior (Happy Path)` / `Constraints & Rules` / `Out of Scope`），**不要**同一份需求里中英标题混用：
 
@@ -93,9 +93,9 @@ Pick rows that apply; do not paste the whole table. Material facts stay **withou
 
 Immediately **after** the five fields and **before** the open-questions list, present **展示摘要** (API field `summary`):
 
-- **Purpose**: one-line label for QA Insights list/cards — **display only**. **Not** one of the five fields. **Not** input for test-point generation (A2).
+- **Purpose**: one-line label for QA Insights list/cards — **display only**. **Not** one of the five fields. **Not** input for test-point generation (`cawplan-testpoint-generate`).
 - **Length**: aim for ≤15 **Chinese characters**; **do not** auto-truncate. If over limit, rewrite shorter or add one line **建议精简** for SQA to shorten.
-- **Always generate**: produce a non-empty summary on every analysis. Archive **POST** always includes `summary`; A1 side treats summary as **required** (API allows null, but A1 does not send empty).
+- **Always generate**: produce a non-empty summary on every analysis. Archive **POST** always includes `summary`; This skill treats summary as **required** (API allows null, but this skill does not send empty).
 - **Regeneration**: regenerate only when five fields **substantively** change and the current summary is no longer accurate, or when SQA explicitly edits the summary (e.g. "摘要改成…"). **Do not** mechanically rewrite the summary every revision round — that causes spurious `summary` in PATCH changed-key lists.
 
 **Example** (follows the five-field example above):
@@ -121,7 +121,7 @@ If over 15 characters and not yet shortened（**跟随会话语言**二选一，
 1. **只回捞素材明写的名词性事实。** 能用**素材原意**直述的 → 补进字段，**无来源标记、也无推断标记**（它就是素材事实）。
 2. **需要任何推断的，不从本步产出。** 例如素材只提到某状态、没写该状态的处理规则 —— 补「该状态应有对应处理」**已经是推断**，必须退回 step 3 的正常推断路径：先过 **判据 1**，再带 `（惯例推断）` / `（界面推断）` 标记。**本步不得产出无标记的推断行。**
 
-> **勿平移 A2 的措辞**：A2 §6 自审说的 "no source marking" 只针对**来源**标记，因为 A2 的测试点标题**没有推断标记体系**；A1 有，且推断标记是红线 0「SQA 可一眼否决」机制的命根子。两者不可混同。
+> **勿平移测试点生成的措辞**：`cawplan-testpoint-generate` §6 自审说的 "no source marking" 只针对**来源**标记，因为测试点标题**没有推断标记体系**；需求分析有，且推断标记是红线 0「SQA 可一眼否决」机制的命根子。两者不可混同。
 
 **输出纪律**：内部脚手架 —— **不**告诉 SQA 做过自检、**不**逐项打钩、**不**标记哪行是回捞补的、**不**先给初稿再给修订版（SQA 只看一版）。
 
@@ -135,7 +135,7 @@ If over 15 characters and not yet shortened（**跟随会话语言**二选一，
 
 ### 5. Attach the open-questions list
 
-> **存疑清单不落库**：归档 body 只有五字段 + `summary`（+ `ticket_id`），下游 **A2 / A3 看不到存疑清单**。存在性已确定的维度**不得**只写在这里 —— 见 Rules **总则**。
+> **存疑清单不落库**：归档 body 只有五字段 + `summary`（+ `ticket_id`），下游 **测试点生成 / 测试用例生成看不到存疑清单**。存在性已确定的维度**不得**只写在这里 —— 见 Rules **总则**。
 
 After the five fields and display summary, add an **存疑清单**. **跟随会话语言**：英文会话用 `references/terminology-en.md` 第 3 节对应词（`Needs Detail` / `To Be Confirmed` / `Needs Clarification`），判据不变，**不要**同一份需求里中英词混用。Classify each item as exactly one of:
 
@@ -212,7 +212,7 @@ Product info（`data.description`）**不得**作为扩白名单依据，**不�
 
 **总判据（写进字段 vs 存疑 —— 分工，不是互斥）**:
 
-**同一维度**在字段中只出现一次；**取值缺口**可另在存疑列一条，两处内容**不得重复**（字段写方向，存疑只问值）。此分工与 A2（`cawplan-testpoint-generate`）自查清单 `review-checklist.md` 的 A#6「方向测试点 + 具体值存疑**并存**」一致 —— 勿改回互斥。
+**同一维度**在字段中只出现一次；**取值缺口**可另在存疑列一条，两处内容**不得重复**（字段写方向，存疑只问值）。此分工与测试点生成（`cawplan-testpoint-generate`）自查清单 `review-checklist.md` 的 A#6「方向测试点 + 具体值存疑**并存**」一致 —— 勿改回互斥。
 
 | 条件 | 动作 | 禁止 |
 |------|------|------|
@@ -229,7 +229,7 @@ If there are truly no open questions, say **无存疑项** — do not pad the li
 
 The list is advisory only: **do not** auto-edit the five fields or archive based on it. SQA decides.
 
-**与 A2 分工**：方向性「有没有标配」由 A1 字段（标记推断）承担；A2 不用「素材未提及」存疑重复同一缺口。
+**与测试点生成分工**：方向性「有没有标配」由需求分析字段（标记推断）承担；测试点生成不用「素材未提及」存疑重复同一缺口。
 
 **Example**:
 
@@ -292,9 +292,9 @@ Ask inline **only** when a fundamental gap blocks drafting (e.g. "what is this f
 > **存疑**：（按素材实际情况；若无缺口则 **无存疑项**）
 >
 > **反例（禁止 — 信息降级）**:
-> - ✗ `输出比例须与所选平台一致`（丢失三类比例及平台映射，A2 无法生成分类验证点）
+> - ✗ `输出比例须与所选平台一致`（丢失三类比例及平台映射，测试点生成无法生成分类验证点）
 > - ✗ `分辨率须与所选分辨率一致`（丢失 480P/720P/1080P/4K 四档）
-> - ✗ `文案/字幕/配音须与所选语言一致`（丢失九种语言清单，A2 无法规划多语言验证）
+> - ✗ `文案/字幕/配音须与所选语言一致`（丢失九种语言清单，测试点生成无法规划多语言验证）
 
 **Walkthrough — omni to video material duration (numeric limits; no ④ misuse; cross-source collision)**:
 

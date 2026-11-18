@@ -1,4 +1,4 @@
-# A2 Execution Rules
+# Test Plan Layout Execution Rules
 
 契约 §4.0、§4.1、§4.1a、§4.2。与 `ux.md` 配合。
 
@@ -105,7 +105,7 @@ cawplan qa-insights testrail plan preview <product_id> \
 | `ticket_reuse_strategy` | 行为 |
 |-------------------------|------|
 | `AUTO`（默认） | Milestone `REUSE` 时：已在该 Milestone 绑定 Plan/Run 的 Ticket → `plan.action=REUSE`；未绑定 → `CREATE` |
-| `CREATE_ALL` | 忽略绑定，每 Ticket 均 `CREATE`（`is_latest` 翻转；旧 Run 进度从 A3 默认视图脱离） |
+| `CREATE_ALL` | 忽略绑定，每 Ticket 均 `CREATE`（`is_latest` 翻转；旧 Run 进度从 `cawplan-test-execution-progress` 默认视图脱离） |
 
 `milestone_strategy=CREATE` 时 `ticket_reuse_strategy` 无效，全 `CREATE`。
 

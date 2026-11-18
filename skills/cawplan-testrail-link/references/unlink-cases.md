@@ -8,7 +8,7 @@
 ## §Prerequisites
 
 1. 已有 `product_id`、`requirement_id`。从 Workflow A 接续时直接复用 `ux.md §ConfirmState`（含 `confirmed_suite_id`）。
-2. 独立进入（用户直接说「解绑旧映射」）：缺字段 → `ux.md §Prompts` 框 A1；`suite_id` 可选，用户给了才传。
+2. 独立进入（用户直接说「解绑旧映射」）：缺字段 → `ux.md §Prompts` 框 A-context；`suite_id` 可选，用户给了才传。
 3. 不单独 `mappings get` 选 Suite：解绑的 `--suite-id` 只是过滤条件，不传则处理该需求下全部映射。
 
 ## §PreviewCLI

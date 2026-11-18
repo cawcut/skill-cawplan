@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 'use strict';
 /*
- * A7 报告 details 发布前校验 · validate_report_details.js
+ * Ticket QA Report details 发布前校验 · validate_report_details.js
  *
  * 职责(且仅此职责):
  *   1. HTML 紧凑 — 块级标签之间不得 pretty-print（\n/空白 between ></），避免 Portal 富文本多空行
  *   2. Issue 链接 — details 内 href 含 /issue/ 的 <a> 文案须为「display_id — title」，禁止纯 CAWP-\d+
  *
  * 纯 Node 内置,零第三方依赖。Agent Step 5 落库组装后、Step 6 正文预览闸之前 MUST 跑本脚本;
- * 失败则退回补全,禁止带不合规 details 进入预览/落库（对齐 A2 review-checklist 强制自审思路）。
+ * 失败则退回补全,禁止带不合规 details 进入预览/落库（对齐 cawplan-testpoint-generate review-checklist 强制自审思路）。
  *
  * 用法:
  *   node scripts/validate_report_details.js --body-file report-body.json

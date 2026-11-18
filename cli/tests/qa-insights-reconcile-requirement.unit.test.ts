@@ -17,16 +17,16 @@ const row = (id: string, over: Partial<RequirementRow> = {}): RequirementRow => 
   ...over,
 });
 
-describe("A1-TA-1 / P2 Table A row 1 — single strong match binds, does NOT POST", () => {
+describe("TA-1 / P2 Table A row 1 — single strong match binds, does NOT POST", () => {
   const result = reconcileRequirement({ probe: five, rows: [row("id-1"), row("id-2", { constraints: "别的" })] });
 
-  test("A1-TA-1 outcome is RECONCILED", () => {
+  test("TA-1 outcome is RECONCILED", () => {
     expect(result.outcome).toBe("RECONCILED");
   });
-  test("A1-TA-1 decision is strong_match_single", () => {
+  test("TA-1 decision is strong_match_single", () => {
     expect(result.reconcile.decision).toBe("strong_match_single");
   });
-  test("A1-TA-1 matched_requirement_ids has exactly one id (envelope contract)", () => {
+  test("TA-1 matched_requirement_ids has exactly one id (envelope contract)", () => {
     expect(result.reconcile.matched_requirement_ids).toEqual(["id-1"]);
   });
   test("P2 message tells the caller not to create another", () => {
@@ -39,20 +39,20 @@ describe("A1-TA-1 / P2 Table A row 1 — single strong match binds, does NOT POS
 });
 
 /*
- * A1-TA-2 / P13 — Table A row 2. The CLI must surface every candidate and stop;
+ * TA-2 / P13 — Table A row 2. The CLI must surface every candidate and stop;
  * choosing one would silently bind SQA to an arbitrary row. There is no
  * --bind-id flag by design.
  */
-describe("A1-TA-2 / P13 Table A row 2 — multiple matches list ids, never auto-bind", () => {
+describe("TA-2 / P13 Table A row 2 — multiple matches list ids, never auto-bind", () => {
   const result = reconcileRequirement({
     probe: five,
     rows: [row("id-1"), row("id-2", { summary: "另一个摘要" }), row("id-3", { constraints: "不同" })],
   });
 
-  test("A1-TA-2 outcome is FAILURE (SQA must decide)", () => {
+  test("TA-2 outcome is FAILURE (SQA must decide)", () => {
     expect(result.outcome).toBe("FAILURE");
   });
-  test("A1-TA-2 decision is strong_match_multiple", () => {
+  test("TA-2 decision is strong_match_multiple", () => {
     expect(result.reconcile.decision).toBe("strong_match_multiple");
   });
   test("P13 every matching id is listed", () => {
@@ -66,39 +66,39 @@ describe("A1-TA-2 / P13 Table A row 2 — multiple matches list ids, never auto-
   });
 });
 
-describe("A1-TA-5 / P2 Table A row 5 — no match means retry the SAME write", () => {
+describe("TA-5 / P2 Table A row 5 — no match means retry the SAME write", () => {
   const result = reconcileRequirement({
     probe: five,
     rows: [row("id-1", { constraints: "完全不同" })],
   });
 
-  test("A1-TA-5 outcome is FAILURE", () => {
+  test("TA-5 outcome is FAILURE", () => {
     expect(result.outcome).toBe("FAILURE");
   });
-  test("A1-TA-5 decision is no_match", () => {
+  test("TA-5 decision is no_match", () => {
     expect(result.reconcile.decision).toBe("no_match");
   });
-  test("A1-TA-5 matched ids is empty", () => {
+  test("TA-5 matched ids is empty", () => {
     expect(result.reconcile.matched_requirement_ids).toEqual([]);
   });
-  test("A1-TA-5 message says retry, explicitly not a second requirement", () => {
+  test("TA-5 message says retry, explicitly not a second requirement", () => {
     expect(result.message).toMatch(/retry the SAME write/i);
     expect(result.message).toMatch(/not a second requirement/i);
   });
-  test("A1-TA-5 empty row list yields no_match", () => {
+  test("TA-5 empty row list yields no_match", () => {
     expect(reconcileRequirement({ probe: five, rows: [] }).reconcile.decision).toBe("no_match");
   });
 });
 
 /*
- * A1-TA-3 / OQ#5 — Table A row 3. Only the keys the PATCH intended to write are
+ * TA-3 / OQ#5 — Table A row 3. Only the keys the PATCH intended to write are
  * compared. Comparing the full record would report "still old" whenever any
  * unrelated field had drifted since the snapshot.
  */
-describe("A1-TA-3 / OQ#5 Table A row 3 — patch_already_applied compares ONLY changed keys", () => {
+describe("TA-3 / OQ#5 Table A row 3 — patch_already_applied compares ONLY changed keys", () => {
   const target = row("id-1", { constraints: "新的约束", summary: "旧摘要" });
 
-  test("A1-TA-3 intended key already holding the new value is RECONCILED", () => {
+  test("TA-3 intended key already holding the new value is RECONCILED", () => {
     const result = reconcileRequirement({
       probe: five,
       rows: [target],
@@ -118,7 +118,7 @@ describe("A1-TA-3 / OQ#5 Table A row 3 — patch_already_applied compares ONLY c
     });
     expect(result.reconcile.decision).toBe("patch_already_applied");
   });
-  test("A1-TA-3 summary-only patch is compared against summary", () => {
+  test("TA-3 summary-only patch is compared against summary", () => {
     const result = reconcileRequirement({
       probe: five,
       rows: [row("id-1", { summary: "新摘要" })],
@@ -127,7 +127,7 @@ describe("A1-TA-3 / OQ#5 Table A row 3 — patch_already_applied compares ONLY c
     });
     expect(result.reconcile.decision).toBe("patch_already_applied");
   });
-  test("A1-TA-3 multi-key patch requires ALL intended keys to match", () => {
+  test("TA-3 multi-key patch requires ALL intended keys to match", () => {
     const result = reconcileRequirement({
       probe: five,
       rows: [row("id-1", { constraints: "新的约束", summary: "旧摘要" })],
@@ -136,7 +136,7 @@ describe("A1-TA-3 / OQ#5 Table A row 3 — patch_already_applied compares ONLY c
     });
     expect(result.reconcile.decision).toBe("patch_still_old");
   });
-  test("A1-TA-3 bound id is echoed back", () => {
+  test("TA-3 bound id is echoed back", () => {
     const result = reconcileRequirement({
       probe: five,
       rows: [target],
@@ -147,7 +147,7 @@ describe("A1-TA-3 / OQ#5 Table A row 3 — patch_already_applied compares ONLY c
   });
 });
 
-describe("A1-TA-4 Table A row 4 — patch_still_old routes to a PATCH retry", () => {
+describe("TA-4 Table A row 4 — patch_still_old routes to a PATCH retry", () => {
   const result = reconcileRequirement({
     probe: five,
     rows: [row("id-1", { constraints: "旧的约束" })],
@@ -155,17 +155,17 @@ describe("A1-TA-4 Table A row 4 — patch_still_old routes to a PATCH retry", ()
     intendedPatch: { constraints: "新的约束" },
   });
 
-  test("A1-TA-4 outcome is FAILURE", () => {
+  test("TA-4 outcome is FAILURE", () => {
     expect(result.outcome).toBe("FAILURE");
   });
-  test("A1-TA-4 decision is patch_still_old", () => {
+  test("TA-4 decision is patch_still_old", () => {
     expect(result.reconcile.decision).toBe("patch_still_old");
   });
-  test("A1-TA-4 message says PATCH retry, not POST", () => {
+  test("TA-4 message says PATCH retry, not POST", () => {
     expect(result.message).toMatch(/retry the same PATCH/i);
     expect(result.message).toMatch(/not a POST/i);
   });
-  test("A1-TA-4 missing target row yields no_match, not a silent success", () => {
+  test("TA-4 missing target row yields no_match, not a silent success", () => {
     const missing = reconcileRequirement({
       probe: five,
       rows: [row("other")],
@@ -175,7 +175,7 @@ describe("A1-TA-4 Table A row 4 — patch_still_old routes to a PATCH retry", ()
     expect(missing.reconcile.decision).toBe("no_match");
     expect(missing.outcome).toBe("FAILURE");
   });
-  test("A1-TA-4 empty intendedPatch cannot conclude success", () => {
+  test("TA-4 empty intendedPatch cannot conclude success", () => {
     const noKeys = reconcileRequirement({
       probe: five,
       rows: [row("id-1")],
@@ -187,19 +187,19 @@ describe("A1-TA-4 Table A row 4 — patch_still_old routes to a PATCH retry", ()
   });
 });
 
-describe("A1-FC-2 / P5 reconcile — normalization applies to matching", () => {
-  test("A1-FC-2 out_of_scope placeholder vs null still strong-matches", () => {
+describe("FC-2 / P5 reconcile — normalization applies to matching", () => {
+  test("FC-2 out_of_scope placeholder vs null still strong-matches", () => {
     const probe = { ...five, out_of_scope: "（素材未提及）" };
     const serverRow = row("id-1", { out_of_scope: null });
     expect(reconcileRequirement({ probe, rows: [serverRow] }).reconcile.decision)
       .toBe("strong_match_single");
   });
-  test("A1-FC-1 whitespace differences still strong-match", () => {
+  test("FC-1 whitespace differences still strong-match", () => {
     const probe = { ...five, constraints: `  ${five.constraints}  ` };
     expect(reconcileRequirement({ probe, rows: [row("id-1")] }).reconcile.decision)
       .toBe("strong_match_single");
   });
-  test("A1-FC-3 inference marker differences do NOT match", () => {
+  test("FC-3 inference marker differences do NOT match", () => {
     const probe = { ...five, constraints: "（惯例推断）共 11 个平台" };
     expect(reconcileRequirement({ probe, rows: [row("id-1")] }).reconcile.decision)
       .toBe("no_match");

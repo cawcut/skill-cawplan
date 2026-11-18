@@ -29,6 +29,7 @@
 - Path params: `user_id` (user `unique_id`)
 - Query params: `ticket_status` (CSV), `issue_status` (CSV)
 - Response: `tickets` (grouped by product_line → product → version), `critical_issues` (grouped by product_line → product), `summary`
+- Caveat: without `ticket_status` the server applies a default status filter (observed: `NOT_STARTED`, `IN_PROGRESS`, `REOPEN`, `READY_FOR_QA`, `QA_TESTING`, `MONITORING`) and omits other statuses such as `STAGING`, `BACKLOG`, `BLOCKED`, `QA_FAILED`; status keys are custom per product line. It also never returns tickets that are not scheduled into a version (there is no backlog group). For a complete list use `GET /tickets/search` with `assignees` and `excluded_status_categories`.
 
 ## 2) Product APIs
 ### List Products
@@ -219,6 +220,7 @@
 - Notes:
     - `description` updates the ticket title/summary field. It does **not** update the web page description body; that body is stored as `remarks` and accepts HTML.
     - `version_id` updates the ticket's target version. CLI supports this through `cawplan tickets update ... --target_version_id <id>` or `--target-ver <name>`.
+    - Any text field present in the body overwrites the stored value, and `""` clears it. The CLI therefore rejects an empty or whitespace-only value for every `tickets update` flag (nothing is sent), so an unset shell variable cannot wipe live data. To clear on purpose use `--clear-progress-comment`, `--clear-remarks`, `--clear-root-cause` or `--clear-solution` (each sends `""`; combining one with its value flag is an error). The title (`--description`) and `--comment` have no clear flag.
     - `root_cause`/`solution` are plain strings on write but come back on read (`tickets get`/`tickets search`) as `UserDataInfo` objects (`{display_name, user_id, avatar, data, updated_at}` — the actual text is in `.data`) with author/timestamp attribution auto-filled server-side from the update caller. Only processed for `type: BUGFIX` — silently ignored on a FEATURE ticket, so don't set them expecting an effect there. CLI: `cawplan tickets update ... --root_cause "<text>" --solution "<text>"`.
     - This is the primary "transition" + "comment" surface for adapters: change `status` to transition, set `progress_comment` (HTML) to record narrative work. `progress_comment` is a single string field — adapters that need multi-message threads should embed marker blocks (e.g. `<!-- clawcode-workpad-{runId} -->...<!-- /clawcode-workpad-{runId} -->`) and find/replace.
     - `status` must be a valid status key for the ticket's `product_line`. Read the ticket detail or list with `include=available_statuses` to discover the legal values; otherwise the call may fail with `invalid ticket status '...' for this product line`.
@@ -865,8 +867,9 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
 
 ### List Human Input Logs
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/human-input-logs`
-- Query params: same as List Human Inputs
+- Query params: same as List Human Inputs, plus `provider`, `repo_id`; free-text search is `search`
 - Response: same shape as List Human Inputs
+- Maps to cawplan CLI: `cawplan session human-input-logs` (`--q` is sent as `search`)
 
 ### Get Human Input Quality
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/human-input-quality`
@@ -988,6 +991,28 @@ Most read endpoints accept `date` (`YYYY-MM-DD`) or `date_from` + `date_to`. Pag
 - Endpoint: `GET /api/v1/public/openapi/ai-session-usage/report.pdf`
 - Query params: `date` or `date_from` + `date_to`, `fuzzy_match` (optional)
 - Response: `application/pdf` binary
+
+### AI Session Usage Policy
+- Endpoint: `GET /api/v1/public/openapi/ai-session-usage/policy`
+- Response: `cloud_enrichment_enabled*`, `insights_enrichment_enabled*`, `experience_enabled` (workspace admin switch for coding experience)
+- Maps to cawplan CLI: `cawplan session policy`
+
+### Coding Experience
+Server-side extraction turns uploaded sessions into experience candidates when the workspace admin enabled `experience_enabled`; a product owner/admin (`product.knowledge.edit`) confirms them before they are published to the product's `Coding Experience` knowledge dataset. Every route is under `/api/v1/public/openapi/ai-session-usage/product/{product_id}/experiences` and requires a user-scoped credential. When the switch is off, recall, confirm, edit and publish return `E_U_CORE_PRM_EXPERIENCE_DISABLED`; list, get, reject and retire still work. A wrong state returns `E_U_CORE_PRM_EXPERIENCE_INVALID_STATUS`; an experience of another product returns `E_U_CORE_PRM_NOT_FOUND`.
+
+| Method | Path suffix | Permission | Maps to cawplan CLI |
+|---|---|---|---|
+| GET | `/recall?q=&repo_id=&top_k=` | `product.view` | `cawplan session recall` |
+| GET | `?status=&kind=&repo_id=&search=&page_num=&page_size=` | `product.knowledge.edit` | `cawplan session experiences list` |
+| GET | `/{unique_id}` | `product.knowledge.edit` | `cawplan session experiences get` |
+| POST | `/{unique_id}/confirm` (optional body: `kind`, `title`, `content`, `evidence`, `applies_to`) | `product.knowledge.edit` | `cawplan session experiences confirm` |
+| PATCH | `/{unique_id}` (same body, at least one field) | `product.knowledge.edit` | `cawplan session experiences edit` |
+| POST | `/{unique_id}/reject` (body: `review_note`) | `product.knowledge.edit` | `cawplan session experiences reject` |
+| POST | `/{unique_id}/retire` | `product.knowledge.edit` | `cawplan session experiences retire` |
+| POST | `/{unique_id}/publish` | `product.knowledge.edit` | `cawplan session experiences publish` |
+
+- Recall response: `items[]` (`unique_id`, `display_id`, `kind`, `title`, `content`, `scope` `repo|product`, `repo_id`, `applies_to`, `verified_at`, `confirmed_by`, `score`, `source_session_ids`, `ticket_ids`) and `content_trust: "reviewed_untrusted_data"`. Only confirmed, published experience is returned; with `repo_id`, product-wide experience is included too. An empty list is normal.
+- Experience object: the recall fields plus `status` (`pending|confirmed|rejected|retired`), `evidence`, `occurrence_count`, `previous_experience_id`, `review_note`, `reviewed_by`, `reviewed_at`, `knowledge_document_id`, `publish_status` (`none|published|failed|withdrawn`), `publish_error`.
 
 ## 15) QA Insights APIs
 Module tree and Requirement archive for Test Suites. **Public Open API only** — do not use Internal routes (`/api/v1/product/{unique_id}/qa/...`).

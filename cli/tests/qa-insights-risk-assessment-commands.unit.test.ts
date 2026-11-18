@@ -56,7 +56,7 @@ async function tempJson(name: string, value: unknown): Promise<string> {
   return file;
 }
 
-describe("A5 risk-rules get", () => {
+describe("risk-rules get", () => {
   test("GET /qa/risk-rules", async () => {
     const h = harness([ok({ pass_rate_min: 0.95 })]);
     await runRiskRulesGet(PRODUCT, h.deps);
@@ -69,7 +69,7 @@ describe("A5 risk-rules get", () => {
   });
 });
 
-describe("A5 risk-rules set", () => {
+describe("risk-rules set", () => {
   test("PUT /qa/risk-rules", async () => {
     const h = harness([ok({ pass_rate_min: 0.9 })]);
     const bodyFile = await tempJson("risk-rules.json", { pass_rate_min: 0.9 });
@@ -94,7 +94,7 @@ describe("A5 risk-rules set", () => {
   });
 });
 
-describe("A5 risk-assessment compute", () => {
+describe("risk-assessment compute", () => {
   test("POST /versions/{version_id}/qa/risk-assessment/compute with defaults", async () => {
     const h = harness([ok({ risk_level: "HIGH" })]);
     await runRiskAssessmentCompute(PRODUCT, VERSION, {}, h.deps);
@@ -136,7 +136,7 @@ describe("A5 risk-assessment compute", () => {
   });
 });
 
-describe("A5 risk-assessment get", () => {
+describe("risk-assessment get", () => {
   test("GET /versions/{version_id}/qa/risk-assessment", async () => {
     const h = harness([ok({ risk_level: "LOW", saved_at: "2026-08-04T08:20:00Z" })]);
     await runRiskAssessmentGet(PRODUCT, VERSION, h.deps);
@@ -149,7 +149,7 @@ describe("A5 risk-assessment get", () => {
   });
 });
 
-describe("A5 risk-assessment save", () => {
+describe("risk-assessment save", () => {
   test("requires --confirm", async () => {
     const h = harness([]);
     const bodyFile = await tempJson("save.json", {

@@ -1,4 +1,4 @@
-import {spawn} from "node:child_process";
+import {spawnCommand} from "./portable-spawn.js";
 
 export const SKILLS_SOURCE = "cawcut/skill-cawplan";
 
@@ -13,10 +13,6 @@ const SKILLS_ADD_ARGS = [
 ];
 
 const GLOBAL_YES_ARGS = ["-g", "-y"];
-
-function npxCommand(): string {
-    return process.platform === "win32" ? "npx.cmd" : "npx";
-}
 
 // Without skills the skills CLI installs every skill in the repo.
 export function buildSkillsAddArgs(skills: string[] = []): string[] {
@@ -42,7 +38,13 @@ export function buildNpxArgs(skillsArgs: string[] = buildSkillsAddArgs()): strin
 
 function runNpx(skillsArgs: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
-        const child = spawn(npxCommand(), buildNpxArgs(skillsArgs), {stdio: "inherit"});
+        let child;
+        try {
+            child = spawnCommand("npx", buildNpxArgs(skillsArgs), {stdio: "inherit"});
+        } catch (err) {
+            reject(err);
+            return;
+        }
         child.on("error", reject);
         child.on("close", (code) => {
             if (code === 0) {
@@ -81,16 +83,22 @@ export function parseInstalledSkills(stdout: string): string[] {
 // share the cawplan- prefix have no source and are left alone.
 export function listInstalledSkills(): Promise<string[]> {
     return new Promise((resolve, reject) => {
-        const child = spawn(npxCommand(), buildNpxArgs(buildSkillsListArgs()), {
-            stdio: ["ignore", "pipe", "pipe"],
-        });
+        let child;
+        try {
+            child = spawnCommand("npx", buildNpxArgs(buildSkillsListArgs()), {
+                stdio: ["ignore", "pipe", "pipe"],
+            });
+        } catch (err) {
+            reject(err);
+            return;
+        }
         let stdout = "";
         // The skills CLI warns about every unparsable local SKILL.md; only surface that on failure.
         let stderr = "";
-        child.stdout.on("data", (chunk) => {
+        child.stdout?.on("data", (chunk) => {
             stdout += chunk;
         });
-        child.stderr.on("data", (chunk) => {
+        child.stderr?.on("data", (chunk) => {
             stderr += chunk;
         });
         child.on("error", reject);

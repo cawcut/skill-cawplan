@@ -2,26 +2,26 @@
 
 ## Development
 
-所有 npm 命令在 `cli/` 目录下运行。
+Run all npm commands in `cli/`.
 ```bash
-# 首次安装 / 生产使用
+# First install / production use
 npm install && npm run build && npm install -g .
 
-# 开发中频繁改动（用 link 代替全局安装，rebuild 后立即生效）
+# Frequent changes during development (link instead of a global install; a rebuild takes effect at once)
 npm install && npm run build && npm link
 
-# 单独跑测试
+# Run the tests
 npm test
 ```
 
-skill 本地开发更新 （根目录运行）
+Install local skill changes (run from the repository root):
 ```bash
 # Install public skills for local development
 npx skills add ./ -a cursor claude-code codex -g -y
 
 ```
 
-**验证 skills（从仓库根目录运行）：**
+**Validate skills (run from the repository root):**
 ```bash
 bash scripts/validate-skills.sh
 ```
@@ -49,6 +49,7 @@ Each skill lives under `skills/<name>/SKILL.md`.
 - `version` must match root `VERSION`.
 - `description` must include `Use when` and `NOT for` phrases.
 - `allowed-tools: Bash`.
+- `min_cli_version` is the oldest `cawplan` CLI the skill works with; `cawplan skill check` enforces it.
 - No `../` parent-directory references.
 
 ## Versioning
@@ -64,6 +65,8 @@ Two independent version lines:
 2. Sync `version` in every `skills/*/SKILL.md`.
 3. Sync `version` in `.cursor-plugin/plugin.json`, `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `.claude-plugin/marketplace.json`.
 4. Run `bash scripts/validate-skills.sh`.
+
+Release steps, the CLI/skills compatibility contract, and the changelog: `docs/RELEASING.md` and `CHANGELOG.md`.
 
 ### CLI npm release
 

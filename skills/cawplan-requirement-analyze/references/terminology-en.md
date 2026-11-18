@@ -1,6 +1,6 @@
 # QA Insights English Terminology (frozen)
 
-本文件在 `cawplan-requirement-analyze`（A1）/ `cawplan-testpoint-generate`（A2）两个 skill 的 `references/` 下各存一份**内容完全相同**的拷贝（非引用，因跨 skill 目录引用在本仓库的分发机制下不可行）。两份由 `scripts/validate-skills.sh` 做逐字节比对，任何一份被单独改动都会导致 CI 失败。**修改前须在两处同步改**。`cawplan-testcase-generate`（A3）不存本文件——A3 只读、不解析五字段/tags 语言，其 Title/Expected 保真尾巴的中英对照直接内嵌在 A3 `SKILL.md` 红线 0 里。
+本文件在 `cawplan-requirement-analyze` / `cawplan-testpoint-generate` 两个 skill 的 `references/` 下各存一份**内容完全相同**的拷贝（非引用，因跨 skill 目录引用在本仓库的分发机制下不可行）。两份由 `scripts/validate-skills.sh` 做逐字节比对，任何一份被单独改动都会导致 CI 失败。**修改前须在两处同步改**。`cawplan-testcase-generate` 不存本文件——测试用例生成只读、不解析五字段/tags 语言，其 Title/Expected 保真尾巴的中英对照直接内嵌在 `cawplan-testcase-generate` 的 `SKILL.md` 红线 0 里。
 
 冻结时间：2026-08-27。第 2/3/4/5 节为落库锚点，投产后**不可再改已有行**（可新增新场景的行）；第 1 节为展示层但同属共用身份约定，同样冻结。
 
@@ -65,7 +65,7 @@
 
 ---
 
-## 5. A2 测试点 `tags` 词表（落库，写入 body，已冻结）
+## 5. 测试点生成（`cawplan-testpoint-generate`）`tags` 词表（落库，写入 body，已冻结）
 
 | 中文（现状） | English |
 |---|---|

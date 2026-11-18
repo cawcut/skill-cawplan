@@ -74,11 +74,11 @@ import type {
  * Distinct from `cawplan qa-reports` (version-level /qa_report CRUD).
  *
  * Design notes carried over from the plan:
- * - `requirements create` issues a plain POST with NO pre-flight GET. A1 step 11
+ * - `requirements create` issues a plain POST with NO pre-flight GET. cawplan-requirement-analyze step 11
  *   routes a first-time archive straight to 11a, and de-duplication is the
  *   skill's Table B decision plus `requirements reconcile` — not a CLI guard.
  * - `testpoints archive` reads existing group orders before POST, then judges
- *   success purely from the POST envelope; it does not GET afterwards (A2 §8.5).
+ *   success purely from the POST envelope; it does not GET afterwards (cawplan-testpoint-generate §8.5).
  * - No reconcile path ever re-POSTs. UNKNOWN means the outcome is genuinely
  *   unknown, and a blind retry is how duplicates get created.
  */
@@ -898,7 +898,7 @@ export async function runTestPointsReconcile(
 }
 
 // ---------------------------------------------------------------------------
-// TestRail integration (T2) — A1 import
+// TestRail integration — test case import (cawplan-testcase-import)
 // ---------------------------------------------------------------------------
 
 /** Commander accumulator for repeatable string options (`--x a --x b`). */
@@ -1272,7 +1272,7 @@ export async function runTestrailImportExecute(
 }
 
 // ---------------------------------------------------------------------------
-// TestRail integration (T2) — A8 manual link (cases / plans)
+// TestRail integration — manual link (cases / plans; cawplan-testrail-link)
 // ---------------------------------------------------------------------------
 
 export interface TestrailLinkCasesPreviewOptions extends TestrailLinkCasesPreviewInput {
@@ -1767,7 +1767,7 @@ export async function runTestrailPlanExecute(
 }
 
 // ---------------------------------------------------------------------------
-// TestRail integration (T2) — A2 Milestone binding probe
+// TestRail integration — Milestone binding probe (cawplan-testplan-layout)
 // ---------------------------------------------------------------------------
 
 export async function runTestrailMilestoneMappingGet(
@@ -1861,7 +1861,7 @@ export async function runTestrailMilestoneValidate(
 }
 
 // ---------------------------------------------------------------------------
-// TestRail integration (T2) — A3 execution progress
+// TestRail integration — execution progress (cawplan-test-execution-progress)
 // ---------------------------------------------------------------------------
 
 export interface TestrailExecutionSummaryOptions {
@@ -1995,7 +1995,7 @@ export async function runTestrailResolveUrl(
 }
 
 // ---------------------------------------------------------------------------
-// TestRail integration (T2) — A4 failure-to-defect
+// TestRail integration — failure-to-defect (cawplan-defect-ticket)
 // ---------------------------------------------------------------------------
 
 export interface TestrailDefectDraftOptions extends TestrailDefectDraftInput {
@@ -2290,7 +2290,7 @@ export async function runTestrailJobPoll(
 }
 
 // ---------------------------------------------------------------------------
-// Release risk assessment (T2-A5)
+// Release risk assessment (cawplan-risk-assessment)
 // ---------------------------------------------------------------------------
 
 export async function runRiskRulesGet(productId: string, deps?: CommandDeps): Promise<void> {
@@ -2613,7 +2613,7 @@ export function registerQAInsightsCommand(program: Command): void {
 
   const testrailSections = testrail
     .command("sections")
-    .description("TestRail Section lookup (A1 import pre-flight)");
+    .description("TestRail Section lookup (case import pre-flight)");
   testrailSections
     .command("list <product_id> <suite_id>")
     .description(
@@ -2634,7 +2634,7 @@ export function registerQAInsightsCommand(program: Command): void {
 
   const testrailPlanRules = testrail
     .command("plan-rules")
-    .description("TestRail plan layout rule configuration (A2)");
+    .description("TestRail plan layout rule configuration");
   testrailPlanRules
     .command("get <product_id>")
     .description("Get Product TestRail plan layout rules (R1-R7)")
@@ -2647,7 +2647,7 @@ export function registerQAInsightsCommand(program: Command): void {
     .option("--dry-run", "Print request body without calling API")
     .action((productId: string, opts) => runTestrailPlanRulesSet(productId, opts));
 
-  const testrailPlan = testrail.command("plan").description("TestRail test plan layout (A2)");
+  const testrailPlan = testrail.command("plan").description("TestRail test plan layout");
   testrailPlan
     .command("preview <product_id>")
     .description("Preview Version/Ticket-scoped TestRail Plan/Run layout")
@@ -2675,7 +2675,7 @@ export function registerQAInsightsCommand(program: Command): void {
 
   const testrailMilestone = testrail
     .command("milestone")
-    .description("TestRail Milestone binding probe (A2 pre-layout)");
+    .description("TestRail Milestone binding probe (before plan layout)");
   testrailMilestone
     .command("mapping-get <product_id> <version_id>")
     .description("Get the current latest Milestone binding for a Version (zero query)")
@@ -2690,7 +2690,7 @@ export function registerQAInsightsCommand(program: Command): void {
       runTestrailMilestoneValidate(productId, Number(milestoneId), opts),
     );
 
-  const testrailImport = testrail.command("import").description("TestRail case import (A1)");
+  const testrailImport = testrail.command("import").description("TestRail case import");
   testrailImport
     .command("preview <product_id>")
     .description("Preview import plan (no TestRail writes)")
@@ -2724,7 +2724,7 @@ export function registerQAInsightsCommand(program: Command): void {
 
   const testrailLink = testrail
     .command("link")
-    .description("Manual TestRail mapping link (T2-A8)");
+    .description("Manual TestRail mapping link");
   const testrailLinkCases = testrailLink
     .command("cases")
     .description("Link CSV-imported TestRail cases back to CawPlan test points");
@@ -2823,7 +2823,7 @@ export function registerQAInsightsCommand(program: Command): void {
     .option("--dry-run", "Print request body without calling API")
     .action((productId: string, opts) => runTestrailLinkPlansExecute(productId, opts));
 
-  const testrailExecution = testrail.command("execution").description("TestRail execution progress (A3)");
+  const testrailExecution = testrail.command("execution").description("TestRail execution progress");
   testrailExecution
     .command("summary <product_id> <version_id>")
     .description("Get Version/Ticket-scoped TestRail execution summary")
@@ -2843,7 +2843,7 @@ export function registerQAInsightsCommand(program: Command): void {
     .option("--run-id <n>", "List mode: filter by TestRail run id", (v: string) => Number(v))
     .option(
       "--test-id <n>",
-      "test_id mode: resolve failed/blocked results for one Test (A4 cold start)",
+      "test_id mode: resolve failed/blocked results for one Test (defect filing cold start)",
       (v: string) => Number(v),
     )
     .option(
@@ -2858,11 +2858,11 @@ export function registerQAInsightsCommand(program: Command): void {
 
   testrail
     .command("resolve-url <product_id>")
-    .description("Resolve a TestRail Plan/Run URL to Version context (A4/A6 cold start)")
+    .description("Resolve a TestRail Plan/Run URL to Version context (cold start for defect filing and TestRail linking)")
     .requiredOption("--url <url>", "TestRail Plan or Run URL")
     .action((productId: string, opts) => runTestrailResolveUrl(productId, opts));
 
-  const testrailDefects = testrail.command("defects").description("TestRail failure-to-defect filing (A4)");
+  const testrailDefects = testrail.command("defects").description("TestRail failure-to-defect filing");
   testrailDefects
     .command("draft <product_id> <result_id>")
     .description("Generate an editable defect draft from a TestRail result")
@@ -2913,7 +2913,7 @@ export function registerQAInsightsCommand(program: Command): void {
       runTestrailJobPoll(productId, jobId, opts),
     );
 
-  const riskRules = qa.command("risk-rules").description("Release risk rule configuration (A5)");
+  const riskRules = qa.command("risk-rules").description("Release risk rule configuration");
   riskRules
     .command("get <product_id>")
     .description("Get Product release risk rule thresholds")
@@ -2928,7 +2928,7 @@ export function registerQAInsightsCommand(program: Command): void {
 
   const riskAssessment = qa
     .command("risk-assessment")
-    .description("Version release risk assessment (A5)");
+    .description("Version release risk assessment");
   riskAssessment
     .command("compute <product_id> <version_id>")
     .description("Recompute release risk for a Version via the rule engine")

@@ -62,8 +62,52 @@ class CapabilityRegistryTests(unittest.TestCase):
 
     def test_rendered_fixture_is_consistent(self):
         self.assertEqual([], self.errors())
-        copy = self.root / "skills/cawplan-example/references/CAPABILITIES.md"
-        self.assertEqual((self.root / "references/CAPABILITIES.md").read_text(), copy.read_text())
+        copy = (self.root / "skills/cawplan-example/references/CAPABILITIES.md").read_text()
+        self.assertIn("names (1 of 1)", copy)
+        self.assertIn("### `tickets.search`", copy)
+
+    def two_capability_registry(self):
+        registry = json.loads(json.dumps(REGISTRY))
+        registry["capabilities"]["tickets.get"] = {
+            "summary": "Get one ticket.",
+            "write": False,
+            "cli": {"command": "tickets get", "args": {"ticket_id": "<ticket_id>"}},
+            "mcp": {"tool": "get_ticket", "args": {"ticket_id": "ticket_id"}},
+            "example": {"ticket_id": "t1"},
+        }
+        self.write("references/capabilities.json", json.dumps(registry))
+        self.write("references/mcp-tools.json", json.dumps({"tools": ["search_tickets", "get_ticket"]}))
+        self.write("cli/src/commands/tickets.ts", CLI_SOURCE + 'tickets.command("get <ticket_id>");\n')
+
+    def test_skill_copy_lists_only_named_capabilities(self):
+        self.two_capability_registry()
+        self.run_cli("render")
+        self.assertEqual([], self.errors())
+        canonical = (self.root / "references/CAPABILITIES.md").read_text()
+        copy = (self.root / "skills/cawplan-example/references/CAPABILITIES.md").read_text()
+        self.assertIn("### `tickets.get`", canonical)
+        self.assertNotIn("tickets.get", copy)
+        self.assertIn("names (1 of 2)", copy)
+        self.assertLess(len(copy), len(canonical))
+
+    def test_skill_copy_includes_capabilities_named_in_skill_references(self):
+        self.two_capability_registry()
+        # Named in a reference file, in a table cell, without the `capability` prefix.
+        self.write("skills/cawplan-example/references/flow.md", "| Step 2 | `tickets.get` |\n")
+        self.run_cli("render")
+        copy = (self.root / "skills/cawplan-example/references/CAPABILITIES.md").read_text()
+        self.assertIn("### `tickets.get`", copy)
+        # A longer name that merely starts with a capability name does not count.
+        self.write("skills/cawplan-example/references/flow.md", "Field `tickets.get.extra` only.\n")
+        self.assert_error("missing or stale")
+        self.run_cli("render")
+        self.assertNotIn("tickets.get", (self.root / "skills/cawplan-example/references/CAPABILITIES.md").read_text())
+
+    def test_skill_copy_goes_stale_when_skill_names_a_new_capability(self):
+        self.two_capability_registry()
+        self.run_cli("render")
+        self.write("skills/cawplan-example/SKILL.md", SKILL + "Then open it with capability `tickets.get`.\n")
+        self.assert_error("skills/cawplan-example/references/CAPABILITIES.md missing or stale")
 
     def test_repository_registry_is_consistent(self):
         self.assertEqual([], capabilities.check(capabilities.ROOT))
@@ -88,7 +132,7 @@ class CapabilityRegistryTests(unittest.TestCase):
         self.write("references/CAPABILITIES.md", "edited by hand\n")
         self.assert_error("is stale")
         self.write("skills/cawplan-example/references/CAPABILITIES.md", "edited by hand\n")
-        self.assert_error("missing or differs")
+        self.assert_error("missing or stale")
 
     def test_mcp_tool_must_exist_in_snapshot(self):
         self.write("references/mcp-tools.json", json.dumps({"tools": ["get_ticket"]}))
@@ -184,6 +228,27 @@ class CapabilityRegistryTests(unittest.TestCase):
         self.assertEqual(0, self.run_cli("sync-mcp", "--core-product", str(core)))
         snapshot = json.loads((self.root / "references/mcp-tools.json").read_text())
         self.assertEqual(["list_products", "search_tickets"], snapshot["tools"])
+
+    def test_sync_mcp_resolves_constant_names_at_a_ref(self):
+        core = self.root / "core-product"
+        tools_go = core / "internal/handler/mcpserver/tools.go"
+        tools_go.parent.mkdir(parents=True)
+        tools_go.write_text(
+            'const ToolSearchCodingExperience = "search_coding_experience"\n'
+            'var toolDefs = []toolDef{\n\t{\n\t\tName:     "list_products",\n\t},\n'
+            '\t{\n\t\tName:     ToolSearchCodingExperience,\n\t},\n}\n'
+        )
+        for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "x"]):
+            subprocess.check_call(["git", "-C", str(core), *args])
+        # The working tree moves on; --ref reads the committed file instead.
+        tools_go.write_text('var toolDefs = []toolDef{\n\t{\n\t\tName: "get_ticket",\n\t},\n}\n')
+        self.assertEqual(0, self.run_cli("sync-mcp", "--core-product", str(core), "--ref", "HEAD"))
+        snapshot = json.loads((self.root / "references/mcp-tools.json").read_text())
+        self.assertEqual(["list_products", "search_coding_experience"], snapshot["tools"])
+
+    def test_mcp_tool_names_rejects_unknown_identifier(self):
+        with self.assertRaises(SystemExit):
+            capabilities.mcp_tool_names("var toolDefs = []toolDef{\n\t{\n\t\tName: ToolMissing,\n\t},\n}\n")
 
 
 if __name__ == "__main__":

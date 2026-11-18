@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 /*
- * Refs / caseIdentity helpers for A3 CSV export (T2-A8 link Workflow A).
+ * Refs / caseIdentity helpers for cawplan-testcase-generate CSV export (cawplan-testrail-link Workflow A).
  *
  * Mirrors BE qa_testrail_import.go: buildRefs, resolveCaseIdentity, computeContentHash.
  * Zero third-party deps (crypto only).

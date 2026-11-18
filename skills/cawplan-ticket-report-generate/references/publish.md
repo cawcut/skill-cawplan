@@ -1,4 +1,4 @@
-# A7 规则 · 模版 · 交互 · 落库
+# Ticket QA Report 规则 · 模版 · 交互 · 落库
 
 与 `collect.md` 配合。
 
@@ -132,7 +132,7 @@ node scripts/validate_report_details.js --body-file report-body.json
 | `TEST_SUMMARY_FLAT_LINE` | Phase/Coverage 等用 ` · ` 拼成一行 | 拆成独立 `<p>` + `<strong>` |
 | `TEST_SUMMARY_*_FORMAT` | Phase/Coverage/Result/Readiness/Objective 等未按 §Template 分层 | 对照 `html-example.md` Test Summary 修正 |
 
-对齐 A2 `review-checklist`：**规则写在文档里不够，发布前须有流程/脚本硬闸**。仅 `--minify` 可自动修标签间换行；**链接文案必须 Agent 补全后重跑校验**。
+对齐 `cawplan-testpoint-generate` 的 `review-checklist`：**规则写在文档里不够，发布前须有流程/脚本硬闸**。仅 `--minify` 可自动修标签间换行；**链接文案必须 Agent 补全后重跑校验**。
 
 **正文预览闸（Step 6）**：**须先通过上表校验**。类型+feature+anchor；scope（`D1·D2·D3·relation`；`deeper_excluded` 若有则注明）；coverage 百分比（**无**免责声明句）；Summary 核心行；Issue 一行摘要；Verification 桶摘要（**仅子单 D1–D3，不含 anchor**；PROGRESS 无 passed）；result+warnings；update 时报告链接。选项：继续 / 改 result / 改正文 / 不落库。
 
