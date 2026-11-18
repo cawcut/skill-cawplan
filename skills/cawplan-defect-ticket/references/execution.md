@@ -1,4 +1,4 @@
-# A4 Execution Rules
+# Defect Ticket Execution Rules
 
 契约 §5.2、§6.0.7、§6.2。与 `ux.md` 配合；**禁止**在 workflow 开场与 `ux.md` 一并 Read。
 
@@ -18,7 +18,7 @@
 |----------|--------|------|
 | tests/view + Version URL | `failures --test-id` | 直接 `defects draft` |
 | tests/view，无 Version | 追问或 `resolve-url` | test_id 当 result_id |
-| A3 同会话已有 failures 行 | `defects draft` | 重复 failures |
+| 同会话已有 `cawplan-test-execution-progress` failures 行 | `defects draft` | 重复 failures |
 | 明确 `result_id` 且非 tests/view 来源 | `defects draft` | — |
 
 **冷启动（唯一 canonical bash）**
@@ -39,7 +39,7 @@ cawplan qa-insights testrail defects draft <product_id> <items[0].result_id> \
 
 **会话缓存**：`result_id`、`test_id`、`run_id`、`case_id`、`version_id`、`comment`、`case_title`、`created_on`。
 
-**跳过 Step 0**：A3 行含 `result_id`+`comment` 且 `result_id !== test_id`；或合法非 tests/view 来源 `result_id`。仅贴 tests/view **不算**。
+**跳过 Step 0**：`cawplan-test-execution-progress` 行含 `result_id`+`comment` 且 `result_id !== test_id`；或合法非 tests/view 来源 `result_id`。仅贴 tests/view **不算**。
 
 ---
 

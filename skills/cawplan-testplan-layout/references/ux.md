@@ -1,4 +1,4 @@
-# A2 UX — 字段友好名与用户引导
+# Test Plan Layout UX — 字段友好名与用户引导
 
 跟随用户**最近一条消息**主语言；禁止同段中英双语。Agent 自行 `AskUserQuestion`（不写入 `allowed-tools`）。
 
@@ -74,9 +74,9 @@
 
 | code | 用户说明 | 选项 |
 |------|----------|------|
-| `NO_IMPORTED_CASE` | 部分需求尚未导入用例 | 去导入(A1) / 缩小范围 / 取消 |
+| `NO_IMPORTED_CASE` | 部分需求尚未导入用例 | 去导入（`cawplan-testcase-import`） / 缩小范围 / 取消 |
 | `NO_REQUIREMENT_LINKED` | 工单未关联需求 | 去关联 / 换工单 / 取消 |
-| `NO_SUITE_MAPPING` | 缺少 Suite 映射 | 检查 A1 / 取消 |
+| `NO_SUITE_MAPPING` | 缺少 Suite 映射 | 检查用例导入（`cawplan-testcase-import`） / 取消 |
 | `NO_VERSION_TICKETS` | 版本下无可编排工单 | 确认版本 / 取消 |
 
 ## §Warnings 非阻断（须确认后继续）
@@ -85,7 +85,7 @@
 |------|----------|------|
 | `DUPLICATE_CASE_ACROSS_TICKETS` | 同一用例被多个工单命中 | 接受并继续 / 单工单重预览 / 取消 |
 | `PLAN_PREVIEW_TOO_LARGE` | 编排范围过大 | 单工单 / 分批 / 取消 |
-| `NEW_CASES_NOT_IN_RUN` | A1 后又导入 {n} 条用例，尚未纳入已有 Run | 接受复用 / 全量重建重预览 / 先不执行 |
+| `NEW_CASES_NOT_IN_RUN` | 先前导入后又导入 {n} 条用例，尚未纳入已有 Run | 接受复用 / 全量重建重预览 / 先不执行 |
 | `STALE_MAPPING` | TestRail 上 Plan/Run 已不存在，将重新创建 | 了解并继续 / 取消 |
 
 `NEW_CASES_NOT_IN_RUN`：展示 `new_case_count`；接受复用保留执行进度；全量重建 → preview 加 `--ticket-reuse-strategy CREATE_ALL`。

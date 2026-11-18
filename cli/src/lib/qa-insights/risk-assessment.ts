@@ -1,5 +1,5 @@
 /**
- * T2-A5 release risk assessment — API path helpers.
+ * Release risk assessment (cawplan-risk-assessment) — API path helpers.
  *
  * Paths live under `/qa/risk-rules` and `/versions/{version_id}/qa/risk-assessment`
  * (not under `/qa/testrail`).

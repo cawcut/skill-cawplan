@@ -32,15 +32,15 @@ export type QAInsightsErrorType =
 
 export type ReconcileStrategy = "five_field_strong_match" | "testpoint_count";
 
-/** Table A decisions (A1 SKILL.md step 11) plus A2 count-reconcile decisions. */
+/** Table A decisions (cawplan-requirement-analyze SKILL.md step 11) plus test-point count-reconcile decisions. */
 export type ReconcileDecision =
-  // A1 — five-field strong match (Table A)
+  // Requirements — five-field strong match (Table A)
   | "strong_match_single"
   | "strong_match_multiple"
   | "patch_already_applied"
   | "patch_still_old"
   | "no_match"
-  // A2 — testpoint count reconcile
+  // Test points — testpoint count reconcile
   | "count_matched"
   | "retry_same_batch"
   | "count_unexpected";
@@ -353,7 +353,7 @@ export interface RiskAssessmentSaveBody {
   [key: string]: unknown;
 }
 
-/** `POST .../qa/testrail/link/cases/preview` — Workflow A (T2-A8). */
+/** `POST .../qa/testrail/link/cases/preview` — Workflow A (cawplan-testrail-link). */
 export interface TestrailLinkCasesPreviewInput {
   suiteId?: number;
   requirementId?: string;
@@ -381,7 +381,7 @@ export interface TestrailLinkPlanBindingInput {
   runIds?: number[];
 }
 
-/** `POST .../qa/testrail/link/plans/preview` — Workflow B (T2-A8). */
+/** `POST .../qa/testrail/link/plans/preview` — Workflow B (cawplan-testrail-link). */
 export interface TestrailLinkPlansPreviewInput {
   versionId?: string;
   bindings?: TestrailLinkPlanBindingInput[];

@@ -26,6 +26,7 @@ import { checkUploadFile, uploadTicketAttachmentFiles } from "../lib/ticket-atta
 import { outsideScopeMessage, uploadScope } from "../lib/attachment-path-policy.js";
 import { REPORT_FIELDS, REPORT_MODES, type ReportField, type ReportMode } from "../lib/ticket-html-report.js";
 import { addTicketAttachments } from "../lib/ticket-attachment-add.js";
+import { buildTicketUpdateTextFields, TicketUpdateInputError } from "../lib/ticket-update-body.js";
 import type { ContentSource } from "../lib/ticket-attachment-source.js";
 import {
   TICKET_CHANGE_FIELDS,
@@ -735,15 +736,19 @@ export function registerTicketsCommand(program: Command): void {
     .command("update <product_id> <version_id> <ticket_id>")
     .description("Update a ticket")
     .option("--status <key>", "Status key")
-    .option("--progress_comment <text>", "Progress comment")
+    .option("--progress_comment <text>", "Progress comment (replaces the stored one; empty values are rejected)")
+    .option("--clear-progress-comment", "Clear the progress comment")
     .option("--priority <p>", "Priority")
     .option("--target_version_id <id>", "Move ticket to target version ID")
     .option("--target-ver <name>", "Move ticket to target version name (resolves to version_id automatically)")
-    .option("--description <text>", "Ticket title/summary (server description field; not page body/remarks)")
-    .option("--remarks <html>", "Ticket page body/remarks (HTML supported)")
-    .option("--comment <text>", "Comment")
-    .option("--root_cause <text>", "Root cause analysis (BUGFIX type only)")
-    .option("--solution <text>", "Solution description (BUGFIX type only)")
+    .option("--description <text>", "Ticket title/summary (server description field; not page body/remarks); cannot be empty")
+    .option("--remarks <html>", "Ticket page body/remarks (HTML supported; empty values are rejected)")
+    .option("--clear-remarks", "Clear the ticket page body/remarks")
+    .option("--comment <text>", "Comment (cannot be empty)")
+    .option("--root_cause <text>", "Root cause analysis (BUGFIX type only; empty values are rejected)")
+    .option("--clear-root-cause", "Clear the root cause analysis (BUGFIX type only)")
+    .option("--solution <text>", "Solution description (BUGFIX type only; empty values are rejected)")
+    .option("--clear-solution", "Clear the solution description (BUGFIX type only)")
     .option("--parent_id <id>", "Parent ticket ID")
     .option("--due_date <date>", "Due date YYYY-MM-DD")
     .option("--assignees <csv>", "Assignee IDs (CSV)")
@@ -751,19 +756,22 @@ export function registerTicketsCommand(program: Command): void {
     .option("--module <name_or_id>", "Module of the product's module tree: name, full path (\"Parent / Child\") or module id — resolved to module_id automatically")
     .option("--expected_version <n>", "Optimistic lock version")
     .action(async (productId: string, versionId: string, ticketId: string, opts) => {
+      let textFields: Record<string, string>;
+      try {
+        textFields = buildTicketUpdateTextFields(opts);
+      } catch (err: unknown) {
+        if (!(err instanceof TicketUpdateInputError)) throw err;
+        console.error(`Error: ${err.message}. Nothing was updated.`);
+        process.exit(1);
+      }
       const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
       const body: Record<string, unknown> = {};
       const targetVersionId = opts.target_version_id
         ?? (opts.targetVer ? await resolveVersionId(productId, opts.targetVer) : undefined);
       if (opts.status) body.status = opts.status;
-      if (opts.progress_comment !== undefined) body.progress_comment = opts.progress_comment;
       if (opts.priority) body.priority = opts.priority;
       if (targetVersionId) body.version_id = targetVersionId;
-      if (opts.description !== undefined) body.description = opts.description;
-      if (opts.remarks !== undefined) body.remarks = opts.remarks;
-      if (opts.comment !== undefined) body.comment = opts.comment;
-      if (opts.root_cause !== undefined) body.root_cause = opts.root_cause;
-      if (opts.solution !== undefined) body.solution = opts.solution;
+      Object.assign(body, textFields);
       if (opts.parent_id) body.parent_id = opts.parent_id;
       if (opts.due_date) body.due_date = opts.due_date;
       const assignees = csvToArray(opts.assignees);

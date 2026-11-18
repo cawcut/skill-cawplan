@@ -1,4 +1,4 @@
-# A4 UX — 字段友好名与用户引导
+# Defect Ticket UX — 字段友好名与用户引导
 
 Agent 自行 `AskUserQuestion`（不写入 `allowed-tools`）。**跟随用户主语言**生成文案；禁止同一段中英各写一遍。
 
@@ -43,7 +43,7 @@ Agent 自行 `AskUserQuestion`（不写入 `allowed-tools`）。**跟随用户�
 | 缺版本 | 粘贴版本门户链接 / 提供版本名称 / 粘贴 Plan·Run 链接 |
 | 缺产品 | 各候选产品名各一行 |
 | 多 Result (`total>1`) | 最新一条(推荐) / 第n条·{时间} / 我自己说明 |
-| 无 Result | 换 Test 链接 / 从 A3 进度选 / 结束 |
+| 无 Result | 换 Test 链接 / 从执行进度选 / 结束 |
 | 已关联 | 查看就够了 / 仍要新建 / 改关联到其他单 |
 | 决策 CREATE_NEW | 按推荐标题新建（唯一父单候选时内嵌「挂到 {parent_suggestion.display_id}」） / 修改标题后新建 / 关联已有 / 暂不登记 |
 | 决策 LINK_EXISTING | 关联推荐相似单 / 选其他相似单 / 仍要新建 / 暂不登记 |

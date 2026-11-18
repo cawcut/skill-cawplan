@@ -1,5 +1,6 @@
 ---
-version: 0.2.13
+version: 0.2.14
+min_cli_version: 0.0.67
 name: cawplan-ticket-context
 description: |
   Query one or more CawPlan tickets and show their current details in the conversation.

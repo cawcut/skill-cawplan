@@ -2,10 +2,10 @@
  * Write-body validation and assembly.
  *
  * Authoritative sources:
- * - A1: skills/cawplan-requirement-analyze/SKILL.md "Write body rules"
+ * - Requirements: skills/cawplan-requirement-analyze/SKILL.md "Write body rules"
  *   (product_id only in URL; never send review_status / is_edited;
  *   POST = five fields + non-empty summary + module_tree_node_id).
- * - A2: skills/cawplan-testpoint-generate/SKILL.md §9 (caller supplies title,
+ * - Test points: skills/cawplan-testpoint-generate/SKILL.md §9 (caller supplies title,
  *   tags, group, priority, is_edited; CLI injects is_ai_generated and
  *   category_code per item).
  *
@@ -103,7 +103,7 @@ export function buildRequirementCreateBody(input: unknown): Record<string, unkno
     );
   }
 
-  // A1 always sends a non-empty summary on POST, even though the API allows null.
+  // cawplan-requirement-analyze always sends a non-empty summary on POST, even though the API allows null.
   const summary = normalizeField(body.summary);
   if (!summary) {
     throw new BodyValidationError("requirement create body requires a non-empty summary");
@@ -153,7 +153,7 @@ export function validateRequirementPatchBody(input: unknown): Record<string, unk
  * Extra keys (id, sort_order,
  * requirement_id, …) are a hard failure rather than being stripped: an `id`
  * in a create batch usually means the caller is re-posting an already-archived
- * row, which is a real bug worth surfacing (A2 §9 / P10).
+ * row, which is a real bug worth surfacing (cawplan-testpoint-generate §9 / P10).
  */
 export function buildTestPointBatchBody(input: unknown): { test_points: TestPointDraft[] } {
   const body = assertPlainObject(input, "testpoint batch body");

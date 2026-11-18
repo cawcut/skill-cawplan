@@ -1,4 +1,4 @@
-# A3 Execution Rules
+# Execution Progress Rules
 
 契约 §5.1、§5.2。与 `ux.md` 配合；**禁止** workflow 开场与 `ux.md` 一并 Read。
 
@@ -27,7 +27,7 @@
 
 ### 范围闸（SHALL）
 
-- 用户请求已点名版本（含「当前版本」，例：「当前版本的 A3 执行进度」）→ 范围即**全版本**，**不弹**范围闸，直接 Step 1。
+- 用户请求已点名版本（含「当前版本」，例：「当前版本的执行进度」）→ 范围即**全版本**，**不弹**范围闸，直接 Step 1。
 - 仅当请求未表明范围、且可能需要按工单 / Run / 编排批次收窄时才弹范围闸（`ux.md §Prompts`）。
 
 **TestRail 链接**：Test 优先 `result_url`，fallback `…/tests/view/{test_id}`；Run 优先 `runs[].url`，fallback `…/runs/view/{run_id}`。文案：test_id / run_id 数字。
@@ -108,8 +108,8 @@ capability `qa.testrail.execution.failures`：`product_id`、`version_id`、`run
 | 场景 | 动作 |
 |------|------|
 | `stale=true` 已 `refresh` | 简短说明，不进健康度卡 → `ux.md` |
-| `total=0` | 引导确认是否已 A2 → `ux.md` |
-| summary 返回 `E_U_CORE_PRM_NOT_FOUND`（msg `NOT_FOUND`） | 该版本尚未关联 TestRail 测试计划（A2 编排未完成）。CLI：`outcome`=FAILURE 且 `api.code`=E_U_CORE_PRM_NOT_FOUND；MCP：工具错误，内容为同一 `{code,msg,data}`。该错误本身即表示未关联，不另调其他 capability 确认（`qa.testrail.mappings.get` 只返回产品级 TestRail 配置，无法判断单个版本是否关联）。随后按 `ux.md §Errors` 告知用户并给选项；**禁止**自行逐个换版本重试；不输出四层报告与文末 A4 句 |
+| `total=0` | 引导确认是否已编排测试计划 → `ux.md` |
+| summary 返回 `E_U_CORE_PRM_NOT_FOUND`（msg `NOT_FOUND`） | 该版本尚未关联 TestRail 测试计划（测试计划编排未完成）。CLI：`outcome`=FAILURE 且 `api.code`=E_U_CORE_PRM_NOT_FOUND；MCP：工具错误，内容为同一 `{code,msg,data}`。该错误本身即表示未关联，不另调其他 capability 确认（`qa.testrail.mappings.get` 只返回产品级 TestRail 配置，无法判断单个版本是否关联）。随后按 `ux.md §Errors` 告知用户并给选项；**禁止**自行逐个换版本重试；不输出四层报告与文末缺陷登记句 |
 | `run_id` 不在 summary | 确认 Version/PlanMapping |
 | failures 超 20 条 | `offset` 分页或提示加载更多 |
-| tests/view 要建缺陷 | 转 A4，不走 A3 `test_id` 模式 |
+| tests/view 要建缺陷 | 转 `cawplan-defect-ticket`，不在本 Skill 走 `test_id` 模式 |

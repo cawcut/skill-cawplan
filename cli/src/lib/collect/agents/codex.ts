@@ -211,6 +211,16 @@ export function stripCodexSkillBlocks(text: string): string {
   return text.replace(CODEX_SKILL_BLOCK_RE, "").trim();
 }
 
+// The typed invocation itself is stored as a Markdown link to the skill file
+// ("[$cawplan-testpoint-generate](/home/dev/.agents/skills/cawplan-testpoint-generate/SKILL.md)",
+// plugin skills as "[$plugin:skill](…/SKILL.md)"). Shown raw it renders as a link to a local
+// absolute path, so rewrite it to the "/skill-name" form the user picked from the menu.
+const CODEX_SKILL_MENTION_RE = /\[\$([^\]\s]+)\]\([^)\n]*[\\/]SKILL\.md\)/g;
+
+export function normalizeCodexSkillMentions(text: string): string {
+  return text.replace(CODEX_SKILL_MENTION_RE, "/$1");
+}
+
 // Codex Desktop sends app UI events (e.g. <external_codex_apps_open_page>{"page_id":null}</…>)
 // as user messages. They carry no typed text.
 const CODEX_APP_EVENT_BLOCK_RE = /<(external_codex_apps_[a-z_]+)>[\s\S]*?<\/\1>/g;
@@ -232,10 +242,51 @@ export function extractCodexIdeRequest(text: string): string {
   return text.slice(heading.index + heading[0].length).trim();
 }
 
+// A pasted or attached image is stored as <image name=[Image #1] path="/var/folders/…/codex-clipboard-….png">
+// </image>. Keep the "[Image #1]" placeholder the user saw in the composer, without the local temp path.
+const CODEX_IMAGE_BLOCK_RE = /<image\b([^>]*)>[\s\S]*?<\/image>/g;
+const CODEX_IMAGE_NAME_RE = /\bname=(?:"([^"]*)"|(\[[^\]]*\]|\S+))/;
+
+export function normalizeCodexImageBlocks(text: string): string {
+  return text.replace(CODEX_IMAGE_BLOCK_RE, (_block, attrs: string) => {
+    const match = CODEX_IMAGE_NAME_RE.exec(attrs);
+    return match?.[1] ?? match?.[2] ?? "[Image]";
+  });
+}
+
+// When the user answers an agent's multiple-choice question, Codex Desktop sends the reply as
+// <send_user_message_question_reply>[{"questionItemId":…,"question":…,"answer":…}]</…>. Only the
+// answers were picked or typed by the user; the question text was written by the agent.
+const CODEX_QUESTION_REPLY_RE = /<send_user_message_question_reply>([\s\S]*?)<\/send_user_message_question_reply>/g;
+
+function questionReplyAnswers(json: string): string {
+  try {
+    const items: unknown = JSON.parse(json);
+    if (!Array.isArray(items)) return "";
+    return items
+      .map((item) => {
+        const answer = (item as Record<string, unknown> | null)?.["answer"];
+        if (Array.isArray(answer)) return answer.filter((a) => typeof a === "string").join(", ");
+        return typeof answer === "string" ? answer : "";
+      })
+      .map((answer) => answer.trim())
+      .filter(Boolean)
+      .join("\n");
+  } catch {
+    return "";
+  }
+}
+
+export function extractCodexQuestionReplies(text: string): string {
+  return text.replace(CODEX_QUESTION_REPLY_RE, (_block, json: string) => questionReplyAnswers(json.trim()));
+}
+
 /** Skill files, app events, IDE context and harness blocks removed from a Codex user message; "" when nothing human is left. */
 export function cleanCodexUserText(text: string): string {
-  const stripped = stripHarnessBlocks(stripCodexSkillBlocks(text).replace(CODEX_APP_EVENT_BLOCK_RE, ""));
-  return extractCodexIdeRequest(stripped);
+  const stripped = stripHarnessBlocks(
+    extractCodexQuestionReplies(stripCodexSkillBlocks(text).replace(CODEX_APP_EVENT_BLOCK_RE, "")),
+  );
+  return normalizeCodexImageBlocks(normalizeCodexSkillMentions(extractCodexIdeRequest(stripped))).trim();
 }
 
 export function isHumanInputText(text: string): boolean {

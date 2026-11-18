@@ -1,4 +1,4 @@
-# 用例写作规范（A3 内容与拆合规则）
+# 用例写作规范（cawplan-testcase-generate 内容与拆合规则）
 
 本文件是 Case 内容、字段语义和用例数量的唯一权威。四法只负责发现候选场景，见 `test-design-methods.md`；CSV 布局见 `csv-template-mapping.md`。
 

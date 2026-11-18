@@ -76,7 +76,7 @@ export interface FindMappingOptions {
     warn?: (message: string) => void;
 }
 
-function mappingRepoKeys(mapping: ProductRepoMappingCore): Set<string> {
+export function mappingRepoKeys(mapping: ProductRepoMappingCore): Set<string> {
     const keys = new Set<string>();
     const canonical = canonicalRepoNameFromMapping(mapping);
     if (canonical) {

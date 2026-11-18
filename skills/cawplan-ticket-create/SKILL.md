@@ -1,5 +1,6 @@
 ---
-version: 0.2.13
+version: 0.2.14
+min_cli_version: 0.0.67
 name: cawplan-ticket-create
 description: |
   Create one or more CawPlan tickets: from an explicit request, or by extracting action items/work items out of pasted long-form text such as a PRD, a Slack discussion, or a meeting transcript (version-scoped by default, or backlog only after user confirmation). Also routes a PRD's platforms (FE/BE/iOS/Android/QA) to different products under one Team, and splits work into sub-tickets under a parent ticket.

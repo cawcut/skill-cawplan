@@ -3,6 +3,10 @@
  *
  * Supplements cursor-gui.ts with actual token and cost data that is not stored locally.
  *
+ * Opt-in: collect() only calls into this module when the user enabled the Cursor usage
+ *   lookup (`cawplan config cursor-usage on` or `session collect --cursor-usage`); see
+ *   ../cursor-usage-optin.ts. With the opt-in off no token is read and cursor.com is not contacted.
+ *
  * Auth: reads access token from (in order):
  *   1. CURSOR_ACCESS_TOKEN env var
  *   2. CURSOR_SESSION_TOKEN env var

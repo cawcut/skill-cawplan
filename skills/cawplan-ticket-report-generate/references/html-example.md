@@ -1,4 +1,4 @@
-# A7 压缩 HTML 完整示例（ticket-qa-report.1 · PROGRESS）
+# Ticket QA Report 压缩 HTML 完整示例（ticket-qa-report.1 · PROGRESS）
 
 > Agent **必须**按此排版密度生成 `details`：**标签之间无换行/无空白**（单行 compact），**禁止** pretty-print。落库前用 `scripts/validate_report_details.js` 校验；可用 `--minify` 压紧标签间换行（**不**自动补全链接文案）。
 

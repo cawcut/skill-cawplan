@@ -23,6 +23,7 @@ import {
     refineCursorHumanInputsFromBillingEvents,
     refineHumanInputsFromAttributedEvents,
 } from "./agents/cursor-api.js";
+import {CURSOR_USAGE_ENABLE_HINT, markCursorUsageNotEnabled, resolveCursorUsageOptIn} from "./cursor-usage-optin.js";
 import {buildDailyApiJson} from "./aggregators/daily.js";
 import {buildQaDailyJson, buildQaDailyPayload, type QaExcludedSession} from "./aggregators/qa-daily.js";
 import {writeQaExcludedSessions} from "../qa-assign/qa-report-io.js";
@@ -377,7 +378,21 @@ export async function scanSessions(
         | { byModel: Record<string, import("./types.js").ModelUsageEntry>; totalCost: number; currency: string }
         | undefined;
 
-    if (targetAgents.includes("cursor")) {
+    const cursorUsageEnabled = targetAgents.includes("cursor") && resolveCursorUsageOptIn(opts.cursorUsage);
+    if (targetAgents.includes("cursor") && !cursorUsageEnabled) {
+        // Opt-in is off: do not read the Cursor login token or call cursor.com.
+        logger.log("Skip Cursor Dashboard usage lookup: opt-in is off (no Cursor token read, no cursor.com request).");
+        const affected = markCursorUsageNotEnabled(sessions);
+        if (affected > 0) {
+            console.warn([
+                `Note: Cursor usage lookup is off, so ${affected} Cursor GUI session(s) on ${date} have no token/cost data; coding reports drop sessions without tokens.`,
+                "  The lookup reads your Cursor login token from the local Cursor app and queries cursor.com for exact usage.",
+                `  ${CURSOR_USAGE_ENABLE_HINT}`,
+            ].join("\n"));
+        }
+    }
+
+    if (cursorUsageEnabled) {
         try {
             const {cookie} = logger.step("Build Cursor Dashboard session cookie", () => buildSessionCookie());
             const {startMs, endMs} = dayBoundsMs(date);

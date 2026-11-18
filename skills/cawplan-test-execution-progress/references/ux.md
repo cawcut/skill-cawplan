@@ -1,4 +1,4 @@
-# A3 UX — 字段友好名与用户引导
+# Execution Progress UX — 字段友好名与用户引导
 
 Agent 自行 `AskUserQuestion`（不写入 `allowed-tools`）。**跟随用户主语言**；禁止同一段中英各写一遍。
 
@@ -36,8 +36,8 @@ Agent 自行 `AskUserQuestion`（不写入 `allowed-tools`）。**跟随用户�
 | **范围闸**（未指定范围；请求已点名版本或说「当前版本」时视为全版本，**不弹**） | 全版本（默认）/ 指定单个工单 / 指定单个 Run / 指定编排批次 |
 | 当前版本有多个进行中版本 | 正文写明所用版本，列出其余进行中版本名供切换（不弹框、不自动查询） |
 | **下钻闸**（仅健康度或「简单看下」后） | 查看待处理失败 / 按工单进度表 / flaky 分析（较慢）/ 显示全部自定义状态 / 够了 |
-| **行级 A4**（用户点行或说登记缺陷） | 转到缺陷登记(A4) / 先看 TestRail / 不用 |
-| `total=0` | 确认是否已编排测试计划(A2) / 换版本 / 结束 |
+| **行级缺陷登记**（用户点行或说登记缺陷） | 转到缺陷登记 / 先看 TestRail / 不用 |
+| `total=0` | 确认是否已编排测试计划 / 换版本 / 结束 |
 | Run 不在版本 | 换版本或 Run / 结束 |
 | failures 分页 | 加载更多 / 只看 Critical·High |
 
@@ -100,19 +100,19 @@ Agent 自行 `AskUserQuestion`（不写入 `allowed-tools`）。**跟随用户�
 
 ---
 
-## §A4 缺陷登记衔接（SHALL）
+## §DefectHandoff 缺陷登记衔接（SHALL）
 
 1. **文末固定一句**（不弹窗）：
-   > 需要登记缺陷时，请使用 `cawplan-defect-ticket`；待处理表中各行可用于 A4。已有关联缺陷的行优先走关联而非新建。
+   > 需要登记缺陷时，请使用 `cawplan-defect-ticket`；待处理表中各行可用于缺陷登记。已有关联缺陷的行优先走关联而非新建。
 
    未返回任何执行数据时（如未关联 TestRail 测试计划、`total=0`、查询报错）**省略**这句。
 
 2. **行级**（仅当用户**点击某行**或明确说「登记缺陷/转缺陷/file defect」）→ `AskUserQuestion`：
-   - 转到缺陷登记(A4) / 先看 TestRail / 不用
+   - 转到缺陷登记 / 先看 TestRail / 不用
 
-3. **禁止**：未请求时主动调用 A4、主动弹「是否现在建单」。
+3. **禁止**：未请求时主动调用 `cawplan-defect-ticket`、主动弹「是否现在建单」。
 
-4. tests/view 链接要建缺陷 → 直接引导 A4 Skill，不走 A3 failures 的 `test_id` 模式。
+4. tests/view 链接要建缺陷 → 直接引导 `cawplan-defect-ticket` Skill，不在本 Skill 走 failures 的 `test_id` 模式。
 
 ---
 
@@ -123,6 +123,6 @@ Agent 自行 `AskUserQuestion`（不写入 `allowed-tools`）。**跟随用户�
 | 场景 | 选项 |
 |------|------|
 | 数据可能异常(stale) | 稍后重试 / 结束 |
-| 无可统计 Run | 确认 A2 编排 / 换版本 / 结束 |
+| 无可统计 Run | 确认测试计划编排 / 换版本 / 结束 |
 | TestRail 不可用 | 稍后重试 / 结束 |
-| 版本未关联 TestRail 测试计划（summary 返回 `E_U_CORE_PRM_NOT_FOUND`） | 直白告知：该版本还没有关联 TestRail 测试计划（A2 编排未完成），因此没有执行数据。选项：检查/关联测试计划(A2) / 换版本 / 结束。不自行轮询其他版本 |
+| 版本未关联 TestRail 测试计划（summary 返回 `E_U_CORE_PRM_NOT_FOUND`） | 直白告知：该版本还没有关联 TestRail 测试计划（测试计划编排未完成），因此没有执行数据。选项：检查/关联测试计划 / 换版本 / 结束。不自行轮询其他版本 |

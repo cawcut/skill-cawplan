@@ -1,5 +1,6 @@
 ---
-version: 0.2.13
+version: 0.2.14
+min_cli_version: 0.0.67
 name: cawplan-product-insights
 description: |
   Aggregate CawPlan product insights: user feedback and critical issues.

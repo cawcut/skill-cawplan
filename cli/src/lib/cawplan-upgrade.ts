@@ -1,54 +1,64 @@
-import {execFile, spawn} from "node:child_process";
+import {commandOutput, spawnCommand} from "./portable-spawn.js";
 
-function npmCommand(): string {
-    return process.platform === "win32" ? "npm.cmd" : "npm";
+// npm view can hang on a slow or offline registry; skill check must stay fast.
+const NPM_VIEW_TIMEOUT_MS = 5000;
+
+interface ParsedVersion {
+    core: [number, number, number];
+    prerelease: string[];
 }
 
-function cawplanCommand(): string {
-    return process.platform === "win32" ? "cawplan.cmd" : "cawplan";
+function parseVersion(version: string): ParsedVersion | undefined {
+    const match = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+\S*)?$/.exec(version.trim());
+    if (!match) return undefined;
+    return {
+        core: [Number(match[1]), Number(match[2] ?? 0), Number(match[3] ?? 0)],
+        prerelease: match[4] ? match[4].split(".") : [],
+    };
 }
 
-function commandOutput(command: string, args: string[]): Promise<string> {
-    return new Promise((resolve, reject) => {
-        execFile(command, args, {encoding: "utf8"}, (error, stdout, stderr) => {
-            if (error) {
-                reject(new Error((stderr || error.message).trim()));
-                return;
-            }
-            const output = stdout.trim();
-            if (!output) {
-                reject(new Error(`${command} ${args.join(" ")} returned empty output`));
-                return;
-            }
-            resolve(output);
-        });
-    });
+// SemVer 2.0 identifier precedence: numeric < alphanumeric, numerics by value.
+function comparePrereleaseIds(a: string, b: string): number {
+    const aNum = /^\d+$/.test(a);
+    const bNum = /^\d+$/.test(b);
+    if (aNum && bNum) return Number(a) - Number(b);
+    if (aNum !== bNum) return aNum ? -1 : 1;
+    return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function parseVersion(version: string): number[] {
-    return version
-        .trim()
-        .replace(/^v/, "")
-        .split(".")
-        .map((part) => Number.parseInt(part, 10) || 0);
+/**
+ * SemVer ordering, including prereleases (0.1.0-rc.1 < 0.1.0). Returns 0 when
+ * either side is unparsable, so a local or odd version never triggers an
+ * upgrade or a block.
+ */
+export function compareVersions(a: string, b: string): number {
+    const va = parseVersion(a);
+    const vb = parseVersion(b);
+    if (!va || !vb) return 0;
+    for (let i = 0; i < 3; i++) {
+        const diff = va.core[i] - vb.core[i];
+        if (diff !== 0) return diff;
+    }
+    if (va.prerelease.length === 0 || vb.prerelease.length === 0) {
+        return vb.prerelease.length - va.prerelease.length;
+    }
+    for (let i = 0; i < Math.min(va.prerelease.length, vb.prerelease.length); i++) {
+        const diff = comparePrereleaseIds(va.prerelease[i], vb.prerelease[i]);
+        if (diff !== 0) return diff;
+    }
+    return va.prerelease.length - vb.prerelease.length;
 }
 
 export function isNewerVersion(candidate: string, base: string): boolean {
-    const c = parseVersion(candidate);
-    const b = parseVersion(base);
-    for (let i = 0; i < 3; i++) {
-        if ((c[i] ?? 0) > (b[i] ?? 0)) return true;
-        if ((c[i] ?? 0) < (b[i] ?? 0)) return false;
-    }
-    return false;
+    return compareVersions(candidate, base) > 0;
 }
 
 export function currentCawplanVersion(): Promise<string> {
-    return commandOutput(cawplanCommand(), ["--version"]);
+    return commandOutput("cawplan", ["--version"]);
 }
 
 export function latestCawplanVersion(): Promise<string> {
-    return commandOutput(npmCommand(), ["view", "cawplan", "version"]);
+    return commandOutput("npm", ["view", "cawplan", "version"], {timeoutMs: NPM_VIEW_TIMEOUT_MS});
 }
 
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
@@ -64,9 +74,13 @@ export function buildUpgradeArgs(version: string): string[] {
 
 export function runCawplanUpgrade(version: string): Promise<void> {
     return new Promise((resolve, reject) => {
-        const child = spawn(npmCommand(), buildUpgradeArgs(version), {
-            stdio: "inherit",
-        });
+        let child;
+        try {
+            child = spawnCommand("npm", buildUpgradeArgs(version), {stdio: "inherit"});
+        } catch (err) {
+            reject(err);
+            return;
+        }
 
         child.on("error", reject);
         child.on("close", (code) => {

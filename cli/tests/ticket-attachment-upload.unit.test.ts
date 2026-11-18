@@ -450,3 +450,26 @@ describe("sanitizeReportHtml", () => {
     expect(html).not.toMatch(active);
   });
 });
+
+describe('upload validation capability', () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+
+  test('rejects content rejected by the isolated validator', async () => {
+    vi.spyOn(http, 'cawplanRequest').mockResolvedValue({ code: 'SUCCESS', data: { state: 'REJECTED', message: 'invalid image' } });
+    const { confirmUploadedAttachment } = await import('../src/lib/ticket-attachment-upload.js');
+    await expect(confirmUploadedAttachment('scoped-capability')).rejects.toThrow('invalid image');
+  });
+
+  test('polls status and completes only after READY', async () => {
+    vi.useFakeTimers();
+    const request = vi.spyOn(http, 'cawplanRequest')
+      .mockResolvedValueOnce({ code: 'SUCCESS', data: { state: 'VALIDATING' } })
+      .mockResolvedValueOnce({ code: 'SUCCESS', data: { state: 'READY' } });
+    const { confirmUploadedAttachment } = await import('../src/lib/ticket-attachment-upload.js');
+    const done = confirmUploadedAttachment('scoped-capability');
+    await vi.advanceTimersByTimeAsync(1000);
+    await done;
+    expect(request.mock.calls.map(([req]) => req.path)).toEqual(['/api/v1/public/uploads/confirm', '/api/v1/public/uploads/status']);
+    expect(request.mock.calls[0][0].body).toEqual({ token: 'scoped-capability' });
+  });
+});

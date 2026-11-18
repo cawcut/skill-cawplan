@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 /*
- * A3 测试用例导出 · export_to_csv.js
+ * cawplan-testcase-generate 测试用例导出 · export_to_csv.js
  *
  * 职责(且仅此职责):把 AI 已定稿的结构化用例数据(JSON),按团队 13 列模板
  * 写成 CSV。脚本只"摆格子",不生成、不补全、不改写任何内容 —— 红线 0 在导出层
@@ -115,7 +115,7 @@ function rowsForCase(caseObj, caseId) {
     if (!String(caseObj[k] == null ? '' : caseObj[k]).trim()) {
       throw new Error(
         `CaseId=${caseId} 的 ${k} 为空(${why})—— 必填字段不可空,脚本不放行、不自造。` +
-        (k === 'testPointId' ? ' 缺面应回 A2 补测试点后重展开。' : '')
+        (k === 'testPointId' ? ' 缺面应回 cawplan-testpoint-generate 补测试点后重展开。' : '')
       );
     }
   }

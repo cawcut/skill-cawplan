@@ -1,4 +1,4 @@
-# CSV 列映射与导出契约（A3）
+# CSV 列映射与导出契约（cawplan-testcase-generate）
 
 本文件仅在导出时读取，是 interim JSON、CSV 布局和脚本调用的文档真相源。机器实现为 `scripts/export_to_csv.js`，列模板为 `assets/testcase-template.csv`；变更任一方时必须同步其余两方。
 

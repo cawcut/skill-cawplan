@@ -113,10 +113,10 @@ async function tempJson(name: string, value: unknown): Promise<string> {
 
 /*
  * P1 — the defining behaviour of `requirements create`: a plain POST with no
- * pre-flight GET. A1 step 11 routes a first archive straight to 11a, and
+ * pre-flight GET. cawplan-requirement-analyze step 11 routes a first archive straight to 11a, and
  * de-duplication is the skill's Table B decision.
  */
-describe("A1-TB-1 / P1 requirements create — plain POST, never a pre-flight GET", () => {
+describe("TB-1 / P1 requirements create — plain POST, never a pre-flight GET", () => {
   test("P1 issues exactly one POST and zero GETs", async () => {
     const h = harness([ok({ id: "req-1", url: "/product/…/requirements/req-1" })]);
     await runRequirementsCreate(PRODUCT, { body: JSON.stringify(createBody) }, h.deps);
@@ -130,7 +130,7 @@ describe("A1-TB-1 / P1 requirements create — plain POST, never a pre-flight GE
     expect(h.envelope.outcome).toBe("SUCCESS");
     expect(h.gets()).toHaveLength(0);
   });
-  test("A1-TB-1 reads the body from --body-file", async () => {
+  test("TB-1 reads the body from --body-file", async () => {
     const file = await tempJson("body.json", createBody);
     const h = harness([ok({ id: "req-1" })]);
     await runRequirementsCreate(PRODUCT, { bodyFile: file }, h.deps);
@@ -156,19 +156,19 @@ describe("A1-TB-1 / P1 requirements create — plain POST, never a pre-flight GE
     );
     expect(h.calls).toHaveLength(0);
   });
-  test("A1-TB-1 --dry-run sends nothing and previews post_body", async () => {
+  test("TB-1 --dry-run sends nothing and previews post_body", async () => {
     const h = harness([]);
     await runRequirementsCreate(PRODUCT, { body: JSON.stringify(createBody), dryRun: true }, h.deps);
     expect(h.calls).toHaveLength(0);
     expect(h.envelope.post_body).toMatchObject({ module_tree_node_id: NODE, is_ai_generated: true });
   });
-  test("A1-PW-2 write 5xx maps to UNKNOWN, never an auto-retry", async () => {
+  test("PW-2 write 5xx maps to UNKNOWN, never an auto-retry", async () => {
     const h = harness([new ApiError("API error 500", 500, {})]);
     await runRequirementsCreate(PRODUCT, { body: JSON.stringify(createBody) }, h.deps);
     expect(h.envelope.outcome).toBe("UNKNOWN");
     expect(h.writes()).toHaveLength(1);
   });
-  test("A1-PW-2 transport failure maps to UNKNOWN with a reconcile hint", async () => {
+  test("PW-2 transport failure maps to UNKNOWN with a reconcile hint", async () => {
     const h = harness([new TypeError("fetch failed")]);
     await runRequirementsCreate(PRODUCT, { body: JSON.stringify(createBody) }, h.deps);
     expect(h.envelope.outcome).toBe("UNKNOWN");
@@ -179,7 +179,7 @@ describe("A1-TB-1 / P1 requirements create — plain POST, never a pre-flight GE
     await runRequirementsCreate(PRODUCT, { body: JSON.stringify(createBody) }, h.deps);
     expect(h.envelope.error?.type).toBe("not_found");
   });
-  test("A1-WB-3 invalid JSON input fails validation with no request", async () => {
+  test("WB-3 invalid JSON input fails validation with no request", async () => {
     const h = harness([]);
     await runRequirementsCreate(PRODUCT, { body: "{not json" }, h.deps);
     expect(h.calls).toHaveLength(0);
@@ -187,7 +187,7 @@ describe("A1-TB-1 / P1 requirements create — plain POST, never a pre-flight GE
   });
 });
 
-describe("A1-WB-4 / A1-TB-3 / P4 requirements update — changed keys only", () => {
+describe("WB-4 / TB-3 / P4 requirements update — changed keys only", () => {
   test("P4 summary-only change patches exactly { summary }", async () => {
     const desired = await tempJson("d.json", { ...fiveFields, summary: "新的摘要" });
     const snapshot = await tempJson("s.json", { ...fiveFields, summary: "旧摘要" });
@@ -196,7 +196,7 @@ describe("A1-WB-4 / A1-TB-3 / P4 requirements update — changed keys only", () 
     expect(h.calls[0].method).toBe("PATCH");
     expect(h.calls[0].body).toEqual({ summary: "新的摘要", is_ai_generated: true });
   });
-  test("A1-WB-4 unchanged fields are never included", async () => {
+  test("WB-4 unchanged fields are never included", async () => {
     const desired = await tempJson("d.json", { ...fiveFields, constraints: "改后的约束", summary: "同一摘要" });
     const snapshot = await tempJson("s.json", { ...fiveFields, summary: "同一摘要" });
     const h = harness([ok({ id: REQUIREMENT })]);
@@ -212,14 +212,14 @@ describe("A1-WB-4 / A1-TB-3 / P4 requirements update — changed keys only", () 
     expect(h.calls).toHaveLength(0);
     expect(h.envelope.outcome).toBe("NOOP");
   });
-  test("A1-FC-2 out_of_scope placeholder vs null is not a change (NOOP)", async () => {
+  test("FC-2 out_of_scope placeholder vs null is not a change (NOOP)", async () => {
     const desired = await tempJson("d.json", { ...fiveFields, out_of_scope: "（素材未提及）" });
     const snapshot = await tempJson("s.json", { ...fiveFields, out_of_scope: null });
     const h = harness([]);
     await runRequirementsUpdate(PRODUCT, REQUIREMENT, { desiredFile: desired, snapshotFile: snapshot }, h.deps);
     expect(h.envelope.outcome).toBe("NOOP");
   });
-  test("A1-WB-4 --dry-run previews patch_body without sending", async () => {
+  test("WB-4 --dry-run previews patch_body without sending", async () => {
     const desired = await tempJson("d.json", { ...fiveFields, summary: "新" });
     const snapshot = await tempJson("s.json", { ...fiveFields, summary: "旧" });
     const h = harness([]);
@@ -232,14 +232,14 @@ describe("A1-WB-4 / A1-TB-3 / P4 requirements update — changed keys only", () 
     expect(h.calls).toHaveLength(0);
     expect(h.envelope.patch_body).toEqual({ summary: "新", is_ai_generated: true });
   });
-  test("A1-WB-4 missing --snapshot-file fails validation", async () => {
+  test("WB-4 missing --snapshot-file fails validation", async () => {
     const desired = await tempJson("d.json", fiveFields);
     const h = harness([]);
     await runRequirementsUpdate(PRODUCT, REQUIREMENT, { desiredFile: desired }, h.deps);
     expect(h.envelope.error?.type).toBe("validation");
     expect(h.calls).toHaveLength(0);
   });
-  test("A1-PW-2 PATCH 5xx maps to UNKNOWN", async () => {
+  test("PW-2 PATCH 5xx maps to UNKNOWN", async () => {
     const desired = await tempJson("d.json", { ...fiveFields, summary: "新" });
     const snapshot = await tempJson("s.json", { ...fiveFields, summary: "旧" });
     const h = harness([new ApiError("API error 503", 503, {})]);
@@ -398,7 +398,7 @@ describe("E19 update --snapshot provenance — wrong sources fail silently", () 
   });
 });
 
-describe("A1-TA-1 / P2 / P13 requirements reconcile — read-only Table A", () => {
+describe("TA-1 / P2 / P13 requirements reconcile — read-only Table A", () => {
   test("P2 single strong match yields RECONCILED and issues no write", async () => {
     const probe = await tempJson("p.json", fiveFields);
     const h = harness([ok([{ id: "req-1", ...fiveFields, summary: "任意" }])]);
@@ -421,14 +421,14 @@ describe("A1-TA-1 / P2 / P13 requirements reconcile — read-only Table A", () =
     expect(h.envelope.reconcile?.matched_requirement_ids).toEqual(["req-1", "req-2"]);
     expect(h.writes()).toHaveLength(0);
   });
-  test("A1-TA-5 no match yields FAILURE / no_match, still no write", async () => {
+  test("TA-5 no match yields FAILURE / no_match, still no write", async () => {
     const probe = await tempJson("p.json", fiveFields);
     const h = harness([ok([{ id: "other", ...fiveFields, constraints: "不同" }])]);
     await runRequirementsReconcile(PRODUCT, { moduleTreeNodeId: NODE, probeFile: probe }, h.deps);
     expect(h.envelope.reconcile?.decision).toBe("no_match");
     expect(h.writes()).toHaveLength(0);
   });
-  test("A1-TA-3 pending PATCH already applied yields RECONCILED", async () => {
+  test("TA-3 pending PATCH already applied yields RECONCILED", async () => {
     const probe = await tempJson("p.json", fiveFields);
     const patch = await tempJson("i.json", { constraints: "新的约束" });
     const h = harness([ok([{ id: REQUIREMENT, ...fiveFields, constraints: "新的约束" }])]);
@@ -440,7 +440,7 @@ describe("A1-TA-1 / P2 / P13 requirements reconcile — read-only Table A", () =
     expect(h.envelope.reconcile?.decision).toBe("patch_already_applied");
     expect(h.envelope.outcome).toBe("RECONCILED");
   });
-  test("A1-TA-4 pending PATCH still old yields patch_still_old", async () => {
+  test("TA-4 pending PATCH still old yields patch_still_old", async () => {
     const probe = await tempJson("p.json", fiveFields);
     const patch = await tempJson("i.json", { constraints: "新的约束" });
     const h = harness([ok([{ id: REQUIREMENT, ...fiveFields }])]);
@@ -457,7 +457,7 @@ describe("A1-TA-1 / P2 / P13 requirements reconcile — read-only Table A", () =
     await runRequirementsReconcile(PRODUCT, { moduleTreeNodeId: NODE, probeFile: probe }, h.deps);
     expect(h.calls.every((c) => (c.method ?? "GET") === "GET")).toBe(true);
   });
-  test("A1-TA-5 missing --module-tree-node-id fails validation with no request", async () => {
+  test("TA-5 missing --module-tree-node-id fails validation with no request", async () => {
     const probe = await tempJson("p.json", fiveFields);
     const h = harness([]);
     await runRequirementsReconcile(PRODUCT, { probeFile: probe }, h.deps);
@@ -470,7 +470,7 @@ function archiveHarness(responses: unknown[] | ((call: Call) => unknown), existi
   return harness(responses, existing);
 }
 
-describe("A2-§9.5 / A2-§8.5 / P7 testpoints archive — preflight GET, POST, no follow-up GET", () => {
+describe("testpoint §9.5 / testpoint §8.5 / P7 testpoints archive — preflight GET, POST, no follow-up GET", () => {
   const batch = {
     test_points: [
       { title: "第一条", tags: ["异常"], group: "注册", priority: "HIGH", is_edited: false },
@@ -485,13 +485,13 @@ describe("A2-§9.5 / A2-§8.5 / P7 testpoints archive — preflight GET, POST, n
     expect(h.writes()).toHaveLength(1);
     expect(h.envelope.outcome).toBe("SUCCESS");
   });
-  test("A2-§9.5 returned length shorter than posted is a FAILURE", async () => {
+  test("testpoint §9.5 returned length shorter than posted is a FAILURE", async () => {
     const h = archiveHarness([ok({ test_points: [{ id: "tp-1" }] })]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
     expect(h.envelope.outcome).toBe("FAILURE");
     expect(h.envelope.error?.message).toMatch(/all-or-nothing/);
   });
-  test("A2-§9.5 SUCCESS without a test_points array is a FAILURE", async () => {
+  test("testpoint §9.5 SUCCESS without a test_points array is a FAILURE", async () => {
     const h = archiveHarness([ok({})]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
     expect(h.envelope.outcome).toBe("FAILURE");
@@ -507,7 +507,7 @@ describe("A2-§9.5 / A2-§8.5 / P7 testpoints archive — preflight GET, POST, n
     expect(h.calls).toHaveLength(0);
     expect(h.envelope.error?.type).toBe("validation");
   });
-  test("A2-§9-is is_edited is passed through untouched; is_ai_generated injected", async () => {
+  test("testpoint §9-is is_edited is passed through untouched; is_ai_generated injected", async () => {
     const h = archiveHarness([ok({ test_points: [{ id: "1" }, { id: "2" }] })]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
     const sent = h.writes()[0].body as { test_points: { is_edited: boolean; is_ai_generated: boolean }[] };
@@ -526,7 +526,7 @@ describe("A2-§9.5 / A2-§8.5 / P7 testpoints archive — preflight GET, POST, n
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch) }, h.deps);
     expect(h.envelope.error?.type).toBe("not_found");
   });
-  test("A2-§9-body --dry-run reads existing orders without writing", async () => {
+  test("testpoint §9-body --dry-run reads existing orders without writing", async () => {
     const h = archiveHarness([]);
     await runTestPointsArchive(PRODUCT, REQUIREMENT, { body: JSON.stringify(batch), dryRun: true }, h.deps);
     expect(h.calls).toHaveLength(1);
@@ -583,7 +583,7 @@ describe("A2-§9.5 / A2-§8.5 / P7 testpoints archive — preflight GET, POST, n
   });
 });
 
-describe("A2-§9.4 / P8 / P9 testpoints reconcile — one GET, never a POST", () => {
+describe("testpoint §9.4 / P8 / P9 testpoints reconcile — one GET, never a POST", () => {
   const rows = (n: number) => ok({ test_points: Array.from({ length: n }, (_, i) => ({ id: `tp-${i}` })) });
 
   test("P8 old + batch yields RECONCILED", async () => {
@@ -592,12 +592,12 @@ describe("A2-§9.4 / P8 / P9 testpoints reconcile — one GET, never a POST", ()
     expect(h.envelope.outcome).toBe("RECONCILED");
     expect(h.envelope.reconcile?.decision).toBe("count_matched");
   });
-  test("A2-§9.4 unchanged count yields retry_same_batch", async () => {
+  test("testpoint §9.4 unchanged count yields retry_same_batch", async () => {
     const h = harness([rows(7)]);
     await runTestPointsReconcile(PRODUCT, REQUIREMENT, { countBefore: "7", batchSize: "3" }, h.deps);
     expect(h.envelope.reconcile?.decision).toBe("retry_same_batch");
   });
-  test("A2-§9.4 any other count yields count_unexpected", async () => {
+  test("testpoint §9.4 any other count yields count_unexpected", async () => {
     const h = harness([rows(9)]);
     await runTestPointsReconcile(PRODUCT, REQUIREMENT, { countBefore: "7", batchSize: "3" }, h.deps);
     expect(h.envelope.reconcile?.decision).toBe("count_unexpected");
@@ -608,25 +608,25 @@ describe("A2-§9.4 / P8 / P9 testpoints reconcile — one GET, never a POST", ()
     expect(h.writes()).toHaveLength(0);
     expect(h.gets()).toHaveLength(1);
   });
-  test("A2-§9.4 missing --count-before fails validation with no request", async () => {
+  test("testpoint §9.4 missing --count-before fails validation with no request", async () => {
     const h = harness([]);
     await runTestPointsReconcile(PRODUCT, REQUIREMENT, { batchSize: "3" }, h.deps);
     expect(h.calls).toHaveLength(0);
     expect(h.envelope.error?.type).toBe("validation");
     expect(h.envelope.error?.message).toMatch(/--count-before/);
   });
-  test("A2-§9.4 the command refuses to guess the baseline", async () => {
+  test("testpoint §9.4 the command refuses to guess the baseline", async () => {
     const h = harness([]);
     await runTestPointsReconcile(PRODUCT, REQUIREMENT, { batchSize: "3" }, h.deps);
     expect(h.envelope.error?.message).toMatch(/will not guess/i);
   });
-  test("A2-§9.4 missing --batch-size fails validation", async () => {
+  test("testpoint §9.4 missing --batch-size fails validation", async () => {
     const h = harness([]);
     await runTestPointsReconcile(PRODUCT, REQUIREMENT, { countBefore: "7" }, h.deps);
     expect(h.calls).toHaveLength(0);
     expect(h.envelope.error?.type).toBe("validation");
   });
-  test("A2-§9.4 non-numeric --count-before fails validation", async () => {
+  test("testpoint §9.4 non-numeric --count-before fails validation", async () => {
     const h = harness([]);
     await runTestPointsReconcile(PRODUCT, REQUIREMENT, { countBefore: "abc", batchSize: "3" }, h.deps);
     expect(h.calls).toHaveLength(0);

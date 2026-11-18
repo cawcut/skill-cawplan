@@ -4,13 +4,13 @@ import {
   CountReconcileValidationError,
 } from "../src/lib/qa-insights/reconcile-testpoints";
 
-describe("A2-§9.4 / P8 count reconcile — old + batch means the batch landed", () => {
+describe("testpoint §9.4 / P8 count reconcile — old + batch means the batch landed", () => {
   const result = reconcileTestPoints({ countBefore: 7, countAfter: 10, batchSize: 3 });
 
-  test("A2-§9.4 outcome is RECONCILED", () => {
+  test("testpoint §9.4 outcome is RECONCILED", () => {
     expect(result.outcome).toBe("RECONCILED");
   });
-  test("A2-§9.4 decision is count_matched", () => {
+  test("testpoint §9.4 decision is count_matched", () => {
     expect(result.reconcile.decision).toBe("count_matched");
   });
   test("P8 counts are echoed for the caller", () => {
@@ -19,28 +19,28 @@ describe("A2-§9.4 / P8 count reconcile — old + batch means the batch landed",
   test("P8 message warns against archiving again", () => {
     expect(result.message).toMatch(/do NOT archive it again/i);
   });
-  test("A2-§9.4 strategy is testpoint_count (never five-field match)", () => {
+  test("testpoint §9.4 strategy is testpoint_count (never five-field match)", () => {
     expect(result.reconcile.strategy).toBe("testpoint_count");
   });
-  test("A2-§9.4 works from an empty baseline", () => {
+  test("testpoint §9.4 works from an empty baseline", () => {
     expect(reconcileTestPoints({ countBefore: 0, countAfter: 3, batchSize: 3 }).outcome)
       .toBe("RECONCILED");
   });
 });
 
-describe("A2-§9.4 / P8 count reconcile — unchanged count means retry the same batch", () => {
+describe("testpoint §9.4 / P8 count reconcile — unchanged count means retry the same batch", () => {
   const result = reconcileTestPoints({ countBefore: 7, countAfter: 7, batchSize: 3 });
 
-  test("A2-§9.4 outcome is FAILURE", () => {
+  test("testpoint §9.4 outcome is FAILURE", () => {
     expect(result.outcome).toBe("FAILURE");
   });
-  test("A2-§9.4 decision is retry_same_batch", () => {
+  test("testpoint §9.4 decision is retry_same_batch", () => {
     expect(result.reconcile.decision).toBe("retry_same_batch");
   });
-  test("A2-§9.4 message says archive the SAME batch", () => {
+  test("testpoint §9.4 message says archive the SAME batch", () => {
     expect(result.message).toMatch(/SAME batch/i);
   });
-  test("A2-§9.4 unchanged zero baseline also retries", () => {
+  test("testpoint §9.4 unchanged zero baseline also retries", () => {
     expect(reconcileTestPoints({ countBefore: 0, countAfter: 0, batchSize: 5 }).reconcile.decision)
       .toBe("retry_same_batch");
   });
@@ -52,23 +52,23 @@ describe("A2-§9.4 / P8 count reconcile — unchanged count means retry the same
  * unreachable, and both ends warrant the identical response — stop and have a
  * human look. Both directions are still exercised here.
  */
-describe("A2-§9.4 / P8 count_unexpected — merged bucket covers low AND high", () => {
-  test("A2-§9.4 count below old + batch is count_unexpected (partial)", () => {
+describe("testpoint §9.4 / P8 count_unexpected — merged bucket covers low AND high", () => {
+  test("testpoint §9.4 count below old + batch is count_unexpected (partial)", () => {
     const result = reconcileTestPoints({ countBefore: 7, countAfter: 9, batchSize: 3 });
     expect(result.reconcile.decision).toBe("count_unexpected");
     expect(result.outcome).toBe("FAILURE");
   });
-  test("A2-§9.4 count above old + batch is count_unexpected (high)", () => {
+  test("testpoint §9.4 count above old + batch is count_unexpected (high)", () => {
     const result = reconcileTestPoints({ countBefore: 7, countAfter: 12, batchSize: 3 });
     expect(result.reconcile.decision).toBe("count_unexpected");
     expect(result.outcome).toBe("FAILURE");
   });
-  test("A2-§9.4 both directions share one decision code", () => {
+  test("testpoint §9.4 both directions share one decision code", () => {
     const low = reconcileTestPoints({ countBefore: 7, countAfter: 9, batchSize: 3 });
     const high = reconcileTestPoints({ countBefore: 7, countAfter: 12, batchSize: 3 });
     expect(low.reconcile.decision).toBe(high.reconcile.decision);
   });
-  test("A2-§9.4 a count that DROPPED is also count_unexpected", () => {
+  test("testpoint §9.4 a count that DROPPED is also count_unexpected", () => {
     expect(reconcileTestPoints({ countBefore: 7, countAfter: 4, batchSize: 3 }).reconcile.decision)
       .toBe("count_unexpected");
   });
@@ -87,36 +87,36 @@ describe("A2-§9.4 / P8 count_unexpected — merged bucket covers low AND high",
  * would need a second GET, and any concurrent append between the two reads
  * would corrupt the comparison.
  */
-describe("A2-§9.4 count reconcile — count_before is mandatory, never guessed", () => {
-  test("A2-§9.4 missing countBefore is a validation error", () => {
+describe("testpoint §9.4 count reconcile — count_before is mandatory, never guessed", () => {
+  test("testpoint §9.4 missing countBefore is a validation error", () => {
     expect(() => reconcileTestPoints({ countAfter: 10, batchSize: 3 } as never))
       .toThrow(CountReconcileValidationError);
   });
-  test("A2-§9.4 the error names --count-before", () => {
+  test("testpoint §9.4 the error names --count-before", () => {
     expect(() => reconcileTestPoints({ countAfter: 10, batchSize: 3 } as never))
       .toThrow(/--count-before/);
   });
-  test("A2-§9.4 the error explains the baseline must precede the batch", () => {
+  test("testpoint §9.4 the error explains the baseline must precede the batch", () => {
     expect(() => reconcileTestPoints({ countAfter: 10, batchSize: 3 } as never))
       .toThrow(/BEFORE the batch/);
   });
-  test("A2-§9.4 negative countBefore is rejected", () => {
+  test("testpoint §9.4 negative countBefore is rejected", () => {
     expect(() => reconcileTestPoints({ countBefore: -1, countAfter: 3, batchSize: 3 }))
       .toThrow(CountReconcileValidationError);
   });
-  test("A2-§9.4 non-integer countBefore is rejected", () => {
+  test("testpoint §9.4 non-integer countBefore is rejected", () => {
     expect(() => reconcileTestPoints({ countBefore: 1.5, countAfter: 3, batchSize: 3 }))
       .toThrow(CountReconcileValidationError);
   });
-  test("A2-§9.4 missing batchSize is rejected", () => {
+  test("testpoint §9.4 missing batchSize is rejected", () => {
     expect(() => reconcileTestPoints({ countBefore: 1, countAfter: 3 } as never))
       .toThrow(/--batch-size/);
   });
-  test("A2-§9.4 zero batchSize is rejected", () => {
+  test("testpoint §9.4 zero batchSize is rejected", () => {
     expect(() => reconcileTestPoints({ countBefore: 1, countAfter: 1, batchSize: 0 }))
       .toThrow(/greater than zero/);
   });
-  test("A2-§9.4 missing countAfter is rejected", () => {
+  test("testpoint §9.4 missing countAfter is rejected", () => {
     expect(() => reconcileTestPoints({ countBefore: 1, batchSize: 3 } as never))
       .toThrow(CountReconcileValidationError);
   });

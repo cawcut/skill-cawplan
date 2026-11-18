@@ -7,7 +7,7 @@
  * `summary` vs summary_snapshot, `ticket_id` vs ticket_id_snapshot separately.
  *
  * Sending the full body instead of changed keys would silently clobber
- * concurrent edits, so this is correctness-critical (A1-WB-4 / P4).
+ * concurrent edits, so this is correctness-critical (WB-4 / P4).
  */
 
 import { normalizeField, normalizeFieldByKey, normalizeTicketId } from "./normalize.js";

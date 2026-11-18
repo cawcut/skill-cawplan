@@ -25,6 +25,20 @@ describe("stripHarnessBlocks", () => {
     );
   });
 
+  test("strips desktop session events, shell-mode blocks and Codex agent notices", () => {
+    const blocks = [
+      "<side-sessions-event>None of the sessions you started is working now.</side-sessions-event>",
+      '<cross-session-message from="local_e2306c9a" name="cawplan skill">\ngh auth works again.\n</cross-session-message>',
+      "<bash-input>aws sts get-caller-identity</bash-input><bash-stdout>{}</bash-stdout><bash-stderr></bash-stderr>",
+      "<turn_aborted>\nThe user interrupted the previous turn on purpose.\n</turn_aborted>",
+      '<subagent_notification>\n{"agent_path":"019f5b04","status":{"completed":"{}"}}\n</subagent_notification>',
+    ];
+    for (const block of blocks) {
+      expect(stripHarnessBlocks(block)).toBe("");
+      expect(stripHarnessBlocks(`${block}\n继续`)).toBe("继续");
+    }
+  });
+
   test("leaves an unclosed tag alone", () => {
     expect(stripHarnessBlocks("why does <system-reminder> show up in my report?")).toBe(
       "why does <system-reminder> show up in my report?"

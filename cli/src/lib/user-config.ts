@@ -18,6 +18,8 @@ export interface UserConfig {
   environments?: Record<string, LocalEnvironment>;
   env?: string;
   cache?: boolean;
+  /** Opt-in for reading the Cursor login token and calling the Cursor Dashboard usage API. */
+  cursor_usage?: boolean;
   local_mapping?: LocalProductMapping[];
 }
 
@@ -74,11 +76,13 @@ function normalizeConfig(parsed: Partial<UserConfig>): UserConfig {
   const localMapping = normalizeLocalMappings(parsed.local_mapping);
   const env = typeof parsed.env === "string" && parsed.env.trim() ? parsed.env.trim() : undefined;
   const cache = typeof parsed.cache === "boolean" ? parsed.cache : undefined;
+  const cursorUsage = typeof parsed.cursor_usage === "boolean" ? parsed.cursor_usage : undefined;
 
   return {
     ...(env ? { env } : {}),
     ...(environments ? { environments } : {}),
     ...(cache !== undefined ? { cache } : {}),
+    ...(cursorUsage !== undefined ? { cursor_usage: cursorUsage } : {}),
     ...(localMapping && localMapping.length > 0 ? { local_mapping: localMapping } : {}),
   };
 }

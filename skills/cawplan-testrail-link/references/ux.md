@@ -45,7 +45,7 @@
 
 ## §TestRailLinks（SHALL）
 
-Step `mappings get` 后解析 `testrail_origin`（同 A1）：
+Step `mappings get` 后解析 `testrail_origin`（同 `cawplan-testcase-import`）：
 
 1. 优先 `testrail_project_url` 或 `suites[]` 中匹配 `confirmed_suite_id` 的 `url`
 2. Origin：`^(https?://[^/]+)`
@@ -74,15 +74,15 @@ Markdown 惯例：
 
 | 用户表述 | 动作 |
 |----------|------|
-| 用默认用例集 / default suite | 采用 `default_suite_id` → 跳过框 A3 |
-| suite {id} / 用例集 {id} | 匹配 `suites[]` → 跳过框 A3 |
+| 用默认用例集 / default suite | 采用 `default_suite_id` → 跳过框 A-suite |
+| suite {id} / 用例集 {id} | 匹配 `suites[]` → 跳过框 A-suite |
 | section id {n} / group_id={n} | `parent_section_id` = **导入根 anchor** → 跳过 AutoScan 首步 |
 | 自动扫描 / 默认 | 不传 `parent_section_id` → AutoScan 第一步 |
 | 绑定 run {id} / runs/view/{id} | B：`plan_id=0`，`run_ids=[id]` |
 | 绑定 plan {id} / plans/view/{id} | B：`plan_id={id}` |
 | 解绑 / 清理旧映射 / 删除后重新导入冲突 | 路由 Workflow C（`link-cases.md §ConflictResolution`） |
 | 换绑 / 把这个测试点的旧用例解绑 | Workflow C · `--scope SELECTED`（`unlink-cases.md §SelectedUnlink`） |
-| 换 Suite | 清 `confirmed_suite_*` **及** `confirmed_parent_section_*` → 框 A3 |
+| 换 Suite | 清 `confirmed_suite_*` **及** `confirmed_parent_section_*` → 框 A-suite |
 | 换导入目录 | 仅清 `confirmed_parent_section_*` → 重走 AutoScan |
 
 ## §ConfirmState
@@ -105,9 +105,9 @@ Markdown 惯例：
 | 框 | 触发 | option labels（中 / EN） |
 |----|------|--------------------------|
 | **0 路由** | A/B 均未命中或双命中 | 链接用例（CSV 导入后）/ Link cases · 绑定计划或运行 / Link plan or run · 先不 / Not now |
-| **A1 上下文** | 缺 product 或 requirement（非热接力） | 粘贴 Test Suite Link / Paste Test Suite Link · 粘贴产品链接 / Paste product link · 先不 / Not now |
-| **A3 Suite** | `suites.length` 2–4 且无 Intent | 同 import 框 3（**不新建 Suite**） |
-| **A3s 导入目录** | AutoScan retry 仍 `to_link=0` 且无 conflict | **3 个** Section 候选（名称 + ID）+ Other · 先不 / Not now |
+| **A-context 上下文** | 缺 product 或 requirement（非热接力） | 粘贴 Test Suite Link / Paste Test Suite Link · 粘贴产品链接 / Paste product link · 先不 / Not now |
+| **A-suite 用例集** | `suites.length` 2–4 且无 Intent | 同 import 框 3（**不新建 Suite**） |
+| **A-section 导入目录** | AutoScan retry 仍 `to_link=0` 且无 conflict | **3 个** Section 候选（名称 + ID）+ Other · 先不 / Not now |
 | **A-confirm** | `to_link>0` 且 `conflict===0` | 确认链接 / Confirm link · 先不 / Not now |
 | **A-unlink-confirm** | `unlink preview` 的 `to_unlink>0` 且 `alive_selected=0` | 确认解绑并继续 / Confirm unlink · 先不 / Not now |
 | **A-unlink-confirm-alive** | `alive_selected>0` | 我已了解，仍然解绑 / Unlink anyway · 先不 / Not now |
@@ -116,7 +116,7 @@ Markdown 惯例：
 | **B-supersede** | `supersede_required>0` | 替换已有绑定 / Replace existing · 先不 / Not now |
 | **B-confirm** | preview OK | 确认绑定 / Confirm bind · 先不 / Not now |
 
-**框 A3s 框上正文（SHALL）**：
+**框 A-section 框上正文（SHALL）**：
 
 > 未在默认扫描范围内找到可链接的用例。请选择 **CSV 导入所在的 TestRail 目录**（导入根目录，将扫描该目录及子目录）。  
 > 数据来自 `sections list`；也可在 Other 输入 Section ID 或带 `group_id=` 的 URL。
@@ -219,7 +219,7 @@ D13 场景 API **无** `existing_test_point_id`：**禁止**编造「绑在 TP-X
 |--------------|-------------|
 | `DUPLICATE_REFS_IN_TESTRAIL` | 多条 TestRail Case 的 refs 完全相同，将只链接其中一条 |
 | `AMBIGUOUS_SECTION_MATCH` | 多个根级目录名与需求匹配，已合并扫描 |
-| `REQUIREMENT_SECTION_NOT_FOUND` | 未匹配到根级目录（AutoScan 应已 retry；仍出现则引导框 A3s） |
+| `REQUIREMENT_SECTION_NOT_FOUND` | 未匹配到根级目录（AutoScan 应已 retry；仍出现则引导框 A-section） |
 | `REQUIREMENT_HAS_NO_TESTPOINTS` | 该需求下无测试点，无法链接 |
 
 **解绑 preview 的 `warnings[]`**：
@@ -346,7 +346,7 @@ D13 场景 API **无** `existing_test_point_id`：**禁止**编造「绑在 TP-X
 | `PREVIEW_EXPIRED` | 预览已过期（约 1h）；解绑过期后须重新预览并重新确认 | 重新预览 / 取消 |
 | `TESTRAIL_UNAVAILABLE` | TestRail 暂不可用 | 稍后重试 / 取消 |
 | `SUITE_NOT_IN_PROJECT` | 用例集无效 | 重新选用例集 / 取消 |
-| `SECTION_NOT_IN_SUITE` | 目录不属于该用例集 | 重选导入目录（框 A3s） / 取消 |
+| `SECTION_NOT_IN_SUITE` | 目录不属于该用例集 | 重选导入目录（框 A-section） / 取消 |
 | `PLAN_NOT_FOUND` / `RUN_NOT_FOUND` | Plan/Run 不存在 | 核对 URL / 取消 |
 | `TICKET_NOT_IN_VERSION` | 工单不在该版本 | 换工单或版本 / 取消 |
 | `auth`/403 | 无权限 | 检查登录 / 取消 |

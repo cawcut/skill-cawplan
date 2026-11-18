@@ -7,7 +7,7 @@ import {assignProjectsFromCloudMappings} from "../src/lib/assign/auto-assign.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// S1.3 regression gate: collect()'s scanSessions() extraction (A1, pure refactor)
+// S1.3 regression gate: collect()'s scanSessions() extraction (pure refactor)
 // must not change coding report output byte-for-byte (generated_at excluded).
 // Baselines were captured via the `session collect` CLI (S1.1), which also runs
 // assignProjectsFromCloudMappings() after collect() — replicate that here so the

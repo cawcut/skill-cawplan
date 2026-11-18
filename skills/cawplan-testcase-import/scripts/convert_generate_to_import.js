@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 'use strict';
 /*
- * A1 生成态转导入体 · convert_generate_to_import.js
+ * cawplan-testcase-import 生成态转导入体 · convert_generate_to_import.js
  *
- * 职责(且仅此职责):把 A3(cawplan-testcase-generate)的 interim JSON(camelCase,
+ * 职责(且仅此职责):把 cawplan-testcase-generate 的 interim JSON(camelCase,
  * 与 export_to_csv.js 同源、见 cawplan-testcase-generate/references/csv-template-mapping.md)
- * 转成 A1 testrail import preview 需要的 INLINE body(snake_case)。
+ * 转成 cawplan-testcase-import testrail import preview 需要的 INLINE body(snake_case)。
  * 脚本只做字段搬运/改名/校验,不生成、不补全、不臆造任何内容值 —— 红线 0
- * 在这一层的硬墙:标题/步骤/预期/优先级等具体值必须已由上游 A3 定稿,原样搬运。
+ * 在这一层的硬墙:标题/步骤/预期/优先级等具体值必须已由上游 cawplan-testcase-generate 定稿,原样搬运。
  *
  * 纯 Node 内置能力,零第三方依赖(无需 npm install):只用 fs / path / process。
  * agent 或用户 `node convert_generate_to_import.js <json> --suite-id <n> [-o out.json]` 直接可跑。
  *
- * 输入契约(不与 A3 协商、照抄其既有导出格式):
+ * 输入契约(不与 cawplan-testcase-generate 协商、照抄其既有导出格式):
  *   { requirementTitle?, cases: [{
  *       title, priority, tag, group, testPointTitle, testPointId, requirementId,
  *       moduleTreeNodeId, preconditions, steps[], expected[]
@@ -143,7 +143,7 @@ function convertCase(raw, index, seqByTestPoint, errors) {
   const seq = (seqByTestPoint.get(tpId) ?? 0) + 1;
   seqByTestPoint.set(tpId, seq);
   // 确定性生成:同一 testPointId 按 cases[] 中首次出现顺序编号,不随机 —— 保证
-  // 同一份 interim JSON 重复运行本脚本得到相同 source_case_key,配合 A1 的
+  // 同一份 interim JSON 重复运行本脚本得到相同 source_case_key,配合 cawplan-testcase-import 的
   // refs 幂等(cawplan:case_* 完整命中才 SKIP)不会把同一批用例重复建单。
   // 若上游已显式给出 sourceCaseKey/source_case_key,尊重之而非覆盖。
   const sourceCaseKey = raw.sourceCaseKey || raw.source_case_key || `${tpId}-case-${String(seq).padStart(2, '0')}`;

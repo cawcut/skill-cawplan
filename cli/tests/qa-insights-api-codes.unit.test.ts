@@ -103,26 +103,26 @@ describe("§6 parseApiEnvelope — malformed payloads", () => {
 });
 
 /*
- * A2-§9.5 — batch success requires SUCCESS *and* a returned array whose length
+ * testpoint §9.5 — batch success requires SUCCESS *and* a returned array whose length
  * equals the posted length; the batch is all-or-nothing.
  */
-describe("A2-§9.5 batchReturnedCount — length check for testpoints archive", () => {
-  test("A2-§9.5 counts returned test_points", () => {
+describe("testpoint §9.5 batchReturnedCount — length check for testpoints archive", () => {
+  test("testpoint §9.5 counts returned test_points", () => {
     expect(batchReturnedCount({ test_points: [{ id: "1" }, { id: "2" }, { id: "3" }] })).toBe(3);
   });
-  test("A2-§9.5 empty array counts as 0", () => {
+  test("testpoint §9.5 empty array counts as 0", () => {
     expect(batchReturnedCount({ test_points: [] })).toBe(0);
   });
-  test("A2-§9.5 missing test_points yields null (cannot confirm success)", () => {
+  test("testpoint §9.5 missing test_points yields null (cannot confirm success)", () => {
     expect(batchReturnedCount({})).toBeNull();
   });
-  test("A2-§9.5 non-array test_points yields null", () => {
+  test("testpoint §9.5 non-array test_points yields null", () => {
     expect(batchReturnedCount({ test_points: "3" })).toBeNull();
   });
-  test("A2-§9.5 null data yields null", () => {
+  test("testpoint §9.5 null data yields null", () => {
     expect(batchReturnedCount(null)).toBeNull();
   });
-  test("A2-§9.5 length mismatch is detectable by the caller", () => {
+  test("testpoint §9.5 length mismatch is detectable by the caller", () => {
     const posted = 3;
     expect(batchReturnedCount({ test_points: [{ id: "1" }] })).not.toBe(posted);
   });

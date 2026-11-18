@@ -9,22 +9,32 @@
       "name": "cawplan",
       "source": "./",
       "description": "CawPlan CLI-backed skills for product release management workflows.",
-      "version": "0.2.13",
+      "version": "0.2.14",
       "skills": [
+        {
+          "name": "ticket-context",
+          "path": "skills/cawplan-ticket-context",
+          "invoke": "/cawplan-ticket-context"
+        },
+        {
+          "name": "ticket-attachments",
+          "path": "skills/cawplan-ticket-attachments",
+          "invoke": "/cawplan-ticket-attachments"
+        },
+        {
+          "name": "my-work",
+          "path": "skills/cawplan-my-work",
+          "invoke": "/cawplan-my-work"
+        },
         {
           "name": "ticket-create",
           "path": "skills/cawplan-ticket-create",
           "invoke": "/cawplan-ticket-create"
         },
         {
-          "name": "product-report",
-          "path": "skills/cawplan-product-report",
-          "invoke": "/cawplan-product-report"
-        },
-        {
-          "name": "product-insights",
-          "path": "skills/cawplan-product-insights",
-          "invoke": "/cawplan-product-insights"
+          "name": "knowledge",
+          "path": "skills/cawplan-knowledge",
+          "invoke": "/cawplan-knowledge"
         },
         {
           "name": "plan-create",
@@ -37,34 +47,34 @@
           "invoke": "/cawplan-plan-track"
         },
         {
+          "name": "product-report",
+          "path": "skills/cawplan-product-report",
+          "invoke": "/cawplan-product-report"
+        },
+        {
+          "name": "product-insights",
+          "path": "skills/cawplan-product-insights",
+          "invoke": "/cawplan-product-insights"
+        },
+        {
+          "name": "metrics",
+          "path": "skills/cawplan-metrics",
+          "invoke": "/cawplan-metrics"
+        },
+        {
+          "name": "risk-assessment",
+          "path": "skills/cawplan-risk-assessment",
+          "invoke": "/cawplan-risk-assessment"
+        },
+        {
           "name": "coding-commit",
           "path": "skills/cawplan-coding-commit",
           "invoke": "/cawplan-coding-commit"
         },
         {
-          "name": "ticket-context",
-          "path": "skills/cawplan-ticket-context",
-          "invoke": "/cawplan-ticket-context"
-        },
-        {
-          "name": "ticket-attachments",
-          "path": "skills/cawplan-ticket-attachments",
-          "invoke": "/cawplan-ticket-attachments"
-        },
-        {
           "name": "coding-insights",
           "path": "skills/cawplan-coding-insights",
           "invoke": "/cawplan-coding-insights"
-        },
-        {
-          "name": "my-work",
-          "path": "skills/cawplan-my-work",
-          "invoke": "/cawplan-my-work"
-        },
-        {
-          "name": "ux-tracking",
-          "path": "skills/cawplan-ux-tracking",
-          "invoke": "/cawplan-ux-tracking"
         },
         {
           "name": "requirement-analyze",
@@ -82,26 +92,6 @@
           "invoke": "/cawplan-testcase-generate"
         },
         {
-          "name": "qa-commit",
-          "path": "skills/cawplan-qa-commit",
-          "invoke": "/cawplan-qa-commit"
-        },
-        {
-          "name": "defect-ticket",
-          "path": "skills/cawplan-defect-ticket",
-          "invoke": "/cawplan-defect-ticket"
-        },
-        {
-          "name": "test-execution-progress",
-          "path": "skills/cawplan-test-execution-progress",
-          "invoke": "/cawplan-test-execution-progress"
-        },
-        {
-          "name": "risk-assessment",
-          "path": "skills/cawplan-risk-assessment",
-          "invoke": "/cawplan-risk-assessment"
-        },
-        {
           "name": "testcase-import",
           "path": "skills/cawplan-testcase-import",
           "invoke": "/cawplan-testcase-import"
@@ -117,19 +107,29 @@
           "invoke": "/cawplan-testrail-link"
         },
         {
+          "name": "defect-ticket",
+          "path": "skills/cawplan-defect-ticket",
+          "invoke": "/cawplan-defect-ticket"
+        },
+        {
+          "name": "test-execution-progress",
+          "path": "skills/cawplan-test-execution-progress",
+          "invoke": "/cawplan-test-execution-progress"
+        },
+        {
           "name": "ticket-report-generate",
           "path": "skills/cawplan-ticket-report-generate",
           "invoke": "/cawplan-ticket-report-generate"
         },
         {
-          "name": "knowledge",
-          "path": "skills/cawplan-knowledge",
-          "invoke": "/cawplan-knowledge"
+          "name": "qa-commit",
+          "path": "skills/cawplan-qa-commit",
+          "invoke": "/cawplan-qa-commit"
         },
         {
-          "name": "metrics",
-          "path": "skills/cawplan-metrics",
-          "invoke": "/cawplan-metrics"
+          "name": "ux-tracking",
+          "path": "skills/cawplan-ux-tracking",
+          "invoke": "/cawplan-ux-tracking"
         },
         {
           "name": "support-metrics",

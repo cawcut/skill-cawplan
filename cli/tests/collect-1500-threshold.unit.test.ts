@@ -15,7 +15,7 @@ const SESSION_ID = "fcc914fb-041a-4ce6-8c2d-f79910c13d0d";
 const DATE = "2026-08-20";
 const PADDED_TURN_MIN_LENGTH = 1501;
 
-describe.skipIf(!existsSync(FIXTURE_PATH))("collect turn-length cutoff (A5 threshold parameterization)", () => {
+describe.skipIf(!existsSync(FIXTURE_PATH))("collect turn-length cutoff (threshold parameterization)", () => {
     test("coding direction: default cutoff still drops the long turn", () => {
         const session = collectClaudeCodeSession(FIXTURE_PATH, "long-turn-fixture", SESSION_ID, DATE);
         const longTurns = (session.human_inputs ?? []).filter((h) => h.content.length >= PADDED_TURN_MIN_LENGTH);

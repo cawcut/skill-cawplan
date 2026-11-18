@@ -1,4 +1,4 @@
-# A5 UX — 报告模板与只读富化展示
+# Risk Assessment UX — 报告模板与只读富化展示
 
 与 `compute-rules.md` 配合；按步骤需要时 Read（保存后可 Read 本文件渲染「已保存」报告），**禁止**开场一次性 Read 全部 references。
 **跟随用户主语言**；禁止同一段中英各写一遍。
@@ -12,8 +12,8 @@
 | 新功能执行覆盖率 | `1 - new_feature_unexecuted_rate` | 版本全部新功能用例（Requirement 映射） |
 | 新功能未执行率 | `summary.execution.new_feature_unexecuted_rate` | 同上 |
 | 已执行用例通过率 | `summary.execution.pass_rate` | **仅已执行**用例（`passed/executed`） |
-| 版本完成度 | capability `versions.get` → `data.progress.complete_percent` | 只读上下文，不参与 A5 规则 |
-| 目标发布 | `data.extra.target_release[]`（每个发布渠道的 `channel_name` + `release_at`） | 只读上下文，不参与 A5 规则 |
+| 版本完成度 | capability `versions.get` → `data.progress.complete_percent` | 只读上下文，不参与风险规则 |
+| 目标发布 | `data.extra.target_release[]`（每个发布渠道的 `channel_name` + `release_at`） | 只读上下文，不参与风险规则 |
 
 等级展示：`CRITICAL`→🔴 严重 · `HIGH`→🔴 高 · `MEDIUM`→🟡 中 · `LOW`→🟢 低
 
@@ -139,7 +139,7 @@
 {§RunsAppendix — 条件允许时追加}
 
 ---
-*说明：A5 结论来自 QA Insights 规则引擎；排期/完成度为只读上下文。不等同于 A3 执行进度、plan-track 排期风险或 A8 Release Readiness。*
+*说明：发版风险结论来自 QA Insights 规则引擎；排期/完成度为只读上下文。不等同于测试执行进度、plan-track 排期风险或 Ticket QA Report 的 Release Readiness。*
 
 （仅当用户尚未要求保存时输出）是否保存此评估？可提供备注（note）。保存将写入 Version 并产生 Activity `QA_RISK_ASSESSMENT_SAVED`。用户已要求保存时，改为直接进入 `save-rules.md` §Save 的预览与提交闸。
 ```

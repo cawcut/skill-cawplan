@@ -1,5 +1,5 @@
 /**
- * Table A — Reconcile (A1 SKILL.md step 11).
+ * Table A — Reconcile (cawplan-requirement-analyze SKILL.md step 11).
  *
  * Pure decision logic: given a probe and the rows fetched from the server,
  * decide what the skill should do. This module NEVER issues requests and never

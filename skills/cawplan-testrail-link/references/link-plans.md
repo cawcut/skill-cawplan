@@ -144,7 +144,7 @@ cawplan qa-insights testrail link plans execute <product_id> \
 
 | Skill | 职责 |
 |-------|------|
-| `cawplan-testplan-layout` | **创建** Milestone / Plan / Run（A2 编排） |
+| `cawplan-testplan-layout` | **创建** Milestone / Plan / Run（测试计划编排） |
 | **本 Skill B** | TestRail **已手工存在**的 Plan/Run → **写** `PlanMapping` |
 | Milestone 未绑定 | 必须先 layout，**不能**用本 Skill 绕过 |
 

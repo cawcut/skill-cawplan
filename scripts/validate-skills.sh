@@ -99,6 +99,38 @@ if [ "$v" != "$ROOT_VERSION" ]; then
 fi
 [ "$fail" -eq 0 ] && echo "✓ all version locations match ${ROOT_VERSION}"
 
+echo "→ Validating min_cli_version against cli/package.json..."
+python3 - <<'PY' || fail=1
+import json
+import pathlib
+import re
+
+# min_cli_version names a released CLI, so no prerelease suffix. A prerelease
+# CLI (0.1.0-rc.1) sorts below its release, so it cannot satisfy 0.1.0.
+semver = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+cli_version = json.loads(pathlib.Path("cli/package.json").read_text())["version"]
+cli_match = re.match(r"^(\d+)\.(\d+)\.(\d+)(-.+)?$", cli_version)
+cli_key = tuple(int(p) for p in cli_match.groups()[:3]) + ((0,) if cli_match.group(4) else (1,))
+bad = False
+for skill_md in sorted(pathlib.Path("skills").glob("cawplan-*/SKILL.md")):
+    frontmatter = re.match(r"^---\n(.*?)\n---\n", skill_md.read_text(), re.DOTALL).group(1)
+    found = re.search(r"^min_cli_version:[ \t]*[\"']?([^\"'\s#]+)", frontmatter, re.MULTILINE)
+    if not found:
+        print(f"::error file={skill_md}::min_cli_version missing (oldest cawplan CLI this skill works with)")
+        bad = True
+        continue
+    match = semver.match(found.group(1))
+    if not match:
+        print(f"::error file={skill_md}::min_cli_version '{found.group(1)}' is not a stable X.Y.Z version")
+        bad = True
+    elif tuple(int(p) for p in match.groups()) + (1,) > cli_key:
+        print(f"::error file={skill_md}::min_cli_version {found.group(1)} > cli/package.json {cli_version}")
+        bad = True
+if bad:
+    raise SystemExit(1)
+print(f"✓ every skill declares a min_cli_version <= {cli_version}")
+PY
+
 echo "→ Validating marketplace.json lists every skill folder..."
 listed=$(python3 -c "
 import json
@@ -297,17 +329,17 @@ PY
 echo "→ Validating qa-insights terminology-en.md two-way byte-identical copy..."
 # Existence is covered by "Validating references" above (workflow-analysis.md /
 # coverage-dimensions.md reference these paths). This step only checks content drift.
-# A3 (cawplan-testcase-generate) has no copy — it never references terminology-en.md
+# cawplan-testcase-generate has no copy — it never references terminology-en.md
 # (its Title/Expected honesty-tail phrasing is inlined in SKILL.md 红线 0 instead).
 TERM_A1="skills/cawplan-requirement-analyze/references/terminology-en.md"
 TERM_A2="skills/cawplan-testpoint-generate/references/terminology-en.md"
 if [ -f "$TERM_A1" ] && [ -f "$TERM_A2" ]; then
   if ! diff -q "$TERM_A1" "$TERM_A2" >/dev/null; then
-    echo "::error file=${TERM_A2}::differs from ${TERM_A1} (terminology-en.md must be byte-identical across A1/A2)"
+    echo "::error file=${TERM_A2}::differs from ${TERM_A1} (terminology-en.md must be byte-identical across requirement-analyze/testpoint-generate)"
     fail=1
   fi
 fi
-[ "$fail" -eq 0 ] && echo "✓ terminology-en.md — byte-identical across A1/A2"
+[ "$fail" -eq 0 ] && echo "✓ terminology-en.md — byte-identical across requirement-analyze/testpoint-generate"
 
 echo "→ Validating QUERY_RESILIENCE.md skill copies are byte-identical..."
 # The hosted agent bundles only skills/, so every skill that references
@@ -345,6 +377,14 @@ for skill_dir in skills/cawplan-*/; do
   fi
 done
 [ "$fail" -eq 0 ] && echo "✓ UNTRUSTED_CONTENT.md — every skill references a byte-identical copy"
+
+echo "→ Validating plugin manifests against the role config..."
+# Skill lists in the Claude/Codex/Cursor manifests and optional-skills.json are
+# generated from cli/config/skill-roles.json; a hand edit or a new skill folder
+# without a role fails here until `python3 scripts/manifests.py render` runs.
+if ! python3 scripts/manifests.py check; then
+  fail=1
+fi
 
 echo "→ Validating capability registry and resolver skills..."
 # Skills that reference references/CAPABILITIES.md name capabilities instead of

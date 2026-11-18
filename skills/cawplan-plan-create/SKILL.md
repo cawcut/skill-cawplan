@@ -1,5 +1,6 @@
 ---
-version: 0.2.13
+version: 0.2.14
+min_cli_version: 0.0.67
 name: cawplan-plan-create
 description: |
   Create a CawPlan version plan: create a version and optionally populate it with tickets, either from an explicit ticket list or by extracting work items from pasted OKRs/stage goals — deduplicating against the existing backlog and adding a rough, clearly-labeled effort estimate.

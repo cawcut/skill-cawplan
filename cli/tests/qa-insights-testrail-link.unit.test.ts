@@ -104,7 +104,7 @@ describe("testrail link body builders", () => {
   });
 });
 
-describe("A8 TestRail link cases", () => {
+describe("TestRail link cases", () => {
   test("POST /qa/testrail/link/cases/preview", async () => {
     const h = harness([
       ok({
@@ -172,7 +172,7 @@ describe("A8 TestRail link cases", () => {
   });
 });
 
-describe("A8 TestRail link plans", () => {
+describe("TestRail link plans", () => {
   test("POST /qa/testrail/link/plans/preview via flags", async () => {
     const h = harness([
       ok({
@@ -342,7 +342,7 @@ describe("testrail unlink body builders", () => {
   });
 });
 
-describe("A8 TestRail link cases unlink", () => {
+describe("TestRail link cases unlink", () => {
   const UNLINK_BASE = `/api/v1/public/openapi/product/${PRODUCT}/qa/testrail/link/cases/unlink`;
 
   test("POST /qa/testrail/link/cases/unlink/preview", async () => {

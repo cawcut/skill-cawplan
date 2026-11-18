@@ -22,7 +22,7 @@ describe.skipIf(availableCases.length === 0)("collectQaAssetChanges (real sessio
         expect(changes.testpoint.added).toBe(expectedTestpointAdded);
     });
 
-    test("A3-only sessions have all six numbers at zero", () => {
+    test("test-case-generation-only sessions have all six numbers at zero", () => {
         const traces = tracesFromToolResultStdout(join(QA_DIR, "87a6526b-63fa-42a6-bb6e-c3c497b42485.jsonl"));
         const changes = collectQaAssetChanges(traces);
         expect(changes).toEqual({

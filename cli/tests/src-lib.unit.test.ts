@@ -45,7 +45,7 @@ import { getConfigPath, readUserConfig, writeUserConfig } from "../src/lib/user-
 import { normalizeSessionRepoContext } from "../src/lib/collect";
 import { buildDailyApiJson } from "../src/lib/collect/aggregators/daily";
 import { calculateCost } from "../src/lib/collect/pricing";
-import { collectCodexSessions } from "../src/lib/collect/agents/codex";
+import { cleanCodexUserText, collectCodexSessions, normalizeCodexSkillMentions } from "../src/lib/collect/agents/codex";
 import { collectCursorCliSessions } from "../src/lib/collect/agents/cursor-cli";
 import { aggregateUsageBuckets } from "../src/lib/collect/aggregators/tokens";
 import {
@@ -71,6 +71,9 @@ let originalConfigPath: string | undefined;
 let originalCachePath: string | undefined;
 let originalCodexHome: string | undefined;
 let originalCursorHome: string | undefined;
+
+// Windows has no POSIX mode bits; the files are still written and read back.
+const POSIX_MODES = process.platform !== "win32";
 
 const protoEnvironment = {
   apiBase: "https://proto-api.example.com/core-product",
@@ -271,7 +274,7 @@ describe("src lib products", () => {
     expect(getApiBase()).toBe(protoEnvironment.apiBase);
     expect(getPortalBase()).toBe(protoEnvironment.portalBase);
     const configStat = await stat(getConfigPath());
-    expect(configStat.mode & 0o777).toBe(0o600);
+    if (POSIX_MODES) expect(configStat.mode & 0o777).toBe(0o600);
   });
 
   test("a removed private profile never falls back to production", async () => {
@@ -361,7 +364,7 @@ describe("src lib credentials", () => {
     expect(getCredentialsPath()).toBe(join(tmpDir, "credentials.json"));
 
     const mode = (await stat(getCredentialsPath())).mode & 0o777;
-    expect(mode).toBe(0o600);
+    if (POSIX_MODES) expect(mode).toBe(0o600);
 
     await deleteCredentials();
     expect(await readCredentials()).toBeNull();
@@ -1136,7 +1139,7 @@ describe("src lib oauth device-auth", () => {
     expect(pending.expiresAt).toBe(1_000_000_000 + 300);
     expect(getPendingLoginPath()).toBe(join(tmpDir, "pending-login.json"));
     await expect(readPendingLogin()).resolves.toEqual(pending);
-    expect((await stat(getPendingLoginPath())).mode & 0o777).toBe(0o600);
+    if (POSIX_MODES) expect((await stat(getPendingLoginPath())).mode & 0o777).toBe(0o600);
   });
 
   test("complete returns pending while approval is outstanding and keeps the token", async () => {
@@ -1796,7 +1799,57 @@ describe("src lib collect codex", () => {
 
     const [session] = collectCodexSessions("2026-09-28");
 
-    expect(session?.human_inputs?.map((input) => input.content)).toEqual([invocation, "补充边界场景"]);
+    // The invocation link is shown as "/skill-name", without the local SKILL.md path.
+    expect(session?.human_inputs?.map((input) => input.content)).toEqual([
+      "/cawplan-testpoint-generate 关联工单:CWP-22903",
+      "补充边界场景",
+    ]);
+  });
+
+  test("keeps the image placeholder and question answers from Codex user turns", () => {
+    const image =
+      '<image name=[Image #1] path="/var/folders/c2/T/codex-clipboard-1e3f2c94.png">\n</image>';
+    expect(cleanCodexUserText(`时间处理有问题\n${image}`)).toBe("时间处理有问题\n[Image #1]");
+    expect(cleanCodexUserText(image)).toBe("[Image #1]");
+    expect(cleanCodexUserText('<image name="[Image #2]" path="/tmp/a.png"></image>')).toBe("[Image #2]");
+
+    const reply = [
+      "<send_user_message_question_reply>",
+      JSON.stringify([
+        { questionItemId: "q1", question: "Which repos?", answer: "仅上次涉及的仓库" },
+        { questionItemId: "q2", question: "Envs?", answer: ["qa", "ga"] },
+      ]),
+      "</send_user_message_question_reply>",
+    ].join("\n");
+    expect(cleanCodexUserText(reply)).toBe("仅上次涉及的仓库\nqa, ga");
+    // Unparseable payloads are dropped rather than shown raw.
+    expect(
+      cleanCodexUserText("<send_user_message_question_reply>not json</send_user_message_question_reply>"),
+    ).toBe("");
+    // Interrupt notices and sub-agent results leave nothing behind.
+    expect(cleanCodexUserText("<turn_aborted>\nThe user interrupted.\n</turn_aborted>")).toBe("");
+  });
+
+  test("rewrites Codex skill-mention links to /skill-name", () => {
+
+    expect(
+      normalizeCodexSkillMentions(
+        "[$compound-engineering:ce-plan](/home/dev/.codex/plugins/cache/ce/3.13.1/skills/ce-plan/SKILL.md) 拆一下",
+      ),
+    ).toBe("/compound-engineering:ce-plan 拆一下");
+    expect(
+      normalizeCodexSkillMentions("先 [$a](/p/a/SKILL.md) 再 [$b](C:\\Users\\me\\skills\\b\\SKILL.md)"),
+    ).toBe("先 /a 再 /b");
+    // Other Markdown links, and app/connector mentions, are left alone.
+    expect(normalizeCodexSkillMentions("[docs](https://example.com/SKILL.md.html) [$gmail](app://gmail)")).toBe(
+      "[docs](https://example.com/SKILL.md.html) [$gmail](app://gmail)",
+    );
+    // Also applied after the IDE request section is extracted.
+    expect(
+      cleanCodexUserText(
+        "# Files mentioned by the user:\n- a.ts\n\n## My request:\n[$cawplan-testpoint-generate](/home/dev/.agents/skills/cawplan-testpoint-generate/SKILL.md) CWP-1",
+      ),
+    ).toBe("/cawplan-testpoint-generate CWP-1");
   });
 
   test("strips harness blocks and drops tool prompts from Codex human inputs", async () => {

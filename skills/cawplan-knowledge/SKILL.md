@@ -1,5 +1,6 @@
 ---
-version: 0.2.13
+version: 0.2.14
+min_cli_version: 0.0.67
 name: cawplan-knowledge
 description: |
   Browse and search the CawPlan knowledge base: list/create datasets, list/upload documents in a

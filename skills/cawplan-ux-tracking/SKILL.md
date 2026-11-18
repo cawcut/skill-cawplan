@@ -1,5 +1,6 @@
 ---
-version: 0.2.13
+version: 0.2.14
+min_cli_version: 0.0.67
 name: cawplan-ux-tracking
 description: |
   Find CawPlan tickets that need UX attention, or summarize a product's UX members' design completion: pending UX for a version, high-priority tickets missing UX design, a Team's UX-pending queue, or tickets that product's Designers marked UX Ready in a date range.
@@ -29,7 +30,7 @@ Every workflow passes `excluded_status_categories` = `COMPLETE`, `CANCELED`: UX 
 
 UX queries need the full window: `start_date` 2000-01-01 and `end_date` today.
 
-**Pagination**: increment `page_num` while `page_num * page_size < total`; use `total` as the completion signal. In the hosted agent each page is its own tool call (no shell loops or `jq`) and a turn has roughly 16 calls: use `page_size` 100, and if the pages do not fit, report a partial result (see `references/QUERY_RESILIENCE.md`).
+**Pagination**: increment `page_num` while `page_num * page_size < total`; use `total` as the completion signal. In the hosted agent each page is its own tool call (no shell loops or `jq`) and a turn has roughly 16 calls: use `view` compact with `page_size` 50 (a larger compact page can exceed the tool-result limit), and if the pages do not fit, report a partial result (see `references/QUERY_RESILIENCE.md`).
 
 **Counts only** ("how many tickets still need UX, by priority/version"): use capability `tickets.stats` with the same filters and `group_by` = `priority` (or `version`, `assignee`) instead of paging and counting.
 
@@ -50,7 +51,7 @@ UX queries need the full window: `start_date` 2000-01-01 and `end_date` today.
 1. Resolve product + version (same pattern as `cawplan-plan-track` steps 1-2) with capability `products.list` (`search` = a product-name word) and capability `versions.list` (`product_id`).
    On the CLI route pass the search text as one unquoted token (`--search CawPlan`, never `--search "CawPlan"`): the hosted agent rejects quoted values. For a name with spaces, search one distinctive word and match the full name in the results.
    The supplied product must be an exact accessible-name match (case-insensitive after trimming whitespace), a unique short-form/token-prefix match, or a candidate the user explicitly confirms. If no unique match exists, show the candidates and ask which product they mean before listing versions or querying tickets; never use the closest product name.
-2. Fetch with capability `tickets.search` (`version_ids` = this version, `ux` = `PENDING`, `excluded_status_categories` = `COMPLETE`, `CANCELED`, `start_date` 2000-01-01, `end_date` today, `page_size` = 100, `page_num` = 1).
+2. Fetch with capability `tickets.search` (`version_ids` = this version, `ux` = `PENDING`, `excluded_status_categories` = `COMPLETE`, `CANCELED`, `start_date` 2000-01-01, `end_date` today, `view` = `compact`, `page_size` = 50, `page_num` = 1).
    Page through fully (see Pagination above).
 
    For "all versions of this product" (per Entry Routing), drop `version_ids` and use `product_ids` = this product instead — everything else in this step is unchanged, and no priority filter is added just because there's no version.
@@ -58,13 +59,13 @@ UX queries need the full window: `start_date` 2000-01-01 and `end_date` today.
 ## Workflow B — Priority scope
 
 1. If the user gave a product/version, resolve it the same way as Workflow A and add `product_ids`/`version_ids`. If they didn't, ask whether to scope to a product or search across everything they have access to — don't silently assume "everything."
-2. Fetch with capability `tickets.search` (`priority` = `CRITICAL`, `HIGH`, `ux` = `PENDING`, `excluded_status_categories` = `COMPLETE`, `CANCELED`, `start_date` 2000-01-01, `end_date` today, `page_size` = 100, `page_num` = 1, plus `product_ids` and/or `version_ids` when scoped).
+2. Fetch with capability `tickets.search` (`priority` = `CRITICAL`, `HIGH`, `ux` = `PENDING`, `excluded_status_categories` = `COMPLETE`, `CANCELED`, `start_date` 2000-01-01, `end_date` today, `view` = `compact`, `page_size` = 50, `page_num` = 1, plus `product_ids` and/or `version_ids` when scoped).
    Page through fully (see Pagination above), then sort `CRITICAL` → `HIGH`.
 
 ## Workflow C — Team scope
 
 1. Resolve the Team name to a `product_line_id` — same pattern as `cawplan-product-report`'s Team workflow: capability `product_lines.list` (`page_size` = 100), match by name client-side. Require an exact name match (case-insensitive after trimming whitespace), a unique short-form/token-prefix match, or explicit user confirmation of a candidate. Ask to disambiguate on multiple matches; if no unique name match exists, list candidates and ask which Team the user means rather than guessing the closest one.
-2. Fetch with capability `tickets.search` (`product_line_ids` = this Team, `ux` = `PENDING`, `excluded_status_categories` = `COMPLETE`, `CANCELED`, `start_date` 2000-01-01, `end_date` today, `page_size` = 100, `page_num` = 1).
+2. Fetch with capability `tickets.search` (`product_line_ids` = this Team, `ux` = `PENDING`, `excluded_status_categories` = `COMPLETE`, `CANCELED`, `start_date` 2000-01-01, `end_date` today, `view` = `compact`, `page_size` = 50, `page_num` = 1).
    Page through fully (see Pagination above), then sort `CRITICAL` → `HIGH` → `MEDIUM` → `LOW`.
 
 ## Workflow D — Product UX completion
@@ -86,7 +87,7 @@ line. If the product is omitted, ask which product's UX members should be report
    continue with `cursor` = `next_cursor` or split the window before reporting.
 
    **Fallback** (only if `tickets.changes` is unavailable, see `references/QUERY_RESILIENCE.md`):
-   fetch candidates with capability `tickets.search` (`product_ids` = this product, `ux` = `PENDING`, `READY`, `start_date` 2000-01-01, `end_date` today, `updated_start_date` = window start, `updated_end_date` = today, `page_size` = 100, `page_num` = 1),
+   fetch candidates with capability `tickets.search` (`product_ids` = this product, `ux` = `PENDING`, `READY`, `start_date` 2000-01-01, `end_date` today, `updated_start_date` = window start, `updated_end_date` = today, `view` = `compact`, `page_size` = 50, `page_num` = 1),
    paged fully (no terminal-status exclusion: a Ticket may have been marked `READY` and later
    closed or moved back to `PENDING`; `updated_at` is only a candidate filter). Then, for every
    candidate, fetch capability `tickets.history` (`product_id`, `version_id`, `ticket_id`) and keep only

@@ -83,6 +83,10 @@ function registerSessionSubcommands(session: Command): void {
         )
         .option("--output <path>", "Output file path (default: <tmp>/cawplan-ai-daily/ai-daily-<date>.json)")
         .option("--verbose", "Print detailed collection progress and per-step timings")
+        .option(
+            "--cursor-usage",
+            "Read the Cursor login token and query cursor.com for exact Cursor token/cost data for this run (off unless enabled; persist with `cawplan config cursor-usage on`)"
+        )
         .option("--mode <coding|qa>", "Collection mode: coding (default) or qa", "coding")
         .option("--upload", "For --mode qa: upload the collected QA report immediately")
         .option("--assign", "For --mode qa: open the QA assignment confirmation page after collection")
@@ -104,6 +108,8 @@ function registerSessionSubcommands(session: Command): void {
                     : undefined;
             const startedAt = Date.now();
             const verbose = Boolean(opts.verbose);
+            // Only an explicit flag overrides the persisted opt-in; absent means "use config".
+            const cursorUsage: boolean | undefined = opts.cursorUsage ? true : undefined;
             const verboseLog = (message: string) => {
                 if (!verbose) return;
                 console.error(`[collect +${formatElapsedMs(Date.now() - startedAt)}] ${message}`);
@@ -117,6 +123,7 @@ function registerSessionSubcommands(session: Command): void {
                         agents,
                         verbose,
                         outputPath,
+                        cursorUsage,
                     });
                     console.error(
                         `Collected ${qaDaily.totals.sessions} QA session(s) from agents: ${
@@ -139,7 +146,7 @@ function registerSessionSubcommands(session: Command): void {
                     return;
                 }
 
-                const daily = await collect({date, agents, verbose, collectMode});
+                const daily = await collect({date, agents, verbose, collectMode, cursorUsage});
                 console.error(
                     `Collected ${
                         (daily.totals as {sessions?: number})?.sessions ?? 0

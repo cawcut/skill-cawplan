@@ -5,12 +5,16 @@ Skills that reference references/CAPABILITIES.md name capabilities such as
 `tickets.search` instead of a cawplan CLI command or an MCP tool. The agent
 resolves each capability with the rules in CAPABILITIES.md.
 
-  render                         regenerate references/CAPABILITIES.md and the
-                                 per-skill copies from references/capabilities.json
+  render                         regenerate references/CAPABILITIES.md (every
+                                 capability) and each resolver skill's copy (only
+                                 the capabilities that skill names) from
+                                 references/capabilities.json
   check                          validate the registry against the CLI source and
                                  the MCP tool snapshot, and lint resolver skills
-  sync-mcp --core-product PATH   refresh references/mcp-tools.json from a
-                                 CawPlan backend checkout
+  sync-mcp --core-product PATH [--ref REF]
+                                 refresh references/mcp-tools.json from a
+                                 CawPlan backend checkout (its working tree, or
+                                 the file at git REF such as origin/dev)
 """
 
 import argparse
@@ -37,12 +41,12 @@ HEADER = """# CawPlan Capabilities
 <!-- Generated from references/capabilities.json by scripts/capabilities.py render. Do not edit. -->
 
 Skills name **capabilities** (for example `tickets.search`), not a transport. Resolve each capability to the `cawplan` CLI or to the CawPlan MCP server with these rules.
-
+{scope}
 ## Choose a route (required, before the first capability call)
 
 Check the routes in this order and use the first one that works. Keep the order even when CawPlan MCP tools are available in the session: the CLI is checked first.
 
-1. **CLI**: if you have a shell tool (for example Bash), run `cawplan skill check` before any CawPlan MCP call (it verifies the CLI version and sign-in; checking PATH alone is not enough). If it exits 0, use the CLI route for the rest of the session and do not call CawPlan MCP tools.
+1. **CLI**: if you have a shell tool (for example Bash), run `cawplan skill check` before any CawPlan MCP call (it verifies the CLI version and sign-in; checking PATH alone is not enough). If it exits 0, use the CLI route for the rest of the session and do not call CawPlan MCP tools. If it exits 3 (`CLI too old`: the installed skills need a newer CLI), do not switch routes silently: tell the user the required version and ask whether to run `cawplan upgrade`. If they agree, run it and then `cawplan skill check` again; if they decline or the upgrade fails, tell them the CLI stays out of date and go to step 2.
 2. **MCP**: only if you have no shell tool or the CLI check fails, and the session has CawPlan MCP tools (the tool name ends with the MCP tool below, for example `mcp__cawplan__search_tickets`), use the MCP route.
 3. **Neither**: tell the user to either install and sign in to the CLI (`npm install -g cawplan`, then `cawplan auth login`) or connect the CawPlan MCP server, then stop.
 
@@ -108,7 +112,12 @@ def mcp_example(mcp: dict, example: dict) -> str:
     return "%s %s" % (mcp["tool"], json.dumps(args))
 
 
-def render(registry: dict) -> str:
+def render(registry: dict, skill: str = "", total: int = 0) -> str:
+    """Render the capability reference.
+
+    With skill set, the output is that skill's trimmed copy: registry is the
+    subset the skill names, and the header says so.
+    """
     rows, details = [], []
     for name in sorted(registry):
         cap = registry[name]
@@ -132,7 +141,13 @@ def render(registry: dict) -> str:
             details.append(f"- CLI: `{cli_example(cli, example)}`")
         if mcp:
             details.append(f"- MCP: `{mcp_example(mcp, example)}`")
-    out = HEADER + "\n".join(rows) + "\n"
+    scope = ""
+    if skill:
+        scope = (
+            f"\nThis copy lists only the capabilities that `{skill}` names ({len(registry)} of {total}). "
+            "Every capability a CawPlan skill can use is in the repository's root `references/CAPABILITIES.md`.\n"
+        )
+    out = HEADER.replace("{scope}", scope) + "\n".join(rows) + "\n"
     if details:
         out += "\n## Arguments\n" + "\n".join(details) + "\n"
     return out
@@ -142,6 +157,33 @@ def resolver_skills(root: Path):
     for skill_md in sorted((root / "skills").glob("*/SKILL.md")):
         if SKILL_REF in skill_md.read_text():
             yield skill_md
+
+
+def skill_capabilities(skill_md: Path, registry: dict) -> dict:
+    """Capabilities a skill names anywhere in SKILL.md or its own references.
+
+    A name counts wherever it appears (in prose, a table or a code span), not
+    only in the `capability \`name\`` form, so a trimmed copy never drops a
+    capability the skill relies on.
+    """
+    texts = [skill_md.read_text()]
+    for ref in sorted((skill_md.parent / "references").glob("*.md")):
+        if ref.name != CANONICAL.name:
+            texts.append(ref.read_text())
+    text = "\n".join(texts)
+    return {
+        name: cap
+        for name, cap in registry.items()
+        if re.search(rf"(?<![\w.]){re.escape(name)}(?![\w]|\.\w)", text)
+    }
+
+
+def render_skills(root: Path, registry: dict) -> dict:
+    """Map each resolver skill's CAPABILITIES.md copy to its expected text."""
+    return {
+        skill_md.parent / SKILL_REF: render(skill_capabilities(skill_md, registry), skill_md.parent.name, len(registry))
+        for skill_md in resolver_skills(root)
+    }
 
 
 def cli_command_errors(root: Path, name: str, cli: dict) -> list:
@@ -206,11 +248,15 @@ def check(root: Path) -> list:
     if not canonical.exists() or canonical.read_text() != expected:
         errors.append(f"{CANONICAL} is stale: run python3 scripts/capabilities.py render")
 
+    copies = render_skills(root, registry)
     for skill_md in resolver_skills(root):
         rel = skill_md.relative_to(root)
         copy = skill_md.parent / SKILL_REF
-        if not copy.exists() or copy.read_text() != expected:
-            errors.append(f"{copy.relative_to(root)} missing or differs from {CANONICAL} (hosted bundles only skills/)")
+        if not copy.exists() or copy.read_text() != copies[copy]:
+            errors.append(
+                f"{copy.relative_to(root)} missing or stale (hosted bundles only skills/): "
+                "run python3 scripts/capabilities.py render"
+            )
         text = skill_md.read_text()
         refs = CAPABILITY_REF.findall(text)
         if not refs:
@@ -226,15 +272,38 @@ def check(root: Path) -> list:
     return errors
 
 
-def sync_mcp(root: Path, core_product: Path) -> None:
-    source = (core_product / MCP_TOOLS_GO).read_text()
-    names = re.findall(r'^\s*Name:\s*"([a-z_]+)"', source, re.MULTILINE)
+def mcp_tool_names(source: str) -> list:
+    """Tool names in toolDefs order; a Name may be a literal or a Go constant.
+
+    Optional tools (search_coding_experience) are declared as a constant so the
+    server can leave them out, e.g. Name: ToolSearchCodingExperience.
+    """
+    consts = dict(re.findall(r'^\s*(?:const\s+)?(\w+)\s*=\s*"([a-z_]+)"', source, re.MULTILINE))
+    names = []
+    for literal, ident in re.findall(r'^\s*Name:\s*(?:"([a-z_]+)"|([A-Za-z_]\w*))\s*,', source, re.MULTILINE):
+        if literal:
+            names.append(literal)
+        elif ident in consts:
+            names.append(consts[ident])
+        else:
+            sys.exit(f"tool Name {ident} is not a string constant declared in {MCP_TOOLS_GO}")
+    return names
+
+
+def sync_mcp(root: Path, core_product: Path, ref: str = "") -> None:
+    if ref:
+        source = subprocess.check_output(["git", "-C", str(core_product), "show", f"{ref}:{MCP_TOOLS_GO}"], text=True)
+    else:
+        source = (core_product / MCP_TOOLS_GO).read_text()
+    names = mcp_tool_names(source)
     if not names:
         sys.exit(f"no tool names found in {core_product / MCP_TOOLS_GO}")
-    sha = subprocess.check_output(["git", "-C", str(core_product), "rev-parse", "--short", "HEAD"], text=True).strip()
+    sha = subprocess.check_output(
+        ["git", "-C", str(core_product), "rev-parse", "--short", f"{ref or 'HEAD'}^{{commit}}"], text=True
+    ).strip()
     snapshot = {
         "source": f"CawPlan backend {MCP_TOOLS_GO} @ {sha}",
-        "refresh": "python3 scripts/capabilities.py sync-mcp --core-product <path to the CawPlan backend checkout>",
+        "refresh": "python3 scripts/capabilities.py sync-mcp --core-product <path to the CawPlan backend checkout> [--ref origin/dev]",
         "tools": names,
     }
     (root / MCP_SNAPSHOT).write_text(json.dumps(snapshot, indent=2) + "\n")
@@ -249,19 +318,18 @@ def main(argv=None) -> int:
     sub.add_parser("check")
     sync = sub.add_parser("sync-mcp")
     sync.add_argument("--core-product", type=Path, required=True)
+    sync.add_argument("--ref", default="", help="read tools.go at this git ref instead of the working tree")
     args = parser.parse_args(argv)
 
     if args.cmd == "render":
         registry, _ = load(args.root)
-        text = render(registry)
-        (args.root / CANONICAL).write_text(text)
-        for skill_md in resolver_skills(args.root):
-            copy = skill_md.parent / SKILL_REF
+        (args.root / CANONICAL).write_text(render(registry))
+        for copy, text in render_skills(args.root, registry).items():
             copy.parent.mkdir(exist_ok=True)
             copy.write_text(text)
         return 0
     if args.cmd == "sync-mcp":
-        sync_mcp(args.root, args.core_product)
+        sync_mcp(args.root, args.core_product, args.ref)
         return 0
 
     errors = check(args.root)

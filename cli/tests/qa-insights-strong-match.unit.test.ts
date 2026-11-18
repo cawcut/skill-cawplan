@@ -15,29 +15,29 @@ const base = {
   out_of_scope: "Video Type 差异化配置由 Idea 需求覆盖",
 };
 
-describe("A1-FC-5 strong match — all five fields must be equal", () => {
-  test("A1-FC-5 identical five fields match", () => {
+describe("FC-5 strong match — all five fields must be equal", () => {
+  test("FC-5 identical five fields match", () => {
     expect(isStrongMatch(base, { ...base })).toBe(true);
   });
-  test("A1-FC-5 differing function_description does not match", () => {
+  test("FC-5 differing function_description does not match", () => {
     expect(isStrongMatch(base, { ...base, function_description: "别的页面" })).toBe(false);
   });
-  test("A1-FC-5 differing entry_trigger does not match", () => {
+  test("FC-5 differing entry_trigger does not match", () => {
     expect(isStrongMatch(base, { ...base, entry_trigger: "别的入口" })).toBe(false);
   });
-  test("A1-FC-5 differing normal_expectation does not match", () => {
+  test("FC-5 differing normal_expectation does not match", () => {
     expect(isStrongMatch(base, { ...base, normal_expectation: "别的预期" })).toBe(false);
   });
-  test("A1-FC-5 differing constraints does not match", () => {
+  test("FC-5 differing constraints does not match", () => {
     expect(isStrongMatch(base, { ...base, constraints: "别的约束" })).toBe(false);
   });
-  test("A1-FC-5 differing out_of_scope does not match", () => {
+  test("FC-5 differing out_of_scope does not match", () => {
     expect(isStrongMatch(base, { ...base, out_of_scope: "别的不测范围" })).toBe(false);
   });
-  test("A1-FC-1 whitespace-only differences still match (normalize first)", () => {
+  test("FC-1 whitespace-only differences still match (normalize first)", () => {
     expect(isStrongMatch(base, { ...base, constraints: `  ${base.constraints}  ` })).toBe(true);
   });
-  test("A1-FC-2 out_of_scope null vs （素材未提及） still match", () => {
+  test("FC-2 out_of_scope null vs （素材未提及） still match", () => {
     const a = { ...base, out_of_scope: null };
     const b = { ...base, out_of_scope: "（素材未提及）" };
     expect(isStrongMatch(a, b)).toBe(true);
@@ -51,7 +51,7 @@ describe("A1-FC-5 strong match — all five fields must be equal", () => {
  * labels on different requirements. Matching on summary would be wrong in both
  * directions, so it is excluded entirely.
  */
-describe("P3 / A1-FC-5 strong match — summary does NOT participate", () => {
+describe("P3 / FC-5 strong match — summary does NOT participate", () => {
   test("P3 different summary still matches when five fields are equal", () => {
     const a = { ...base, summary: "视频导出参数配置" };
     const b = { ...base, summary: "视频生成参数配置" };
@@ -76,39 +76,39 @@ describe("P3 / A1-FC-5 strong match — summary does NOT participate", () => {
 });
 
 /*
- * A1-FC-3 — inference markers stay in the compared text. A row whose bullet was
+ * FC-3 — inference markers stay in the compared text. A row whose bullet was
  * SQA-verified (marker removed) is NOT the same row as one still marked inferred.
  */
-describe("A1-FC-3 strong match — inference markers are not stripped", () => {
-  test("A1-FC-3 （惯例推断） vs unmarked does not match", () => {
+describe("FC-3 strong match — inference markers are not stripped", () => {
+  test("FC-3 （惯例推断） vs unmarked does not match", () => {
     const a = { ...base, constraints: "（惯例推断）须二次确认" };
     const b = { ...base, constraints: "须二次确认" };
     expect(isStrongMatch(a, b)).toBe(false);
   });
-  test("A1-FC-3 （界面推断） vs unmarked does not match", () => {
+  test("FC-3 （界面推断） vs unmarked does not match", () => {
     const a = { ...base, normal_expectation: "（界面推断）按钮置灰" };
     const b = { ...base, normal_expectation: "按钮置灰" };
     expect(isStrongMatch(a, b)).toBe(false);
   });
-  test("A1-FC-3 same marker on both sides matches", () => {
+  test("FC-3 same marker on both sides matches", () => {
     const marked = { ...base, constraints: "（惯例推断）须二次确认" };
     expect(isStrongMatch(marked, { ...marked })).toBe(true);
   });
-  test("A1-FC-3 （惯例推断） vs （界面推断） does not match", () => {
+  test("FC-3 （惯例推断） vs （界面推断） does not match", () => {
     const a = { ...base, constraints: "（惯例推断）须二次确认" };
     const b = { ...base, constraints: "（界面推断）须二次确认" };
     expect(isStrongMatch(a, b)).toBe(false);
   });
 });
 
-describe("A1-FC-5 differingFields — reports which of the five differ", () => {
-  test("A1-FC-5 no differences yields empty list", () => {
+describe("FC-5 differingFields — reports which of the five differ", () => {
+  test("FC-5 no differences yields empty list", () => {
     expect(differingFields(base, { ...base })).toEqual([]);
   });
-  test("A1-FC-5 single difference reported", () => {
+  test("FC-5 single difference reported", () => {
     expect(differingFields(base, { ...base, constraints: "改了" })).toEqual(["constraints"]);
   });
-  test("A1-FC-5 multiple differences reported in canonical key order", () => {
+  test("FC-5 multiple differences reported in canonical key order", () => {
     const changed = { ...base, function_description: "改了", out_of_scope: "也改了" };
     expect(differingFields(base, changed)).toEqual(["function_description", "out_of_scope"]);
   });
@@ -131,19 +131,19 @@ describe("P13 findStrongMatches — surfaces every match, never picks one", () =
   test("P13 non-matching rows are excluded", () => {
     expect(strongMatchIds(base, rows)).not.toContain("id-2");
   });
-  test("A1-TA-1 exactly one match yields a single id", () => {
+  test("TA-1 exactly one match yields a single id", () => {
     expect(strongMatchIds(base, [rows[0], rows[1]])).toEqual(["id-1"]);
   });
-  test("A1-TA-5 no match yields empty list", () => {
+  test("TA-5 no match yields empty list", () => {
     expect(strongMatchIds({ ...base, constraints: "谁都不等于" }, rows)).toEqual([]);
   });
-  test("A1-TA-5 empty row list yields empty list", () => {
+  test("TA-5 empty row list yields empty list", () => {
     expect(strongMatchIds(base, [])).toEqual([]);
   });
   test("P13 findStrongMatches returns whole rows, preserving list order", () => {
     expect(findStrongMatches(base, rows).map((r) => r.id)).toEqual(["id-1", "id-3"]);
   });
-  test("A1-FC-2 probe with omitted out_of_scope matches row with （素材未提及）", () => {
+  test("FC-2 probe with omitted out_of_scope matches row with （素材未提及）", () => {
     const probe = {
       function_description: base.function_description,
       entry_trigger: base.entry_trigger,
