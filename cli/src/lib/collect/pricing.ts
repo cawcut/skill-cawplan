@@ -11,9 +11,11 @@ export const COST_CURRENCY = "$";
 const PRICING: Record<string, PricingEntry> = {
 
     // Claude ($/MTok - official pricing from https://platform.claude.com/docs/en/about-claude/pricing,
-    // verified 2026-10-10). Cache writes use the 5-minute rate.
+    // verified 2026-11-19). Cache writes use the 5-minute rate.
     // Haiku 5.5 uses the <=100K prompt tier: some usage records aggregate
     // multiple requests, so their per-request prompt tier cannot be inferred.
+    "claude-fable-5-2": {input: 8, output: 40, cache_read: 0.20, cache_write: 10, currency: "$"},
+    "claude-mythos-5-2": {input: 8, output: 40, cache_read: 0.20, cache_write: 10, currency: "$"},
     "claude-fable-5-1": {input: 10, output: 50, cache_read: 0.25, cache_write: 12.50, currency: "$"},
     "claude-mythos-5-1": {input: 10, output: 50, cache_read: 0.25, cache_write: 12.50, currency: "$"},
     "claude-fable-5": {input: 10, output: 50, cache_read: 1, cache_write: 12.50, currency: "$"},
@@ -24,7 +26,10 @@ const PRICING: Record<string, PricingEntry> = {
     "claude-opus-4-7": {input: 5, output: 25, cache_read: 0.50, cache_write: 6.25, currency: "$"},
     "claude-opus-4-6": {input: 5, output: 25, cache_read: 0.50, cache_write: 6.25, currency: "$"},
     "claude-opus-4-5": {input: 5, output: 25, cache_read: 0.50, cache_write: 6.25, currency: "$"},
-    // Fast mode is available only for Opus 5.5, Opus 5 and Opus 4.8.
+    // Fast mode is available only for Fable 5.2, Mythos 5.2, Opus 5.5, Opus 5 and Opus 4.8.
+    // Cache rates stack on top of the fast base price (write 1.25x, read 0.025x/0.05x/0.1x).
+    "claude-fable-5-2-fast": {input: 16, output: 80, cache_read: 0.40, cache_write: 20, currency: "$"},
+    "claude-mythos-5-2-fast": {input: 16, output: 80, cache_read: 0.40, cache_write: 20, currency: "$"},
     "claude-opus-5-5-fast": {input: 8, output: 40, cache_read: 0.40, cache_write: 10, currency: "$"},
     "claude-opus-5-fast": {input: 10, output: 50, cache_read: 1, cache_write: 12.50, currency: "$"},
     "claude-opus-4-8-fast": {input: 10, output: 50, cache_read: 1, cache_write: 12.50, currency: "$"},
@@ -44,9 +49,12 @@ const PRICING: Record<string, PricingEntry> = {
     "claude-haiku-3-5": {input: 0.80, output: 4, cache_read: 0.08, cache_write: 1, currency: "$"},
 
     // OpenAI standard, short-context pricing ($/MTok - official pricing from
-    // https://developers.openai.com/api/docs/pricing, verified 2026-10-10).
+    // https://developers.openai.com/api/docs/pricing, verified 2026-11-19).
     // Long-context pricing is intentionally not represented: usage records do
     // not expose the information needed to determine that billing tier.
+    "gpt-6.2-astra": {input: 8, output: 40, cache_read: 0.40, cache_write: 10, currency: "$"},
+    "gpt-6.2-sol": {input: 2, output: 10, cache_read: 0.10, cache_write: 2.50, currency: "$"},
+    "gpt-6.1-terra": {input: 1, output: 5, cache_read: 0.05, cache_write: 1.25, currency: "$"},
     "gpt-6.1-sol": {input: 2, output: 10, cache_read: 0.10, cache_write: 2.50, currency: "$"},
     "gpt-6-sol": {input: 2, output: 10, cache_read: 0.20, cache_write: 2.50, currency: "$"},
     "gpt-6-luna": {input: 0.10, output: 0.50, cache_read: 0.01, cache_write: 0.125, currency: "$"},
@@ -82,6 +90,9 @@ const PRICING: Record<string, PricingEntry> = {
     "gpt-5-pro": {input: 15, output: 120, cache_read: 0, cache_write: 0, currency: "$"},
 
     // OpenAI Fast mode, short-context pricing.
+    "gpt-6.2-astra-fast": {input: 16, output: 80, cache_read: 0.80, cache_write: 20, currency: "$"},
+    "gpt-6.2-sol-fast": {input: 4, output: 20, cache_read: 0.20, cache_write: 5, currency: "$"},
+    "gpt-6.1-terra-fast": {input: 2, output: 10, cache_read: 0.10, cache_write: 2.50, currency: "$"},
     "gpt-6.1-sol-fast": {input: 4, output: 20, cache_read: 0.20, cache_write: 5, currency: "$"},
     "gpt-6-sol-fast": {input: 4, output: 20, cache_read: 0.40, cache_write: 5, currency: "$"},
     "gpt-6-luna-fast": {input: 0.20, output: 1, cache_read: 0.02, cache_write: 0.25, currency: "$"},
@@ -103,7 +114,7 @@ const PRICING: Record<string, PricingEntry> = {
     "gpt-5-mini-fast": {input: 0.45, output: 3.60, cache_read: 0.045, cache_write: 0, currency: "$"},
 
     // DeepSeek ($/MTok — official pricing from https://api-docs.deepseek.com/quick_start/pricing,
-    // verified 2026-08-13). DeepSeek bills on a peak/off-peak schedule (peak =
+    // verified 2026-11-19). DeepSeek bills on a peak/off-peak schedule (peak =
     // 01:00-04:00 and 06:00-10:00 UTC, exactly 2x off-peak); this table has no
     // time-of-day dimension, so pick one flat rate — using peak here (off-peak
     // would understate cost for usage inside those windows).
@@ -111,15 +122,16 @@ const PRICING: Record<string, PricingEntry> = {
     // only cache hit/miss on read) — set equal to the cache-miss/input rate,
     // same convention as before this update.
     "deepseek-v4-pro": {input: 1.32, output: 3.96, cache_read: 0.044, cache_write: 1.32, currency: "$"},
-    "deepseek-v4-flash": {input: 0.44, output: 1.32, cache_read: 0.014, cache_write: 0.44, currency: "$"},
-    // Legacy aliases (deepseek-chat / deepseek-reasoner map to v4-flash;
-    // deprecated 2026-07-24 per DeepSeek docs)
-    "deepseek-chat": {input: 0.44, output: 1.32, cache_read: 0.014, cache_write: 0.44, currency: "$"},
-    "deepseek-reasoner": {input: 0.44, output: 1.32, cache_read: 0.014, cache_write: 0.44, currency: "$"},
+    "deepseek-flash": {input: 0.30, output: 1.20, cache_read: 0.006, cache_write: 0.30, currency: "$"},
+    // Retired aliases (deepseek-v4-flash / deepseek-chat / deepseek-reasoner) are
+    // served by DeepSeek-V4.1-Flash and billed at the deepseek-flash price.
+    "deepseek-v4-flash": {input: 0.30, output: 1.20, cache_read: 0.006, cache_write: 0.30, currency: "$"},
+    "deepseek-chat": {input: 0.30, output: 1.20, cache_read: 0.006, cache_write: 0.30, currency: "$"},
+    "deepseek-reasoner": {input: 0.30, output: 1.20, cache_read: 0.006, cache_write: 0.30, currency: "$"},
 
     // Cursor Composer ($/MTok - official pricing from https://cursor.com/cn/docs/models-and-pricing)
-    "composer-2.5": {input: 0.50, output: 2.50, cache_read: 0, cache_write: 0, currency: "$"},
-    "composer-2.5-fast": {input: 3.00, output: 15.00, cache_read: 0, cache_write: 0, currency: "$"},
+    "composer-2.5": {input: 0.50, output: 2.50, cache_read: 0.20, cache_write: 0, currency: "$"},
+    "composer-2.5-fast": {input: 3.00, output: 15.00, cache_read: 0.50, cache_write: 0, currency: "$"},
     "composer-2.0": {input: 0.50, output: 2.50, cache_read: 0, cache_write: 0, currency: "$"},
 };
 
