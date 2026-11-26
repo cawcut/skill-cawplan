@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
 import { getApiBase } from "./products.js";
 
 /** Adds a missing https:// scheme and drops trailing slashes. */
@@ -41,6 +41,11 @@ export function getBaseUrl(): string {
 
 export function getCachePath(): string {
   return process.env.CAWPLAN_CACHE_PATH ?? resolve(homedir(), ".cawplan", "cache.json");
+}
+
+/** Knowledge document contents are cached one file each in a directory next to the main cache file. */
+export function getDocumentCacheDir(): string {
+  return resolve(dirname(getCachePath()), "knowledge-docs");
 }
 
 export function getCacheTtlMs(): number {

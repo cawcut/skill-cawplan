@@ -4,9 +4,10 @@ import { writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { select } from "@inquirer/prompts";
 import { cawplanRequest } from "../lib/http.js";
+import { CREATE_MODULE_DESCRIPTION, createProductModule } from "./product-modules.js";
 import { readUploadFile, uploadPathRefusal, uploadScope, type UploadScope } from "../lib/attachment-path-policy.js";
 import { listCawplanProducts } from "../lib/product-catalog.js";
-import { getCache, setCache, buildScopedCacheKey } from "../lib/cache.js";
+import { fetchDocumentContent, invalidateDocumentContent } from "../lib/knowledge/document-cache.js";
 import { assertInteractiveTerminal, TTY_CANCEL_MESSAGE, ttyKeysHelpTip, withTtyShortcuts } from "../lib/tty-prompt.js";
 import {
   buildOutlineWithPreview,
@@ -91,18 +92,9 @@ async function pollDocumentAiJob(
   }
 }
 
-/** Fetches a document's content, using the same dataset+document scoped local cache as `documents get`. */
+/** Fetches a document's content through the local cache (see lib/knowledge/document-cache.ts). */
 async function fetchDocumentContentResult(datasetId: string, documentId: string, refresh = false): Promise<unknown> {
-  const cacheKey = await buildScopedCacheKey(`knowledge:document-content:${datasetId}:${documentId}`, undefined);
-  let result = getCache(cacheKey, refresh);
-  if (!result) {
-    result = await cawplanRequest({
-      method: "GET",
-      path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/content`,
-    });
-    setCache(cacheKey, result);
-  }
-  return result;
+  return fetchDocumentContent(datasetId, documentId, refresh);
 }
 
 async function findExistingDocumentByName(
@@ -568,7 +560,7 @@ export function registerKnowledgeCommand(program: Command): void {
 
   const modules = knowledge
     .command("modules")
-    .description("Manage a product's module tree (product_modules), used to organize documents");
+    .description("Product modules seen from the knowledge base; manage modules with 'products modules'");
 
   modules
     .command("list")
@@ -584,28 +576,11 @@ export function registerKnowledgeCommand(program: Command): void {
 
   modules
     .command("create")
-    .description(
-      "Create a module (product_modules tree node) under a product, optionally under a parent " +
-        "module. Documents of datasets the product owns (datasets create --owner-product) can then " +
-        "be uploaded into it with 'documents upload --module <id>' or moved there with " +
-        "'documents set-module'. The response's data.id is the new module id.",
-    )
+    .description(`${CREATE_MODULE_DESCRIPTION} Same as 'products modules create'.`)
     .requiredOption("--product <id>", "Product id (see: cawplan products list)")
     .requiredOption("--name <name>", "Module name")
-    .option(
-      "--parent <id>",
-      "Parent module id (see: cawplan knowledge modules list --product <id>); omit for a top-level module",
-    )
-    .action(async (opts) => {
-      const body: Record<string, unknown> = { name: opts.name };
-      if (opts.parent) body.parent_id = opts.parent;
-      const result = await cawplanRequest({
-        method: "POST",
-        path: `/api/v1/public/openapi/product/${encodeURIComponent(opts.product)}/module-tree`,
-        body,
-      });
-      console.log(stringifyKnowledgeOutput(result, null, 2));
-    });
+    .option("--parent <id>", "Parent module id (see: cawplan products modules list); omit for a top-level module")
+    .action((opts) => createProductModule(opts));
 
   const documents = knowledge.command("documents").description("Manage knowledge documents");
 
@@ -1059,6 +1034,7 @@ export function registerKnowledgeCommand(program: Command): void {
         const data = extractJobStatusData(result);
 
         if (opts.wait === false || !data?.job_id) {
+          await invalidateDocumentContent(opts.dataset, opts.document);
           console.log(stringifyKnowledgeOutput(result, null, 2));
           return;
         }
@@ -1066,6 +1042,7 @@ export function registerKnowledgeCommand(program: Command): void {
         const pollIntervalMs = Math.max(1, Number(opts.pollInterval) || 3) * 1000;
         const pollTimeoutMs = Math.max(1, Number(opts.pollTimeout) || 180) * 1000;
         const finalStatus = await pollDocumentAiJob(opts.dataset, data.job_id, pollIntervalMs, pollTimeoutMs);
+        await invalidateDocumentContent(opts.dataset, opts.document);
         console.log(stringifyKnowledgeOutput({ code: "SUCCESS", data: finalStatus, msg: "success" }, null, 2));
         return;
       }
@@ -1080,6 +1057,7 @@ export function registerKnowledgeCommand(program: Command): void {
         path: `/api/v1/public/openapi/knowledge/datasets/${encodeURIComponent(opts.dataset)}/documents/${encodeURIComponent(opts.document)}/update-by-text`,
         body,
       });
+      await invalidateDocumentContent(opts.dataset, opts.document);
       console.log(stringifyKnowledgeOutput(result, null, 2));
     });
 

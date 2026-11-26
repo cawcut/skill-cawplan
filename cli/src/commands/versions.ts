@@ -1,3 +1,5 @@
+import { printWriteResult } from "../lib/write-result.js";
+import { readJsonBody } from "../lib/json-body.js";
 import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
 import { buildQueryFromFlags } from "../lib/cache.js";
@@ -69,6 +71,28 @@ export async function trackVersion(
   return { detail, release, ticket_progress: ticketProgress };
 }
 
+function versionPath(productId: string, versionId: string): string {
+  return `/api/v1/public/openapi/product/${encodeURIComponent(productId)}/versions/${encodeURIComponent(versionId)}`;
+}
+
+const RISK_LEVELS = ["HIGH", "MEDIUM", "LOW"];
+
+/** Parse `--to` as YYYY-MM-DD (00:00 UTC) or Unix seconds. */
+export function parseDelayTarget(value: string): number {
+  const text = String(value).trim();
+  if (/^\d+$/.test(text)) {
+    return Number(text);
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (match) {
+    const ms = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    if (new Date(ms).toISOString().slice(0, 10) === text) {
+      return Math.floor(ms / 1000);
+    }
+  }
+  throw new Error("--to must be a date (YYYY-MM-DD) or Unix seconds");
+}
+
 export function registerVersionsCommand(program: Command): void {
   const versions = program.command("versions").description("Manage versions");
 
@@ -119,6 +143,93 @@ export function registerVersionsCommand(program: Command): void {
         body,
       });
       console.log(JSON.stringify(result, null, 2));
+    });
+
+  versions
+    .command("update <product_id> <version_id>")
+    .description("Rename a version or replace its planned channel schedule (target_release entries contain channel_id and Unix release_at)")
+    .option("--body <json>", "JSON request body with name and/or target_release")
+    .option("--body-file <path>", "JSON request body file")
+    .action(async (productId: string, versionId: string, opts) => {
+      const body = await readJsonBody(opts.bodyFile, opts.body);
+      const result = await cawplanRequest({ method: "PUT", path: versionPath(productId, versionId), body });
+      printWriteResult(result);
+    });
+
+  versions
+    .command("start <product_id> <version_id>")
+    .description("Start development of a version")
+    .action(async (productId: string, versionId: string) => {
+      const result = await cawplanRequest({ method: "POST", path: versionPath(productId, versionId) + "/start" });
+      printWriteResult(result);
+    });
+
+  versions
+    .command("release <product_id> <version_id>")
+    .description("Publish a version to selected channels")
+    .option("--body <json>", "Release details including channels as an array of {unique_id}")
+    .option("--body-file <path>", "JSON request body file")
+    .action(async (productId: string, versionId: string, opts) => {
+      const body = await readJsonBody(opts.bodyFile, opts.body);
+      const result = await cawplanRequest({ method: "POST", path: versionPath(productId, versionId) + "/release", body });
+      printWriteResult(result);
+    });
+
+  versions
+    .command("revoke <product_id> <version_id>")
+    .description("Revoke a version from selected channels or set all_channels to true")
+    .option("--body <json>", "Provide channels as an array of {unique_id} or all_channels=true, with optional reason")
+    .option("--body-file <path>", "JSON request body file")
+    .action(async (productId: string, versionId: string, opts) => {
+      const body = await readJsonBody(opts.bodyFile, opts.body);
+      const result = await cawplanRequest({ method: "POST", path: versionPath(productId, versionId) + "/revoke", body });
+      printWriteResult(result);
+    });
+
+  versions
+    .command("hold <product_id> <version_id>")
+    .description("Place a release on hold for a target product and version")
+    .option("--body <json>", "Hold details including target_product_id, target_version_id and reason")
+    .option("--body-file <path>", "JSON request body file")
+    .action(async (productId: string, versionId: string, opts) => {
+      const body = await readJsonBody(opts.bodyFile, opts.body);
+      const result = await cawplanRequest({ method: "POST", path: versionPath(productId, versionId) + "/hold", body });
+      printWriteResult(result);
+    });
+
+  versions
+    .command("risk <product_id> <version_id>")
+    .description("Mark an in-progress, delayed or released version's risk level")
+    .requiredOption("--risk <level>", "Risk level: HIGH, MEDIUM or LOW")
+    .option("--reason <text>", "Optional reason shown with the risk level")
+    .action(async (productId: string, versionId: string, opts) => {
+      const risk = String(opts.risk).toUpperCase();
+      if (!RISK_LEVELS.includes(risk)) {
+        throw new Error(`--risk must be one of ${RISK_LEVELS.join(", ")}`);
+      }
+      const body: Record<string, unknown> = { risk };
+      if (opts.reason !== undefined) body.risk_reason = opts.reason;
+      const result = await cawplanRequest({ method: "POST", path: versionPath(productId, versionId) + "/risk", body });
+      printWriteResult(result);
+    });
+
+  versions
+    .command("delay <product_id> <version_id>")
+    .description("Delay an in-progress, delayed or released version to a future date; the version becomes DELAYED")
+    .requiredOption("--to <date>", "New expected release date: YYYY-MM-DD (00:00 UTC) or Unix seconds")
+    .requiredOption("--reason <text>", "Reason for the delay")
+    .action(async (productId: string, versionId: string, opts) => {
+      const body = { delayed_to_ts: parseDelayTarget(opts.to), reason: opts.reason };
+      const result = await cawplanRequest({ method: "POST", path: versionPath(productId, versionId) + "/delay", body });
+      printWriteResult(result);
+    });
+
+  versions
+    .command("reset <product_id> <version_id>")
+    .description("Reset an in-progress, delayed or released version to NOT_STARTED; its release records are removed from the history")
+    .action(async (productId: string, versionId: string) => {
+      const result = await cawplanRequest({ method: "POST", path: versionPath(productId, versionId) + "/reset" });
+      printWriteResult(result);
     });
 
   versions

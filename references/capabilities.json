@@ -166,6 +166,60 @@
         "page_size": 20
       }
     },
+    "backlog.update": {
+      "summary": "Update a product backlog ticket. Use its current optimistic lock version (expected_version). target_version_id moves it into a version.",
+      "write": true,
+      "cli": {
+        "command": "backlog update",
+        "args": {
+          "product_id": "<product_id>",
+          "ticket_id": "<ticket_id>",
+          "status": "--status <key>",
+          "progress_comment": "--progress_comment <text>",
+          "priority": "--priority <p>",
+          "description": "--description <text>",
+          "remarks": "--remarks <html>",
+          "comment": "--comment <text>",
+          "root_cause": "--root_cause <text>",
+          "solution": "--solution <text>",
+          "parent_id": "--parent_id <id>",
+          "due_date": "--due_date <date>",
+          "assignee_ids": "--assignees <csv>",
+          "label_ids": "--label_ids <csv>",
+          "module_id": "--module <name_or_id>",
+          "target_version_id": "--target_version_id <id>",
+          "expected_version": "--expected_version <n>"
+        }
+      },
+      "mcp": {
+        "tool": "update_backlog_ticket",
+        "args": {
+          "product_id": "product_id",
+          "ticket_id": "ticket_id",
+          "status": "body.status",
+          "progress_comment": "body.progress_comment",
+          "priority": "body.priority",
+          "description": "body.description",
+          "remarks": "body.remarks",
+          "comment": "body.comment",
+          "root_cause": "body.root_cause",
+          "solution": "body.solution",
+          "parent_id": "body.parent_id",
+          "due_date": "body.due_date",
+          "assignee_ids": "body.assignee_ids (array of strings)",
+          "label_ids": "body.label_ids (array of strings)",
+          "target_version_id": "body.version_id",
+          "expected_version": "body.version (integer)",
+          "module_id": "body.module_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "ticket_id": "<ticket_unique_id>",
+        "status": "IN_PROGRESS",
+        "progress_comment": "Started the fix"
+      }
+    },
     "config.env": {
       "summary": "Show the CLI's current CawPlan environment as plain text lines (Environment, API, Portal); the Portal line is the host used to build links. CLI only.",
       "write": false,
@@ -174,6 +228,30 @@
         "args": {}
       },
       "example": {}
+    },
+    "critical.create": {
+      "summary": "Create a critical issue for the selected product.",
+      "write": true,
+      "cli": {
+        "command": "critical create",
+        "args": {
+          "product_id": "<product_id>",
+          "body": "--body <json>"
+        }
+      },
+      "mcp": {
+        "tool": "create_critical_issue",
+        "args": {
+          "product_id": "product_id",
+          "body": "body (object)"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "body": {
+          "description": "Regression"
+        }
+      }
     },
     "critical.search": {
       "summary": "Search critical issues across products. Give a time window (time_range, or start_date with end_date); the other filters narrow it. Paginated.",
@@ -218,6 +296,33 @@
         ]
       }
     },
+    "critical.update": {
+      "summary": "Update a critical issue in the selected product.",
+      "write": true,
+      "cli": {
+        "command": "critical update",
+        "args": {
+          "product_id": "<product_id>",
+          "critical_issue_id": "<critical_issue_id>",
+          "body": "--body <json>"
+        }
+      },
+      "mcp": {
+        "tool": "update_critical_issue",
+        "args": {
+          "product_id": "product_id",
+          "critical_issue_id": "critical_issue_id",
+          "body": "body (object)"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "critical_issue_id": "<critical_issue_id>",
+        "body": {
+          "status": "MONITORING"
+        }
+      }
+    },
     "knowledge.browse": {
       "summary": "Interactive terminal browser (dataset, document, heading tree). Never run it as an agent: it needs a real terminal. Give the user the CLI example to run themselves. CLI only.",
       "write": false,
@@ -228,7 +333,7 @@
       "example": {}
     },
     "knowledge.datasets.create": {
-      "summary": "Create a knowledge dataset. owner_product_id makes that product the owner (required for its modules); product_ids only links the dataset for product-scoped search (CLI: repeat --product). CLI only.",
+      "summary": "Create a knowledge dataset. owner_product_id makes that product the owner (required for its modules); product_ids only links the dataset for product-scoped search (CLI: repeat --product). On MCP, product_ids linking is unavailable.",
       "write": true,
       "cli": {
         "command": "knowledge datasets create",
@@ -242,7 +347,19 @@
       },
       "example": {
         "name": "Access Card API"
-      }
+      },
+      "mcp": {
+        "tool": "create_knowledge_dataset",
+        "args": {
+          "name": "body.name",
+          "description": "body.description",
+          "permission": "body.permission",
+          "owner_product_id": "body.product_id"
+        }
+      },
+      "route_only": [
+        "product_ids"
+      ]
     },
     "knowledge.datasets.list": {
       "summary": "List knowledge datasets visible to the caller ({id, name, document_count}). With product_id: the datasets that product owns plus those linked to it. With product_id and module_id: only the product's owned datasets with at least one document under that module.",
@@ -263,6 +380,24 @@
       },
       "example": {
         "product_id": "<product_id>"
+      }
+    },
+    "knowledge.documents.create_text": {
+      "summary": "Create a named document from inline text. The CLI accepts text from a local file via knowledge.documents.upload.",
+      "write": true,
+      "mcp": {
+        "tool": "create_knowledge_document",
+        "args": {
+          "dataset_id": "dataset_id",
+          "name": "body.name",
+          "text": "body.text",
+          "module_id": "body.module_id"
+        }
+      },
+      "example": {
+        "dataset_id": "<dataset_id>",
+        "name": "api.md",
+        "text": "API notes"
       }
     },
     "knowledge.documents.get": {
@@ -298,7 +433,7 @@
       ]
     },
     "knowledge.documents.job_status": {
-      "summary": "Check an asynchronous upload or update job. CLI only.",
+      "summary": "Check an asynchronous upload or update job.",
       "write": false,
       "cli": {
         "command": "knowledge documents job-status",
@@ -310,6 +445,13 @@
       "example": {
         "dataset_id": "<dataset_id>",
         "job_id": "<job_id>"
+      },
+      "mcp": {
+        "tool": "get_knowledge_upload_job",
+        "args": {
+          "dataset_id": "dataset_id",
+          "job_id": "job_id"
+        }
       }
     },
     "knowledge.documents.list": {
@@ -388,7 +530,7 @@
       ]
     },
     "knowledge.documents.upload": {
-      "summary": "Upload local files (files, repeat --file) or local text files (text_files, repeat --text-file) into a dataset, optionally under a module of the dataset's owner product. Do not mix files and text_files in one call. File uploads are asynchronous; the CLI waits unless no_wait is set. CLI only (needs local files).",
+      "summary": "Upload local files (files, repeat --file) or local text files (text_files, repeat --text-file) into a dataset, optionally under a module of the dataset's owner product. Do not mix files and text_files in one call. File uploads are asynchronous; the CLI waits unless no_wait is set. On MCP, send one filename and its base64 contents (up to 2 MiB) per call. Poll knowledge.documents.job_status for pending jobs.",
       "write": true,
       "cli": {
         "command": "knowledge documents upload",
@@ -402,23 +544,99 @@
       },
       "example": {
         "dataset_id": "<dataset_id>",
-        "files": "./api.md"
-      }
+        "files": "./api.md",
+        "filename": "api.md",
+        "content_base64": "bm90ZXM="
+      },
+      "mcp": {
+        "tool": "upload_knowledge_file",
+        "args": {
+          "dataset_id": "dataset_id",
+          "filename": "body.filename",
+          "content_base64": "body.content_base64",
+          "module_id": "body.module_id"
+        }
+      },
+      "route_only": [
+        "filename",
+        "content_base64",
+        "files",
+        "text_files",
+        "no_wait"
+      ]
     },
-    "knowledge.modules.create": {
-      "summary": "Create a module (parent_id for a sub-module; at most 5 levels) in a product's module tree. CLI only.",
+    "products.modules.create": {
+      "summary": "Create a module (parent_id for a sub-module; at most 5 levels) in a product's module tree. The response's data.id is the new module id.",
       "write": true,
       "cli": {
-        "command": "knowledge modules create",
+        "command": "products modules create",
         "args": {
           "product_id": "--product <id>",
           "name": "--name <name>",
           "parent_id": "--parent <id>"
         }
       },
+      "mcp": {
+        "tool": "create_product_module",
+        "args": {
+          "product_id": "product_id",
+          "name": "body.name",
+          "parent_id": "body.parent_id"
+        }
+      },
       "example": {
         "product_id": "<product_id>",
         "name": "Card APIs"
+      }
+    },
+    "products.modules.update": {
+      "summary": "Rename a module or move it under another parent module; parent_id null (CLI --root) moves it to the top level. Pass at least one of name or parent_id.",
+      "write": true,
+      "cli": {
+        "command": "products modules update",
+        "args": {
+          "product_id": "--product <id>",
+          "module_id": "--module <id>",
+          "name": "--name <name>",
+          "parent_id": "--parent <id>",
+          "root": "--root"
+        }
+      },
+      "mcp": {
+        "tool": "update_product_module",
+        "args": {
+          "product_id": "product_id",
+          "module_id": "node_id",
+          "name": "body.name",
+          "parent_id": "body.parent_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "module_id": "<module_id>",
+        "name": "Card APIs"
+      }
+    },
+    "products.modules.delete": {
+      "summary": "Delete a module that has no sub-modules. Requirements, knowledge documents, tickets and QA reports under it are kept but no longer belong to any module.",
+      "write": true,
+      "cli": {
+        "command": "products modules delete",
+        "args": {
+          "product_id": "--product <id>",
+          "module_id": "--module <id>"
+        }
+      },
+      "mcp": {
+        "tool": "delete_product_module",
+        "args": {
+          "product_id": "product_id",
+          "module_id": "node_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "module_id": "<module_id>"
       }
     },
     "knowledge.modules.list": {
@@ -629,6 +847,29 @@
         "time_range": "1m"
       }
     },
+    "products.create": {
+      "summary": "Create a product in its product line. Requires a user-scoped credential.",
+      "write": true,
+      "cli": {
+        "command": "products create",
+        "args": {
+          "body": "--body <json>",
+          "body_file": "--body-file <path>"
+        }
+      },
+      "mcp": {
+        "tool": "create_product",
+        "args": {
+          "body": "body (object)"
+        }
+      },
+      "example": {
+        "body": {
+          "name": "Example",
+          "product_line_id": "<product_line_id>"
+        }
+      }
+    },
     "products.list": {
       "summary": "List products visible to the caller; resolve a product name to product_id. MCP only: view=compact drops description, icon, links, knowledge datasets and member rosters; use it whenever you list more than a few products, and read one product's members (members.qas, members.designers, ...) with the default full view.",
       "write": false,
@@ -699,6 +940,41 @@
         "product_id": "<product_id>",
         "start_date": "2026-10-28",
         "end_date": "2026-11-04"
+      }
+    },
+    "products.update_members": {
+      "summary": "Replace the complete product role roster. Read the current full roster first, preserve existing assignments that should stay, and include every role array. disable_team_sync=true explicitly switches an inherited roster to product ownership.",
+      "write": true,
+      "cli": {
+        "command": "products update-members",
+        "args": {
+          "product_id": "<product_id>",
+          "body": "--body <json>",
+          "body_file": "--body-file <path>"
+        }
+      },
+      "mcp": {
+        "tool": "update_product_members",
+        "args": {
+          "product_id": "product_id",
+          "body": "body (object)"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "body": {
+          "members": {
+            "owners": [
+              "<owner_user_id>"
+            ],
+            "product_managers": [],
+            "designers": [],
+            "rds": [],
+            "qas": [],
+            "supports": [],
+            "viewers": []
+          }
+        }
       }
     },
     "qa.module_tree.get": {
@@ -1292,6 +1568,31 @@
       "route_only": [
         "body_file"
       ]
+    },
+    "qa_reports.delete": {
+      "summary": "Delete one QA report in the selected version.",
+      "write": true,
+      "cli": {
+        "command": "qa-reports delete",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "qa_report_id": "<qa_report_id>"
+        }
+      },
+      "mcp": {
+        "tool": "delete_qa_report",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "qa_report_id": "qa_report_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "qa_report_id": "<qa_report_id>"
+      }
     },
     "qa_reports.get": {
       "summary": "Get one QA report of a version by its ID.",
@@ -2131,6 +2432,34 @@
         "name": "1.2.0"
       }
     },
+    "versions.delay": {
+      "summary": "Delay an INPROGRESS, DELAYED or RELEASED version to a future date with a reason. The version becomes DELAYED and a DELAY history record is added. On the CLI, --to takes YYYY-MM-DD (00:00 UTC) or Unix seconds; on MCP, delayed_to_ts is Unix seconds.",
+      "write": true,
+      "cli": {
+        "command": "versions delay",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "delayed_to_ts": "--to <date>",
+          "reason": "--reason <text>"
+        }
+      },
+      "mcp": {
+        "tool": "delay_version",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "delayed_to_ts": "body.delayed_to_ts",
+          "reason": "body.reason"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "delayed_to_ts": 1893542400,
+        "reason": "Waiting for QA sign-off"
+      }
+    },
     "versions.get": {
       "summary": "Get one version's detail (status, dates, completion, risk).",
       "write": false,
@@ -2153,6 +2482,36 @@
         "version_id": "<version_id>"
       }
     },
+    "versions.hold": {
+      "summary": "Record a version hold against a target product and version with a reason.",
+      "write": true,
+      "cli": {
+        "command": "versions hold",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "body": "--body <json>",
+          "body_file": "--body-file <path>"
+        }
+      },
+      "mcp": {
+        "tool": "hold_version",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "body": "body (object)"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "body": {
+          "target_product_id": "<target_product_id>",
+          "target_version_id": "<target_version_id>",
+          "reason": "Waiting for validation"
+        }
+      }
+    },
     "versions.list": {
       "summary": "List one product's versions; resolve a version name to version_id.",
       "write": false,
@@ -2170,6 +2529,38 @@
       },
       "example": {
         "product_id": "<product_id>"
+      }
+    },
+    "versions.release": {
+      "summary": "Publish the version to one or more channels. Optional release_at is a Unix timestamp.",
+      "write": true,
+      "cli": {
+        "command": "versions release",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "body": "--body <json>",
+          "body_file": "--body-file <path>"
+        }
+      },
+      "mcp": {
+        "tool": "release_version",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "body": "body (object)"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "body": {
+          "channels": [
+            {
+              "unique_id": "<channel_id>"
+            }
+          ]
+        }
       }
     },
     "versions.releases": {
@@ -2192,6 +2583,145 @@
       "example": {
         "product_id": "<product_id>",
         "version_id": "<version_id>"
+      }
+    },
+    "versions.reset": {
+      "summary": "Reset an INPROGRESS, DELAYED or RELEASED version to NOT_STARTED. Its release records are removed from the history; status, risk and delay records stay.",
+      "write": true,
+      "cli": {
+        "command": "versions reset",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>"
+        }
+      },
+      "mcp": {
+        "tool": "reset_version",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>"
+      }
+    },
+    "versions.revoke": {
+      "summary": "Revoke a version from named channels. To revoke all released channels, set all_channels=true and omit channels.",
+      "write": true,
+      "cli": {
+        "command": "versions revoke",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "body": "--body <json>",
+          "body_file": "--body-file <path>"
+        }
+      },
+      "mcp": {
+        "tool": "revoke_version",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "body": "body (object)"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "body": {
+          "channels": [
+            {
+              "unique_id": "<channel_id>"
+            }
+          ],
+          "reason": "Rollback"
+        }
+      }
+    },
+    "versions.risk": {
+      "summary": "Mark an INPROGRESS, DELAYED or RELEASED version's risk level (HIGH, MEDIUM or LOW) with an optional reason. A RISK_CHANGE history record is added when the level changes.",
+      "write": true,
+      "cli": {
+        "command": "versions risk",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "risk": "--risk <level>",
+          "risk_reason": "--reason <text>"
+        }
+      },
+      "mcp": {
+        "tool": "mark_version_risk",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "risk": "body.risk",
+          "risk_reason": "body.risk_reason"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "risk": "HIGH",
+        "risk_reason": "QA found a blocking regression"
+      }
+    },
+    "versions.start": {
+      "summary": "Start development of the selected version.",
+      "write": true,
+      "cli": {
+        "command": "versions start",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>"
+        }
+      },
+      "mcp": {
+        "tool": "start_version",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>"
+      }
+    },
+    "versions.update": {
+      "summary": "Rename a version or replace the planned release channels and dates. Timestamps are Unix seconds. An empty target_release clears the schedule. Omit it to preserve the schedule.",
+      "write": true,
+      "cli": {
+        "command": "versions update",
+        "args": {
+          "product_id": "<product_id>",
+          "version_id": "<version_id>",
+          "body": "--body <json>",
+          "body_file": "--body-file <path>"
+        }
+      },
+      "mcp": {
+        "tool": "update_version",
+        "args": {
+          "product_id": "product_id",
+          "version_id": "version_id",
+          "body": "body (object)"
+        }
+      },
+      "example": {
+        "product_id": "<product_id>",
+        "version_id": "<version_id>",
+        "body": {
+          "name": "1.2",
+          "target_release": [
+            {
+              "channel_id": "<channel_id>",
+              "release_at": 1800000000
+            }
+          ]
+        }
       }
     }
   }

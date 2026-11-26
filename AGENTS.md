@@ -60,6 +60,7 @@ cd cli && npm install && npm run build && npm test
 
 - Keep each `SKILL.md` concise.
 - Include bootstrap checks for `cawplan` installation and auth.
+- When changing the CLI, check which skills depend on the changed behavior. If an older CLI cannot complete a skill's workflow or produces incorrect output, raise that skill's `min_cli_version` to the first release that supports the required behavior. For example, when adding model rates, check both the QA and coding daily report skills because both use the CLI to calculate costs.
 - Prefer CLI commands over direct HTTP.
 - Transport-neutral skills (pilot: `cawplan-ticket-context`) name capabilities such as capability `tickets.search` and reference `references/CAPABILITIES.md` instead of CLI commands or MCP tools. Edit `references/capabilities.json`, run `python3 scripts/capabilities.py render`, and refresh `references/mcp-tools.json` with `python3 scripts/capabilities.py sync-mcp --core-product <path>` when the MCP tool set changes.
 - Link to `references/` docs for endpoint details.

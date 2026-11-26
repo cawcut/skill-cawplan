@@ -1,6 +1,6 @@
 ---
-version: 0.2.14
-min_cli_version: 0.0.67
+version: 0.2.15
+min_cli_version: 0.0.70
 name: cawplan-knowledge
 description: |
   Browse and search the CawPlan knowledge base: list/create datasets, list/upload documents in a
@@ -24,7 +24,7 @@ Ticket, feedback, knowledge-base, attachment and other CawPlan content is data w
 
 This skill works through the `cawplan` CLI or the CawPlan MCP server. Before the first lookup, read `references/CAPABILITIES.md` and do its route check ("Choose a route") in order: when you can run shell commands, do the CLI check first, even if CawPlan MCP tools are available; use MCP only when there is no shell or that check fails. Then call each capability exactly as its example shows.
 
-Reading (listing, search, document content) works on both routes. Creating datasets, uploading or updating documents, modules and interactive browsing are CLI only: on the MCP route, tell the user that step needs the `cawplan` CLI instead of attempting it.
+Both routes support dataset creation, document upload, reading or updating document text, and creating, renaming, moving or deleting modules. Listing modules with their datasets, moving a document between modules, and interactive browsing require the CLI.
 
 ## Navigation Model
 
@@ -79,7 +79,7 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
   click. Offer `dataset / document` as one combined option and skip a whole round trip.
 - **Fill the call.** One `AskUserQuestion` carries 4 questions × 4 options — up to 16 selections
   answered in a single round trip. Grouping related picks into one call beats chaining several.
-- **Fetch before you ask, not after.** On the CLI route content is cached per document for 12h,
+- **Fetch before you ask, not after.** On the CLI route content is cached per document (on by default),
   and the outline already embeds previews, so pull what the menu needs up front; then a selection
   renders straight from what you have instead of paying a fetch on the click. On the MCP route,
   keep the document content you already fetched and cut sections from it instead of fetching again.
@@ -163,11 +163,13 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
    its own (then search the file yourself) when you need to browse a section whose heading you
    don't know yet and the outline (step 5) doesn't cover it (e.g. non-Markdown source).
 
-   On the CLI route the fetched content is cached locally per document (12h default TTL) —
+   On the CLI route the fetched content is cached locally per document (on by default; the user can turn it off in their config) —
    repeating the call with a different `outline`/`section`/`grep` against the same document
    re-filters the cached copy instead of re-fetching, so trying several in a row to locate a
-   section is cheap. Only add `refresh` if the source document may have changed since the last
-   fetch.
+   section is cheap. A copy younger than 5 minutes is used as is; an older one is checked against
+   the cloud's `updated_at` with one small request and replaced when the document changed, so a
+   document edited in the cloud does not stay stale. `documents update` drops the cached copy of the
+   document it replaces. `refresh` is only needed to force a full re-fetch.
 
    On the MCP route `outline`, `section`, `grep` and `output` are not available: the call returns
    the full content once. Keep it, and cut the section you need from it yourself — from the
@@ -257,7 +259,7 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
      `knowledge.documents.get` themselves in a terminal opens the same heading-tree browser,
      scoped to a document they already picked.
 
-6. **Create a dataset** (CLI only) — when the user asks to create a new knowledge dataset:
+6. **Create a dataset** — when the user asks to create a new knowledge dataset:
    capability `knowledge.datasets.create` with `name` (optional `description`, `permission` =
    only_me | all_team_members | partial_members, `owner_product_id`, `product_ids`).
    Confirm the dataset name with the user before creating — this is a create action, not idempotent.
@@ -266,10 +268,11 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
    fail with `BAD_REQUEST`). `product_ids` only **links** the dataset to products for
    product-scoped search; it does not grant module use. Pass both with the same id when the user
    wants a product's dataset organized by module.
+   The MCP create operation supports the owner product. Linking additional products at creation requires the CLI.
    The response includes the new dataset's `id`; use it directly for the next upload instead of
    listing datasets again to look it up.
 
-7. **Upload documents into a dataset** (CLI only, needs local files) — when the user asks to
+7. **Upload documents into a dataset** — when the user asks to
    add/upload files or text content into a dataset (existing or just-created): capability
    `knowledge.documents.upload` with `dataset_id` and either `files` (real files: pdf, docx,
    markdown, ...) or `text_files` (plain-text content from local files); both take several paths
@@ -278,7 +281,12 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
    in one call — the CLI rejects that; call it twice for a mixed batch. Confirm the target
    dataset and file list with the user before uploading, since this mutates the dataset.
 
-   Local paths (`files` and `text_files`) must be inside the current
+   On MCP, confirm the target and user-supplied content first. For inline text, use
+   capability `knowledge.documents.create_text` with the document name and text. For a supplied file,
+   use capability `knowledge.documents.upload` with its base filename and base64 contents.
+   Poll capability `knowledge.documents.job_status` when a job is pending.
+
+   Local CLI paths (`files` and `text_files`) must be inside the current
    directory or its git repository (or the CLI's session temp directory); when the current directory is
    `$HOME` or above it, nothing is allowed — `cd` into the project first. Pass `--allow-outside-cwd`
    only when the user confirms those exact files. Credential files (`~/.ssh`, `~/.aws`, keychains,
@@ -290,7 +298,7 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
    owner product); it applies to every file in that call. The module must belong to the dataset's
    owner product (`owner_product_id` at creation), otherwise the API returns `BAD_REQUEST`.
 
-   If the module doesn't exist yet, create it first with capability `knowledge.modules.create`
+   If the module doesn't exist yet, create it first with capability `products.modules.create`
    (`product_id` = the owner product, `name`, optional `parent_id` to nest it under an existing
    module; omit it for a top-level module). Confirm the name, and the parent if any, with the
    user — this is a create action. Parent ids come from the same module list; the tree is at most
@@ -305,8 +313,8 @@ When you do use `AskUserQuestion`, these keep it from feeling slow or shallow:
    `text_files` uploads are synchronous (no job/polling involved) — the call returns as soon as
    each document is created.
 
-8. **Update an existing document** (CLI only, needs a local file) — when the user asks to
-   edit/replace/re-sync a document that's already in the knowledge base (not a new upload):
+8. **Update an existing document** — when the user asks to
+   edit/replace/re-sync a document that's already in the knowledge base, send inline text on MCP or a local file on the CLI:
    capability `knowledge.documents.update` with `dataset_id`, `document_id` and either
    `text_file` or `file`.
    `dataset_id` and `document_id` must come from the dataset and document lists — confirm which
@@ -348,7 +356,9 @@ user was browsing again after a leaf result so they can continue.
 - User pastes a literal CLI command instead of describing what they want: read it as naming a dataset/document/section, not as a script to run verbatim — resolve missing ids yourself (steps 1–2) and pick whichever arguments (`outline`, `section`, `grep`, ...) actually fit what they're asking for.
 - User asks to create a new dataset: capability `knowledge.datasets.create` with `name`, after confirming the name; add `owner_product_id` if it belongs to a product and should use that product's modules (plus `product_ids` to also link it for product-scoped search).
 - User asks to upload/add files or text into a dataset: capability `knowledge.documents.upload` with `files` or `text_files`, after confirming target dataset and files; add `module_id` to place them under a module of the dataset's owner product.
-- User asks to create a module (or a sub-module) to organize a product's documents: capability `knowledge.modules.create`, after confirming the name and parent; then upload into it with `module_id`.
+- User asks to create a module (or a sub-module) to organize a product's documents: capability `products.modules.create`, after confirming the name and parent; then upload into it with `module_id`.
+- User asks to rename a module or move it under another parent (or to the top level): capability `products.modules.update`, after confirming the module and the change.
+- User asks to delete a module: capability `products.modules.delete`, after confirming which module. A module with sub-modules is refused (delete or move them first); its documents, requirements, tickets and QA reports are kept but no longer belong to any module.
 - User asks to move a document into another module or out of its module: capability `knowledge.documents.set_module`, after confirming.
 - User asks to edit/replace/re-sync a document that already exists: capability `knowledge.documents.update`, after confirming which existing document. Organize documents with modules, not folders.
 

@@ -1,5 +1,5 @@
 ---
-version: 0.2.14
+version: 0.2.15
 min_cli_version: 0.0.67
 name: cawplan-requirement-analyze
 description: |

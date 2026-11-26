@@ -1,6 +1,6 @@
 ---
-version: 0.2.14
-min_cli_version: 0.0.67
+version: 0.2.15
+min_cli_version: 0.0.70
 name: cawplan-coding-commit
 description: |
   Use when the user asks to collect, generate, summarize, submit, upload, or report CawPlan AI coding session daily reports from local agent data or existing ai-daily JSON files.
@@ -166,6 +166,10 @@ When reviewing `$report_file`, mention any `sessions[].ticket_ids` and `sessions
 
 Show the proposed ticket changes and obtain explicit approval covering their targets and content before running **Ticket Progress Write-Back** for `$report_file`. This step belongs to the skill workflow, not to `cawplan session assign --web`; assignment only saves product/repo/ticket links into the daily report.
 
+**Step 5b — Session documents (optional):**
+
+Run **Session Documents** below when `$report_file` has sessions that wrote markdown documents (technical notes, test cases, ...). It never uploads without explicit approval, and a skipped or declined document does not stop the report upload.
+
 **Step 6 — Upload after approval:**
 
 Confirm that explicit user approval covers this reviewed report and date before sending it.
@@ -177,6 +181,25 @@ If the CLI prints `Redacted N secret-like value(s)`, pass that line on to the us
 **Step 7 — Other dates require their own authorization:**
 
 A single-day request ends after the requested day's approved upload and write-back. Do not collect or upload other dates automatically. If the user requests backfill, use the month-missing workflow and obtain approval covering the reviewed reports and exact missing-date list.
+
+---
+
+## Session Documents
+
+Sessions often leave markdown documents behind: technical notes, test cases, investigation write-ups. This step offers to publish them to CawPlan Knowledge. The product and module come from the session's linked tickets, so a document lands where its ticket lives.
+
+1. Plan (read-only, nothing is uploaded):
+   ```bash
+   cawplan session docs plan --file "$report_file"
+   ```
+   It lists the new technical documents each session wrote, newest and largest first. Only markdown files are considered, never code files; a file is new when git says so (untracked, or first committed after the session started), else when the session only added lines to it. Files it only edited, `CLAUDE.md`, `AGENTS.md`, `README.md` and tool directories are left out (add `--include-edited` only if the user asks). Per file there is a `status`:
+   - `ready`: ticket, module and dataset are known; the item carries the exact `upload_command`.
+   - `ticket_no_module`: the session's tickets have no module. Tell the user, and suggest adding one with the `hint` command (`cawplan tickets update ... --module`). Offer to retry the plan after they do; never pick a module yourself.
+   - `choose_dataset` / `choose_ticket`: several candidates; show `dataset_options` or the tickets and let the user pick. A dataset can only take a module of its owner product, so prefer a dataset that already holds documents under the module.
+   - `no_ticket`, `ticket_not_found`, `product_mismatch`, `no_dataset`, `file_missing`, `file_too_large`: explain the `hint`; do not upload.
+2. Show the user a table of `file -> product / module / dataset` (path, size, ticket display id) for the items that can go, and the ones that cannot with their `hint`. Do not print the files' contents unless asked. These files are written by an AI session and may hold internal details; say so when asking.
+3. Upload only the files the user explicitly approves, one command each, as the plan printed it (`cawplan knowledge documents upload --dataset <id> --module <id> --file <path>`). The upload skips a document that already has the same name in the dataset; never add `--force` on your own.
+4. Report each file's result (uploaded, skipped as duplicate, or the error) in the final confirmation.
 
 ---
 
@@ -282,6 +305,8 @@ The product picker (and `cawplan session products`) already excludes any product
 ## Confirmation
 
 After uploading, report:
+
+- Session documents offered, approved, uploaded and skipped (with the reason), when Step 5b ran.
 
 - Report date acknowledged by the server.
 - Number of sessions per agent from the reviewed file summary.

@@ -1,8 +1,8 @@
-import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { ensurePrivateDirSync, PRIVATE_FILE_MODE, tightenPrivateFileSync } from "./private-fs.js";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import { getBaseUrl, getCachePath, getCacheTtlMs } from "./config.js";
+import { getBaseUrl, getCachePath, getCacheTtlMs, getDocumentCacheDir } from "./config.js";
 import {readCredentials, userIdFromAccessToken} from "./credentials.js";
 import { readUserConfigSync } from "./user-config.js";
 
@@ -10,8 +10,9 @@ type CacheEntry = { fetched_at: number; data: unknown };
 type CacheStore = { version: 1; entries: Record<string, CacheEntry> };
 
 /** Local response caching is opt-in to avoid serving stale project data by default. */
-export function isCacheEnabled(): boolean {
-  return readUserConfigSync()?.cache === true;
+export function isCacheEnabled(defaultOn = false): boolean {
+  const configured = readUserConfigSync()?.cache;
+  return typeof configured === "boolean" ? configured : defaultOn;
 }
 
 export function loadCache(): CacheStore {
@@ -50,6 +51,32 @@ export function getCache(key: string, refresh: boolean, ttlMs = getCacheTtlMs())
   return entry.data;
 }
 
+/**
+ * Returns the cached entry itself (with its fetched_at) when it is not older than ttlMs. Unlike
+ * getCache it is meant for callers that revalidate the data. defaultOn is what applies when the
+ * user has not set `cache` in the config; an explicit on/off always wins.
+ */
+export function getCacheEntry(key: string, ttlMs = getCacheTtlMs(), defaultOn = false): CacheEntry | undefined {
+  if (!isCacheEnabled(defaultOn)) return undefined;
+  const entry = loadCache().entries[key];
+  if (!entry || Date.now() - entry.fetched_at > ttlMs) return undefined;
+  return entry;
+}
+
+export function setCacheEntry(key: string, data: unknown, defaultOn = false): void {
+  if (!isCacheEnabled(defaultOn)) return;
+  const store = loadCache();
+  store.entries[key] = { fetched_at: Date.now(), data };
+  saveCache(store);
+}
+
+export function deleteCacheEntry(key: string): void {
+  const store = loadCache();
+  if (!(key in store.entries)) return;
+  delete store.entries[key];
+  saveCache(store);
+}
+
 export function setCache(key: string, data: unknown): void {
   if (!isCacheEnabled()) return;
   const store = loadCache();
@@ -74,6 +101,11 @@ export function pruneCacheEntries(keyPrefix: string, ttlMs: number): number {
 
 export function clearCache(): void {
   const cachePath = getCachePath();
+  try {
+    rmSync(getDocumentCacheDir(), { recursive: true, force: true });
+  } catch {
+    // Ignore cache delete errors
+  }
   try {
     if (existsSync(cachePath)) {
       unlinkSync(cachePath);

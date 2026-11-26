@@ -27,6 +27,7 @@ Agents without a shell (for example Claude on the web) can use the CawPlan MCP
 server instead of the CLI; the skills pick the route themselves.
 
 - URL: `https://api.cawplan.com/core-product/api/v1/public/openapi/mcp` (streamable HTTP)
+- Read-only URL: `https://api.cawplan.com/core-product/api/v1/public/openapi/mcp/readonly`. Use this instead of the default URL to exclude write tools, even if your account can edit CawPlan data.
 - Sign-in: OAuth in the browser, no API key
 - Claude Code: `claude mcp add --transport http cawplan https://api.cawplan.com/core-product/api/v1/public/openapi/mcp`, then `/mcp` to sign in
 

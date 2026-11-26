@@ -1,3 +1,4 @@
+import { printWriteResult } from "../lib/write-result.js";
 import { Command } from "commander";
 import { cawplanRequest } from "../lib/http.js";
 import { getCache, setCache, buildCacheKey, buildScopedCacheKey, buildQueryFromFlags, csvToArray, stableStringify } from "../lib/cache.js";
@@ -165,7 +166,7 @@ export function registerCriticalCommand(program: Command): void {
         path: `/api/v1/public/openapi/product/${productId}/critical_issues`,
         body,
       });
-      console.log(JSON.stringify(result, null, 2));
+      printWriteResult(result);
     });
 
   critical
@@ -179,7 +180,7 @@ export function registerCriticalCommand(program: Command): void {
         path: `/api/v1/public/openapi/product/${productId}/critical_issues/${criticalId}`,
         body,
       });
-      console.log(JSON.stringify(result, null, 2));
+      printWriteResult(result);
     });
 
   critical
