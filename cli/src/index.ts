@@ -5,6 +5,7 @@ import {createRequire} from "node:module";
 import {ApiError, normalizePath} from "./lib/http.js";
 import {registerAuthCommand} from "./commands/auth.js";
 import {registerProductsCommand} from "./commands/products.js";
+import {registerProductModulesCommand} from "./commands/product-modules.js";
 import {registerVersionsCommand} from "./commands/versions.js";
 import {registerTicketsCommand} from "./commands/tickets.js";
 import {registerCriticalCommand} from "./commands/critical.js";
@@ -40,6 +41,7 @@ program
 // Register all commands
 registerAuthCommand(program);
 registerProductsCommand(program);
+registerProductModulesCommand(program);
 registerVersionsCommand(program);
 registerTicketsCommand(program);
 registerCriticalCommand(program);

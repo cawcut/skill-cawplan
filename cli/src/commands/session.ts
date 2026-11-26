@@ -34,6 +34,7 @@ import {
 } from "../lib/assign/web-server.js";
 import {listCawplanProducts} from "../lib/product-catalog.js";
 import {registerAiSessionInsightsCommands} from "./session-insights.js";
+import {registerSessionDocsCommands} from "./session-docs.js";
 
 const REPORT_TEMP_DIR_NAME = "cawplan-ai-daily";
 const QA_REPORT_TEMP_DIR_NAME = "cawplan-qa-daily";
@@ -503,4 +504,5 @@ function registerSessionSubcommands(session: Command): void {
         });
 
     registerAiSessionInsightsCommands(session);
+    registerSessionDocsCommands(session);
 }

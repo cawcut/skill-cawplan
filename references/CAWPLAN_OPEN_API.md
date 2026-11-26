@@ -83,7 +83,9 @@
 - Notes:
     - `major_id` is **optional** — when omitted the server auto-resolves the major from `name`: a major-format name (e.g. `5.0`) anchors itself; a minor (e.g. `5.0.1`) looks up / creates the `5.0` major under the same product. Pass `major_id` only when you need to force a specific anchor. Discover IDs via `cawplan versions list <product_id>`.
     - Major versions cannot be marked `hotfix`; minor versions may.
-    - API-key requests use the integration actor fallback. CLI Bearer requests use the authenticated user and RBAC scope.
+    - OAuth requests (including CLI and MCP) and personal API-key requests must retain the server-authenticated user for authorization, the version creator, and any creation activity recorded. Product owner / PM membership must not replace that identity.
+    - Shared API-key requests retain the legacy integration actor fallback (product owner, then PM; otherwise the existing request actor). This fallback does not identify the actual person making the request.
+    - Attribution is enforced by the server, not by supplying a creator ID or identity header from the client.
 - Maps to cawplan CLI: `cawplan versions create`.
 
 ### Get Release History

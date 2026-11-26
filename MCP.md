@@ -33,9 +33,16 @@ for the route rules and the capability → CLI command / MCP tool table.
   the URL answers `API_KEY_REQUIRED` with no OAuth `WWW-Authenticate` header, it
   is not available in that environment yet.
 
-Coming soon: a read-only mode, tool groups (toolsets) you can turn on
-selectively, and OAuth scopes that limit what a connection may do. This page
-will describe them when they ship.
+### Read-only connection
+
+To let a client query CawPlan without changing data, use
+`https://api.cawplan.com/core-product/api/v1/public/openapi/mcp/readonly`
+instead of the default `/mcp` URL in the client setup below. For a private
+environment, append `/readonly` to its MCP endpoint. Sign in as usual.
+
+The read-only endpoint exposes only read tools, even for users who can edit
+data in the web app. This restriction applies to that MCP connection, not to
+the CLI or other connections.
 
 ## Set up your client
 

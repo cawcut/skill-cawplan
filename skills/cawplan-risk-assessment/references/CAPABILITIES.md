@@ -4,7 +4,7 @@
 
 Skills name **capabilities** (for example `tickets.search`), not a transport. Resolve each capability to the `cawplan` CLI or to the CawPlan MCP server with these rules.
 
-This copy lists only the capabilities that `cawplan-risk-assessment` names (14 of 85). Every capability a CawPlan skill can use is in the repository's root `references/CAPABILITIES.md`.
+This copy lists only the capabilities that `cawplan-risk-assessment` names (14 of 102). Every capability a CawPlan skill can use is in the repository's root `references/CAPABILITIES.md`.
 
 ## Choose a route (required, before the first capability call)
 

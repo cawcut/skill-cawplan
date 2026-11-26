@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { printWriteResult } from "../lib/write-result.js";
+import { readJsonBody } from "../lib/json-body.js";
 import { Command } from "commander";
 import { cawplanRequest, apiErrorDetails } from "../lib/http.js";
 import { buildQueryFromFlags } from "../lib/cache.js";
@@ -26,23 +27,7 @@ function versionQaReportPath(
   return qaReportId ? `${base}/${qaReportId}` : base;
 }
 
-export async function readQAReportBody(
-  bodyFile: string | undefined,
-  inlineBody: string | undefined,
-): Promise<unknown> {
-  if (bodyFile && inlineBody) {
-    throw new Error("pass either --body-file or --body, not both");
-  }
-  const raw = bodyFile ? await readFile(bodyFile, "utf8") : inlineBody;
-  if (!raw) {
-    throw new Error("--body-file or --body is required");
-  }
-  try {
-    return JSON.parse(raw);
-  } catch (err) {
-    throw new Error(`body is not valid JSON — ${(err as Error).message}`);
-  }
-}
+export { readJsonBody as readQAReportBody } from "../lib/json-body.js";
 
 export async function runQAReportsCreate(
   productId: string,
@@ -138,13 +123,24 @@ export function registerQAReportsCommand(program: Command): void {
     });
 
   qa
+    .command("delete <product_id> <version_id> <qa_report_id>")
+    .description("Delete a QA report from the specified version")
+    .action(async (productId: string, versionId: string, reportId: string) => {
+      const result = await cawplanRequest({
+        method: "DELETE",
+        path: versionQaReportPath(encodeURIComponent(productId), encodeURIComponent(versionId), encodeURIComponent(reportId)),
+      });
+      printWriteResult(result);
+    });
+
+  qa
     .command("create <product_id> <version_id>")
     .description("Create a QA report for a version")
     .option("--body-file <path>", "JSON request body file")
     .option("--body <json>", "JSON request body string")
     .action(async (productId: string, versionId: string, opts) => {
       try {
-        const body = await readQAReportBody(opts.bodyFile, opts.body);
+        const body = await readJsonBody(opts.bodyFile, opts.body);
         const result = await runQAReportsCreate(productId, versionId, body);
         console.log(JSON.stringify(result, null, 2));
       } catch (err) {
@@ -160,7 +156,7 @@ export function registerQAReportsCommand(program: Command): void {
     .option("--body <json>", "JSON request body string")
     .action(async (productId: string, versionId: string, qaReportId: string, opts) => {
       try {
-        const body = await readQAReportBody(opts.bodyFile, opts.body);
+        const body = await readJsonBody(opts.bodyFile, opts.body);
         const result = await runQAReportsUpdate(productId, versionId, qaReportId, body);
         console.log(JSON.stringify(result, null, 2));
       } catch (err) {

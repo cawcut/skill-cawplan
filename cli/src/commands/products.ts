@@ -1,3 +1,5 @@
+import { printWriteResult } from "../lib/write-result.js";
+import {readJsonBody} from "../lib/json-body.js";
 import {Command} from "commander";
 import {cawplanRequest} from "../lib/http.js";
 import {getCache, setCache, buildScopedCacheKey, buildQueryFromFlags} from "../lib/cache.js";
@@ -24,6 +26,30 @@ export async function getProductOverview(
 
 export function registerProductsCommand(program: Command): void {
     const products = program.command("products").description("Manage products");
+
+    products
+        .command("create")
+        .description("Create a product. The body requires name and product_line_id.")
+        .option("--body <json>", "JSON request body")
+        .option("--body-file <path>", "JSON request body file")
+        .action(async (opts) => {
+            const body = await readJsonBody(opts.bodyFile, opts.body);
+            const result = await cawplanRequest({method: "POST", path: "/api/v1/public/openapi/products", body});
+            printWriteResult(result);
+        });
+
+    products
+        .command("update-members <product_id>")
+        .description("Replace the complete members roster. Include all role arrays. Set disable_team_sync to replace inherited roles.")
+        .option("--body <json>", "JSON request body")
+        .option("--body-file <path>", "JSON request body file")
+        .action(async (productId: string, opts) => {
+            const body = await readJsonBody(opts.bodyFile, opts.body);
+            const result = await cawplanRequest({
+                method: "PUT", path: `/api/v1/public/openapi/product/${encodeURIComponent(productId)}/members`, body,
+            });
+            printWriteResult(result);
+        });
 
     products
         .command("overview <product_id>")

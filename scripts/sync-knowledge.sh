@@ -343,7 +343,7 @@ ensure_module_path() {
         echo "[dry-run] would create module \"$built\""
         id="<new-module:$built>"
       else
-        args=(knowledge modules create --product "$PRODUCT_ID" --name "$seg")
+        args=(products modules create --product "$PRODUCT_ID" --name "$seg")
         [[ -n "$parent" ]] && args+=(--parent "$parent")
         resp=""
         if ! resp="$(cawplan "${args[@]}")" || [[ "$(echo "$resp" | jq -r '.code // empty')" != "SUCCESS" ]]; then

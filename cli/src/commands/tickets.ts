@@ -1,5 +1,6 @@
+import { printWriteResult } from "../lib/write-result.js";
 import path from "node:path";
-import { Command } from "commander";
+import { Command, type OptionValues } from "commander";
 import { cawplanRequest } from "../lib/http.js";
 import { getCache, setCache, buildScopedCacheKey, buildQueryFromFlags, csvToArray } from "../lib/cache.js";
 import { resolveApiPath } from "../lib/products.js";
@@ -400,6 +401,79 @@ function addTicketFilterOptions(command: Command): Command {
     .option("--search <q>", "Search query");
 }
 
+function ticketUpdateOptions(command: Command): Command {
+  return command
+    .option("--status <key>", "Status key")
+    .option("--progress_comment <text>", "Progress comment (replaces the stored one; empty values are rejected)")
+    .option("--clear-progress-comment", "Clear the progress comment")
+    .option("--priority <p>", "Priority")
+    .option("--target_version_id <id>", "Move ticket to target version ID")
+    .option("--target-ver <name>", "Move ticket to target version name (resolves to version_id automatically)")
+    .option("--description <text>", "Ticket title/summary (server description field; not page body/remarks); cannot be empty")
+    .option("--remarks <html>", "Ticket page body/remarks (HTML supported; empty values are rejected)")
+    .option("--clear-remarks", "Clear the ticket page body/remarks")
+    .option("--comment <text>", "Comment (cannot be empty)")
+    .option("--root_cause <text>", "Root cause analysis (BUGFIX type only; empty values are rejected)")
+    .option("--clear-root-cause", "Clear the root cause analysis (BUGFIX type only)")
+    .option("--solution <text>", "Solution description (BUGFIX type only; empty values are rejected)")
+    .option("--clear-solution", "Clear the solution description (BUGFIX type only)")
+    .option("--parent_id <id>", "Parent ticket ID")
+    .option("--due_date <date>", "Due date YYYY-MM-DD")
+    .option("--assignees <csv>", "Assignee IDs (CSV)")
+    .option("--label_ids <csv>", "Label IDs (CSV)")
+    .option("--module <name_or_id>", "Module of the product's module tree: name, full path (\"Parent / Child\") or module id — resolved to module_id automatically")
+    .option("--expected_version <n>", "Optimistic lock version");
+}
+
+async function updateTicket(productId: string, versionId: string | undefined, ticketId: string, opts: OptionValues): Promise<void> {
+  let textFields: Record<string, string>;
+  try {
+    textFields = buildTicketUpdateTextFields(opts);
+  } catch (err: unknown) {
+    if (!(err instanceof TicketUpdateInputError)) throw err;
+    console.error(`Error: ${err.message}. Nothing was updated.`);
+    process.exit(1);
+  }
+  const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
+  const body: Record<string, unknown> = {};
+  const targetVersionId = opts.target_version_id
+    ?? (opts.targetVer ? await resolveVersionId(productId, opts.targetVer) : undefined);
+  if (opts.status) body.status = opts.status;
+  if (opts.priority) body.priority = opts.priority;
+  if (targetVersionId) body.version_id = targetVersionId;
+  Object.assign(body, textFields);
+  if (opts.parent_id) body.parent_id = opts.parent_id;
+  if (opts.due_date) body.due_date = opts.due_date;
+  const assignees = csvToArray(opts.assignees);
+  if (assignees) body.assignee_ids = assignees;
+  const labelIds = csvToArray(opts.label_ids);
+  if (labelIds) body.label_ids = labelIds;
+  if (opts.module) body.module_id = await resolveModuleId(productId, opts.module);
+  const hasExpectedVersion = opts.expected_version !== undefined;
+  if (hasExpectedVersion) body.version = Number(opts.expected_version);
+
+  if (Object.keys(body).length === 0) {
+    console.error("Error: ticket update requires at least one updatable flag");
+    process.exit(1);
+  }
+
+  try {
+    const result = await cawplanRequest({
+      method: "PUT",
+      path: `/api/v1/public/openapi/product/${encodeURIComponent(productId)}${versionId === undefined ? "" : "/versions/" + encodeURIComponent(versionId)}/tickets/${encodeURIComponent(uniqueTicketId)}`,
+      body,
+    });
+    printWriteResult(result);
+  } catch (err: unknown) {
+    const apiErr = err as { status?: number };
+    if (hasExpectedVersion && apiErr?.status === 409) {
+      console.error(`Conflict: ticket was modified since version ${opts.expected_version}. Re-read and retry with the latest --expected_version.`);
+      process.exit(1);
+    }
+    throw err;
+  }
+}
+
 export function registerTicketsCommand(program: Command): void {
   const tickets = program.command("tickets").description("Manage tickets");
 
@@ -732,77 +806,8 @@ export function registerTicketsCommand(program: Command): void {
       console.log(JSON.stringify(result, null, 2));
     });
 
-  tickets
-    .command("update <product_id> <version_id> <ticket_id>")
-    .description("Update a ticket")
-    .option("--status <key>", "Status key")
-    .option("--progress_comment <text>", "Progress comment (replaces the stored one; empty values are rejected)")
-    .option("--clear-progress-comment", "Clear the progress comment")
-    .option("--priority <p>", "Priority")
-    .option("--target_version_id <id>", "Move ticket to target version ID")
-    .option("--target-ver <name>", "Move ticket to target version name (resolves to version_id automatically)")
-    .option("--description <text>", "Ticket title/summary (server description field; not page body/remarks); cannot be empty")
-    .option("--remarks <html>", "Ticket page body/remarks (HTML supported; empty values are rejected)")
-    .option("--clear-remarks", "Clear the ticket page body/remarks")
-    .option("--comment <text>", "Comment (cannot be empty)")
-    .option("--root_cause <text>", "Root cause analysis (BUGFIX type only; empty values are rejected)")
-    .option("--clear-root-cause", "Clear the root cause analysis (BUGFIX type only)")
-    .option("--solution <text>", "Solution description (BUGFIX type only; empty values are rejected)")
-    .option("--clear-solution", "Clear the solution description (BUGFIX type only)")
-    .option("--parent_id <id>", "Parent ticket ID")
-    .option("--due_date <date>", "Due date YYYY-MM-DD")
-    .option("--assignees <csv>", "Assignee IDs (CSV)")
-    .option("--label_ids <csv>", "Label IDs (CSV)")
-    .option("--module <name_or_id>", "Module of the product's module tree: name, full path (\"Parent / Child\") or module id — resolved to module_id automatically")
-    .option("--expected_version <n>", "Optimistic lock version")
-    .action(async (productId: string, versionId: string, ticketId: string, opts) => {
-      let textFields: Record<string, string>;
-      try {
-        textFields = buildTicketUpdateTextFields(opts);
-      } catch (err: unknown) {
-        if (!(err instanceof TicketUpdateInputError)) throw err;
-        console.error(`Error: ${err.message}. Nothing was updated.`);
-        process.exit(1);
-      }
-      const uniqueTicketId = await resolveTicketIdArg(ticketId, { productId, versionId });
-      const body: Record<string, unknown> = {};
-      const targetVersionId = opts.target_version_id
-        ?? (opts.targetVer ? await resolveVersionId(productId, opts.targetVer) : undefined);
-      if (opts.status) body.status = opts.status;
-      if (opts.priority) body.priority = opts.priority;
-      if (targetVersionId) body.version_id = targetVersionId;
-      Object.assign(body, textFields);
-      if (opts.parent_id) body.parent_id = opts.parent_id;
-      if (opts.due_date) body.due_date = opts.due_date;
-      const assignees = csvToArray(opts.assignees);
-      if (assignees) body.assignee_ids = assignees;
-      const labelIds = csvToArray(opts.label_ids);
-      if (labelIds) body.label_ids = labelIds;
-      if (opts.module) body.module_id = await resolveModuleId(productId, opts.module);
-      const hasExpectedVersion = opts.expected_version !== undefined;
-      if (hasExpectedVersion) body.version = Number(opts.expected_version);
-
-      if (Object.keys(body).length === 0) {
-        console.error("Error: tickets update requires at least one updatable flag");
-        process.exit(1);
-      }
-
-      try {
-        const result = await cawplanRequest({
-          method: "PUT",
-          path: `/api/v1/public/openapi/product/${productId}/versions/${versionId}/tickets/${uniqueTicketId}`,
-          body,
-        });
-        console.log(JSON.stringify(result, null, 2));
-      } catch (err: unknown) {
-        const apiErr = err as { status?: number };
-        if (hasExpectedVersion && apiErr?.status === 409) {
-          console.error(`Conflict: ticket was modified since version ${opts.expected_version}. Re-read and retry with the latest --expected_version.`);
-          process.exit(1);
-        }
-        throw err;
-      }
-    });
+  ticketUpdateOptions(tickets.command("update <product_id> <version_id> <ticket_id>").description("Update a ticket"))
+    .action((productId: string, versionId: string, ticketId: string, opts) => updateTicket(productId, versionId, ticketId, opts));
 
   // Ticket relations sub-commands
   const relate = tickets.command("relate").description("Manage ticket relations");
@@ -894,6 +899,9 @@ export function registerTicketsCommand(program: Command): void {
       });
       console.log(JSON.stringify(result, null, 2));
     });
+
+  ticketUpdateOptions(backlog.command("update <product_id> <ticket_id>").description("Update a product backlog ticket"))
+    .action((productId: string, ticketId: string, opts) => updateTicket(productId, undefined, ticketId, opts));
 
   registerAttachmentsCommands(backlog, { backlog: true });
 

@@ -31,18 +31,21 @@ If the chosen route has no implementation for a capability (`-` below), use the 
 | `backlog.create` | write | `cawplan tickets create-backlog` | `create_backlog_ticket` | Create a ticket in a product's backlog. description is the title; remarks is the HTML body. module_id: the CLI takes a module name, full path "Parent / Child" or id and resolves it; on MCP pass the module id (resolve a name with qa.module_tree.get first). |
 | `backlog.get` | read | `cawplan backlog get` | `get_backlog_ticket` | Get one backlog ticket's full detail. ticket_id is the ticket unique ID (resolve a display ID with tickets.search first). |
 | `backlog.list` | read | `cawplan backlog list` | `list_backlog_tickets` | List a product's backlog tickets (tickets not planned into a version). Paginated. |
+| `backlog.update` | write | `cawplan backlog update` | `update_backlog_ticket` | Update a product backlog ticket. Use its current optimistic lock version (expected_version). target_version_id moves it into a version. |
 | `config.env` | read | `cawplan config env` | - | Show the CLI's current CawPlan environment as plain text lines (Environment, API, Portal); the Portal line is the host used to build links. CLI only. |
+| `critical.create` | write | `cawplan critical create` | `create_critical_issue` | Create a critical issue for the selected product. |
 | `critical.search` | read | `cawplan critical search` | `search_critical_issues` | Search critical issues across products. Give a time window (time_range, or start_date with end_date); the other filters narrow it. Paginated. |
+| `critical.update` | write | `cawplan critical update` | `update_critical_issue` | Update a critical issue in the selected product. |
 | `knowledge.browse` | read | `cawplan knowledge browse` | - | Interactive terminal browser (dataset, document, heading tree). Never run it as an agent: it needs a real terminal. Give the user the CLI example to run themselves. CLI only. |
-| `knowledge.datasets.create` | write | `cawplan knowledge datasets create` | - | Create a knowledge dataset. owner_product_id makes that product the owner (required for its modules); product_ids only links the dataset for product-scoped search (CLI: repeat --product). CLI only. |
+| `knowledge.datasets.create` | write | `cawplan knowledge datasets create` | `create_knowledge_dataset` | Create a knowledge dataset. owner_product_id makes that product the owner (required for its modules); product_ids only links the dataset for product-scoped search (CLI: repeat --product). On MCP, product_ids linking is unavailable. |
 | `knowledge.datasets.list` | read | `cawplan knowledge datasets list` | `list_knowledge_datasets` | List knowledge datasets visible to the caller ({id, name, document_count}). With product_id: the datasets that product owns plus those linked to it. With product_id and module_id: only the product's owned datasets with at least one document under that module. |
+| `knowledge.documents.create_text` | write | - | `create_knowledge_document` | Create a named document from inline text. The CLI accepts text from a local file via knowledge.documents.upload. |
 | `knowledge.documents.get` | read | `cawplan knowledge documents get` | `get_knowledge_document` | Get the raw content of one knowledge document (knowledge.search returns passages only). CLI-only options: outline (heading tree with per-heading preview, no content), section (complete content of the headings whose title contains the text), grep + context (matching lines with context), output (also save the full content to a file), refresh (bypass the local cache), no_interactive (plain JSON output even at a terminal). On MCP the full content is returned; find headings and sections in it yourself. |
-| `knowledge.documents.job_status` | read | `cawplan knowledge documents job-status` | - | Check an asynchronous upload or update job. CLI only. |
+| `knowledge.documents.job_status` | read | `cawplan knowledge documents job-status` | `get_knowledge_upload_job` | Check an asynchronous upload or update job. |
 | `knowledge.documents.list` | read | `cawplan knowledge documents list` | `list_knowledge_documents` | List the documents in one knowledge dataset. |
 | `knowledge.documents.set_module` | write | `cawplan knowledge documents set-module` | - | Move a document under a module (module_id) or out of its module (clear); pass exactly one. CLI only. |
 | `knowledge.documents.update` | write | `cawplan knowledge documents update` | `update_knowledge_document` | Replace an existing document's content. CLI route: from a local file (file) or local text file (text_file). MCP route: from inline text (text); the document is re-indexed. |
-| `knowledge.documents.upload` | write | `cawplan knowledge documents upload` | - | Upload local files (files, repeat --file) or local text files (text_files, repeat --text-file) into a dataset, optionally under a module of the dataset's owner product. Do not mix files and text_files in one call. File uploads are asynchronous; the CLI waits unless no_wait is set. CLI only (needs local files). |
-| `knowledge.modules.create` | write | `cawplan knowledge modules create` | - | Create a module (parent_id for a sub-module; at most 5 levels) in a product's module tree. CLI only. |
+| `knowledge.documents.upload` | write | `cawplan knowledge documents upload` | `upload_knowledge_file` | Upload local files (files, repeat --file) or local text files (text_files, repeat --text-file) into a dataset, optionally under a module of the dataset's owner product. Do not mix files and text_files in one call. File uploads are asynchronous; the CLI waits unless no_wait is set. On MCP, send one filename and its base64 contents (up to 2 MiB) per call. Poll knowledge.documents.job_status for pending jobs. |
 | `knowledge.modules.list` | read | `cawplan knowledge datasets modules` | - | List a product's module tree; each node's knowledge lists the datasets with at least one document under it. CLI only for now. |
 | `knowledge.search` | read | `cawplan knowledge search` | `search_knowledge` | Semantic search over knowledge datasets; returns ranked passages, not whole documents. Searches every accessible dataset unless dataset_ids narrows it (CLI: repeat --dataset per id). |
 | `labels.list` | read | `cawplan labels list` | `list_labels` | List ticket labels; resolve label names to label IDs. |
@@ -51,9 +54,14 @@ If the chosen route has no implementation for a capability (`-` below), use the 
 | `metrics.query` | read | `cawplan metrics query` | `query_key_metrics` | Query business key metrics for one domain over a time window (RFC3339 start inclusive, end exclusive). tag filters by key:value (repeat the CLI option once per tag); include_descendants needs module_id and product_id. CLI-only: chart and png write an SVG/PNG chart file (chart_field picks the plotted field); preview prints a terminal image and is for people running the CLI themselves. |
 | `product_lines.list` | read | `cawplan product-lines list` | `list_product_lines` | List product lines; resolve a product line name to product_line_id. |
 | `products.analytics` | read | `cawplan analytics get` | `get_product_analytics` | Get one product's AI-categorized feedback analytics over a time range, optionally for one version. |
+| `products.create` | write | `cawplan products create` | `create_product` | Create a product in its product line. Requires a user-scoped credential. |
 | `products.list` | read | `cawplan products list` | `list_products` | List products visible to the caller; resolve a product name to product_id. MCP only: view=compact drops description, icon, links, knowledge datasets and member rosters; use it whenever you list more than a few products, and read one product's members (members.qas, members.designers, ...) with the default full view. |
+| `products.modules.create` | write | `cawplan products modules create` | `create_product_module` | Create a module (parent_id for a sub-module; at most 5 levels) in a product's module tree. The response's data.id is the new module id. |
+| `products.modules.delete` | write | `cawplan products modules delete` | `delete_product_module` | Delete a module that has no sub-modules. Requirements, knowledge documents, tickets and QA reports under it are kept but no longer belong to any module. |
+| `products.modules.update` | write | `cawplan products modules update` | `update_product_module` | Rename a module or move it under another parent module; parent_id null (CLI --root) moves it to the top level. Pass at least one of name or parent_id. |
 | `products.overview` | read | `cawplan products overview` | `get_product_overview` | Get one product's overview (name and description background). |
 | `products.report` | read | `cawplan product-activity get` | `get_product_report` | Get a product's activity report for a date range (YYYY-MM-DD), optionally for one version. |
+| `products.update_members` | write | `cawplan products update-members` | `update_product_members` | Replace the complete product role roster. Read the current full roster first, preserve existing assignments that should stay, and include every role array. disable_team_sync=true explicitly switches an inherited roster to product ownership. |
 | `qa.module_tree.get` | read | `cawplan qa-insights module-tree get` | `get_product_module_tree` | Get a product's module tree; its node IDs scope QA requirements and test points. MCP only: expand = requirements or approvers adds that data to each node. CLI route: the result is wrapped as {outcome, command, meta, data}; read the payload from `data` (outcome is SUCCESS or FAILURE). |
 | `qa.requirements.create` | write | `cawplan qa-insights requirements create` | `create_qa_requirement` | Create a structured QA requirement under a module-tree node (body: module_tree_node_id, summary, entry_trigger, function_description, normal_expectation, constraints, out_of_scope, related_tickets, ...). CLI route: the result is wrapped as {outcome, command, meta, api, post_body|patch_body}; read the Open API envelope from `api`. outcome is SUCCESS, FAILURE, NOOP (nothing to change) or UNKNOWN (the write may or may not have happened: do not retry it, check with a read first). CLI-only: dry_run prints the body without sending it. CLI-only: body_file passes the same JSON from a file instead of body; prefer it for long JSON and where quoted arguments are rejected. |
 | `qa.requirements.get` | read | `cawplan qa-insights requirements get` | `get_qa_requirement` | Get one QA requirement by its ID. CLI route: the result is wrapped as {outcome, command, meta, data}; read the payload from `data` (outcome is SUCCESS or FAILURE). |
@@ -78,6 +86,7 @@ If the chosen route has no implementation for a capability (`-` below), use the 
 | `qa.testrail.execution.summary` | read | `cawplan qa-insights testrail execution summary` | `get_testrail_execution_summary` | Get the TestRail execution summary of a version, optionally scoped to one ticket or to plan mappings. refresh bypasses the execution cache and refreshes TestRail status metadata. CLI route: the result is wrapped as {outcome, command, meta, api}; read the Open API envelope {code, msg, data} from `api` (outcome is SUCCESS or FAILURE). |
 | `qa.testrail.mappings.get` | read | `cawplan qa-insights testrail mappings get` | `get_testrail_mappings` | Get a product's TestRail mappings. CLI route: the result is wrapped as {outcome, command, meta, api}; read the Open API envelope {code, msg, data} from `api` (outcome is SUCCESS or FAILURE). |
 | `qa_reports.create` | write | `cawplan qa-reports create` | `create_qa_report` | Create a QA report for a product version (body: topic, type, result, status, date_start, date_end, details, ticket_id, module_id, links, ...). CLI-only: body_file passes the same JSON from a file instead of body; prefer it for long JSON and where quoted arguments are rejected. |
+| `qa_reports.delete` | write | `cawplan qa-reports delete` | `delete_qa_report` | Delete one QA report in the selected version. |
 | `qa_reports.get` | read | `cawplan qa-reports get` | `get_qa_report` | Get one QA report of a version by its ID. |
 | `qa_reports.list` | read | `cawplan qa-reports list-version` | `list_qa_reports` | List the QA reports of one product version, optionally filtered by type (sqa, aqa, stress, performance, smoke), result (pass, pass_with_issues, failed) or status. Paginated. |
 | `qa_reports.update` | write | `cawplan qa-reports update` | `update_qa_report` | Update an existing QA report (same body fields as qa_reports.create). CLI-only: body_file passes the same JSON from a file instead of body; prefer it for long JSON and where quoted arguments are rejected. |
@@ -107,9 +116,17 @@ If the chosen route has no implementation for a capability (`-` below), use the 
 | `users.me` | read | `cawplan users me` | `get_current_user` | Get the signed-in user (resolve "me" to user_id): data.unique_id is the user_id, with email and name. A not-signed-in error means the route is not usable: follow "Neither" above instead of looking the user up by email. |
 | `users.search` | read | `cawplan users query` | `search_users` | Find users by exact email or by keyword over name and email; resolve a person to user_id. CLI route: do not pass page_size or page_num (the CLI sends them as strings and the server answers BAD_REQUEST); use email or keyword only. |
 | `versions.create` | write | `cawplan versions create` | `create_version` | Create a version in a product. |
+| `versions.delay` | write | `cawplan versions delay` | `delay_version` | Delay an INPROGRESS, DELAYED or RELEASED version to a future date with a reason. The version becomes DELAYED and a DELAY history record is added. On the CLI, --to takes YYYY-MM-DD (00:00 UTC) or Unix seconds; on MCP, delayed_to_ts is Unix seconds. |
 | `versions.get` | read | `cawplan versions get` | `get_version` | Get one version's detail (status, dates, completion, risk). |
+| `versions.hold` | write | `cawplan versions hold` | `hold_version` | Record a version hold against a target product and version with a reason. |
 | `versions.list` | read | `cawplan versions list` | `list_versions` | List one product's versions; resolve a version name to version_id. |
+| `versions.release` | write | `cawplan versions release` | `release_version` | Publish the version to one or more channels. Optional release_at is a Unix timestamp. |
 | `versions.releases` | read | `cawplan releases list` | `get_version_releases` | Get a version's release history. data is a list of version entries; the events are in each entry's release_history[]. |
+| `versions.reset` | write | `cawplan versions reset` | `reset_version` | Reset an INPROGRESS, DELAYED or RELEASED version to NOT_STARTED. Its release records are removed from the history; status, risk and delay records stay. |
+| `versions.revoke` | write | `cawplan versions revoke` | `revoke_version` | Revoke a version from named channels. To revoke all released channels, set all_channels=true and omit channels. |
+| `versions.risk` | write | `cawplan versions risk` | `mark_version_risk` | Mark an INPROGRESS, DELAYED or RELEASED version's risk level (HIGH, MEDIUM or LOW) with an optional reason. A RISK_CHANGE history record is added when the level changes. |
+| `versions.start` | write | `cawplan versions start` | `start_version` | Start development of the selected version. |
+| `versions.update` | write | `cawplan versions update` | `update_version` | Rename a version or replace the planned release channels and dates. Timestamps are Unix seconds. An empty target_release clears the schedule. Omit it to preserve the schedule. |
 
 ## Arguments
 
@@ -202,12 +219,51 @@ Example:
 - CLI: `cawplan backlog list <product_id> --page_size 20`
 - MCP: `list_backlog_tickets {"product_id": "<product_id>", "page_size": 20}`
 
+### `backlog.update`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `assignee_ids` | `--assignees <csv>` | `body.assignee_ids (array of strings)` |
+| `comment` | `--comment <text>` | `body.comment` |
+| `description` | `--description <text>` | `body.description` |
+| `due_date` | `--due_date <date>` | `body.due_date` |
+| `expected_version` | `--expected_version <n>` | `body.version (integer)` |
+| `label_ids` | `--label_ids <csv>` | `body.label_ids (array of strings)` |
+| `module_id` | `--module <name_or_id>` | `body.module_id` |
+| `parent_id` | `--parent_id <id>` | `body.parent_id` |
+| `priority` | `--priority <p>` | `body.priority` |
+| `product_id` | `<product_id>` | `product_id` |
+| `progress_comment` | `--progress_comment <text>` | `body.progress_comment` |
+| `remarks` | `--remarks <html>` | `body.remarks` |
+| `root_cause` | `--root_cause <text>` | `body.root_cause` |
+| `solution` | `--solution <text>` | `body.solution` |
+| `status` | `--status <key>` | `body.status` |
+| `target_version_id` | `--target_version_id <id>` | `body.version_id` |
+| `ticket_id` | `<ticket_id>` | `ticket_id` |
+
+Example:
+
+- CLI: `cawplan backlog update <product_id> <ticket_unique_id> --status IN_PROGRESS --progress_comment 'Started the fix'`
+- MCP: `update_backlog_ticket {"product_id": "<product_id>", "ticket_id": "<ticket_unique_id>", "body": {"status": "IN_PROGRESS", "progress_comment": "Started the fix"}}`
+
 ### `config.env`
 
 
 Example:
 
 - CLI: `cawplan config env`
+
+### `critical.create`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `body` | `--body <json>` | `body (object)` |
+| `product_id` | `<product_id>` | `product_id` |
+
+Example:
+
+- CLI: `cawplan critical create <product_id> --body '{"description":"Regression"}'`
+- MCP: `create_critical_issue {"product_id": "<product_id>", "body": {"description": "Regression"}}`
 
 ### `critical.search`
 
@@ -229,6 +285,19 @@ Example:
 - CLI: `cawplan critical search --time_range 3m --status INVESTIGATING --product_ids <product_id>`
 - MCP: `search_critical_issues {"body": {"product_ids": ["<product_id>"], "status": ["INVESTIGATING"]}, "time_range": "3m"}`
 
+### `critical.update`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `body` | `--body <json>` | `body (object)` |
+| `critical_issue_id` | `<critical_issue_id>` | `critical_issue_id` |
+| `product_id` | `<product_id>` | `product_id` |
+
+Example:
+
+- CLI: `cawplan critical update <product_id> <critical_issue_id> --body '{"status":"MONITORING"}'`
+- MCP: `update_critical_issue {"product_id": "<product_id>", "critical_issue_id": "<critical_issue_id>", "body": {"status": "MONITORING"}}`
+
 ### `knowledge.browse`
 
 
@@ -240,15 +309,16 @@ Example:
 
 | Argument | CLI | MCP |
 |---|---|---|
-| `description` | `--description <text>` | - |
-| `name` | `--name <name>` | - |
-| `owner_product_id` | `--owner-product <id>` | - |
-| `permission` | `--permission <level>` | - |
+| `description` | `--description <text>` | `body.description` |
+| `name` | `--name <name>` | `body.name` |
+| `owner_product_id` | `--owner-product <id>` | `body.product_id` |
+| `permission` | `--permission <level>` | `body.permission` |
 | `product_ids` | `--product <id> (repeat per product)` | - |
 
 Example:
 
 - CLI: `cawplan knowledge datasets create --name 'Access Card API'`
+- MCP: `create_knowledge_dataset {"body": {"name": "Access Card API"}}`
 
 ### `knowledge.datasets.list`
 
@@ -261,6 +331,19 @@ Example:
 
 - CLI: `cawplan knowledge datasets list --product <product_id>`
 - MCP: `list_knowledge_datasets {"product_id": "<product_id>"}`
+
+### `knowledge.documents.create_text`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `dataset_id` | - | `dataset_id` |
+| `module_id` | - | `body.module_id` |
+| `name` | - | `body.name` |
+| `text` | - | `body.text` |
+
+Example:
+
+- MCP: `create_knowledge_document {"dataset_id": "<dataset_id>", "body": {"name": "api.md", "text": "API notes"}}`
 
 ### `knowledge.documents.get`
 
@@ -285,12 +368,13 @@ Example:
 
 | Argument | CLI | MCP |
 |---|---|---|
-| `dataset_id` | `--dataset <id>` | - |
-| `job_id` | `--job <id>` | - |
+| `dataset_id` | `--dataset <id>` | `dataset_id` |
+| `job_id` | `--job <id>` | `job_id` |
 
 Example:
 
 - CLI: `cawplan knowledge documents job-status --dataset <dataset_id> --job <job_id>`
+- MCP: `get_knowledge_upload_job {"dataset_id": "<dataset_id>", "job_id": "<job_id>"}`
 
 ### `knowledge.documents.list`
 
@@ -338,27 +422,18 @@ Example:
 
 | Argument | CLI | MCP |
 |---|---|---|
-| `dataset_id` | `--dataset <id>` | - |
+| `content_base64` | - | `body.content_base64` |
+| `dataset_id` | `--dataset <id>` | `dataset_id` |
+| `filename` | - | `body.filename` |
 | `files` | `--file <path>` | - |
-| `module_id` | `--module <id>` | - |
+| `module_id` | `--module <id>` | `body.module_id` |
 | `no_wait` | `--no-wait` | - |
 | `text_files` | `--text-file <path>` | - |
 
 Example:
 
 - CLI: `cawplan knowledge documents upload --dataset <dataset_id> --file ./api.md`
-
-### `knowledge.modules.create`
-
-| Argument | CLI | MCP |
-|---|---|---|
-| `name` | `--name <name>` | - |
-| `parent_id` | `--parent <id>` | - |
-| `product_id` | `--product <id>` | - |
-
-Example:
-
-- CLI: `cawplan knowledge modules create --product <product_id> --name 'Card APIs'`
+- MCP: `upload_knowledge_file {"dataset_id": "<dataset_id>", "body": {"filename": "api.md", "content_base64": "bm90ZXM="}}`
 
 ### `knowledge.modules.list`
 
@@ -473,6 +548,18 @@ Example:
 - CLI: `cawplan analytics get <product_id> --time_range 1m`
 - MCP: `get_product_analytics {"product_id": "<product_id>", "time_range": "1m"}`
 
+### `products.create`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `body` | `--body <json>` | `body (object)` |
+| `body_file` | `--body-file <path>` | - |
+
+Example:
+
+- CLI: `cawplan products create --body '{"name":"Example","product_line_id":"<product_line_id>"}'`
+- MCP: `create_product {"body": {"name": "Example", "product_line_id": "<product_line_id>"}}`
+
 ### `products.list`
 
 | Argument | CLI | MCP |
@@ -487,6 +574,46 @@ Example:
 
 - CLI: `cawplan products list --search Access`
 - MCP: `list_products {"search": "Access"}`
+
+### `products.modules.create`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `name` | `--name <name>` | `body.name` |
+| `parent_id` | `--parent <id>` | `body.parent_id` |
+| `product_id` | `--product <id>` | `product_id` |
+
+Example:
+
+- CLI: `cawplan products modules create --product <product_id> --name 'Card APIs'`
+- MCP: `create_product_module {"product_id": "<product_id>", "body": {"name": "Card APIs"}}`
+
+### `products.modules.delete`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `module_id` | `--module <id>` | `node_id` |
+| `product_id` | `--product <id>` | `product_id` |
+
+Example:
+
+- CLI: `cawplan products modules delete --product <product_id> --module <module_id>`
+- MCP: `delete_product_module {"product_id": "<product_id>", "node_id": "<module_id>"}`
+
+### `products.modules.update`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `module_id` | `--module <id>` | `node_id` |
+| `name` | `--name <name>` | `body.name` |
+| `parent_id` | `--parent <id>` | `body.parent_id` |
+| `product_id` | `--product <id>` | `product_id` |
+| `root` | `--root` | - |
+
+Example:
+
+- CLI: `cawplan products modules update --product <product_id> --module <module_id> --name 'Card APIs'`
+- MCP: `update_product_module {"product_id": "<product_id>", "node_id": "<module_id>", "body": {"name": "Card APIs"}}`
 
 ### `products.overview`
 
@@ -512,6 +639,19 @@ Example:
 
 - CLI: `cawplan product-activity get --product_id <product_id> --start 2026-10-28 --end 2026-11-04`
 - MCP: `get_product_report {"product_id": "<product_id>", "start_date": "2026-10-28", "end_date": "2026-11-04"}`
+
+### `products.update_members`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `body` | `--body <json>` | `body (object)` |
+| `body_file` | `--body-file <path>` | - |
+| `product_id` | `<product_id>` | `product_id` |
+
+Example:
+
+- CLI: `cawplan products update-members <product_id> --body '{"members":{"owners":["<owner_user_id>"],"product_managers":[],"designers":[],"rds":[],"qas":[],"supports":[],"viewers":[]}}'`
+- MCP: `update_product_members {"product_id": "<product_id>", "body": {"members": {"owners": ["<owner_user_id>"], "product_managers": [], "designers": [], "rds": [], "qas": [], "supports": [], "viewers": []}}}`
 
 ### `qa.module_tree.get`
 
@@ -842,6 +982,19 @@ Example:
 
 - CLI: `cawplan qa-reports create <product_id> <version_id> --body '{"topic":"Login SQA","type":"sqa","result":"pass"}'`
 - MCP: `create_qa_report {"product_id": "<product_id>", "version_id": "<version_id>", "body": {"topic": "Login SQA", "type": "sqa", "result": "pass"}}`
+
+### `qa_reports.delete`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `product_id` | `<product_id>` | `product_id` |
+| `qa_report_id` | `<qa_report_id>` | `qa_report_id` |
+| `version_id` | `<version_id>` | `version_id` |
+
+Example:
+
+- CLI: `cawplan qa-reports delete <product_id> <version_id> <qa_report_id>`
+- MCP: `delete_qa_report {"product_id": "<product_id>", "version_id": "<version_id>", "qa_report_id": "<qa_report_id>"}`
 
 ### `qa_reports.get`
 
@@ -1316,6 +1469,20 @@ Example:
 - CLI: `cawplan versions create <product_id> --name 1.2.0`
 - MCP: `create_version {"product_id": "<product_id>", "body": {"name": "1.2.0"}}`
 
+### `versions.delay`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `delayed_to_ts` | `--to <date>` | `body.delayed_to_ts` |
+| `product_id` | `<product_id>` | `product_id` |
+| `reason` | `--reason <text>` | `body.reason` |
+| `version_id` | `<version_id>` | `version_id` |
+
+Example:
+
+- CLI: `cawplan versions delay <product_id> <version_id> --to 1893542400 --reason 'Waiting for QA sign-off'`
+- MCP: `delay_version {"product_id": "<product_id>", "version_id": "<version_id>", "body": {"delayed_to_ts": 1893542400, "reason": "Waiting for QA sign-off"}}`
+
 ### `versions.get`
 
 | Argument | CLI | MCP |
@@ -1328,6 +1495,20 @@ Example:
 - CLI: `cawplan versions get <product_id> <version_id>`
 - MCP: `get_version {"product_id": "<product_id>", "version_id": "<version_id>"}`
 
+### `versions.hold`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `body` | `--body <json>` | `body (object)` |
+| `body_file` | `--body-file <path>` | - |
+| `product_id` | `<product_id>` | `product_id` |
+| `version_id` | `<version_id>` | `version_id` |
+
+Example:
+
+- CLI: `cawplan versions hold <product_id> <version_id> --body '{"target_product_id":"<target_product_id>","target_version_id":"<target_version_id>","reason":"Waiting for validation"}'`
+- MCP: `hold_version {"product_id": "<product_id>", "version_id": "<version_id>", "body": {"target_product_id": "<target_product_id>", "target_version_id": "<target_version_id>", "reason": "Waiting for validation"}}`
+
 ### `versions.list`
 
 | Argument | CLI | MCP |
@@ -1338,6 +1519,20 @@ Example:
 
 - CLI: `cawplan versions list <product_id>`
 - MCP: `list_versions {"product_id": "<product_id>"}`
+
+### `versions.release`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `body` | `--body <json>` | `body (object)` |
+| `body_file` | `--body-file <path>` | - |
+| `product_id` | `<product_id>` | `product_id` |
+| `version_id` | `<version_id>` | `version_id` |
+
+Example:
+
+- CLI: `cawplan versions release <product_id> <version_id> --body '{"channels":[{"unique_id":"<channel_id>"}]}'`
+- MCP: `release_version {"product_id": "<product_id>", "version_id": "<version_id>", "body": {"channels": [{"unique_id": "<channel_id>"}]}}`
 
 ### `versions.releases`
 
@@ -1350,3 +1545,69 @@ Example:
 
 - CLI: `cawplan releases list <product_id> <version_id>`
 - MCP: `get_version_releases {"product_id": "<product_id>", "version_id": "<version_id>"}`
+
+### `versions.reset`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `product_id` | `<product_id>` | `product_id` |
+| `version_id` | `<version_id>` | `version_id` |
+
+Example:
+
+- CLI: `cawplan versions reset <product_id> <version_id>`
+- MCP: `reset_version {"product_id": "<product_id>", "version_id": "<version_id>"}`
+
+### `versions.revoke`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `body` | `--body <json>` | `body (object)` |
+| `body_file` | `--body-file <path>` | - |
+| `product_id` | `<product_id>` | `product_id` |
+| `version_id` | `<version_id>` | `version_id` |
+
+Example:
+
+- CLI: `cawplan versions revoke <product_id> <version_id> --body '{"channels":[{"unique_id":"<channel_id>"}],"reason":"Rollback"}'`
+- MCP: `revoke_version {"product_id": "<product_id>", "version_id": "<version_id>", "body": {"channels": [{"unique_id": "<channel_id>"}], "reason": "Rollback"}}`
+
+### `versions.risk`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `product_id` | `<product_id>` | `product_id` |
+| `risk` | `--risk <level>` | `body.risk` |
+| `risk_reason` | `--reason <text>` | `body.risk_reason` |
+| `version_id` | `<version_id>` | `version_id` |
+
+Example:
+
+- CLI: `cawplan versions risk <product_id> <version_id> --risk HIGH --reason 'QA found a blocking regression'`
+- MCP: `mark_version_risk {"product_id": "<product_id>", "version_id": "<version_id>", "body": {"risk": "HIGH", "risk_reason": "QA found a blocking regression"}}`
+
+### `versions.start`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `product_id` | `<product_id>` | `product_id` |
+| `version_id` | `<version_id>` | `version_id` |
+
+Example:
+
+- CLI: `cawplan versions start <product_id> <version_id>`
+- MCP: `start_version {"product_id": "<product_id>", "version_id": "<version_id>"}`
+
+### `versions.update`
+
+| Argument | CLI | MCP |
+|---|---|---|
+| `body` | `--body <json>` | `body (object)` |
+| `body_file` | `--body-file <path>` | - |
+| `product_id` | `<product_id>` | `product_id` |
+| `version_id` | `<version_id>` | `version_id` |
+
+Example:
+
+- CLI: `cawplan versions update <product_id> <version_id> --body '{"name":"1.2","target_release":[{"channel_id":"<channel_id>","release_at":1800000000}]}'`
+- MCP: `update_version {"product_id": "<product_id>", "version_id": "<version_id>", "body": {"name": "1.2", "target_release": [{"channel_id": "<channel_id>", "release_at": 1800000000}]}}`
